@@ -95,8 +95,6 @@ class hll_t {
 // We could also cut our memory requirements by switching to only using 6 bits per element,
 // (up to 64 leading zeros), though the gains would be relatively small
 // given how memory-efficient this structure is.
-//
-// Does not support np_ > 30 as of yet. Somehow we get a nan.
 
 // Attributes
     size_t np_;
