@@ -199,7 +199,7 @@ public:
         memcpy((void *)&m_, &other.m_, sizeof(m_)); // Memcpy const
         alpha_ = other.alpha_;
         relative_error_ = other.relative_error_;
-        core_ = other.core_;
+        core_ = std::move(other.core_);
         is_calculated_ = other.is_calculated_;
         sum_ = other.sum_;
         return *this;
