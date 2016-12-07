@@ -232,7 +232,7 @@ public:
         unsigned i;
         __m256 *els(reinterpret_cast<__m256 *>(core_.data()));
         const __m256 *oels(reinterpret_cast<const __m256 *>(other.core_.data()));
-        for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_or_ps(els[i], oels[i]);
+        for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_or_si256(els[i], oels[i]);
         if(m_ < 32) for(;i < m_; ++i) core_[i] |= other.core_[i];
 #elif defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 1300) && __SSE2__
         unsigned i;
