@@ -1,8 +1,13 @@
 CXX=g++
-FLAGS=-O3 -funroll-loops -DNDEBUG -pipe -march=native -I. -Wa,-q -mavx2
+FLAGS=-O3 -funroll-loops -DNDEBUG -pipe -march=native -I. -Wa,-q
 
-test: test.cpp
-	$(CXX) $(FLAGS)	$< -o $@
+all: test
+
+hll.o: hll.cpp
+	$(CXX) -c $(FLAGS)	$< -o $@
+
+test: test.cpp hll.o
+	$(CXX) $(FLAGS)	hll.o $< -o $@
 
 clean:
-	rm -f test.o test
+	rm -f test.o test hll.o
