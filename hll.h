@@ -1,5 +1,5 @@
-#ifndef _HLL_H_
-#define _HLL_H_
+#ifndef HLL_H_
+#define HLL_H_
 #include <cstdlib>
 #include <cstdio>
 #include <climits>
@@ -23,10 +23,8 @@
 #  endif
 #endif
 
-#if defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 1300)
-# include "x86intrin.h"
+#include "x86intrin.h"
 #define HAS_AVX_512 _FEATURE_AVX512F
-#endif
 
 namespace hll {
 
@@ -46,7 +44,7 @@ INLINE uint64_t wang_hash(uint64_t key) {
   return key;
 }
 
-static INLINE uint64_t roundup64(size_t x) {
+static INLINE uint64_t roundup64(std::size_t x) {
     --x;
     x |= x >> 1;
     x |= x >> 2;
@@ -79,7 +77,7 @@ static INLINE unsigned clz(unsigned long x) {
 }
 #endif
 
-constexpr double make_alpha(size_t m) {
+constexpr double make_alpha(std::size_t m) {
     switch(m) {
         case 16: return .673;
         case 32: return .697;
@@ -97,34 +95,34 @@ class hll_t {
 // given how memory-efficient this structure is.
 
 // Attributes
-    size_t np_;
-    const size_t m_;
+    std::size_t np_;
+    const std::size_t m_;
     double alpha_;
     double relative_error_;
 #if HAS_AVX_512
 #if !NDEBUG
 #pragma message("Building with avx512")
 #endif
-    std::vector<uint8_t, sse::AlignedAllocator<uint8_t, sse::Alignment::AVX512>> core_;
+    std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX512>> core_;
 #elif __AVX2__
 #if !NDEBUG
 #pragma message("Building with avx2")
 #endif
-    std::vector<uint8_t, sse::AlignedAllocator<uint8_t, sse::Alignment::AVX>> core_;
+    std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX>> core_;
 #elif __SSE2__
 #if !NDEBUG
 #pragma message("Building with sse2")
 #endif
-    std::vector<uint8_t, sse::AlignedAllocator<uint8_t, sse::Alignment::SSE>> core_;
+    std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::SSE>> core_;
 #else
-    std::vector<uint8_t> core_;
+    std::vector<std::uint8_t> core_;
 #endif
     double sum_;
     int is_calculated_;
 
 public:
     // Constructor
-    hll_t(size_t np=20): np_(np), m_(1uL << np), alpha_(make_alpha(m_)),
+    hll_t(std::size_t np=20): np_(np), m_(1uL << np), alpha_(make_alpha(m_)),
                          relative_error_(1.03896 / std::sqrt(m_)),
                          core_(m_, 0),
                          sum_(0.), is_calculated_(0) {}
@@ -150,13 +148,6 @@ public:
         // We don't correct for too large just yet, but we should soon.
     }
 
-    // Returns the size of a symmetric set difference.
-    double operator^(hll_t &other) {
-        hll_t tmp(*this);
-        tmp += other;
-        tmp.sum();
-        return std::abs(report() - other.report()) - tmp.report();
-    }
 
     // Returns error estimate
     double est_err() {
@@ -228,13 +219,13 @@ public:
         const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
         for(i = 0; i < m_ >> 6; ++i) els[i] = _mm512_or_epi64(els[i], oels[i]);
         if(m_ < 64) for(;i < m_; ++i) core_[i] |= other.core_[i];
-#elif defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 1300) && __AVX2__
+#elif __AVX2__
         unsigned i;
-        __m256 *els(reinterpret_cast<__m256 *>(core_.data()));
-        const __m256 *oels(reinterpret_cast<const __m256 *>(other.core_.data()));
+        __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
+        const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
         for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_or_si256(els[i], oels[i]);
         if(m_ < 32) for(;i < m_; ++i) core_[i] |= other.core_[i];
-#elif defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 1300) && __SSE2__
+#elif __SSE2__
         unsigned i;
         __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
         const __m128i *oels(reinterpret_cast<const __m128i *>(other.core_.data()));
@@ -242,6 +233,31 @@ public:
         if(m_ < 16) for(; i < m_; ++i) core_[i] |= other.core_[i];
 #else
         for(unsigned i(0); i < m_; ++i) core_[i] |= other.core_[i];
+#endif
+        return *this;
+    }
+
+    hll_t const &operator&=(const hll_t &other) {
+        if(other.np_ != np_)
+            LOG_EXIT("np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
+        unsigned i;
+#if HAS_AVX_512
+        __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
+        const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
+        for(i = 0; i < m_ >> 6; ++i) els[i] = _mm512_min_epu8(els[i], oels[i]);
+        if(m_ < 64) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
+#elif __AVX2__
+        __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
+        const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
+        for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_min_epu8(els[i], oels[i]);
+        if(m_ < 32) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
+#elif __SSE2__
+        __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
+        const __m128i *oels(reinterpret_cast<const __m128i *>(other.core_.data()));
+        for(i = 0; i < m_ >> 4; ++i) els[i] = _mm_min_epu8(els[i], oels[i]);
+        if(m_ < 16) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
+#else
+        for(i = 0; i < m_; ++i) core_[i] |= other.core_[i];
 #endif
         return *this;
     }
@@ -254,9 +270,9 @@ public:
     }
 
     // Clears, allows reuse with different np.
-    void resize(size_t new_size) {
+    void resize(std::size_t new_size) {
         new_size = roundup64(new_size);
-        LOG_DEBUG("Resizing to %zu, with np = %zu\n", new_size, (size_t)std::log2(new_size));
+        LOG_DEBUG("Resizing to %zu, with np = %zu\n", new_size, (std::size_t)std::log2(new_size));
         clear();
         core_.resize(new_size);
     }
@@ -266,8 +282,21 @@ public:
     }
 };
 
+// Returns the size of a symmetric set difference.
+double operator^(hll_t &first, hll_t &other) {
+    hll_t tmp(first);
+    tmp += other;
+    return 2 * tmp.report() - first.report() - other.report();
+}
+// Returns the size of the set intersection
+double operator&(hll_t &first, hll_t &other) {
+    hll_t tmp(first);
+    tmp &= other;
+    return tmp.report();
+}
+
 
 
 } // namespace hll
 
-#endif // #ifndef _HLL_H_
+#endif // #ifndef HLL_H_
