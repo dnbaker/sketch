@@ -186,13 +186,8 @@ public:
     }
 
     hll_t &operator=(hll_t &&other) {
-        np_ = other.np_;
-        memcpy((void *)&m_, &other.m_, sizeof(m_)); // Memcpy const
-        alpha_ = other.alpha_;
-        relative_error_ = other.relative_error_;
-        core_ = std::move(other.core_);
-        is_calculated_ = other.is_calculated_;
-        sum_ = other.sum_;
+        using std::swap;
+        swap(*this, other);
         return *this;
     }
 
