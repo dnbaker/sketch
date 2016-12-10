@@ -206,31 +206,7 @@ public:
     hll_t& operator=(hll_t&&) = default;
 
     hll_t const &operator+=(const hll_t &other);
-
-    hll_t const &operator&=(const hll_t &other) {
-        if(other.np_ != np_)
-            LOG_EXIT("np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
-        unsigned i;
-#if HAS_AVX_512
-        __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
-        const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
-        for(i = 0; i < m_ >> 6; ++i) els[i] = _mm512_min_epu8(els[i], oels[i]);
-        if(m_ < 64) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
-#elif __AVX2__
-        __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
-        const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
-        for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_min_epu8(els[i], oels[i]);
-        if(m_ < 32) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
-#elif __SSE2__
-        __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
-        const __m128i *oels(reinterpret_cast<const __m128i *>(other.core_.data()));
-        for(i = 0; i < m_ >> 4; ++i) els[i] = _mm_min_epu8(els[i], oels[i]);
-        if(m_ < 16) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
-#else
-        for(i = 0; i < m_; ++i) core_[i] |= other.core_[i];
-#endif
-        return *this;
-    }
+    hll_t const &operator&=(const hll_t &other);
 
     // Clears, allows reuse with different np.
     void resize(std::size_t new_size);
