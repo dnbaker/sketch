@@ -275,6 +275,11 @@ public:
         LOG_DEBUG("Resizing to %zu, with np = %zu\n", new_size, (std::size_t)std::log2(new_size));
         clear();
         core_.resize(new_size);
+        np_ = (std::size_t)std::log2(new_size);
+        size_t newm(new_size);
+        memcpy((void *)&m_, &newm, sizeof(m_));
+        alpha_ = make_alpha(m_);
+        relative_error_ = 1.03896 / std::sqrt(m_);
     }
     // Getter for is_calculated_
     bool is_ready() {
