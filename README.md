@@ -17,3 +17,5 @@ for(uint64_t i(0); i < 10000000ull; ++i) hll.addh(i);
 fprintf(stderr, "Elements estimated: %lf. Error bounds: %lf.\n", hll.report(), hll.est_err());
 
 ```
+
+To link against the library, add `$PATH/TO/hll$` to your LD_LIBRARY_PATH after building and pass -lhll during compilation.
