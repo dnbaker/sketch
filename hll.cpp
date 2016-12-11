@@ -99,7 +99,14 @@ double operator^(hll_t &first, hll_t &other) {
 }
 
 // Returns the size of the set intersection
-double operator&(hll_t &first, hll_t &other) {
+hll_t operator&(hll_t &first, hll_t &other) {
+    hll_t ret(first);
+    ret &= other;
+    return ret;
+}
+
+// Returns the size of the set intersection
+double intersection_size(hll_t &first, hll_t &other) {
     hll_t tmp(first);
     tmp &= other;
     return tmp.report();
