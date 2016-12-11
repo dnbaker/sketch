@@ -33,7 +33,7 @@ namespace hll {
 // This is our core 64-bit hash.
 // It has a 1-1 mapping from any one 64-bit integer to another
 // and can be inverted with irving_inv_hash.
-INLINE uint64_t wang_hash(uint64_t key) {
+static INLINE uint64_t wang_hash(uint64_t key) {
   key = (~key) + (key << 21); // key = (key << 21) - key - 1;
   key = key ^ (key >> 24);
   key = (key + (key << 3)) + (key << 8); // key * 265
@@ -55,6 +55,35 @@ static INLINE uint64_t roundup64(std::size_t x) {
     return ++x;
 }
 
+#define clztbl(x, arg) do {\
+    switch(arg) {\
+        case 0:                         x += 4; break;\
+        case 1:                         x += 3; break;\
+        case 2: case 3:                 x += 2; break;\
+        case 4: case 5: case 6: case 7: x += 1; break;\
+    }} while(0)
+
+constexpr INLINE int clz_manual( uint32_t x )
+{
+  int n(0);
+  if ((x & 0xFFFF0000) == 0) {n = 16; x <<= 16;}
+  if ((x & 0xFF000000) == 0) {n +=  8; x <<=  8;}
+  if ((x & 0xF0000000) == 0) {n +=  4; x <<=  4;}
+  clztbl(n, x >> (32 - 4));
+  return n;
+}
+
+// Overload
+constexpr INLINE int clz_manual( uint64_t x )
+{
+  int n(0);
+  if ((x & 0xFFFFFFFF00000000ull) == 0) {n  = 32; x <<= 32;}
+  if ((x & 0xFFFF000000000000ull) == 0) {n += 16; x <<= 16;}
+  if ((x & 0xFF00000000000000ull) == 0) {n +=  8; x <<=  8;}
+  if ((x & 0xF000000000000000ull) == 0) {n +=  4; x <<=  4;}
+  clztbl(n, x >> (64 - 4));
+  return n;
+}
 
 // clz wrappers. Apparently, __builtin_clzll is undefined for values of 0.
 // For our hash function, there is only 1 64-bit integer value which causes this problem.
@@ -78,36 +107,10 @@ constexpr INLINE unsigned clz(unsigned long x) {
 }
 #endif
 #else
+#pragma message("Using manual clz")
+#define clz(x) clz_manual(x)
 // https://en.wikipedia.org/wiki/Find_first_set#CLZ
 // Modified for constexpr, added 64-bit overload.
-#define clztbl(x, arg) do {\
-    switch(arg) {\
-        case 0:                         x += 4; break;\
-        case 1:                         x += 3; break;\
-        case 2: case 3:                 x += 2; break;\
-        case 4: case 5: case 6: case 7: x += 1; break;\
-    }} while(0)
-
-constexpr INLINE int clz( uint32_t x )
-{
-  int n(0);
-  if ((x & 0xFFFF0000) == 0) {n = 16; x <<= 16;}
-  if ((x & 0xFF000000) == 0) {n +=  8; x <<=  8;}
-  if ((x & 0xF0000000) == 0) {n +=  4; x <<=  4;}
-  clztbl(n, x >> (32 - 4));
-  return n;
-}
-// Overload
-constexpr INLINE int clz( uint64_t x )
-{
-  int n(0);
-  if ((x & 0xFFFFFFFF00000000ull) == 0) {n  = 32; x <<= 32;}
-  if ((x & 0xFFFF000000000000ull) == 0) {n += 16; x <<= 16;}
-  if ((x & 0xFF00000000000000ull) == 0) {n +=  8; x <<=  8;}
-  if ((x & 0xF000000000000000ull) == 0) {n +=  4; x <<=  4;}
-  clztbl(n, x >> (64 - 4));
-  return n;
-}
 #endif
 
 static_assert(clz(0x0000FFFFFFFFFFFFull) == 16, "64-bit clz hand-rolled failed.");
