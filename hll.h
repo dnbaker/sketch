@@ -86,7 +86,6 @@ constexpr INLINE unsigned clz(unsigned long x) {
         case 1:                         x += 3; break;\
         case 2: case 3:                 x += 2; break;\
         case 4: case 5: case 6: case 7: x += 1; break;\
-        default:                        x += 0; break;\
     }} while(0)
 
 constexpr INLINE int clz( uint32_t x )
@@ -115,6 +114,7 @@ static_assert(clz(0x0000FFFFFFFFFFFFull) == 16, "64-bit clz hand-rolled failed."
 static_assert(clz(0x000000000FFFFFFFull) == 36, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x0000000000000FFFull) == 52, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x0000000000000000ull) == 64, "64-bit clz hand-rolled failed.");
+static_assert(clz(0x0000000000000003ull) == 62, "64-bit clz hand-rolled failed.");
 
 
 constexpr double make_alpha(std::size_t m) {
