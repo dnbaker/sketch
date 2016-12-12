@@ -1,5 +1,6 @@
 #include "hll.h"
 #include <stdexcept>
+#include <cstring>
 namespace hll {
 
 void hll_t::sum() {
@@ -126,7 +127,7 @@ hll_t operator+(const hll_t &one, const hll_t &other) {
 }
 
 void hll_t::clear() {
-     std::fill(core_.begin(), core_.end(), 0u);
+     std::fill(std::begin(core_), std::end(core_), 0u);
      sum_ = is_calculated_ = 0;
 }
 

@@ -165,10 +165,15 @@ class hll_t {
 
 public:
     // Constructor
-    hll_t(std::size_t np=20): np_(np), m_(1uL << np), alpha_(make_alpha(m_)),
-                         relative_error_(1.03896 / std::sqrt(m_)),
-                         core_(m_, 0),
-                         sum_(0.), is_calculated_(0) {}
+    explicit hll_t(std::size_t np):
+        np_(np),
+        m_(1uL << np),
+        alpha_(make_alpha(m_)),
+        relative_error_(1.03896 / std::sqrt(m_)),
+        core_(m_, 0),
+        sum_(0.), is_calculated_(0) {
+    }
+    hll_t(): hll_t(20) {}
 
     // Call sum to recalculate if you have changed contents.
     void sum();
