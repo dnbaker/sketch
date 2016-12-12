@@ -1,13 +1,8 @@
 #ifndef HLL_H_
 #define HLL_H_
-#include <cstdlib>
-#include <cstdio>
 #include <climits>
 #include <cmath>
 #include <cstdint>
-#include <cstring>
-#include <cinttypes>
-#include <algorithm>
 #include <string>
 #include <vector>
 #include "logutil.h"
