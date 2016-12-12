@@ -227,8 +227,10 @@ public:
 
 // Returns the size of a symmetric set difference.
 double operator^(hll_t &first, hll_t &other);
+// Returns the set intersection of two sketches.
+hll_t operator&(hll_t &first, hll_t &other);
 // Returns the size of the set intersection
-double operator&(hll_t &first, hll_t &other);
+double intersection_size(hll_t &first, hll_t &other);
 // Returns a HyperLogLog union
 hll_t operator+(const hll_t &one, const hll_t &other);
 
