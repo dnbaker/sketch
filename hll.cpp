@@ -37,7 +37,7 @@ double hll_t::est_err() {
 
 double hll_t::cest_err() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to estimate."
-                                                 " Try the report() function.");
+                                                 " Try the est_err() function.");
     return relative_error_ * creport();
 }
 
