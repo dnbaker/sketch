@@ -10,7 +10,7 @@ void hll_t::sum() {
     LOG_DEBUG("Summed! Is calculated: %i\n", is_calculated_);
 }
 
-double hll_t::creport() const {
+double hll_t::report() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
     const double ret(alpha_ * m_ * m_ / sum_);
@@ -22,6 +22,7 @@ double hll_t::creport() const {
         if(t) return m_ * std::log2((double)(m_) / t);
     }
 #if LARGE_CORR
+    // All of my tests have the large range correction returning a worse estimate.
     else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
         double corr((-1. * (1ull << 32)) * std::log2(1. - ret / (1ull << 32)));
         fprintf(stderr, "Large value correction. Original estimate %lf. New estimate %lf.\n",
@@ -32,55 +33,55 @@ double hll_t::creport() const {
     return ret;
 }
 
-double hll_t::report() {
-    if(!is_calculated_) sum();
-    assert(is_calculated_);
-    return hll_t::creport();
+double hll_t::est_err() const {
+    if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report.");
+    return relative_error_ * report();
 }
 
-double hll_t::est_err() {
+double hll_t::est_err() noexcept {
     if(!is_calculated_) sum();
-    return cest_err();
+    return ((std::add_const<decltype(this)>::type)this)->est_err();
 }
 
-double hll_t::cest_err() const {
-    if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to estimate."
-                                                 " Try the est_err() function.");
-    return relative_error_ * creport();
+double hll_t::report() noexcept {
+    if(!is_calculated_) sum();
+    return ((std::add_const<decltype(this)>::type)this)->report();
 }
 
 hll_t const &hll_t::operator+=(const hll_t &other) {
     if(other.np_ != np_) {
         char buf[256];
-        sprintf(buf, "np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
+        sprintf(buf, "For operator +=: np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
         throw std::runtime_error(buf);
     }
-#if HAS_AVX_512
     unsigned i;
+#if HAS_AVX_512
     __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
     const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
     for(i = 0; i < m_ >> 6; ++i) els[i] = _mm512_or_epi64(els[i], oels[i]);
     if(m_ < 64) for(;i < m_; ++i) core_[i] |= other.core_[i];
 #elif __AVX2__
-    unsigned i;
     __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
     const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
     for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_or_si256(els[i], oels[i]);
     if(m_ < 32) for(;i < m_; ++i) core_[i] |= other.core_[i];
 #elif __SSE2__
-    unsigned i;
     __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
     const __m128i *oels(reinterpret_cast<const __m128i *>(other.core_.data()));
     for(i = 0; i < m_ >> 4; ++i) els[i] = _mm_or_si128(els[i], oels[i]);
     if(m_ < 16) for(; i < m_; ++i) core_[i] |= other.core_[i];
 #else
-    for(unsigned i(0); i < m_; ++i) core_[i] |= other.core_[i];
+    for(i = 0; i < m_; ++i) core_[i] |= other.core_[i];
 #endif
     return *this;
 }
+
 hll_t const &hll_t::operator&=(const hll_t &other) {
-    if(other.np_ != np_)
-        LOG_EXIT("np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
+    if(other.np_ != np_) {
+        char buf[256];
+        sprintf(buf, "For operator &=: np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
+        throw std::runtime_error(buf);
+    }
     unsigned i;
 #if HAS_AVX_512
     __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
@@ -108,11 +109,10 @@ double operator^(hll_t &first, hll_t &other) {
     return 2*(hll_t(first) + other).report() - first.report() - other.report();
 }
 
-// Returns the size of the set intersection
+// Returns the set intersection
 hll_t operator&(hll_t &first, hll_t &other) {
-    hll_t ret(first);
-    ret &= other;
-    return ret;
+    hll_t tmp(first);
+    return tmp &= other;
 }
 
 // Returns the size of the set intersection
@@ -145,6 +145,23 @@ hll_t operator+(const hll_t &one, const hll_t &other) {
 void hll_t::clear() {
      std::fill(std::begin(core_), std::end(core_), 0u);
      sum_ = is_calculated_ = 0;
+}
+
+std::string hll_t::to_string() noexcept {
+    return is_calculated_ ? std::to_string(report()) + ", +- " + std::to_string(est_err())
+                          : desc_string();
+}
+
+std::string hll_t::to_string() const {
+    return is_calculated_ ? std::to_string(report()) + ", +- " + std::to_string(est_err())
+                          : desc_string();
+}
+
+std::string hll_t::desc_string() const {
+    char buf[1024];
+    std::sprintf(buf, "Size: %zu. nb: %zu. error: %lf. Is calculated: %s. sum: %zu\n",
+                 np_, m_, relative_error_, is_calculated_ ? "true": "false", sum_);
+    return buf;
 }
 
 } // namespace hll

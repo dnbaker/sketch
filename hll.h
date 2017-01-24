@@ -177,12 +177,18 @@ public:
     void sum();
 
     // Returns cardinality estimate. Sums if not calculated yet.
-    double creport() const; // creport doesn't calculate
-    double report();
+    double report() const;
+    double report() noexcept;
 
     // Returns error estimate
-    double est_err();
-    double cest_err() const;
+    double est_err() noexcept;
+    double est_err() const;
+
+    // Returns string representation
+    std::string to_string() const;
+    std::string to_string() noexcept;
+    // Descriptive string.
+    std::string desc_string() const;
 
     INLINE void add(uint64_t hashval) {
         const uint32_t index(hashval >> (64ull - np_));
@@ -191,18 +197,6 @@ public:
     }
 
     INLINE void addh(uint64_t element) {add(wang_hash(element));}
-
-    std::string desc_string() const {
-        return std::string("Size: ") + std::to_string(np_) + ". Number of bits: " + std::to_string(m_)
-               + ". Relative error: " + std::to_string(relative_error_)
-               + ". Is calculated? " + (is_calculated_ ? "true.": "false.") + " sum: " + std::to_string(sum_)
-               + ".";
-    }
-
-    std::string to_string() const {
-        return is_calculated_ ? std::to_string(creport()) + ", +- " + std::to_string(cest_err())
-                              : desc_string();
-    }
 
     // Reset.
     void clear();
@@ -218,8 +212,15 @@ public:
     void resize(std::size_t new_size);
     // Getter for is_calculated_
     bool is_ready()      const {return is_calculated_;}
-    bool within_bounds(uint64_t actual_size) const {return std::abs(actual_size - creport()) < cest_err();}
-    bool within_bounds(uint64_t actual_size) {return std::abs(actual_size - report()) < est_err();}
+
+    bool within_bounds(uint64_t actual_size) const {
+        return std::abs(actual_size - report()) < relative_error_ * actual_size;
+    }
+
+    bool within_bounds(uint64_t actual_size) {
+        return std::abs(actual_size - report()) < est_err();
+    }
+
     std::size_t get_np() const {return np_;}
 };
 
