@@ -115,11 +115,21 @@ hll_t operator&(hll_t &first, hll_t &other) {
     return tmp &= other;
 }
 
+hll_t operator+(const hll_t &one, const hll_t &other) {
+    if(other.get_np() != one.get_np())
+        LOG_EXIT("np_ (%zu) != other.get_np() (%zu)\n", one.get_np(), other.get_np());
+    hll_t ret(one);
+    return ret += other;
+}
+
 // Returns the size of the set intersection
-double intersection_size(hll_t &first, hll_t &other) {
-    hll_t tmp(first);
-    tmp &= other;
-    return tmp.report();
+double intersection_size(const hll_t &first, const hll_t &other) {
+    return (hll_t(first) &= other).report();
+}
+
+// Returns the size of the set intersection
+double intersection_size(hll_t &first, hll_t &other) noexcept {
+    return (hll_t(first) &= other).report();
 }
 
 // Clears, allows reuse with different np.
@@ -133,13 +143,6 @@ void hll_t::resize(std::size_t new_size) {
     memcpy((void *)&m_, &newm, sizeof(m_));
     alpha_ = make_alpha(m_);
     relative_error_ = 1.03896 / std::sqrt(m_);
-}
-
-hll_t operator+(const hll_t &one, const hll_t &other) {
-    if(other.get_np() != one.get_np())
-        LOG_EXIT("np_ (%zu) != other.get_np() (%zu)\n", one.get_np(), other.get_np());
-    hll_t ret(one);
-    return ret += other;
 }
 
 void hll_t::clear() {

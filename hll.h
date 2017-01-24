@@ -28,7 +28,7 @@ namespace hll {
 // This is our core 64-bit hash.
 // It has a 1-1 mapping from any one 64-bit integer to another
 // and can be inverted with irving_inv_hash.
-static INLINE uint64_t wang_hash(uint64_t key) {
+static INLINE std::uint64_t wang_hash(std::uint64_t key) noexcept {
   key = (~key) + (key << 21); // key = (key << 21) - key - 1;
   key = key ^ (key >> 24);
   key = (key + (key << 3)) + (key << 8); // key * 265
@@ -39,7 +39,7 @@ static INLINE uint64_t wang_hash(uint64_t key) {
   return key;
 }
 
-static INLINE uint64_t roundup64(std::size_t x) {
+static INLINE std::uint64_t roundup64(std::size_t x) noexcept {
     --x;
     x |= x >> 1;
     x |= x >> 2;
@@ -58,7 +58,7 @@ static INLINE uint64_t roundup64(std::size_t x) {
         case 4: case 5: case 6: case 7: x += 1; break;\
     }} while(0)
 
-constexpr INLINE int clz_manual( uint32_t x )
+constexpr INLINE int clz_manual( std::uint32_t x )
 {
   int n(0);
   if ((x & 0xFFFF0000) == 0) {n  = 16; x <<= 16;}
@@ -69,7 +69,7 @@ constexpr INLINE int clz_manual( uint32_t x )
 }
 
 // Overload
-constexpr INLINE int clz_manual( uint64_t x )
+constexpr INLINE int clz_manual( std::uint64_t x )
 {
   int n(0);
   if ((x & 0xFFFFFFFF00000000ull) == 0) {n  = 32; x <<= 32;}
@@ -190,13 +190,13 @@ public:
     // Descriptive string.
     std::string desc_string() const;
 
-    INLINE void add(uint64_t hashval) {
-        const uint32_t index(hashval >> (64ull - np_));
-        const uint32_t lzt(clz(hashval << np_) + 1);
+    INLINE void add(std::uint64_t hashval) {
+        const std::uint32_t index(hashval >> (64ull - np_));
+        const std::uint32_t lzt(clz(hashval << np_) + 1);
         if(core_[index] < lzt) core_[index] = lzt;
     }
 
-    INLINE void addh(uint64_t element) {add(wang_hash(element));}
+    INLINE void addh(std::uint64_t element) {add(wang_hash(element));}
 
     // Reset.
     void clear();
@@ -213,11 +213,11 @@ public:
     // Getter for is_calculated_
     bool is_ready()      const {return is_calculated_;}
 
-    bool within_bounds(uint64_t actual_size) const {
+    bool within_bounds(std::uint64_t actual_size) const {
         return std::abs(actual_size - report()) < relative_error_ * actual_size;
     }
 
-    bool within_bounds(uint64_t actual_size) {
+    bool within_bounds(std::uint64_t actual_size) {
         return std::abs(actual_size - report()) < est_err();
     }
 
@@ -229,7 +229,8 @@ double operator^(hll_t &first, hll_t &other);
 // Returns the set intersection of two sketches.
 hll_t operator&(hll_t &first, hll_t &other);
 // Returns the size of the set intersection
-double intersection_size(hll_t &first, hll_t &other);
+double intersection_size(hll_t &first, hll_t &other) noexcept;
+double intersection_size(const hll_t &first, const hll_t &other);
 // Returns a HyperLogLog union
 hll_t operator+(const hll_t &one, const hll_t &other);
 
