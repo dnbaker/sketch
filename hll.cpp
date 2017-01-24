@@ -14,14 +14,22 @@ double hll_t::creport() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
     const double ret(alpha_ * m_ * m_ / sum_);
-    // Correct for small values
-    if(ret < m_ * 2.5) {
+    // Small/large range corrections
+    // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
+    if(ret < small_range_correction_threshold()) {
         int t(0);
-        for(unsigned i(0); i < m_; ++i) t += (core_[i] == 0);
-        if(t) return m_ * std::log((double)(m_) / t);
+        for(const auto i: core_) t += i == 0;
+        if(t) return m_ * std::log2((double)(m_) / t);
     }
+#if LARGE_CORR
+    else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
+        double corr((-1. * (1ull << 32)) * std::log2(1. - ret / (1ull << 32)));
+        fprintf(stderr, "Large value correction. Original estimate %lf. New estimate %lf.\n",
+                ret, corr);
+        return corr;
+    }
+#endif
     return ret;
-    // We don't correct for too large just yet, but we should soon.
 }
 
 double hll_t::report() {
@@ -42,8 +50,11 @@ double hll_t::cest_err() const {
 }
 
 hll_t const &hll_t::operator+=(const hll_t &other) {
-    if(other.np_ != np_)
-        LOG_EXIT("np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
+    if(other.np_ != np_) {
+        char buf[256];
+        sprintf(buf, "np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
+        throw std::runtime_error(buf);
+    }
 #if HAS_AVX_512
     unsigned i;
     __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
@@ -94,9 +105,7 @@ hll_t const &hll_t::operator&=(const hll_t &other) {
 
 // Returns the size of a symmetric set difference.
 double operator^(hll_t &first, hll_t &other) {
-    hll_t tmp(first);
-    tmp += other;
-    return 2 * tmp.report() - first.report() - other.report();
+    return 2*(hll_t(first) + other).report() - first.report() - other.report();
 }
 
 // Returns the size of the set intersection

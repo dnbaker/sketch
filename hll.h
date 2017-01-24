@@ -61,7 +61,7 @@ static INLINE uint64_t roundup64(std::size_t x) {
 constexpr INLINE int clz_manual( uint32_t x )
 {
   int n(0);
-  if ((x & 0xFFFF0000) == 0) {n = 16; x <<= 16;}
+  if ((x & 0xFFFF0000) == 0) {n  = 16; x <<= 16;}
   if ((x & 0xFF000000) == 0) {n +=  8; x <<=  8;}
   if ((x & 0xF0000000) == 0) {n +=  4; x <<=  4;}
   clztbl(n, x >> (32 - 4));
@@ -113,6 +113,7 @@ static_assert(clz(0x000000000FFFFFFFull) == 36, "64-bit clz hand-rolled failed."
 static_assert(clz(0x0000000000000FFFull) == 52, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x0000000000000000ull) == 64, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x0000000000000003ull) == 62, "64-bit clz hand-rolled failed.");
+static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz hand-rolled failed.");
 
 
 constexpr double make_alpha(std::size_t m) {
@@ -159,6 +160,8 @@ class hll_t {
     int is_calculated_;
 
 public:
+    static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
+    double small_range_correction_threshold() const {return 2.5 * m_;}
     // Constructor
     explicit hll_t(std::size_t np):
         np_(np),
@@ -214,9 +217,9 @@ public:
     // Clears, allows reuse with different np.
     void resize(std::size_t new_size);
     // Getter for is_calculated_
-    bool is_ready() const {
-        return is_calculated_;
-    }
+    bool is_ready()      const {return is_calculated_;}
+    bool within_bounds(uint64_t actual_size) const {return std::abs(actual_size - creport()) < cest_err();}
+    bool within_bounds(uint64_t actual_size) {return std::abs(actual_size - report()) < est_err();}
     std::size_t get_np() const {return np_;}
 };
 

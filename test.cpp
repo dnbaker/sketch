@@ -22,5 +22,6 @@ int main(int argc, char *argv[]) {
     for(; i < lim; ++i) t.addh(i);
     fprintf(stderr, "Quantity expected: %u. Quantity estimated: %lf. Error bounds: %lf.\n",
             i, t.report(), t.est_err());
+    fprintf(stderr, "Within bounds? %s\n", t.est_err() <= std::abs(lim - t.report()) ? "true": "false"); 
 	return EXIT_SUCCESS;
 }
