@@ -1,5 +1,5 @@
-#ifndef _LOG_UTIL_H_
-#define _LOG_UTIL_H_
+#ifndef _LOG_UTIL_H__
+#define _LOG_UTIL_H__
 #define __STDC_FORMAT_MACROS
 #include <cinttypes>
 #include <cstdlib>
@@ -59,4 +59,4 @@ static inline void log_assert(const char *func, int line, int assertion, const c
     }
 }
 
-#endif /* #ifndef _LOG_UTIL_H_ */
+#endif /* #ifndef _LOG_UTIL_H__ */
