@@ -7,11 +7,9 @@ void hll_t::sum() {
     sum_ = 0;
     for(unsigned i(0); i < m_; ++i) sum_ += 1. / (1ull << core_[i]);
     is_calculated_ = 1;
-    LOG_DEBUG("Summed! Is calculated: %i\n", is_calculated_);
 }
 
 double hll_t::creport() const {
-    LOG_DEBUG("About to return %lf\n", alpha_ * m_ * m_ / sum_);
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
     const double ret(alpha_ * m_ * m_ / sum_);
@@ -46,7 +44,6 @@ double hll_t::est_err() noexcept {
 
 double hll_t::report() noexcept {
     if(!is_calculated_) sum();
-    LOG_DEBUG("About to call the other version of the function\n");
     return creport();
 }
 
