@@ -10,7 +10,8 @@ void hll_t::sum() {
     LOG_DEBUG("Summed! Is calculated: %i\n", is_calculated_);
 }
 
-double hll_t::report() const {
+double hll_t::creport() const {
+    LOG_DEBUG("About to return %lf\n", alpha_ * m_ * m_ / sum_);
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
     const double ret(alpha_ * m_ * m_ / sum_);
@@ -33,19 +34,20 @@ double hll_t::report() const {
     return ret;
 }
 
-double hll_t::est_err() const {
+double hll_t::cest_err() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report.");
-    return relative_error_ * report();
+    return relative_error_ * creport();
 }
 
 double hll_t::est_err() noexcept {
     if(!is_calculated_) sum();
-    return ((std::add_const<decltype(this)>::type)this)->est_err();
+    return cest_err();
 }
 
 double hll_t::report() noexcept {
     if(!is_calculated_) sum();
-    return ((std::add_const<decltype(this)>::type)this)->report();
+    LOG_DEBUG("About to call the other version of the function\n");
+    return creport();
 }
 
 hll_t const &hll_t::operator+=(const hll_t &other) {
@@ -121,15 +123,18 @@ hll_t operator+(const hll_t &one, const hll_t &other) {
     hll_t ret(one);
     return ret += other;
 }
-
 // Returns the size of the set intersection
 double intersection_size(const hll_t &first, const hll_t &other) {
-    return (hll_t(first) &= other).report();
+    hll_t tmp(first);
+    tmp &= other;
+    return tmp.report();
 }
 
 // Returns the size of the set intersection
 double intersection_size(hll_t &first, hll_t &other) noexcept {
-    return (hll_t(first) &= other).report();
+    hll_t tmp(first);
+    tmp &= other;
+    return tmp.report();
 }
 
 // Clears, allows reuse with different np.
@@ -150,19 +155,14 @@ void hll_t::clear() {
      sum_ = is_calculated_ = 0;
 }
 
-std::string hll_t::to_string() noexcept {
-    return is_calculated_ ? std::to_string(report()) + ", +- " + std::to_string(est_err())
-                          : desc_string();
-}
-
 std::string hll_t::to_string() const {
-    return is_calculated_ ? std::to_string(report()) + ", +- " + std::to_string(est_err())
+    return is_calculated_ ? std::to_string(creport()) + ", +- " + std::to_string(cest_err())
                           : desc_string();
 }
 
 std::string hll_t::desc_string() const {
     char buf[1024];
-    std::sprintf(buf, "Size: %zu. nb: %zu. error: %lf. Is calculated: %s. sum: %zu\n",
+    std::sprintf(buf, "Size: %zu. nb: %zu. error: %lf. Is calculated: %s. sum: %lf\n",
                  np_, m_, relative_error_, is_calculated_ ? "true": "false", sum_);
     return buf;
 }

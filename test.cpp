@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     if(argc == 1) test_qty(1 << 22);
     for(char **p(argv + 1); *p; ++p) if(!test_qty(strtoull(*p, 0, 10))) fprintf(stderr, "Failed test with %s\n", *p);
     while(i < lim) t.addh(i++);
-    fprintf(stderr, "Quantity expected: %u. Quantity estimated: %lf. Error bounds: %lf.\n",
+    fprintf(stderr, "Quantity expected: %zu. Quantity estimated: %lf. Error bounds: %lf.\n",
             i, t.report(), t.est_err());
     fprintf(stderr, "Within bounds? %s\n", t.est_err() <= std::abs(lim - t.report()) ? "true": "false"); 
 	return EXIT_SUCCESS;

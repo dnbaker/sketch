@@ -177,21 +177,20 @@ public:
     void sum();
 
     // Returns cardinality estimate. Sums if not calculated yet.
-    double report() const;
+    double creport() const;
     double report() noexcept;
 
     // Returns error estimate
-    double est_err() noexcept;
-    double est_err() const;
+    double cest_err() const;
+    double est_err()  noexcept;
 
     // Returns string representation
     std::string to_string() const;
-    std::string to_string() noexcept;
     // Descriptive string.
     std::string desc_string() const;
 
     INLINE void add(std::uint64_t hashval) {
-        const std::uint32_t index(hashval >> (64ull - np_));
+        const std::uint32_t index(hashval >> (64u - np_));
         const std::uint32_t lzt(clz(hashval << np_) + 1);
         if(core_[index] < lzt) core_[index] = lzt;
     }
@@ -214,7 +213,7 @@ public:
     bool is_ready()      const {return is_calculated_;}
 
     bool within_bounds(std::uint64_t actual_size) const {
-        return std::abs(actual_size - report()) < relative_error_ * actual_size;
+        return std::abs(actual_size - creport()) < relative_error_ * actual_size;
     }
 
     bool within_bounds(std::uint64_t actual_size) {
