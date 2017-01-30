@@ -1,5 +1,5 @@
 CXX=g++
-FLAGS=-O3 -funroll-loops -pipe -march=native -I. -Wa,-q -fpic -std=c++14 -Wall
+FLAGS=-O3 -funroll-loops -pipe -march=native -I. -Wa,-q -fpic -std=c++14 -Wall -DNDEBUG
 
 all: test libhll.a
 
