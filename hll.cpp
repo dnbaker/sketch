@@ -3,6 +3,8 @@
 #include <cstring>
 namespace hll {
 
+constexpr double TWO_POW_32 = (1ull << 32) * 1.;
+
 void hll_t::sum() {
     sum_ = 0;
     for(unsigned i(0); i < m_; ++i) sum_ += 1. / (1ull << core_[i]);
@@ -23,7 +25,7 @@ double hll_t::creport() const {
 #if LARGE_CORR
     // All of my tests have the large range correction returning a worse estimate.
     else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
-        double corr((-1. * (1ull << 32)) * std::log2(1. - ret / (1ull << 32)));
+        double corr(-TWO_POW_32 * std::log2(1. - ret / TWO_POW_32));
         fprintf(stderr, "Large value correction. Original estimate %lf. New estimate %lf.\n",
                 ret, corr);
         return corr;
@@ -141,8 +143,7 @@ void hll_t::resize(std::size_t new_size) {
     clear();
     core_.resize(new_size);
     np_ = (std::size_t)std::log2(new_size);
-    size_t newm(new_size);
-    memcpy((void *)&m_, &newm, sizeof(m_));
+    m_ = new_size;
     alpha_ = make_alpha(m_);
     relative_error_ = 1.03896 / std::sqrt(m_);
 }
@@ -162,6 +163,11 @@ std::string hll_t::desc_string() const {
     std::sprintf(buf, "Size: %zu. nb: %zu. error: %lf. Is calculated: %s. sum: %lf\n",
                  np_, m_, relative_error_, is_calculated_ ? "true": "false", sum_);
     return buf;
+}
+
+void hll_t::free() {
+    core_.resize(0);
+    core_.shrink_to_fit();
 }
 
 } // namespace hll

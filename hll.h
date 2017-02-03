@@ -135,7 +135,7 @@ class hll_t {
 
 // Attributes
     std::size_t np_;
-    const std::size_t m_;
+    std::size_t m_;
     double alpha_;
     double relative_error_;
 #if HAS_AVX_512
@@ -219,6 +219,8 @@ public:
     bool within_bounds(std::uint64_t actual_size) {
         return std::abs(actual_size - report()) < est_err();
     }
+
+    void free();
 
     std::size_t get_np() const {return np_;}
 };
