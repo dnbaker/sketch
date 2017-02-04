@@ -12,9 +12,9 @@
 
 #ifndef INLINE
 #  if __GNUC__ || __clang__
-#  define INLINE __attribute__((always_inline)) inline
+#    define INLINE __attribute__((always_inline)) inline
 #  else
-#  define INLINE inline
+#    define INLINE inline
 #  endif
 #endif
 
