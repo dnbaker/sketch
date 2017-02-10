@@ -1,5 +1,10 @@
 CXX=g++
-FLAGS=-O3 -funroll-loops -pipe -march=native -I. -Wa,-q -fpic -std=c++14 -Wall -DNDEBUG
+FLAGS=-O3 -funroll-loops -pipe -march=native -I. -fpic -std=c++14 -Wall -Wextra -Wdisabled-optimization -DNDEBUG
+
+ifeq ($(shell uname),Darwin)
+	FLAGS := $(FLAGS) -Wa,-q
+endif
+
 
 all: test libhll.a
 

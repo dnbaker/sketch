@@ -12,9 +12,9 @@
 
 #ifndef INLINE
 #  if __GNUC__ || __clang__
-#  define INLINE __attribute__((always_inline)) inline
+#    define INLINE __attribute__((always_inline)) inline
 #  else
-#  define INLINE inline
+#    define INLINE inline
 #  endif
 #endif
 
@@ -135,7 +135,7 @@ class hll_t {
 
 // Attributes
     std::size_t np_;
-    const std::size_t m_;
+    std::size_t m_;
     double alpha_;
     double relative_error_;
 #if HAS_AVX_512
@@ -209,7 +209,7 @@ public:
     // Clears, allows reuse with different np.
     void resize(std::size_t new_size);
     // Getter for is_calculated_
-    bool is_ready()      const {return is_calculated_;}
+    bool is_ready() const {return is_calculated_;}
 
     bool within_bounds(std::uint64_t actual_size) const {
         return std::abs(actual_size - creport()) < relative_error_ * actual_size;
@@ -218,6 +218,8 @@ public:
     bool within_bounds(std::uint64_t actual_size) {
         return std::abs(actual_size - report()) < est_err();
     }
+
+    void free();
 
     std::size_t get_np() const {return np_;}
 };
