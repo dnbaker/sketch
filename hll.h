@@ -160,7 +160,10 @@ class hll_t {
     int is_calculated_;
 
 public:
+#if LARGE_RANGE_CORR
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
+#endif
+
     double small_range_correction_threshold() const {return 2.5 * m_;}
     // Constructor
     explicit hll_t(std::size_t np):
