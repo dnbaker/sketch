@@ -84,7 +84,7 @@ constexpr INLINE int clz_manual( std::uint64_t x )
 // For our hash function, there is only 1 64-bit integer value which causes this problem.
 // I'd expect that this is acceptable. And on Haswell+, this value is the correct value.
 #if __GNUC__ || __clang__
-#ifndef NAVOID_CLZ_UNDEF
+#ifdef AVOID_CLZ_UNDEF
 constexpr INLINE unsigned clz(unsigned long long x) {
     return x ? __builtin_clzll(x) : sizeof(x) * CHAR_BIT;
 }
