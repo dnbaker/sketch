@@ -190,8 +190,7 @@ public:
     std::string desc_string() const;
 
     INLINE void add(std::uint64_t hashval) {
-        const std::uint32_t index(hashval >> (64u - np_));
-        const std::uint32_t lzt(clz(hashval << np_) + 1);
+        const std::uint32_t index(hashval >> (64u - np_)), lzt(clz(hashval << np_) + 1);
         if(core_[index] < lzt) core_[index] = lzt;
     }
 

@@ -23,10 +23,16 @@ double hll_t::creport() const {
 #if LARGE_CORR
     // All of my tests have the large range correction returning a worse estimate.
     else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
-        double corr((-1. * (1ull << 32)) * std::log2(1. - ret / (1ull << 32)));
+        const double corr((-1. * (1ull << 32)) * std::log2(1. - ret / (1ull << 32)));
         fprintf(stderr, "Large value correction. Original estimate %lf. New estimate %lf.\n",
                 ret, corr);
         return corr;
+    }
+#else
+    else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
+        const double corr((-1. * (1ull << 32)) * std::log2(1. - ret / (1ull << 32)));
+        fprintf(stderr, "[BTWs]: Large value correction, not used. Original estimate %lf. New estimate %lf.\n",
+                ret, corr);
     }
 #endif
     return ret;
