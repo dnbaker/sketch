@@ -16,6 +16,7 @@ enum class Alignment : size_t
     SSE    = 16,
     AVX    = 32,
     KB     = 64,
+    KL     = 64,
     AVX512 = 64
 };
 
