@@ -175,7 +175,7 @@ inline void *detail::allocate_aligned_memory(size_t align, size_t size)
 
 inline void detail::deallocate_aligned_memory(void *ptr) noexcept
 {
-    free(ptr);
+    std::free(ptr);
 }
 
 } // namespace sse
