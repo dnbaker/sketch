@@ -53,7 +53,7 @@ public:
     typedef T&        reference;
     typedef const T&  const_reference;
     typedef size_t    size_type;
-    typedef ptrdiff_t difference_type;
+    typedef std::ptdiff_t difference_type;
 
     typedef std::true_type propagate_on_container_move_assignment;
 
@@ -108,7 +108,7 @@ public:
     typedef const T&  reference;
     typedef const T&  const_reference;
     typedef size_t    size_type;
-    typedef ptrdiff_t difference_type;
+    typedef std::ptrdiff_t difference_type;
 
     typedef std::true_type propagate_on_container_move_assignment;
 
@@ -169,7 +169,7 @@ inline void *detail::allocate_aligned_memory(size_t align, size_t size)
     
     void *ret;
     int rc(posix_memalign(&ret, align, size));
-    return rc ? nullptr: ret;
+    return (!rc) * ret;
 }
 
 
