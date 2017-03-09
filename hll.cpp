@@ -26,15 +26,12 @@ double hll_t::creport() const {
             return m_ * std::log((double)(m_) / t);
         }
     }
-#if LARGE_RANGE_CORR
-    // All of my tests have the large range correction returning a worse estimate.
     else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
         const double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
         LOG_DEBUG("Large value correction. Original estimate %lf. New estimate %lf.\n",
                   ret, corr);
         return corr;
     }
-#endif
     return ret;
 }
 
