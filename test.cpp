@@ -5,6 +5,7 @@
 #include <numeric>
 #include "hll.h"
 
+
 using namespace std::chrono;
 
 using tp = std::chrono::system_clock::time_point;
@@ -33,9 +34,8 @@ int main(int argc, char *argv[]) {
     for(auto val: vals) {
         hll::hll_t t(BITS);
         for(i = 0; i < val; t.addh(i++));
-        fprintf(stderr, "Quantity expected: %zu. Quantity estimated: %lf. Error bounds: %lf.\n",
-                i, t.report(), t.est_err());
-        fprintf(stderr, "Within bounds? %s\n", t.est_err() <= std::abs(lim - t.report()) ? "true": "false");
+        fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
+                val, t.report(), t.est_err(), val - t.report(), t.est_err() <= std::abs(lim - t.report()) ? "true": "false");
     }
 	return EXIT_SUCCESS;
 }
