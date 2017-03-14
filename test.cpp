@@ -26,13 +26,16 @@ bool test_qty(size_t lim) {
  */
 
 int main(int argc, char *argv[]) {
-    hll::hll_t t(BITS);
     size_t i(0), lim(1 << 22);
-    if(argc == 1) test_qty(1 << 22);
-    for(char **p(argv + 1); *p; ++p) if(!test_qty(strtoull(*p, 0, 10))) fprintf(stderr, "Failed test with %s\n", *p);
-    while(i < lim) t.addh(i++);
-    fprintf(stderr, "Quantity expected: %zu. Quantity estimated: %lf. Error bounds: %lf.\n",
-            i, t.report(), t.est_err());
-    fprintf(stderr, "Within bounds? %s\n", t.est_err() <= std::abs(lim - t.report()) ? "true": "false"); 
+    std::vector<std::uint64_t> vals;
+    for(char **p(argv + 1); *p; ++p) vals.push_back(strtoull(*p, 0, 10));
+    if(vals.empty()) vals.push_back(1<<22);
+    for(auto val: vals) {
+        hll::hll_t t(BITS);
+        for(i = 0; i < val; t.addh(i++));
+        fprintf(stderr, "Quantity expected: %zu. Quantity estimated: %lf. Error bounds: %lf.\n",
+                i, t.report(), t.est_err());
+        fprintf(stderr, "Within bounds? %s\n", t.est_err() <= std::abs(lim - t.report()) ? "true": "false"); 
+    }
 	return EXIT_SUCCESS;
 }
