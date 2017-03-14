@@ -21,7 +21,7 @@ bool test_qty(size_t lim) {
 
 
 /*
- * If no arguments are provided, runs test with 1 << 22 elements. 
+ * If no arguments are provided, runs test with 1 << 22 elements.
  * Otherwise, it parses the first argument and tests that integer.
  */
 
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
         for(i = 0; i < val; t.addh(i++));
         fprintf(stderr, "Quantity expected: %zu. Quantity estimated: %lf. Error bounds: %lf.\n",
                 i, t.report(), t.est_err());
-        fprintf(stderr, "Within bounds? %s\n", t.est_err() <= std::abs(lim - t.report()) ? "true": "false"); 
+        fprintf(stderr, "Within bounds? %s\n", t.est_err() <= std::abs(lim - t.report()) ? "true": "false");
     }
 	return EXIT_SUCCESS;
 }
