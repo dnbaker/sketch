@@ -30,7 +30,8 @@ double hll_t::creport() const {
         const double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
         LOG_DEBUG("Large value correction. Original estimate %lf. New estimate %lf.\n",
                   ret, corr);
-        return corr;
+        if(!std::isnan(corr)) return corr;
+        LOG_WARNING("Large range correction returned nan.\n");
     }
     return ret;
 }

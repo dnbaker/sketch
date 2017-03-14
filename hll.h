@@ -192,7 +192,8 @@ public:
     INLINE void add(std::uint64_t hashval) {
         const std::uint32_t index(hashval >> (64u - np_)), lzt(clz(hashval << np_) + 1);
 #if THREADSAFE
-        while(core_[index] < lzt) __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt);
+        while(core_[index] < lzt)
+            __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt);
 #else
         if(core_[index] < lzt) core_[index] = lzt;
 #endif
