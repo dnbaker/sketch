@@ -83,13 +83,19 @@ public:
     pointer
     allocate(size_type n, typename AlignedAllocator<void, Align>::const_pointer = 0)
     {
+#define _STR(x) #x
+#define STR(x) _STR(x)
 #if __cplusplus >= 0x201406L
+//#pragma message("Using aligned_alloc with __cplusplus " STR(__cplusplus))
         return std::aligned_alloc(n * sizeof(T), static_cast<size_type>(Align));
 #else
+//#pragma message("Not using aligned_alloc with __cplusplus " STR(__cplusplus))
         void *ret;
         int rc(posix_memalign(&ret, static_cast<size_type>(Align), n * sizeof(T)));
         return rc ? nullptr: (pointer)ret;
 #endif
+#undef _STR
+#undef STR
     }
 
     void deallocate(pointer p, size_type) noexcept {free(p);}
@@ -138,11 +144,9 @@ public:
     pointer
     allocate(size_type n, typename AlignedAllocator<void, Align>::const_pointer = 0)
     {
-        const size_type alignment(static_cast<size_type>(Align));
-        void* ptr(detail::allocate_aligned_memory(alignment , n * sizeof(T)));
-        if (!ptr) throw std::bad_alloc();
-
-        return reinterpret_cast<pointer>(ptr);
+        pointer ret(reinterpret_cast<pointer>(detail::allocate_aligned_memory(static_cast<size_type>(Align) , n * sizeof(T))));
+        if(!ret) throw std::bad_alloc();
+        return ret;
     }
 
     void
@@ -165,15 +169,19 @@ inline bool operator== (const AlignedAllocator<T,TAlign>&, const AlignedAllocato
 template <typename T, Alignment TAlign, typename U, Alignment UAlign>
 inline bool operator!= (const AlignedAllocator<T,TAlign>&, const AlignedAllocator<U, UAlign>&) noexcept
     { return TAlign != UAlign; }
-
 inline void *detail::allocate_aligned_memory(size_t align, size_t size)
 {
     assert(align >= sizeof(void*));
     assert((align & (align - 1)) == 0); // Assert is power of two
     
+#if __cplusplus >= 0x201406L
+    return std::aligned_alloc(size, align);
+#else
     void *ret;
     int rc(posix_memalign(&ret, align, size));
+    if(rc) throw std::bad_alloc();
     return (void *)((!rc) * (std::uint64_t)ret); // This is kind of bad, but it works and removes a branch.
+#endif
 }
 
 
