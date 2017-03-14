@@ -8,9 +8,6 @@
 #include <vector>
 #include "logutil.h"
 #include "sseutil.h"
-#ifdef THREADSAFE
-#include<mutex>
-#endif
 
 #ifndef INLINE
 #  if __GNUC__ || __clang__

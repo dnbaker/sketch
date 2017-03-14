@@ -10,7 +10,7 @@ using namespace std::chrono;
 
 using tp = std::chrono::system_clock::time_point;
 
-static const size_t BITS = 20;
+static const size_t BITS = 22;
 
 
 bool test_qty(size_t lim) {
@@ -27,15 +27,14 @@ bool test_qty(size_t lim) {
  */
 
 int main(int argc, char *argv[]) {
-    size_t i(0), lim(1 << 22);
     std::vector<std::uint64_t> vals;
     for(char **p(argv + 1); *p; ++p) vals.push_back(strtoull(*p, 0, 10));
-    if(vals.empty()) vals.push_back(1<<22);
+    if(vals.empty()) vals.push_back(1<<BITS);
     for(auto val: vals) {
         hll::hll_t t(BITS);
-        for(i = 0; i < val; t.addh(i++));
+        for(size_t i(0); i < val; t.addh(i++));
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
-                val, t.report(), t.est_err(), val - t.report(), t.est_err() <= std::abs(lim - t.report()) ? "true": "false");
+                val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false");
     }
 	return EXIT_SUCCESS;
 }
