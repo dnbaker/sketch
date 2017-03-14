@@ -18,7 +18,7 @@ libhll.a: hll.o
 	$(CC) -c $(FLAGS)	$< -o $@
 
 test: test.cpp hll.o kthread.o
-	$(CXX) $(FLAGS)	hll.o kthread.o $< -o $@
+	$(CXX) $(FLAGS)	hll.o kthread.o -pthread $< -o $@
 
 clean:
 	rm -f test.o test hll.o kthread.o libhll.a
