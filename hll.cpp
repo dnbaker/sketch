@@ -3,7 +3,7 @@
 #include <cstring>
 namespace hll {
 
-constexpr double TWO_POW_32 = (1ull << 32) * 1.;
+constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
 
 void hll_t::sum() {
     sum_ = 0;
@@ -14,7 +14,7 @@ void hll_t::sum() {
 double hll_t::creport() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
-    const double ret(alpha_ * m_ * m_ / sum_);
+    const long double ret(alpha_ * m_ * m_ / sum_);
     // Small/large range corrections
     // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
     if(ret < small_range_correction_threshold()) {
@@ -25,11 +25,8 @@ double hll_t::creport() const {
                       ret, m_ * std::log((double)m_ / t));
             return m_ * std::log((double)(m_) / t);
         }
-    }
-    else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
-        const double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
-        LOG_DEBUG("Large value correction. Original estimate %lf. New estimate %lf.\n",
-                  ret, corr);
+    } else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
+        const long double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
         if(!std::isnan(corr)) return corr;
         LOG_WARNING("Large range correction returned nan.\n");
     }
