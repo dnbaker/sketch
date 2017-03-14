@@ -83,9 +83,13 @@ public:
     pointer
     allocate(size_type n, typename AlignedAllocator<void, Align>::const_pointer = 0)
     {
+#if __cplusplus >= 0x201406L
+        return std::aligned_alloc(n * sizeof(T), static_cast<size_type>(Align));
+#else
         void *ret;
         int rc(posix_memalign(&ret, static_cast<size_type>(Align), n * sizeof(T)));
         return rc ? nullptr: (pointer)ret;
+#endif
     }
 
     void deallocate(pointer p, size_type) noexcept {free(p);}
