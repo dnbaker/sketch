@@ -5,6 +5,9 @@
 /************
  * kt_for() *
  ************/
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct kt_for_t;
 
@@ -149,3 +152,6 @@ void kt_pipeline(int n_threads, void *(*func)(void*, int, void*), void *shared_d
 	pthread_mutex_destroy(&aux.mutex);
 	pthread_cond_destroy(&aux.cv);
 }
+#ifdef __cplusplus
+} // extern "C"
+#endif

@@ -15,7 +15,7 @@ libhll.a: hll.o
 %.o: %.cpp
 	$(CXX) -c $(FLAGS)	$< -o $@
 %.o: %.c
-	$(CC) -c $(FLAGS)	$< -o $@
+	$(CXX) -c $(FLAGS)	$< -o $@
 
 test: test.cpp hll.o kthread.o
 	$(CXX) $(FLAGS)	hll.o kthread.o -pthread $< -o $@
