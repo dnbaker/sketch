@@ -3,6 +3,8 @@
 #include <chrono>
 #include <algorithm>
 #include <numeric>
+#include <chrono>
+#include <getopt.h>
 #include "hll.h"
 #include "kthread.h"
 
@@ -11,7 +13,7 @@ using namespace std::chrono;
 
 using tp = std::chrono::system_clock::time_point;
 
-static const size_t BITS = 24;
+static const size_t BITS = 25;
 
 
 bool test_qty(size_t lim) {
@@ -40,18 +42,36 @@ void kt_helper(void *data, long index, int tid) {
  */
 
 int main(int argc, char *argv[]) {
-    const int nt(8);
+    using clock_t = std::chrono::system_clock;
+    unsigned nt(8), pb(1 << 18);
     std::vector<std::uint64_t> vals;
-    for(char **p(argv + 1); *p; ++p) vals.push_back(strtoull(*p, 0, 10));
+    int c;
+    while((c = getopt(argc, argv, "p:b:")) >= 0) {
+        switch(c) {
+            case 'p': nt = atoi(optarg); break;
+            case 'b': pb = atoi(optarg); break;
+        }
+    }
+    for(c = optind; c < argc; ++c) vals.push_back(strtoull(argv[c], 0, 10));
     if(vals.empty()) vals.push_back(1ull<<(BITS+1));
     for(auto val: vals) {
         hll::hll_t t(BITS);
 #ifndef THREADSAFE
         for(size_t i(0); i < val; t.addh(i++));
 #else
-        kt_data data {t, val, nt};
+        kt_data data {t, val, (int)nt};
         kt_for(nt, &kt_helper, &data, (val + nt - 1) / nt);
 #endif
+        auto start(clock_t::now());
+        t.parsum(nt, pb);
+        auto end(clock_t::now());
+        std::chrono::duration<double> timediff(end - start);
+        fprintf(stderr, "Time diff: %lf\n", timediff.count());
+        auto startsum(clock_t::now());
+        t.sum();
+        auto endsum(clock_t::now());
+        timediff = endsum - startsum;
+        fprintf(stderr, "Time diff not parallel: %lf\n", timediff.count());
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
                 val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false");
     }

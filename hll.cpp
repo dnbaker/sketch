@@ -29,8 +29,10 @@ struct parsum_data_t {
 template<typename CoreType>
 void parsum_helper(void *data_, long index, int tid) {
     parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
+    std::uint64_t local_counts[64]{0};
     for(std::uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++i)
-        ++data.counts_[data.core_[i]];
+        ++local_counts[data.core_[i]];
+    for(std::uint64_t i(0); i < 64ull; ++i) data.counts_[i] += local_counts[i];
 }
 
 void hll_t::parsum(int nthreads, std::size_t pb) {

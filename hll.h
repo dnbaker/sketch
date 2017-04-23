@@ -176,7 +176,7 @@ public:
 
     // Call sum to recalculate if you have changed contents.
     void sum();
-    void parsum(int nthreads=-1, std::size_t per_batch=1<<16);
+    void parsum(int nthreads=-1, std::size_t per_batch=1<<18);
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const;
