@@ -6,8 +6,10 @@ namespace hll {
 constexpr double TWO_POW_32 = (1ull << 32) * 1.;
 
 void hll_t::sum() {
+    std::uint64_t counts[64]{0};
+    for(const auto i: core_) ++counts[core_[i]];
     sum_ = 0;
-    for(unsigned i(0); i < m_; ++i) sum_ += 1. / (1ull << core_[i]);
+    for(unsigned i(0); i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
     is_calculated_ = 1;
 }
 
@@ -26,7 +28,6 @@ double hll_t::creport() const {
             return m_ * std::log((double)(m_) / t);
         }
     }
-#if LARGE_RANGE_CORR
     // All of my tests have the large range correction returning a worse estimate.
     else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
         const double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
@@ -34,7 +35,6 @@ double hll_t::creport() const {
                   ret, corr);
         return corr;
     }
-#endif
     return ret;
 }
 
