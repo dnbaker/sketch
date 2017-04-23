@@ -4,12 +4,14 @@
 #include <algorithm>
 #include <numeric>
 #include "hll.h"
+#include "kthread.h"
+
 
 using namespace std::chrono;
 
 using tp = std::chrono::system_clock::time_point;
 
-static const size_t BITS = 20;
+static const size_t BITS = 24;
 
 
 bool test_qty(size_t lim) {
@@ -19,20 +21,39 @@ bool test_qty(size_t lim) {
     return std::abs(t.report() - lim) <= t.est_err();
 }
 
+struct kt_data {
+    hll::hll_t &hll_;
+    const std::uint64_t n_;
+    const int nt_;
+};
+
+void kt_helper(void *data, long index, int tid) {
+    hll::hll_t &hll(((kt_data *)data)->hll_);
+    const std::uint64_t todo((((kt_data *)data)->n_ + ((kt_data *)data)->nt_ - 1) / ((kt_data *)data)->nt_);
+    for(std::uint64_t i(index * todo), e(std::min(((kt_data *)data)->n_, (index + 1) * todo)); i < e; hll.addh(i++));
+}
+
 
 /*
- * If no arguments are provided, runs test with 1 << 22 elements. 
+ * If no arguments are provided, runs test with 1 << 22 elements.
  * Otherwise, it parses the first argument and tests that integer.
  */
 
 int main(int argc, char *argv[]) {
-    hll::hll_t t(BITS);
-    size_t i(0), lim(1 << 22);
-    if(argc == 1) test_qty(1 << 22);
-    for(char **p(argv + 1); *p; ++p) if(!test_qty(strtoull(*p, 0, 10))) fprintf(stderr, "Failed test with %s\n", *p);
-    while(i < lim) t.addh(i++);
-    fprintf(stderr, "Quantity expected: %zu. Quantity estimated: %lf. Error bounds: %lf.\n",
-            i, t.report(), t.est_err());
-    fprintf(stderr, "Within bounds? %s\n", t.est_err() <= std::abs(lim - t.report()) ? "true": "false"); 
+    const int nt(8);
+    std::vector<std::uint64_t> vals;
+    for(char **p(argv + 1); *p; ++p) vals.push_back(strtoull(*p, 0, 10));
+    if(vals.empty()) vals.push_back(1ull<<(BITS+1));
+    for(auto val: vals) {
+        hll::hll_t t(BITS);
+#ifndef THREADSAFE
+        for(size_t i(0); i < val; t.addh(i++));
+#else
+        kt_data data {t, val, nt};
+        kt_for(nt, &kt_helper, &data, (val + nt - 1) / nt);
+#endif
+        fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
+                val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false");
+    }
 	return EXIT_SUCCESS;
 }

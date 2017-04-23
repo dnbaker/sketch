@@ -3,12 +3,11 @@
 #include <climits>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 #include "logutil.h"
 #include "sseutil.h"
-#define XSTR(x) STR(x)
-#define STR(x) #x
 
 #ifndef INLINE
 #  if __GNUC__ || __clang__
@@ -158,24 +157,26 @@ class hll_t {
 #endif
     double sum_;
     int is_calculated_;
+    int nthreads_;
 
 public:
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
 
     double small_range_correction_threshold() const {return 2.5 * m_;}
     // Constructor
-    explicit hll_t(std::size_t np):
+    explicit hll_t(std::size_t np, int nthreads=-1):
         np_(np),
         m_(1ull << np),
         alpha_(make_alpha(m_)),
         relative_error_(1.03896 / std::sqrt(m_)),
         core_(m_, 0),
-        sum_(0.), is_calculated_(0) {
+        sum_(0.), is_calculated_(0), nthreads_(nthreads) {
     }
     hll_t(): hll_t(20) {}
 
     // Call sum to recalculate if you have changed contents.
     void sum();
+    void parsum(int nthreads=-1, std::size_t per_batch=1<<16);
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const;
@@ -192,7 +193,12 @@ public:
 
     INLINE void add(std::uint64_t hashval) {
         const std::uint32_t index(hashval >> (64u - np_)), lzt(clz(hashval << np_) + 1);
+#if THREADSAFE
+        while(core_[index] < lzt)
+            __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt);
+#else
         if(core_[index] < lzt) core_[index] = lzt;
+#endif
     }
 
     INLINE void addh(std::uint64_t element) {add(wang_hash(element));}

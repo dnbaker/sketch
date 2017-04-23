@@ -1,22 +1,55 @@
 #include "hll.h"
 #include <stdexcept>
 #include <cstring>
+#include <thread>
+#include <atomic>
+#include "kthread.h"
 namespace hll {
 
-constexpr double TWO_POW_32 = (1ull << 32) * 1.;
+constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
 
 void hll_t::sum() {
     std::uint64_t counts[64]{0};
-    for(const auto i: core_) ++counts[core_[i]];
+    for(const auto i: core_) ++counts[i];
     sum_ = 0;
     for(unsigned i(0); i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
     is_calculated_ = 1;
 }
 
+template<typename CoreType>
+struct parsum_data_t {
+    std::atomic<std::uint64_t>      *counts_;
+    const CoreType &core_;
+    const std::uint64_t                 l_;
+    const std::uint64_t                pb_; // Per-batch
+    //parsum_data_t(std::atomic<std::uint64_t> *arr, const std::vector<std::uint8_t> &core, std::uint64_t m, std::uint64_t pb=-1):
+    //        counts_(arr), core_(core), l_(m), pb_(pb == UINT64_C(-1) ? 1 << 16: pb) {}
+};
+
+template<typename CoreType>
+void parsum_helper(void *data_, long index, int tid) {
+    parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
+    for(std::uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++i)
+        ++data.counts_[data.core_[i]];
+}
+
+void hll_t::parsum(int nthreads, std::size_t pb) {
+    if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
+    std::atomic<std::uint64_t> counts[64];
+    memset(counts, 0, sizeof counts);
+    parsum_data_t<decltype(core_)> data{counts, core_, m_, pb};
+    std::uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
+    kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
+    sum_ = 0;
+    for(unsigned i(0); i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
+    is_calculated_ = 1;
+}
+
+
 double hll_t::creport() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
-    const double ret(alpha_ * m_ * m_ / sum_);
+    const long double ret(alpha_ * m_ * m_ / sum_);
     // Small/large range corrections
     // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
     if(ret < small_range_correction_threshold()) {
@@ -27,13 +60,10 @@ double hll_t::creport() const {
                       ret, m_ * std::log((double)m_ / t));
             return m_ * std::log((double)(m_) / t);
         }
-    }
-    // All of my tests have the large range correction returning a worse estimate.
-    else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
-        const double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
-        LOG_DEBUG("Large value correction. Original estimate %lf. New estimate %lf.\n",
-                  ret, corr);
-        return corr;
+    } else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
+        const long double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
+        if(!std::isnan(corr)) return corr;
+        LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
     }
     return ret;
 }
