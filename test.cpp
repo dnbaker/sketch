@@ -18,8 +18,7 @@ static const size_t BITS = 25;
 
 bool test_qty(size_t lim) {
     hll::hll_t t(BITS);
-    size_t i(0);
-    while(i < lim) t.addh(i++);
+    for(size_t i(0); i < lim; t.addh(++i));
     return std::abs(t.report() - lim) <= t.est_err();
 }
 
