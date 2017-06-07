@@ -9,8 +9,23 @@ namespace hll {
 constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
 
 void hll_t::sum() {
-    std::uint64_t counts[64]{0};
+#if USE_OPENMP
+    std::atomic<std::uint64_t> counts[64];
+#else
+    std::uint64_t counts[64];
+#endif
+    memset(counts, 0, sizeof counts);
+#if USE_OPENMP
+    // Do not use this. The atomic operations are very expensive.
+    std::fprintf(stderr, "Using openmp\n");
+    // TODO: avoid temporaries of
+    #pragma omp parallel for schedule (static,16384)
+    for(std::uint64_t i = 0; i < m_; ++i) {
+        ++counts[core_[i]];
+    }
+#else
     for(const auto i: core_) ++counts[i];
+#endif
     sum_ = 0;
     for(unsigned i(0); i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
     is_calculated_ = 1;

@@ -29,3 +29,6 @@ If you wish to avoid this edge case out of principle, compile with `-DAVOID_CLZ_
 ### Multithreading
 By default, -DTHREADSAFE is passed as a compilation flag, which causes updates to the data structure to occur using atomic operations, though threading should be handled by the calling code.
 Additionally, if the sum is desired to be parallelized, the parsum function can use any number of threads to speed up calculation of the final quantity. This uses kthread from [klib](https://github.com/AttractiveChaos/klib).
+
+Summation can be parallelized if -DUSE_OPENMP is provided.
+

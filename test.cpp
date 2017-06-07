@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
     }
     for(c = optind; c < argc; ++c) vals.push_back(strtoull(argv[c], 0, 10));
     if(vals.empty()) vals.push_back(1ull<<(BITS+1));
-    for(auto val: vals) {
+    for(const auto val: vals) {
         hll::hll_t t(BITS);
 #ifndef THREADSAFE
         for(size_t i(0); i < val; t.addh(i++));
@@ -66,11 +66,13 @@ int main(int argc, char *argv[]) {
         auto end(clock_t::now());
         std::chrono::duration<double> timediff(end - start);
         fprintf(stderr, "Time diff: %lf\n", timediff.count());
+        fprintf(stderr, "Quantity: %lf\n", t.report());
         auto startsum(clock_t::now());
         t.sum();
         auto endsum(clock_t::now());
         timediff = endsum - startsum;
         fprintf(stderr, "Time diff not parallel: %lf\n", timediff.count());
+        fprintf(stderr, "Quantity: %lf\n", t.report());
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
                 val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false");
     }
