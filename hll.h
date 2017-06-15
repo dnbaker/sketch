@@ -110,7 +110,9 @@ constexpr INLINE unsigned clz(unsigned long x) {
 static_assert(clz(0x0000FFFFFFFFFFFFull) == 16, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x000000000FFFFFFFull) == 36, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x0000000000000FFFull) == 52, "64-bit clz hand-rolled failed.");
-static_assert(clz(0x0000000000000000ull) == 64, "64-bit clz hand-rolled failed.");
+#ifdef __GNUC__
+  static_assert(clz(0x0000000000000000ull) == 64, "64-bit clz hand-rolled failed.");
+#endif
 static_assert(clz(0x0000000000000003ull) == 62, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz hand-rolled failed.");
 
