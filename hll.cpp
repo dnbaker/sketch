@@ -173,15 +173,9 @@ hll_t operator+(const hll_t &one, const hll_t &other) {
     hll_t ret(one);
     return ret += other;
 }
-// Returns the size of the set intersection
-double intersection_size(const hll_t &first, const hll_t &other) {
-    hll_t tmp(first);
-    tmp &= other;
-    return tmp.report();
-}
 
 // Returns the size of the set intersection
-double intersection_size(hll_t &first, hll_t &other) noexcept {
+double intersection_size(const hll_t &first, const hll_t &other) {
     hll_t tmp(first);
     tmp &= other;
     return tmp.report();

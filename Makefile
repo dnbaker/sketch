@@ -2,13 +2,18 @@ CXX=g++
 CC=gcc
 FLAGS=-O3 -funroll-loops -pipe -march=native -I. -fpic -std=c++1z -Wall -Wextra -Wdisabled-optimization -DNDEBUG -DTHREADSAFE -Wno-unused-parameter
 
-ifeq (,$(findstring g++,$(CXX)))
+ifneq (,$(findstring g++,$(CXX)))
 	ifeq ($(shell uname),Darwin)
 		ifeq (,$(findstring clang,$(CXX)))
 			FLAGS := $(FLAGS) -Wa,-q
-			CLHASH_CHECKOUT := "&& git checkout mac"
+		else
+			FLAGS := $(FLAGS) -flto
 		endif
+	else
+		FLAGS := $(FLAGS) -flto
 	endif
+else
+	FLAGS := $(FLAGS) -flto
 endif
 
 all: test libhll.a
