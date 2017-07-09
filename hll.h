@@ -110,7 +110,6 @@ constexpr INLINE unsigned clz(unsigned long x) {
 static_assert(clz(0x0000FFFFFFFFFFFFull) == 16, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x000000000FFFFFFFull) == 36, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x0000000000000FFFull) == 52, "64-bit clz hand-rolled failed.");
-static_assert(clz(0x0000000000000000ull) == 64, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x0000000000000003ull) == 62, "64-bit clz hand-rolled failed.");
 static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz hand-rolled failed.");
 
@@ -157,25 +156,26 @@ class hll_t {
 #endif
     double sum_;
     int is_calculated_;
+    int nthreads_;
 
 public:
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
 
     double small_range_correction_threshold() const {return 2.5 * m_;}
     // Constructor
-    explicit hll_t(std::size_t np):
+    explicit hll_t(std::size_t np, int nthreads=-1):
         np_(np),
-        m_(1uL << np),
+        m_(1ull << np),
         alpha_(make_alpha(m_)),
         relative_error_(1.03896 / std::sqrt(m_)),
         core_(m_, 0),
-        sum_(0.), is_calculated_(0)
-    {
+        sum_(0.), is_calculated_(0), nthreads_(nthreads) {
     }
     hll_t(): hll_t(20) {}
 
     // Call sum to recalculate if you have changed contents.
     void sum();
+    void parsum(int nthreads=-1, std::size_t per_batch=1<<18);
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const;

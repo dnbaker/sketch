@@ -1,15 +1,67 @@
 #include "hll.h"
 #include <stdexcept>
 #include <cstring>
+#include <thread>
+#include <atomic>
+#include "kthread.h"
 namespace hll {
 
 constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
 
 void hll_t::sum() {
+#if USE_OPENMP
+    std::atomic<std::uint64_t> counts[64];
+#else
+    std::uint64_t counts[64];
+#endif
+    memset(counts, 0, sizeof counts);
+#if USE_OPENMP
+    // Do not use this. The atomic operations are very expensive.
+    std::fprintf(stderr, "Using openmp\n");
+    // TODO: avoid temporaries of
+    #pragma omp parallel for schedule (static,16384)
+    for(std::uint64_t i = 0; i < m_; ++i) {
+        ++counts[core_[i]];
+    }
+#else
+    for(const auto i: core_) ++counts[i];
+#endif
     sum_ = 0;
-    for(unsigned i(0); i < m_; ++i) sum_ += 1. / (1ull << core_[i]);
+    for(unsigned i(0); i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
     is_calculated_ = 1;
 }
+
+template<typename CoreType>
+struct parsum_data_t {
+    std::atomic<std::uint64_t>      *counts_;
+    const CoreType &core_;
+    const std::uint64_t                 l_;
+    const std::uint64_t                pb_; // Per-batch
+    //parsum_data_t(std::atomic<std::uint64_t> *arr, const std::vector<std::uint8_t> &core, std::uint64_t m, std::uint64_t pb=-1):
+    //        counts_(arr), core_(core), l_(m), pb_(pb == UINT64_C(-1) ? 1 << 16: pb) {}
+};
+
+template<typename CoreType>
+void parsum_helper(void *data_, long index, int tid) {
+    parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
+    std::uint64_t local_counts[64]{0};
+    for(std::uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++i)
+        ++local_counts[data.core_[i]];
+    for(std::uint64_t i(0); i < 64ull; ++i) data.counts_[i] += local_counts[i];
+}
+
+void hll_t::parsum(int nthreads, std::size_t pb) {
+    if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
+    std::atomic<std::uint64_t> counts[64];
+    memset(counts, 0, sizeof counts);
+    parsum_data_t<decltype(core_)> data{counts, core_, m_, pb};
+    std::uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
+    kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
+    sum_ = 0;
+    for(unsigned i(0); i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
+    is_calculated_ = 1;
+}
+
 
 double hll_t::creport() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
@@ -28,7 +80,7 @@ double hll_t::creport() const {
     } else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
         const long double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
         if(!std::isnan(corr)) return corr;
-        LOG_WARNING("Large range correction returned nan.\n");
+        LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
     }
     return ret;
 }
@@ -121,15 +173,9 @@ hll_t operator+(const hll_t &one, const hll_t &other) {
     hll_t ret(one);
     return ret += other;
 }
-// Returns the size of the set intersection
-double intersection_size(const hll_t &first, const hll_t &other) {
-    hll_t tmp(first);
-    tmp &= other;
-    return tmp.report();
-}
 
 // Returns the size of the set intersection
-double intersection_size(hll_t &first, hll_t &other) noexcept {
+double intersection_size(const hll_t &first, const hll_t &other) {
     hll_t tmp(first);
     tmp &= other;
     return tmp.report();
