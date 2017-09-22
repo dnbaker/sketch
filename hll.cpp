@@ -14,7 +14,7 @@ void hll_t::sum() {
 #else
     std::uint64_t counts[64];
 #endif
-    memset(counts, 0, sizeof counts);
+    std::memset(counts, 0, sizeof counts);
 #if USE_OPENMP
     // Do not use this. The atomic operations are very expensive.
     std::fprintf(stderr, "Using openmp\n");
@@ -93,11 +93,6 @@ double hll_t::cest_err() const {
 double hll_t::est_err() noexcept {
     if(!is_calculated_) sum();
     return cest_err();
-}
-
-double hll_t::report() noexcept {
-    if(!is_calculated_) sum();
-    return creport();
 }
 
 hll_t const &hll_t::operator+=(const hll_t &other) {

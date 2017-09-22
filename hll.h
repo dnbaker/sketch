@@ -179,7 +179,10 @@ public:
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const;
-    double report() noexcept;
+    double report() noexcept {
+        if(!is_calculated_) sum();
+        return creport();
+    }
 
     // Returns error estimate
     double cest_err() const;
