@@ -6,14 +6,8 @@ ifneq (,$(findstring g++,$(CXX)))
 	ifeq ($(shell uname),Darwin)
 		ifeq (,$(findstring clang,$(CXX)))
 			FLAGS := $(FLAGS) -Wa,-q
-		else
-			FLAGS := $(FLAGS) -flto
 		endif
-	else
-		FLAGS := $(FLAGS) -flto
 	endif
-else
-	FLAGS := $(FLAGS) -flto
 endif
 
 all: test libhll.a
