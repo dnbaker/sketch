@@ -206,8 +206,8 @@ std::string hll_t::desc_string() const {
 }
 
 void hll_t::free() {
-    core_.resize(0);
-    core_.shrink_to_fit();
+    decltype(core_) tmp{};
+    std::swap(core_, tmp);
 }
 
 } // namespace hll
