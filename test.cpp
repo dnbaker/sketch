@@ -70,8 +70,9 @@ int main(int argc, char *argv[]) {
         auto startsum(clock_t::now());
         t.sum();
         auto endsum(clock_t::now());
-        timediff = endsum - startsum;
-        fprintf(stderr, "Time diff not parallel: %lf\n", timediff.count());
+        std::chrono::duration<double> timediffsum(endsum - startsum);
+        fprintf(stderr, "Time diff not parallel: %lf\n", timediffsum.count());
+        fprintf(stderr, "Using %i threads is %4lf%% as fast as 1.\n", nt, timediffsum.count() / timediff.count() * 100.);
         fprintf(stderr, "Quantity: %lf\n", t.report());
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
                 val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false");

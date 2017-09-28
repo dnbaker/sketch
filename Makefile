@@ -2,6 +2,7 @@ CXX=g++
 CC=gcc
 FLAGS=-O3 -funroll-loops -pipe -march=native -I. -fpic -std=c++17 -Wall -Wextra -Wdisabled-optimization -DNDEBUG -DTHREADSAFE -Wno-unused-parameter \
 
+
 ifeq ($(shell uname),Darwin)
 	FLAGS := $(FLAGS) -Wa,-q
 endif

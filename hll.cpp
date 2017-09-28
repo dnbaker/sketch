@@ -9,23 +9,8 @@ namespace hll {
 constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
 
 void hll_t::sum() {
-#if USE_OPENMP
-    std::atomic<std::uint64_t> counts[64];
-#else
-    std::uint64_t counts[64];
-#endif
-    memset(counts, 0, sizeof counts);
-#if USE_OPENMP
-    // Do not use this. The atomic operations are very expensive.
-    std::fprintf(stderr, "Using openmp\n");
-    // TODO: avoid temporaries of
-    #pragma omp parallel for schedule (static,16384)
-    for(std::uint64_t i = 0; i < m_; ++i) {
-        ++counts[core_[i]];
-    }
-#else
+    std::uint64_t counts[64]{0};
     for(const auto i: core_) ++counts[i];
-#endif
     sum_ = 0;
     for(unsigned i(0); i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
     is_calculated_ = 1;
@@ -33,7 +18,7 @@ void hll_t::sum() {
 
 template<typename CoreType>
 struct parsum_data_t {
-    std::atomic<std::uint64_t>      *counts_;
+    std::atomic<std::uint64_t>      *counts_; // Array decayed to pointer.
     const CoreType &core_;
     const std::uint64_t                 l_;
     const std::uint64_t                pb_; // Per-batch
@@ -47,7 +32,7 @@ void parsum_helper(void *data_, long index, int tid) {
     std::uint64_t local_counts[64]{0};
     for(std::uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++i)
         ++local_counts[data.core_[i]];
-    for(std::uint64_t i(0); i < 64ull; ++i) data.counts_[i] += local_counts[i];
+    for(std::uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
 }
 
 void hll_t::parsum(int nthreads, std::size_t pb) {
@@ -55,10 +40,10 @@ void hll_t::parsum(int nthreads, std::size_t pb) {
     std::atomic<std::uint64_t> counts[64];
     memset(counts, 0, sizeof counts);
     parsum_data_t<decltype(core_)> data{counts, core_, m_, pb};
-    std::uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
+    const std::uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
     kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
     sum_ = 0;
-    for(unsigned i(0); i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
+    for(unsigned i = 0; i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
     is_calculated_ = 1;
 }
 
