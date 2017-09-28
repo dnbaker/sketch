@@ -80,11 +80,6 @@ double hll_t::est_err() noexcept {
     return cest_err();
 }
 
-double hll_t::report() noexcept {
-    if(!is_calculated_) sum();
-    return creport();
-}
-
 hll_t const &hll_t::operator+=(const hll_t &other) {
     if(other.np_ != np_) {
         char buf[256];
@@ -158,15 +153,9 @@ hll_t operator+(const hll_t &one, const hll_t &other) {
     hll_t ret(one);
     return ret += other;
 }
-// Returns the size of the set intersection
-double intersection_size(const hll_t &first, const hll_t &other) {
-    hll_t tmp(first);
-    tmp &= other;
-    return tmp.report();
-}
 
 // Returns the size of the set intersection
-double intersection_size(hll_t &first, hll_t &other) noexcept {
+double intersection_size(const hll_t &first, const hll_t &other) {
     hll_t tmp(first);
     tmp &= other;
     return tmp.report();
@@ -202,8 +191,8 @@ std::string hll_t::desc_string() const {
 }
 
 void hll_t::free() {
-    core_.resize(0);
-    core_.shrink_to_fit();
+    decltype(core_) tmp{};
+    std::swap(core_, tmp);
 }
 
 } // namespace hll
