@@ -18,12 +18,10 @@ void hll_t::sum() {
 
 template<typename CoreType>
 struct parsum_data_t {
-    std::atomic<std::uint64_t>      *counts_; // Array decayed to pointer.
-    const CoreType &core_;
-    const std::uint64_t                 l_;
-    const std::uint64_t                pb_; // Per-batch
-    //parsum_data_t(std::atomic<std::uint64_t> *arr, const std::vector<std::uint8_t> &core, std::uint64_t m, std::uint64_t pb=-1):
-    //        counts_(arr), core_(core), l_(m), pb_(pb == UINT64_C(-1) ? 1 << 16: pb) {}
+    std::atomic<std::uint64_t> *counts_; // Array decayed to pointer.
+    const CoreType               &core_;
+    const std::uint64_t              l_;
+    const std::uint64_t             pb_; // Per-batch
 };
 
 template<typename CoreType>
