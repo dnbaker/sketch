@@ -34,6 +34,11 @@ void kt_helper(void *data, long index, int tid) {
     for(std::uint64_t i(index * todo), e(std::min(((kt_data *)data)->n_, (index + 1) * todo)); i < e; hll.addh(i++));
 }
 
+void usage() {
+    std::fprintf(stderr, "Usage: ./test <flags>\nFlags:\n-p\tSet number of threads. [8].\n-b\tSet size of sketch. [1 << 18]\n");
+    std::exit(EXIT_FAILURE);
+}
+
 
 /*
  * If no arguments are provided, runs test with 1 << 22 elements.
@@ -41,14 +46,16 @@ void kt_helper(void *data, long index, int tid) {
  */
 
 int main(int argc, char *argv[]) {
+    if(argc < 2) usage();
     using clock_t = std::chrono::system_clock;
     unsigned nt(8), pb(1 << 18);
     std::vector<std::uint64_t> vals;
     int c;
-    while((c = getopt(argc, argv, "p:b:")) >= 0) {
+    while((c = getopt(argc, argv, "p:b:h")) >= 0) {
         switch(c) {
             case 'p': nt = atoi(optarg); break;
             case 'b': pb = atoi(optarg); break;
+            case 'h': case '?': usage();
         }
     }
     for(c = optind; c < argc; ++c) vals.push_back(strtoull(argv[c], 0, 10));
