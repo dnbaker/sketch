@@ -1,6 +1,6 @@
 CXX=g++
 CC=gcc
-FLAGS=-O3 -funroll-loops -pipe -march=native -I. -fpic -std=c++1z -Wall -Wextra -Wdisabled-optimization -DNDEBUG -Wno-unused-parameter
+FLAGS=-O3 -funroll-loops -pipe -march=native -I. -fpic -Wall -Wextra -Wdisabled-optimization -DNDEBUG -Wno-unused-parameter
 
 ifneq (,$(findstring g++,$(CXX)))
 	ifeq ($(shell uname),Darwin)
@@ -16,9 +16,9 @@ libhll.a: hll.o
 	ar cr $@ $<
 
 %.o: %.cpp
-	$(CXX) -c $(FLAGS)	$< -o $@
+	$(CXX) -c $(FLAGS) -std=c++17	$< -o $@
 %.o: %.c
-	$(CXX) -c $(FLAGS)	$< -o $@
+	$(CC) -c $(FLAGS)	$< -o $@
 
 test: test.cpp hll.o kthread.o
 	$(CXX) $(FLAGS)	-Wno-unused-parameter hll.o kthread.o -pthread $< -o $@
