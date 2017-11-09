@@ -246,6 +246,10 @@ hll_t operator+(const hll_t &one, const hll_t &other);
 
 
 
+
 } // namespace hll
+#ifdef HLL_HEADER_ONLY
+#  include "hll.cpp"
+#endif
 
 #endif // #ifndef HLL_H_

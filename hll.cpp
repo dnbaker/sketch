@@ -1,4 +1,6 @@
-#include "hll.h"
+#ifndef HLL_HEADER_ONLY
+#  include "hll.h"
+#endif
 #include <stdexcept>
 #include <cstring>
 #include <thread>
@@ -194,3 +196,5 @@ void hll_t::free() {
 }
 
 } // namespace hll
+
+#endif // #ifndef HLL_HEADER_ONLY

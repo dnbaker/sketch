@@ -1,6 +1,10 @@
 # hll
 C++ HyperLogLog Implementation with SIMD Parallelism
 
+### Header-only or using -lhll
+For faster compile times for downstream projects, default use involves compiling hll.cpp and linking against that library or the object file.
+Alternatively, you can define the macro HLL_HEADER_ONLY which will move the cpp code into the header for easier portability.
+
 ### Test case
 To build and run the test case:
 
