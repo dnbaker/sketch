@@ -1,16 +1,24 @@
 #ifndef HLL_HEADER_ONLY
 #  include "hll.h"
 #endif
+
 #include <stdexcept>
 #include <cstring>
 #include <thread>
 #include <atomic>
 #include "kthread.h"
+
+#ifdef HLL_HEADER_ONLY
+#  define _STORAGE_ inline
+#else
+#  define _STORAGE_
+#endif
+
 namespace hll {
 
-constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
+static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
 
-void hll_t::sum() {
+_STORAGE_ void hll_t::sum() {
     std::uint64_t counts[64]{0};
     for(const auto i: core_) ++counts[i];
     sum_ = 0;
@@ -27,7 +35,7 @@ struct parsum_data_t {
 };
 
 template<typename CoreType>
-void parsum_helper(void *data_, long index, int tid) {
+_STORAGE_ void parsum_helper(void *data_, long index, int tid) {
     parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
     std::uint64_t local_counts[64]{0};
     for(std::uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++i)
@@ -35,7 +43,7 @@ void parsum_helper(void *data_, long index, int tid) {
     for(std::uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
 }
 
-void hll_t::parsum(int nthreads, std::size_t pb) {
+_STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
     if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
     std::atomic<std::uint64_t> counts[64];
     memset(counts, 0, sizeof counts);
@@ -48,7 +56,7 @@ void hll_t::parsum(int nthreads, std::size_t pb) {
 }
 
 
-double hll_t::creport() const {
+_STORAGE_ double hll_t::creport() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
     const long double ret(alpha_ * m_ * m_ / sum_);
@@ -70,17 +78,17 @@ double hll_t::creport() const {
     return ret;
 }
 
-double hll_t::cest_err() const {
+_STORAGE_ double hll_t::cest_err() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report.");
     return relative_error_ * creport();
 }
 
-double hll_t::est_err() noexcept {
+_STORAGE_ double hll_t::est_err() noexcept {
     if(!is_calculated_) sum();
     return cest_err();
 }
 
-hll_t const &hll_t::operator+=(const hll_t &other) {
+_STORAGE_ hll_t const &hll_t::operator+=(const hll_t &other) {
     if(other.np_ != np_) {
         char buf[256];
         sprintf(buf, "For operator +=: np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
@@ -90,25 +98,25 @@ hll_t const &hll_t::operator+=(const hll_t &other) {
 #if HAS_AVX_512
     __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
     const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 6; ++i) els[i] = _mm512_or_epi64(els[i], oels[i]);
-    if(m_ < 64) for(;i < m_; ++i) core_[i] |= other.core_[i];
+    for(i = 0; i < m_ >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]);
+    if(m_ < 64) for(;i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i])
 #elif __AVX2__
     __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
     const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_or_si256(els[i], oels[i]);
-    if(m_ < 32) for(;i < m_; ++i) core_[i] |= other.core_[i];
+    for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_max_epu8(els[i], oels[i]);
+    if(m_ < 32) for(;i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #elif __SSE2__
     __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
     const __m128i *oels(reinterpret_cast<const __m128i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 4; ++i) els[i] = _mm_or_si128(els[i], oels[i]);
-    if(m_ < 16) for(; i < m_; ++i) core_[i] |= other.core_[i];
+    for(i = 0; i < m_ >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
+    if(m_ < 16) for(; i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #else
-    for(i = 0; i < m_; ++i) core_[i] |= other.core_[i];
+    for(i = 0; i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #endif
     return *this;
 }
 
-hll_t const &hll_t::operator&=(const hll_t &other) {
+_STORAGE_ hll_t const &hll_t::operator&=(const hll_t &other) {
     if(other.np_ != np_) {
         char buf[256];
         sprintf(buf, "For operator &=: np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
@@ -137,17 +145,17 @@ hll_t const &hll_t::operator&=(const hll_t &other) {
 }
 
 // Returns the size of a symmetric set difference.
-double operator^(hll_t &first, hll_t &other) {
+_STORAGE_ double operator^(hll_t &first, hll_t &other) {
     return 2*(hll_t(first) + other).report() - first.report() - other.report();
 }
 
 // Returns the set intersection
-hll_t operator&(hll_t &first, hll_t &other) {
+_STORAGE_ hll_t operator&(hll_t &first, hll_t &other) {
     hll_t tmp(first);
     return tmp &= other;
 }
 
-hll_t operator+(const hll_t &one, const hll_t &other) {
+_STORAGE_ hll_t operator+(const hll_t &one, const hll_t &other) {
     if(other.get_np() != one.get_np())
         LOG_EXIT("np_ (%zu) != other.get_np() (%zu)\n", one.get_np(), other.get_np());
     hll_t ret(one);
@@ -155,14 +163,14 @@ hll_t operator+(const hll_t &one, const hll_t &other) {
 }
 
 // Returns the size of the set intersection
-double intersection_size(const hll_t &first, const hll_t &other) {
+_STORAGE_ double intersection_size(const hll_t &first, const hll_t &other) {
     hll_t tmp(first);
     tmp &= other;
     return tmp.report();
 }
 
 // Clears, allows reuse with different np.
-void hll_t::resize(std::size_t new_size) {
+_STORAGE_ void hll_t::resize(std::size_t new_size) {
     new_size = roundup64(new_size);
     LOG_DEBUG("Resizing to %zu, with np = %zu\n", new_size, (std::size_t)std::log2(new_size));
     clear();
@@ -173,28 +181,26 @@ void hll_t::resize(std::size_t new_size) {
     relative_error_ = 1.03896 / std::sqrt(m_);
 }
 
-void hll_t::clear() {
+_STORAGE_ void hll_t::clear() {
      std::fill(std::begin(core_), std::end(core_), 0u);
      sum_ = is_calculated_ = 0;
 }
 
-std::string hll_t::to_string() const {
+_STORAGE_ std::string hll_t::to_string() const {
     return is_calculated_ ? std::to_string(creport()) + ", +- " + std::to_string(cest_err())
                           : desc_string();
 }
 
-std::string hll_t::desc_string() const {
+_STORAGE_ std::string hll_t::desc_string() const {
     char buf[1024];
     std::sprintf(buf, "Size: %zu. nb: %zu. error: %lf. Is calculated: %s. sum: %lf\n",
                  np_, m_, relative_error_, is_calculated_ ? "true": "false", sum_);
     return buf;
 }
 
-void hll_t::free() {
+_STORAGE_ void hll_t::free() {
     decltype(core_) tmp{};
     std::swap(core_, tmp);
 }
 
 } // namespace hll
-
-#endif // #ifndef HLL_HEADER_ONLY
