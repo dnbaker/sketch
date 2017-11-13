@@ -34,3 +34,6 @@ If you wish to avoid this edge case out of principle, compile with `-DAVOID_CLZ_
 By default, updates to the data structure to occur using atomic operations, though threading should be handled by the calling code. Otherwise, the flag -DNOT_THREADSAFE should be passed. The cost of this is relatively minor, but in single-threaded situations, this could be preferred.
 
 Additionally, if the sum is desired to be parallelized, the parsum function can use any number of threads to speed up calculation of the final quantity. This uses kthread from [klib](https://github.com/AttractiveChaos/klib), which significantly outperforms openmp in experiments.
+
+## Python bindings
+Python bindings are available via pybind11 and then imported through hll.py. hll.py calls an object's __hash__ function. To link against python2, change the "python3-" in the Makefile to "python-".
