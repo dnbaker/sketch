@@ -22,7 +22,7 @@ libhll.a: hll.o
 
 INCLUDES=-I`python3-config --includes` -Ipybind11/include
 SUF=`python3-config --extension-suffix`
-OBJS=$(patsubst %.cpp,%.cpython.so,$(wildcard *.cpp))
+OBJS=$(patsubst %.cpp,%$(SUF),$(wildcard *.cpp))
 
 python: _hll.cpython.so
 	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`python3-config --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
