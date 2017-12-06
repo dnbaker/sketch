@@ -170,6 +170,12 @@ _STORAGE_ double intersection_size(const hll_t &first, const hll_t &other) {
     return tmp.report();
 }
 
+_STORAGE_ double intersection_size(hll_t &first, hll_t &other) noexcept {
+    hll_t tmp(first);
+    tmp &= other;
+    return tmp.creport();
+}
+
 // Clears, allows reuse with different np.
 _STORAGE_ void hll_t::resize(std::size_t new_size) {
     new_size = roundup64(new_size);
