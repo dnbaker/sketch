@@ -137,17 +137,14 @@ class hll_t {
     double alpha_;
     double relative_error_;
 #if HAS_AVX_512
-#if !NDEBUG
-#pragma message("Building with avx512")
-#endif
     std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX512>> core_;
 #elif __AVX2__
-#if !NDEBUG
+#if 0
 #pragma message("Building with avx2")
 #endif
     std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX>> core_;
 #elif __SSE2__
-#if !NDEBUG
+#if 0
 #pragma message("Building with sse2")
 #endif
     std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::SSE>> core_;
