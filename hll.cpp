@@ -15,6 +15,7 @@
 #endif
 
 namespace hll {
+using std::isnan;
 
 static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
 
@@ -72,7 +73,7 @@ _STORAGE_ double hll_t::creport() const {
         }
     } else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
         const long double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
-        if(!std::isnan(corr)) return corr;
+        if(!isnan(corr)) return corr;
         LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
     }
     return ret;
@@ -99,7 +100,7 @@ _STORAGE_ hll_t const &hll_t::operator+=(const hll_t &other) {
     __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
     const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
     for(i = 0; i < m_ >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]);
-    if(m_ < 64) for(;i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i])
+    if(m_ < 64) for(;i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #elif __AVX2__
     __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
     const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
@@ -201,6 +202,16 @@ _STORAGE_ std::string hll_t::desc_string() const {
 _STORAGE_ void hll_t::free() {
     decltype(core_) tmp{};
     std::swap(core_, tmp);
+}
+
+_STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
+    double is(intersection_size(first, other));
+    return is / (first.report() + other.report() - is);
+}
+
+_STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
+    double is(intersection_size(first, other));
+    return is / (first.creport() + other.creport() - is);
 }
 
 } // namespace hll

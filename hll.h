@@ -241,6 +241,8 @@ hll_t operator&(hll_t &first, hll_t &other);
 // Returns the size of the set intersection
 double intersection_size(hll_t &first, hll_t &other) noexcept;
 double intersection_size(const hll_t &first, const hll_t &other);
+double jaccard_index(hll_t &first, hll_t &other) noexcept;
+double jaccard_index(const hll_t &first, const hll_t &other);
 // Returns a HyperLogLog union
 hll_t operator+(const hll_t &one, const hll_t &other);
 
