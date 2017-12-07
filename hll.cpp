@@ -65,10 +65,10 @@ _STORAGE_ double hll_t::creport() const {
     // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
     if(ret < small_range_correction_threshold()) {
         int t(0);
-        for(const auto i: core_) t += i == 0;
+        for(const auto i: core_) t += (i == 0);
         if(t) {
-            LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",
-                      ret, m_ * std::log((double)m_ / t));
+            LOG_WARNING("Small value correction. Original estimate %lf. New estimate %lf.\n",
+                        ret, m_ * std::log((double)m_ / t));
             return m_ * std::log((double)(m_) / t);
         }
     } else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
