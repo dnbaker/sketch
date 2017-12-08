@@ -8,6 +8,7 @@
 #include <vector>
 #include "logutil.h"
 #include "sseutil.h"
+#include  "unistd.h"
 
 #ifndef INLINE
 #  if __GNUC__ || __clang__
@@ -132,10 +133,8 @@ class hll_t {
 // given how memory-efficient this structure is.
 
 // Attributes
-    std::size_t np_;
-    std::size_t m_;
-    double alpha_;
-    double relative_error_;
+    std::uint32_t np_;
+    std::uint64_t m_;
 #if HAS_AVX_512
     std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX512>> core_;
 #elif __AVX2__
@@ -152,8 +151,11 @@ class hll_t {
     std::vector<std::uint8_t> core_;
 #endif
     double sum_;
-    int is_calculated_;
-    int nthreads_;
+    int is_calculated_:1;
+    int      nthreads_:31;
+
+    double alpha()          const {return make_alpha(m_);}
+    double relative_error() const {return 1.03896 / std::sqrt(m_);}
 
 public:
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
@@ -163,10 +165,8 @@ public:
     explicit hll_t(std::size_t np, int nthreads=-1):
         np_(np),
         m_(1ull << np),
-        alpha_(make_alpha(m_)),
-        relative_error_(1.03896 / std::sqrt(m_)),
         core_(m_, 0),
-        sum_(0.), is_calculated_(0), nthreads_(nthreads) {
+        sum_(0.), is_calculated_(0), nthreads_(nthreads > 0 ? nthreads: 1) {
     }
     hll_t(): hll_t(20) {}
 
@@ -220,7 +220,7 @@ public:
     void not_ready() {is_calculated_ = false;}
 
     bool within_bounds(std::uint64_t actual_size) const {
-        return std::abs(actual_size - creport()) < relative_error_ * actual_size;
+        return std::abs(actual_size - creport()) < relative_error() * actual_size;
     }
 
     bool within_bounds(std::uint64_t actual_size) {
@@ -229,6 +229,11 @@ public:
     const auto &data() const {return core_;}
 
     void free();
+    void write(FILE *fp);
+    void write(const char *path);
+#if _POSIX_VERSION
+    void write(int fileno);
+#endif
 
     std::size_t get_np() const {return np_;}
 };

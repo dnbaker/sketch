@@ -60,7 +60,7 @@ _STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
 _STORAGE_ double hll_t::creport() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
-    const long double ret(alpha_ * m_ * m_ / sum_);
+    const long double ret(alpha() * m_ * m_ / sum_);
     // Small/large range corrections
     // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
     if(ret < small_range_correction_threshold()) {
@@ -81,7 +81,7 @@ _STORAGE_ double hll_t::creport() const {
 
 _STORAGE_ double hll_t::cest_err() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report.");
-    return relative_error_ * creport();
+    return relative_error() * creport();
 }
 
 _STORAGE_ double hll_t::est_err() noexcept {
@@ -92,7 +92,7 @@ _STORAGE_ double hll_t::est_err() noexcept {
 _STORAGE_ hll_t const &hll_t::operator+=(const hll_t &other) {
     if(other.np_ != np_) {
         char buf[256];
-        sprintf(buf, "For operator +=: np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
+        sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
         throw std::runtime_error(buf);
     }
     unsigned i;
@@ -122,7 +122,7 @@ _STORAGE_ hll_t const &hll_t::operator&=(const hll_t &other) {
     std::fprintf(stderr, "Warning: This method doesn't work very well at all. For some reason. Do not trust.\n");
     if(other.np_ != np_) {
         char buf[256];
-        sprintf(buf, "For operator &=: np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
+        sprintf(buf, "For operator &=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
         throw std::runtime_error(buf);
     }
     unsigned i;
@@ -188,8 +188,6 @@ _STORAGE_ void hll_t::resize(std::size_t new_size) {
     core_.resize(new_size);
     np_ = (std::size_t)std::log2(new_size);
     m_ = new_size;
-    alpha_ = make_alpha(m_);
-    relative_error_ = 1.03896 / std::sqrt(m_);
 }
 
 _STORAGE_ void hll_t::clear() {
@@ -204,14 +202,30 @@ _STORAGE_ std::string hll_t::to_string() const {
 
 _STORAGE_ std::string hll_t::desc_string() const {
     char buf[1024];
-    std::sprintf(buf, "Size: %zu. nb: %zu. error: %lf. Is calculated: %s. sum: %lf\n",
-                 np_, m_, relative_error_, is_calculated_ ? "true": "false", sum_);
+    std::sprintf(buf, "Size: %u. nb: %zu. error: %lf. Is calculated: %s. sum: %lf\n",
+                 np_, m_, relative_error(), is_calculated_ ? "true": "false", sum_);
     return buf;
 }
 
 _STORAGE_ void hll_t::free() {
     decltype(core_) tmp{};
     std::swap(core_, tmp);
+}
+
+_STORAGE_ void hll_t::write(const int fileno) {
+}
+_STORAGE_ void hll_t::write(std::FILE *fp) {
+#if _POSIX_VERSION
+    write(fileno(fp));
+#else
+    static_assert(false, "Needs posix for now, will write non-posix version later.");
+#endif
+}
+_STORAGE_ void hll_t::write(const char *path) {
+    std::FILE *fp(std::fopen(path, "wb"));
+    if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+    write(fp);
+    std::fclose(fp);
 }
 
 _STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
@@ -224,5 +238,6 @@ _STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
     i = i / (first.creport() + other.creport() - i);
     return i;
 }
+
 
 } // namespace hll
