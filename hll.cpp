@@ -119,6 +119,7 @@ _STORAGE_ hll_t const &hll_t::operator+=(const hll_t &other) {
 }
 
 _STORAGE_ hll_t const &hll_t::operator&=(const hll_t &other) {
+    std::fprintf(stderr, "Warning: This method doesn't work very well at all. For some reason. Do not trust.\n");
     if(other.np_ != np_) {
         char buf[256];
         sprintf(buf, "For operator &=: np_ (%zu) != other.np_ (%zu)\n", np_, other.np_);
@@ -171,10 +172,7 @@ _STORAGE_ hll_t operator+(const hll_t &one, const hll_t &other) {
 
 // Returns the size of the set intersection
 _STORAGE_ double intersection_size(const hll_t &first, const hll_t &other) {
-    hll_t tmp(first);
-    tmp &= other;
-    tmp.sum();
-    return tmp.report();
+    return first.creport() + other.creport() - hll_t(first + other).report();
 }
 
 _STORAGE_ double intersection_size(hll_t &first, hll_t &other) noexcept {
