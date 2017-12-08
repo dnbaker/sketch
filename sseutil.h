@@ -83,19 +83,13 @@ public:
     pointer
     allocate(size_type n, typename AlignedAllocator<void, Align>::const_pointer = 0)
     {
-#define _STR(x) #x
-#define STR(x) _STR(x)
-#if __cplusplus >= 0x201406L
-//#pragma message("Using aligned_alloc with __cplusplus " STR(__cplusplus))
+#if USE_ALIGNED_ALLOC
         return std::aligned_alloc(n * sizeof(T), static_cast<size_type>(Align));
 #else
-//#pragma message("Not using aligned_alloc with __cplusplus " STR(__cplusplus))
         void *ret;
         int rc(posix_memalign(&ret, static_cast<size_type>(Align), n * sizeof(T)));
         return rc ? nullptr: (pointer)ret;
 #endif
-#undef _STR
-#undef STR
     }
 
     void deallocate(pointer p, size_type) noexcept {free(p);}
@@ -174,7 +168,7 @@ inline void *detail::allocate_aligned_memory(size_t align, size_t size)
     assert(align >= sizeof(void*));
     assert((align & (align - 1)) == 0); // Assert is power of two
     
-#if __cplusplus >= 0x201406L
+#if USE_ALIGNED_ALLOC
     return std::aligned_alloc(size, align);
 #else
     void *ret;
