@@ -217,6 +217,7 @@ public:
     void resize(std::size_t new_size);
     // Getter for is_calculated_
     bool is_ready() const {return is_calculated_;}
+    void not_ready() {is_calculated_ = false;}
 
     bool within_bounds(std::uint64_t actual_size) const {
         return std::abs(actual_size - creport()) < relative_error_ * actual_size;
@@ -225,6 +226,7 @@ public:
     bool within_bounds(std::uint64_t actual_size) {
         return std::abs(actual_size - report()) < est_err();
     }
+    const auto &data() const {return core_;}
 
     void free();
 

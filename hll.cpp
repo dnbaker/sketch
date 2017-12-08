@@ -114,6 +114,7 @@ _STORAGE_ hll_t const &hll_t::operator+=(const hll_t &other) {
 #else
     for(i = 0; i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #endif
+    not_ready();
     return *this;
 }
 
@@ -132,7 +133,9 @@ _STORAGE_ hll_t const &hll_t::operator&=(const hll_t &other) {
 #elif __AVX2__
     __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
     const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_min_epu8(els[i], oels[i]);
+    for(i = 0; i < m_ >> 5; ++i) {
+        els[i] = _mm256_min_epu8(els[i], oels[i]);
+    }
     if(m_ < 32) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
 #elif __SSE2__
     __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
@@ -142,6 +145,7 @@ _STORAGE_ hll_t const &hll_t::operator&=(const hll_t &other) {
 #else
     for(i = 0; i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
 #endif
+    not_ready();
     return *this;
 }
 
@@ -153,27 +157,29 @@ _STORAGE_ double operator^(hll_t &first, hll_t &other) {
 // Returns the set intersection
 _STORAGE_ hll_t operator&(hll_t &first, hll_t &other) {
     hll_t tmp(first);
-    return tmp &= other;
+    tmp &= other;
+    return tmp;
 }
 
 _STORAGE_ hll_t operator+(const hll_t &one, const hll_t &other) {
     if(other.get_np() != one.get_np())
         LOG_EXIT("np_ (%zu) != other.get_np() (%zu)\n", one.get_np(), other.get_np());
     hll_t ret(one);
-    return ret += other;
+    ret += other;
+    return ret;
 }
 
 // Returns the size of the set intersection
 _STORAGE_ double intersection_size(const hll_t &first, const hll_t &other) {
     hll_t tmp(first);
     tmp &= other;
+    tmp.sum();
     return tmp.report();
 }
 
 _STORAGE_ double intersection_size(hll_t &first, hll_t &other) noexcept {
-    hll_t tmp(first);
-    tmp &= other;
-    return tmp.creport();
+    first.sum(); other.sum();
+    return intersection_size((const hll_t &)first, (const hll_t &)other);
 }
 
 // Clears, allows reuse with different np.
@@ -211,13 +217,14 @@ _STORAGE_ void hll_t::free() {
 }
 
 _STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
-    double is(intersection_size(first, other));
-    return is / (first.report() + other.report() - is);
+    first.sum(); other.sum();
+    return jaccard_index((const hll_t &)first, (const hll_t &)other);
 }
 
 _STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
-    double is(intersection_size(first, other));
-    return is / (first.creport() + other.creport() - is);
+    double i(intersection_size(first, other));
+    i = i / (first.creport() + other.creport() - i);
+    return i;
 }
 
 } // namespace hll
