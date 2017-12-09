@@ -132,41 +132,38 @@ class hll_t {
 // (up to 64 leading zeros), though the gains would be relatively small
 // given how memory-efficient this structure is.
 
+#if HAS_AVX_512
+using Allocator = sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX512>;
+#elif __AVX2__
+using Allocator = sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX>;
+#elif __SSE2__
+using Allocator = sse::AlignedAllocator<std::uint8_t, sse::SSE>;
+#else
+using Allocator = std::allocator<std::uint8_t>;
+#endif
 // Attributes
     std::uint32_t np_;
-    std::uint64_t m_;
-#if HAS_AVX_512
-    std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX512>> core_;
-#elif __AVX2__
-#if 0
-#pragma message("Building with avx2")
-#endif
-    std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX>> core_;
-#elif __SSE2__
-#if 0
-#pragma message("Building with sse2")
-#endif
-    std::vector<std::uint8_t, sse::AlignedAllocator<std::uint8_t, sse::Alignment::SSE>> core_;
-#else
-    std::vector<std::uint8_t> core_;
-#endif
+    std::vector<std::uint8_t, Allocator> core_;
     double sum_;
     int is_calculated_:1;
     int      nthreads_:31;
 
-    double alpha()          const {return make_alpha(m_);}
-    double relative_error() const {return 1.03896 / std::sqrt(m_);}
+    double alpha()          const {return make_alpha(m());}
+    double relative_error() const {return 1.03896 / std::sqrt(m());}
+    uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
 
 public:
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
 
-    double small_range_correction_threshold() const {return 2.5 * m_;}
+    double small_range_correction_threshold() const {return 2.5 * m();}
     // Constructor
     explicit hll_t(std::size_t np, int nthreads=-1):
         np_(np),
-        m_(1ull << np),
-        core_(m_, 0),
+        core_(m(), 0),
         sum_(0.), is_calculated_(0), nthreads_(nthreads > 0 ? nthreads: 1) {
+    }
+    hll_t(const char *path) {
+        read(path);
     }
     hll_t(): hll_t(20) {}
 
@@ -231,8 +228,11 @@ public:
     void free();
     void write(FILE *fp);
     void write(const char *path);
+    void read(FILE *fp);
+    void read(const char *path);
 #if _POSIX_VERSION
     void write(int fileno);
+    void read(int fileno);
 #endif
 
     std::size_t get_np() const {return np_;}

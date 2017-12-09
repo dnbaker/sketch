@@ -48,7 +48,7 @@ _STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
     if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
     std::atomic<std::uint64_t> counts[64];
     memset(counts, 0, sizeof counts);
-    parsum_data_t<decltype(core_)> data{counts, core_, m_, pb};
+    parsum_data_t<decltype(core_)> data{counts, core_, m(), pb};
     const std::uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
     kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
     sum_ = 0;
@@ -60,7 +60,7 @@ _STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
 _STORAGE_ double hll_t::creport() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
-    const long double ret(alpha() * m_ * m_ / sum_);
+    const long double ret(alpha() * m() * m() / sum_);
     // Small/large range corrections
     // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
     if(ret < small_range_correction_threshold()) {
@@ -68,8 +68,8 @@ _STORAGE_ double hll_t::creport() const {
         for(const auto i: core_) t += (i == 0);
         if(t) {
             LOG_WARNING("Small value correction. Original estimate %lf. New estimate %lf.\n",
-                        ret, m_ * std::log((double)m_ / t));
-            return m_ * std::log((double)(m_) / t);
+                        ret, m() * std::log((double)m() / t));
+            return m() * std::log((double)(m()) / t);
         }
     } else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
         const long double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
@@ -99,20 +99,20 @@ _STORAGE_ hll_t const &hll_t::operator+=(const hll_t &other) {
 #if HAS_AVX_512
     __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
     const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]);
-    if(m_ < 64) for(;i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i]);
+    for(i = 0; i < m() >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]);
+    if(m() < 64) for(;i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #elif __AVX2__
     __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
     const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 5; ++i) els[i] = _mm256_max_epu8(els[i], oels[i]);
-    if(m_ < 32) for(;i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i]);
+    for(i = 0; i < m() >> 5; ++i) els[i] = _mm256_max_epu8(els[i], oels[i]);
+    if(m() < 32) for(;i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #elif __SSE2__
     __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
     const __m128i *oels(reinterpret_cast<const __m128i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
-    if(m_ < 16) for(; i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i]);
+    for(i = 0; i < m() >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
+    if(m() < 16) for(; i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #else
-    for(i = 0; i < m_; ++i) core_[i] = std::max(core_[i], other.core_[i]);
+    for(i = 0; i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #endif
     not_ready();
     return *this;
@@ -129,22 +129,22 @@ _STORAGE_ hll_t const &hll_t::operator&=(const hll_t &other) {
 #if HAS_AVX_512
     __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
     const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 6; ++i) els[i] = _mm512_min_epu8(els[i], oels[i]);
-    if(m_ < 64) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
+    for(i = 0; i < m() >> 6; ++i) els[i] = _mm512_min_epu8(els[i], oels[i]);
+    if(m() < 64) for(;i < m(); ++i) core_[i] = std::min(core_[i], other.core_[i]);
 #elif __AVX2__
     __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
     const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 5; ++i) {
+    for(i = 0; i < m() >> 5; ++i) {
         els[i] = _mm256_min_epu8(els[i], oels[i]);
     }
-    if(m_ < 32) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
+    if(m() < 32) for(;i < m(); ++i) core_[i] = std::min(core_[i], other.core_[i]);
 #elif __SSE2__
     __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
     const __m128i *oels(reinterpret_cast<const __m128i *>(other.core_.data()));
-    for(i = 0; i < m_ >> 4; ++i) els[i] = _mm_min_epu8(els[i], oels[i]);
-    if(m_ < 16) for(;i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
+    for(i = 0; i < m() >> 4; ++i) els[i] = _mm_min_epu8(els[i], oels[i]);
+    if(m() < 16) for(;i < m(); ++i) core_[i] = std::min(core_[i], other.core_[i]);
 #else
-    for(i = 0; i < m_; ++i) core_[i] = std::min(core_[i], other.core_[i]);
+    for(i = 0; i < m(); ++i) core_[i] = std::min(core_[i], other.core_[i]);
 #endif
     not_ready();
     return *this;
@@ -187,7 +187,6 @@ _STORAGE_ void hll_t::resize(std::size_t new_size) {
     clear();
     core_.resize(new_size);
     np_ = (std::size_t)std::log2(new_size);
-    m_ = new_size;
 }
 
 _STORAGE_ void hll_t::clear() {
@@ -203,7 +202,7 @@ _STORAGE_ std::string hll_t::to_string() const {
 _STORAGE_ std::string hll_t::desc_string() const {
     char buf[1024];
     std::sprintf(buf, "Size: %u. nb: %zu. error: %lf. Is calculated: %s. sum: %lf\n",
-                 np_, m_, relative_error(), is_calculated_ ? "true": "false", sum_);
+                 np_, m(), relative_error(), is_calculated_ ? "true": "false", sum_);
     return buf;
 }
 
@@ -213,13 +212,58 @@ _STORAGE_ void hll_t::free() {
 }
 
 _STORAGE_ void hll_t::write(const int fileno) {
+    int bf[2]{is_calculated_, nthreads_};
+    uint8_t buf[sizeof(sum_) + sizeof(np_) + sizeof(bf)];
+    uint8_t *ptr(buf);
+    std::memcpy(ptr, &np_, sizeof(np_));
+    ptr += sizeof(np_);
+    std::memcpy(ptr, &sum_, sizeof(sum_));
+    ptr += sizeof(sum_);
+    std::memcpy(ptr, bf, sizeof(bf));
+    ptr += sizeof(bf);
+    ::write(fileno, ptr, sizeof(buf));
+    ::write(fileno, core_.data(), core_.size());
 }
+
+_STORAGE_ void hll_t::read(const int fileno) {
+    uint8_t buf[sizeof(double) + sizeof(int) + sizeof(uint32_t)];
+    ::read(fileno, buf, sizeof(buf));
+    uint8_t *ptr(buf);
+    std::memcpy(&np_, ptr, sizeof(np_));
+    ptr += sizeof(np_);
+    std::memcpy(&sum_, ptr, sizeof(sum_));
+    ptr += sizeof(sum_);
+    int bf[2];
+    std::memcpy(bf, ptr, sizeof(bf));
+    ptr += sizeof(bf);
+    is_calculated_ = bf[0];
+    nthreads_ = bf[1];
+    core_.resize(m());
+    ::read(fileno, core_.data(), core_.size());
+}
+
+
 _STORAGE_ void hll_t::write(std::FILE *fp) {
 #if _POSIX_VERSION
     write(fileno(fp));
 #else
     static_assert(false, "Needs posix for now, will write non-posix version later.");
 #endif
+}
+
+_STORAGE_ void hll_t::read(std::FILE *fp) {
+#if _POSIX_VERSION
+    read(fileno(fp));
+#else
+    static_assert(false, "Needs posix for now, will write non-posix version later.");
+#endif
+}
+
+_STORAGE_ void hll_t::read(const char *path) {
+    std::FILE *fp(std::fopen(path, "rb"));
+    if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+    read(fp);
+    std::fclose(fp);
 }
 _STORAGE_ void hll_t::write(const char *path) {
     std::FILE *fp(std::fopen(path, "wb"));
