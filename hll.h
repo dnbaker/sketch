@@ -145,8 +145,8 @@ using Allocator = std::allocator<std::uint8_t>;
     std::uint32_t np_;
     std::vector<std::uint8_t, Allocator> core_;
     double sum_;
-    int is_calculated_:1;
-    int      nthreads_:31;
+    uint32_t is_calculated_:1;
+    uint32_t      nthreads_:31;
 
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(m());}

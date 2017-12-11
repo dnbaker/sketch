@@ -67,14 +67,14 @@ _STORAGE_ double hll_t::creport() const {
         int t(0);
         for(const auto i: core_) t += (i == 0);
         if(t) {
-            LOG_WARNING("Small value correction. Original estimate %lf. New estimate %lf.\n",
+            LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",
                         ret, m() * std::log((double)m() / t));
             return m() * std::log((double)(m()) / t);
         }
     } else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
         const long double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
         if(!isnan(corr)) return corr;
-        LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
+        LOG_DEBUG("Large range correction returned nan. Defaulting to regular calculation.\n");
     }
     return ret;
 }
@@ -212,7 +212,7 @@ _STORAGE_ void hll_t::free() {
 }
 
 _STORAGE_ void hll_t::write(const int fileno) {
-    int bf[2]{is_calculated_, nthreads_};
+    uint32_t bf[2]{is_calculated_, nthreads_};
     uint8_t buf[sizeof(sum_) + sizeof(np_) + sizeof(bf)];
     uint8_t *ptr(buf);
     std::memcpy(ptr, &np_, sizeof(np_));
@@ -233,7 +233,7 @@ _STORAGE_ void hll_t::read(const int fileno) {
     ptr += sizeof(np_);
     std::memcpy(&sum_, ptr, sizeof(sum_));
     ptr += sizeof(sum_);
-    int bf[2];
+    uint32_t bf[2];
     std::memcpy(bf, ptr, sizeof(bf));
     ptr += sizeof(bf);
     is_calculated_ = bf[0];
