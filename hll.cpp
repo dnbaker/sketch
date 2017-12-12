@@ -4,7 +4,9 @@
 
 #include <stdexcept>
 #include <cstring>
+#include <numeric>
 #include <thread>
+#include <cinttypes>
 #include <atomic>
 #include "kthread.h"
 
@@ -19,11 +21,28 @@ using std::isnan;
 
 static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
 
+// Small/large range corrections
+// See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
+#define SUM_CORE \
+    double sum = 0;\
+    for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));\
+    value_ = (alpha() * m() * m() / sum);\
+    if(value_ < small_range_correction_threshold()) {\
+        if(counts[0]) {\
+            LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",\
+                       value_, m() * std::log((double)m() / counts[0]));\
+            value_ = m() * std::log((double)(m()) / counts[0]);\
+        }\
+    } else if(value_ > LARGE_RANGE_CORRECTION_THRESHOLD) {\
+        const long double corr(-TWO_POW_32 * std::log(1. - value_ / TWO_POW_32));\
+        if(!isnan(corr)) value_ = corr;\
+        LOG_DEBUG("Large range correction returned nan. Defaulting to regular calculation.\n");\
+    }
+
 _STORAGE_ void hll_t::sum() {
     std::uint64_t counts[64]{0};
     for(const auto i: core_) ++counts[i];
-    sum_ = 0;
-    for(unsigned i(0); i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
+    SUM_CORE
     is_calculated_ = 1;
 }
 
@@ -47,12 +66,11 @@ _STORAGE_ void parsum_helper(void *data_, long index, int tid) {
 _STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
     if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
     std::atomic<std::uint64_t> counts[64];
-    memset(counts, 0, sizeof counts);
+    std::memset(counts, 0, sizeof counts);
     parsum_data_t<decltype(core_)> data{counts, core_, m(), pb};
     const std::uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
     kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
-    sum_ = 0;
-    for(unsigned i = 0; i < 64; ++i) sum_ += counts[i] * (1. / (1ull << i));
+    SUM_CORE
     is_calculated_ = 1;
 }
 
@@ -60,23 +78,7 @@ _STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
 _STORAGE_ double hll_t::creport() const {
     if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
                                                  " Try the report() function.");
-    const long double ret(alpha() * m() * m() / sum_);
-    // Small/large range corrections
-    // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
-    if(ret < small_range_correction_threshold()) {
-        int t(0);
-        for(const auto i: core_) t += (i == 0);
-        if(t) {
-            LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",
-                        ret, m() * std::log((double)m() / t));
-            return m() * std::log((double)(m()) / t);
-        }
-    } else if(ret > LARGE_RANGE_CORRECTION_THRESHOLD) {
-        const long double corr(-TWO_POW_32 * std::log(1. - ret / TWO_POW_32));
-        if(!isnan(corr)) return corr;
-        LOG_DEBUG("Large range correction returned nan. Defaulting to regular calculation.\n");
-    }
-    return ret;
+    return value_;
 }
 
 _STORAGE_ double hll_t::cest_err() const {
@@ -191,7 +193,7 @@ _STORAGE_ void hll_t::resize(std::size_t new_size) {
 
 _STORAGE_ void hll_t::clear() {
      std::fill(std::begin(core_), std::end(core_), 0u);
-     sum_ = is_calculated_ = 0;
+     value_ = is_calculated_ = 0;
 }
 
 _STORAGE_ std::string hll_t::to_string() const {
@@ -201,8 +203,8 @@ _STORAGE_ std::string hll_t::to_string() const {
 
 _STORAGE_ std::string hll_t::desc_string() const {
     char buf[1024];
-    std::sprintf(buf, "Size: %u. nb: %zu. error: %lf. Is calculated: %s. sum: %lf\n",
-                 np_, m(), relative_error(), is_calculated_ ? "true": "false", sum_);
+    std::sprintf(buf, "Size: %u. nb: %llu. error: %lf. Is calculated: %s. value: %lf\n",
+                 np_, static_cast<long long unsigned int>(m()), relative_error(), is_calculated_ ? "true": "false", value_);
     return buf;
 }
 
@@ -213,12 +215,12 @@ _STORAGE_ void hll_t::free() {
 
 _STORAGE_ void hll_t::write(const int fileno) {
     uint32_t bf[2]{is_calculated_, nthreads_};
-    uint8_t buf[sizeof(sum_) + sizeof(np_) + sizeof(bf)];
+    uint8_t buf[sizeof(value_) + sizeof(np_) + sizeof(bf)];
     uint8_t *ptr(buf);
     std::memcpy(ptr, &np_, sizeof(np_));
     ptr += sizeof(np_);
-    std::memcpy(ptr, &sum_, sizeof(sum_));
-    ptr += sizeof(sum_);
+    std::memcpy(ptr, &value_, sizeof(value_));
+    ptr += sizeof(value_);
     std::memcpy(ptr, bf, sizeof(bf));
     ptr += sizeof(bf);
     ::write(fileno, ptr, sizeof(buf));
@@ -231,8 +233,8 @@ _STORAGE_ void hll_t::read(const int fileno) {
     uint8_t *ptr(buf);
     std::memcpy(&np_, ptr, sizeof(np_));
     ptr += sizeof(np_);
-    std::memcpy(&sum_, ptr, sizeof(sum_));
-    ptr += sizeof(sum_);
+    std::memcpy(&value_, ptr, sizeof(value_));
+    ptr += sizeof(value_);
     uint32_t bf[2];
     std::memcpy(bf, ptr, sizeof(bf));
     ptr += sizeof(bf);
