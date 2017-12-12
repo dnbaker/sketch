@@ -8,8 +8,8 @@ using namespace hll;
 
 PYBIND11_MODULE(_hll, m) {
     m.doc() = "pybind11-powered HyperLogLog"; // optional module docstring
-    py::class_<hll_t> (m, "hll")
-        .def(py::init<size_t>())
+    py::class_<hll_t> (m, "_hll")
+        .def(py::init<size_t, bool>())
         .def("clear", &hll_t::clear, "Clear all entries.")
         .def("resize", &hll_t::resize, "Change old size to a new size.")
         .def("sum", &hll_t::sum, "Add up results.")
