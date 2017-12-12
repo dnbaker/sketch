@@ -26,8 +26,17 @@ static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
 #define SUM_CORE \
     double sum = 0;\
     for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));\
-    value_ = (alpha() * m() * m() / sum);\
-    if(value_ < small_range_correction_threshold()) {\
+    if(use_ertl_) {\
+        double z = m() * detail::gen_tau(static_cast<double>(m()-counts[1 - np_ +1])/static_cast<double>(m()));\
+        for(unsigned k = 1-np_; k; --k) {\
+            z += counts[k];\
+            z *= 0.5;\
+        }\
+        z += m() * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m()));\
+        value_ = (m()/(2.*std::log(2)))*m() / z;\
+        return;\
+    } /* else */ \
+    if((value_ = (alpha() * m() * m() / sum)) < small_range_correction_threshold()) {\
         if(counts[0]) {\
             LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",\
                        value_, m() * std::log((double)m() / counts[0]));\
@@ -214,7 +223,7 @@ _STORAGE_ void hll_t::free() {
 }
 
 _STORAGE_ void hll_t::write(const int fileno) {
-    uint32_t bf[2]{is_calculated_, nthreads_};
+    uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
     uint8_t buf[sizeof(value_) + sizeof(np_) + sizeof(bf)];
     uint8_t *ptr(buf);
     std::memcpy(ptr, &np_, sizeof(np_));
@@ -235,11 +244,10 @@ _STORAGE_ void hll_t::read(const int fileno) {
     ptr += sizeof(np_);
     std::memcpy(&value_, ptr, sizeof(value_));
     ptr += sizeof(value_);
-    uint32_t bf[2];
+    uint32_t bf[3];
     std::memcpy(bf, ptr, sizeof(bf));
     ptr += sizeof(bf);
-    is_calculated_ = bf[0];
-    nthreads_ = bf[1];
+    is_calculated_ = bf[0]; use_ertl_ = bf[1]; nthreads_ = bf[2];
     core_.resize(m());
     ::read(fileno, core_.data(), core_.size());
 }

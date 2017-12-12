@@ -8,6 +8,7 @@
 #include <vector>
 #include "logutil.h"
 #include "sseutil.h"
+#include "util.h"
 #include "math.h"
 #include "unistd.h"
 
@@ -147,7 +148,8 @@ using Allocator = std::allocator<std::uint8_t>;
     std::vector<std::uint8_t, Allocator> core_;
     double value_;
     uint32_t is_calculated_:1;
-    uint32_t      nthreads_:31;
+    uint32_t      use_ertl_:1;
+    uint32_t     nthreads_:30;
 
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(m());}
@@ -158,11 +160,11 @@ public:
 
     double small_range_correction_threshold() const {return 2.5 * m();}
     // Constructor
-    explicit hll_t(std::size_t np, int nthreads=-1):
+    explicit hll_t(std::size_t np, bool use_ertl=false, int nthreads=-1):
         np_(np),
         core_(m(), 0),
-        value_(0.), is_calculated_(0), nthreads_(nthreads > 0 ? nthreads: 1) {
-    }
+        value_(0.), is_calculated_(0), use_ertl_(use_ertl),
+        nthreads_(nthreads > 0 ? nthreads: 1) {}
     hll_t(const char *path) {
         read(path);
     }
