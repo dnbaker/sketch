@@ -27,13 +27,15 @@ static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
     double sum = 0;\
     for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));\
     if(use_ertl_) {\
-        double z = m() * detail::gen_tau(static_cast<double>(m()-counts[1 - np_ +1])/static_cast<double>(m()));\
-        for(unsigned k = 1-np_; k; --k) {\
+        std::fprintf(stderr, "Calculating tau with m = %zu and count = %zu\n", size_t(m()), size_t(counts[64 - np_ + 1]));\
+        double z = m() * detail::gen_tau(static_cast<double>((m()-counts[64 - np_ +1]))/(double)m());\
+        for(unsigned k = 64-np_; k; --k) {\
             z += counts[k];\
             z *= 0.5;\
         }\
-        z += m() * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m()));\
+        z += m() * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m()), eps);\
         value_ = (m()/(2.*std::log(2)))*m() / z;\
+        is_calculated_ = 1;\
         return;\
     } /* else */ \
     if((value_ = (alpha() * m() * m() / sum)) < small_range_correction_threshold()) {\
@@ -46,13 +48,13 @@ static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
         const long double corr(-TWO_POW_32 * std::log(1. - value_ / TWO_POW_32));\
         if(!isnan(corr)) value_ = corr;\
         LOG_DEBUG("Large range correction returned nan. Defaulting to regular calculation.\n");\
-    }
+    }\
+    is_calculated_ = 1;
 
-_STORAGE_ void hll_t::sum() {
+_STORAGE_ void hll_t::sum(double eps) {
     std::uint64_t counts[64]{0};
     for(const auto i: core_) ++counts[i];
     SUM_CORE
-    is_calculated_ = 1;
 }
 
 template<typename CoreType>
@@ -72,15 +74,16 @@ _STORAGE_ void parsum_helper(void *data_, long index, int tid) {
     for(std::uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
 }
 
-_STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
+_STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb, double eps) {
     if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
-    std::atomic<std::uint64_t> counts[64];
-    std::memset(counts, 0, sizeof counts);
-    parsum_data_t<decltype(core_)> data{counts, core_, m(), pb};
+    std::atomic<std::uint64_t> acounts[64];
+    std::memset(acounts, 0, sizeof acounts);
+    parsum_data_t<decltype(core_)> data{acounts, core_, m(), pb};
     const std::uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
     kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
+    std::uint64_t counts[64];
+    std::memcpy(counts, acounts, sizeof(counts));
     SUM_CORE
-    is_calculated_ = 1;
 }
 
 

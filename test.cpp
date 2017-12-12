@@ -61,12 +61,14 @@ int main(int argc, char *argv[]) {
     for(c = optind; c < argc; ++c) vals.push_back(strtoull(argv[c], 0, 10));
     if(vals.empty()) vals.push_back(1ull<<(BITS+1));
     for(const auto val: vals) {
-        hll::hll_t t(BITS);
+        hll::hll_t t(BITS), t2(BITS, true);
 #ifndef THREADSAFE
-        for(size_t i(0); i < val; t.addh(i++));
+        for(size_t i(0); i < val; t.addh(i), t2.addh(i), ++i);
 #else
         kt_data data {t, val, (int)nt};
+        kt_data data2{t2, val, (int)nt};
         kt_for(nt, &kt_helper, &data, (val + nt - 1) / nt);
+        kt_for(nt, &kt_helper, &data2, (val + nt - 1) / nt);
 #endif
         auto start(clock_t::now());
         t.parsum(nt, pb);
@@ -83,6 +85,9 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Quantity: %lf\n", t.report());
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
                 val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false");
+        fprintf(stderr, "Quantity: %lf\n", t2.report());
+        fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
+                val, t2.report(), t2.est_err(), std::abs(val - t2.report()), t2.est_err() >= std::abs(val - t2.report()) ? "true": "false");
     }
 	return EXIT_SUCCESS;
 }

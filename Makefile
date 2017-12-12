@@ -5,7 +5,12 @@ endif
 ifndef CC
 CC=gcc
 endif
-FLAGS=-O3 -funroll-loops -pipe -march=native -mavx2 -I. -fpic -Wall -Wextra -Wdisabled-optimization -Wno-unused-parameter
+ifndef DBG
+DBG=-DNDEBUG
+else
+DBG=
+endif
+FLAGS=-O3 -funroll-loops -pipe -march=native -mavx2 -I. -fpic -Wall -Wextra -Wdisabled-optimization -Wno-unused-parameter $(DBG)
 
 ifneq (,$(findstring g++,$(CXX)))
 	ifeq ($(shell uname),Darwin)
