@@ -171,8 +171,8 @@ public:
     hll_t(): hll_t(20) {}
 
     // Call sum to recalculate if you have changed contents.
-    void sum(double eps=1e-10);
-    void parsum(int nthreads=-1, std::size_t per_batch=1<<18, double eps=1e-10);
+    void sum(double eps=0);
+    void parsum(int nthreads=-1, std::size_t per_batch=1<<18, double eps=0);
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const;

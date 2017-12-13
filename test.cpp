@@ -49,10 +49,12 @@ int main(int argc, char *argv[]) {
     if(argc < 2) usage();
     using clock_t = std::chrono::system_clock;
     unsigned nt(8), pb(1 << 18);
+    double eps(1e-10);
     std::vector<std::uint64_t> vals;
     int c;
-    while((c = getopt(argc, argv, "p:b:h")) >= 0) {
+    while((c = getopt(argc, argv, "e:p:b:h")) >= 0) {
         switch(c) {
+            case 'e': eps = atof(optarg); break;
             case 'p': nt = atoi(optarg); break;
             case 'b': pb = atoi(optarg); break;
             case 'h': case '?': usage();
@@ -71,13 +73,14 @@ int main(int argc, char *argv[]) {
         kt_for(nt, &kt_helper, &data2, (val + nt - 1) / nt);
 #endif
         auto start(clock_t::now());
-        t.parsum(nt, pb);
+        t.parsum(nt, pb, eps);
         auto end(clock_t::now());
         std::chrono::duration<double> timediff(end - start);
         fprintf(stderr, "Time diff: %lf\n", timediff.count());
         fprintf(stderr, "Quantity: %lf\n", t.report());
         auto startsum(clock_t::now());
-        t.sum();
+        t.sum(eps);
+        t2.sum(eps);
         auto endsum(clock_t::now());
         std::chrono::duration<double> timediffsum(endsum - startsum);
         fprintf(stderr, "Time diff not parallel: %lf\n", timediffsum.count());
