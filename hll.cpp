@@ -230,8 +230,9 @@ _STORAGE_ void hll_t::clear() {
 }
 
 _STORAGE_ std::string hll_t::to_string() const {
-    return is_calculated_ ? std::to_string(creport()) + ", +- " + std::to_string(cest_err())
-                          : desc_string();
+    std::string params(std::string("p:") + std::to_string(np_) + ";");
+    return (params + (is_calculated_ ? std::to_string(creport()) + ", +- " + std::to_string(cest_err())
+                          : desc_string()));
 }
 
 _STORAGE_ std::string hll_t::desc_string() const {
@@ -247,31 +248,21 @@ _STORAGE_ void hll_t::free() {
 }
 
 _STORAGE_ void hll_t::write(const int fileno) {
+    std::fprintf(stderr, "Is calc %u. ertl: %u. nthreads: %u\n", is_calculated_, use_ertl_, nthreads_);
     uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
-    uint8_t buf[sizeof(value_) + sizeof(np_) + sizeof(bf)];
-    uint8_t *ptr(buf);
-    std::memcpy(ptr, &np_, sizeof(np_));
-    ptr += sizeof(np_);
-    std::memcpy(ptr, &value_, sizeof(value_));
-    ptr += sizeof(value_);
-    std::memcpy(ptr, bf, sizeof(bf));
-    ptr += sizeof(bf);
-    ::write(fileno, ptr, sizeof(buf));
-    ::write(fileno, core_.data(), core_.size());
+    ::write(fileno, bf, sizeof(bf));
+    ::write(fileno, &np_, sizeof(np_));
+    ::write(fileno, &value_, sizeof(value_));
+    ::write(fileno, core_.data(), core_.size() * sizeof(core_[0]));
 }
 
 _STORAGE_ void hll_t::read(const int fileno) {
-    uint8_t buf[sizeof(double) + sizeof(int) + sizeof(uint32_t)];
-    ::read(fileno, buf, sizeof(buf));
-    uint8_t *ptr(buf);
-    std::memcpy(&np_, ptr, sizeof(np_));
-    ptr += sizeof(np_);
-    std::memcpy(&value_, ptr, sizeof(value_));
-    ptr += sizeof(value_);
     uint32_t bf[3];
-    std::memcpy(bf, ptr, sizeof(bf));
-    ptr += sizeof(bf);
+    ::read(fileno, bf, sizeof(bf));
     is_calculated_ = bf[0]; use_ertl_ = bf[1]; nthreads_ = bf[2];
+    std::fprintf(stderr, "Is calc %u. ertl: %u. nthreads: %u\n", is_calculated_, use_ertl_, nthreads_);
+    ::read(fileno, &np_, sizeof(np_));
+    ::read(fileno, &value_, sizeof(value_));
     core_.resize(m());
     ::read(fileno, core_.data(), core_.size());
 }

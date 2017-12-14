@@ -1,4 +1,4 @@
-.PHONY:all python
+.PHONY:all python clean mostlyclean
 ifndef CXX
 CXX=g++
 endif
@@ -44,5 +44,9 @@ python: _hll.cpython.so
 test: test.cpp hll.o kthread.o
 	$(CXX) $(FLAGS)	-Wno-unused-parameter hll.o kthread.o -pthread $< -o $@
 
+serial_test: serial_test.cpp hll.o kthread.o
+	$(CXX) $(FLAGS)	-Wno-unused-parameter -pthread $< -o $@
+
 clean:
 	rm -f test.o test hll.o kthread.o libhll.a *hll*cpython*so
+mostlyclean: clean
