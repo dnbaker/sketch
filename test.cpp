@@ -39,6 +39,13 @@ void usage() {
     std::exit(EXIT_FAILURE);
 }
 
+void estimate(hll::hll_t &h1, hll::hll_t &h2, hll::dhll_t &h3, std::uint64_t expected) {
+    h1.sum(); h2.sum(); h3.sum();
+    std::fprintf(stderr, "Values\t%lf\t%lf\t%lf\t%" PRIu64 "\n", h1.report(), h2.report(), h3.report(), expected);
+    std::fprintf(stderr, "EstErr\t%lf\t%lf\t%lf\t%" PRIu64 "\n", h1.est_err(), h2.est_err(), h3.est_err(), expected);
+    std::fprintf(stderr, "Err\t%lf\t%lf\t%lf\t%" PRIu64 "\n", std::abs(h1.report() - expected), std::abs(h2.report() - expected), std::abs(h3.report() - expected), expected);
+}
+
 
 /*
  * If no arguments are provided, runs test with 1 << 22 elements.
@@ -62,35 +69,36 @@ int main(int argc, char *argv[]) {
     }
     for(c = optind; c < argc; ++c) vals.push_back(strtoull(argv[c], 0, 10));
     if(vals.empty()) vals.push_back(1ull<<(BITS+1));
+    std::fprintf(stderr, "#Label\th1\th2\th3\n");
     for(const auto val: vals) {
-        hll::hll_t t(BITS), t2(BITS, true);
+        std::fprintf(stderr, "#Value = %" PRIu64 "\n", val);
+        hll::hll_t t(BITS), t2(BITS + 1);
+        hll::dhll_t t3(BITS);
 #ifndef THREADSAFE
-        for(size_t i(0); i < val; t.addh(i), t2.addh(i), ++i);
+        for(size_t i(0); i < val; t.addh(i), t2.addh(i), t3.addh(i), ++i);
 #else
         kt_data data {t, val, (int)nt};
         kt_data data2{t2, val, (int)nt};
+        kt_data data3{t3, val, (int)nt};
         kt_for(nt, &kt_helper, &data, (val + nt - 1) / nt);
         kt_for(nt, &kt_helper, &data2, (val + nt - 1) / nt);
+        kt_for(nt, &kt_helper, &data3, (val + nt - 1) / nt);
 #endif
         auto start(clock_t::now());
-        t.parsum(nt, pb, eps);
+        t.parsum(nt, pb);
         auto end(clock_t::now());
         std::chrono::duration<double> timediff(end - start);
         fprintf(stderr, "Time diff: %lf\n", timediff.count());
         fprintf(stderr, "Quantity: %lf\n", t.report());
         auto startsum(clock_t::now());
-        t.sum(eps);
-        t2.sum(eps);
+        t.sum();
         auto endsum(clock_t::now());
+        t2.sum();
+        t3.sum();
         std::chrono::duration<double> timediffsum(endsum - startsum);
-        fprintf(stderr, "Time diff not parallel: %lf\n", timediffsum.count());
-        fprintf(stderr, "Using %i threads is %4lf%% as fast as 1.\n", nt, timediffsum.count() / timediff.count() * 100.);
-        fprintf(stderr, "Quantity: %lf\n", t.report());
-        fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
-                val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false");
-        fprintf(stderr, "Quantity: %lf\n", t2.report());
-        fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
-                val, t2.report(), t2.est_err(), std::abs(val - t2.report()), t2.est_err() >= std::abs(val - t2.report()) ? "true": "false");
+        //fprintf(stderr, "Time diff not parallel: %lf\n", timediffsum.count());
+        //fprintf(stderr, "Using %i threads is %4lf%% as fast as 1.\n", nt, timediffsum.count() / timediff.count() * 100.);
+        estimate(t, t2, t3, val);
     }
 	return EXIT_SUCCESS;
 }

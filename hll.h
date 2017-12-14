@@ -90,21 +90,32 @@ constexpr INLINE int clz_manual( std::uint64_t x )
 constexpr INLINE unsigned clz(unsigned long long x) {
     return x ? __builtin_clzll(x) : sizeof(x) * CHAR_BIT;
 }
-
 constexpr INLINE unsigned clz(unsigned long x) {
     return x ? __builtin_clzl(x) : sizeof(x) * CHAR_BIT;
+}
+constexpr INLINE unsigned ctz(unsigned long long x) {
+    return x ? __builtin_ctzll(x) : sizeof(x) * CHAR_BIT;
+}
+constexpr INLINE unsigned ctz(unsigned long x) {
+    return x ? __builtin_ctzl(x) : sizeof(x) * CHAR_BIT;
 }
 #else
 constexpr INLINE unsigned clz(unsigned long long x) {
     return __builtin_clzll(x);
 }
-
 constexpr INLINE unsigned clz(unsigned long x) {
     return __builtin_clzl(x);
+}
+constexpr INLINE unsigned ctz(unsigned long long x) {
+    return __builtin_ctzll(x);
+}
+constexpr INLINE unsigned ctz(unsigned long x) {
+    return __builtin_ctzl(x);
 }
 #endif
 #else
 #pragma message("Using manual clz")
+#error("Have not created a manual ctz function. Must be compiled with gcc or clang.")
 #define clz(x) clz_manual(x)
 // https://en.wikipedia.org/wiki/Find_first_set#CLZ
 // Modified for constexpr, added 64-bit overload.
@@ -126,14 +137,6 @@ constexpr double make_alpha(std::size_t m) {
     }
 }
 
-class hll_t {
-// HyperLogLog implementation.
-// To make it general, the actual point of entry is a 64-bit integer hash function.
-// Therefore, you have to perform a hash function to convert various types into a suitable query.
-// We could also cut our memory requirements by switching to only using 6 bits per element,
-// (up to 64 leading zeros), though the gains would be relatively small
-// given how memory-efficient this structure is.
-
 #if HAS_AVX_512
 using Allocator = sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX512>;
 #elif __AVX2__
@@ -143,7 +146,18 @@ using Allocator = sse::AlignedAllocator<std::uint8_t, sse::SSE>;
 #else
 using Allocator = std::allocator<std::uint8_t>;
 #endif
+
+
+class hll_t {
+// HyperLogLog implementation.
+// To make it general, the actual point of entry is a 64-bit integer hash function.
+// Therefore, you have to perform a hash function to convert various types into a suitable query.
+// We could also cut our memory requirements by switching to only using 6 bits per element,
+// (up to 64 leading zeros), though the gains would be relatively small
+// given how memory-efficient this structure is.
+
 // Attributes
+protected:
     std::uint32_t np_;
     std::vector<std::uint8_t, Allocator> core_;
     double value_;
@@ -151,16 +165,13 @@ using Allocator = std::allocator<std::uint8_t>;
     uint32_t      use_ertl_:1;
     uint32_t     nthreads_:30;
 
-    double alpha()          const {return make_alpha(m());}
-    double relative_error() const {return 1.03896 / std::sqrt(m());}
-    uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
 
 public:
-    static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
-
-    double small_range_correction_threshold() const {return 2.5 * m();}
+    uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
+    double alpha()          const {return make_alpha(m());}
+    double relative_error() const {return 1.03896 / std::sqrt(m());}
     // Constructor
-    explicit hll_t(std::size_t np, bool use_ertl=false, int nthreads=-1):
+    explicit hll_t(std::size_t np, bool use_ertl=true, int nthreads=-1):
         np_(np),
         core_(m(), 0),
         value_(0.), is_calculated_(0), use_ertl_(use_ertl),
@@ -171,8 +182,8 @@ public:
     hll_t(): hll_t(20) {}
 
     // Call sum to recalculate if you have changed contents.
-    void sum(double eps=0);
-    void parsum(int nthreads=-1, std::size_t per_batch=1<<18, double eps=0);
+    void sum();
+    void parsum(int nthreads=-1, std::size_t per_batch=1<<18);
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const;
@@ -216,8 +227,10 @@ public:
     // Clears, allows reuse with different np.
     void resize(std::size_t new_size);
     // Getter for is_calculated_
+    bool use_ertl() const {return use_ertl_;}
     bool is_ready() const {return is_calculated_;}
     void not_ready() {is_calculated_ = false;}
+    void set_is_ready() {is_calculated_ = true;}
 
     bool within_bounds(std::uint64_t actual_size) const {
         return std::abs(actual_size - creport()) < relative_error() * actual_size;
@@ -228,6 +241,7 @@ public:
     }
     const auto &data() const {return core_;}
 
+    auto p() const {return np_;}
     void free();
     void write(FILE *fp);
     void write(const char *path);
@@ -239,6 +253,32 @@ public:
 #endif
 
     std::size_t get_np() const {return np_;}
+};
+
+class dhll_t: public hll_t {
+    // dhll_t is a bidirectional hll sketch which does not currently support set operations
+    // It is based on the idea that the properties of a hll sketch work for both leading and trailing zeros and uses them as independent samples.
+    std::vector<std::uint8_t, Allocator> dcore_;
+public:
+    template<typename... Args>
+    dhll_t(Args &&...args): hll_t(std::forward<Args>(args)...),
+                            dcore_(1ull << hll_t::p()) {
+    }
+    void sum();
+    void add(std::uint64_t hashval) {
+        hll_t::add(hashval);
+#ifndef NOT_THREADSAFE
+        for(const std::uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
+            dcore_[index] < lzt;
+            __sync_bool_compare_and_swap(dcore_.data() + index, dcore_[index], lzt));
+#else
+        const std::uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
+        if(dcore_[index] < lzt) dcore_[index] = lzt;
+#endif
+    }
+    void addh(std::uint64_t element) {
+        add(wang_hash(element));
+    }
 };
 
 // Returns the size of a symmetric set difference.

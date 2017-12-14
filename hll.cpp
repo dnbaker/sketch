@@ -17,44 +17,64 @@
 #endif
 
 namespace hll {
+
+namespace detail {
+    static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
+    static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
+    static double small_range_correction_threshold(std::uint64_t m) {return 2.5 * m;}
+};
 using std::isnan;
 
-static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
+double calculate_estimate(std::uint64_t *counts,
+                          bool use_ertl, std::uint64_t m, std::uint32_t p, double alpha) {
+    double sum = 0, value;
+    for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
+    if(use_ertl) {
+#if 0
+        std::fprintf(stderr, "Calculating tau with m = %zu and count = %zu, p = %u\n",
+                     size_t(m), size_t(counts[64 - p + 1]), p);
+#endif
+        double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
+        for(unsigned k = 64-p; k; --k) {
+            z += counts[k];
+            z *= 0.5;
+        }
+        z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
+        return (m/(2.*std::log(2)))*m / z;
+    } /* else */ 
+    // Small/large range corrections
+    // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
+    if((value = (alpha * m * m / sum)) < detail::small_range_correction_threshold(m)) {
+        if(counts[0]) {
+            LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",
+                       value, m * std::log((double)m / counts[0]));
+            value = m * std::log((double)(m) / counts[0]);
+        }
+    } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
+        const long double corr(-detail::TWO_POW_32 * std::log(1. - value / detail::TWO_POW_32));
+        if(!isnan(corr)) value = corr;
+        LOG_DEBUG("Large range correction returned nan. Defaulting to regular calculation.\n");
+    }
+    return value;
+}
 
-// Small/large range corrections
-// See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
-#define SUM_CORE \
-    double sum = 0;\
-    for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));\
-    if(use_ertl_) {\
-        std::fprintf(stderr, "Calculating tau with m = %zu and count = %zu\n", size_t(m()), size_t(counts[64 - np_ + 1]));\
-        double z = m() * detail::gen_tau(static_cast<double>((m()-counts[64 - np_ +1]))/(double)m());\
-        for(unsigned k = 64-np_; k; --k) {\
-            z += counts[k];\
-            z *= 0.5;\
-        }\
-        z += m() * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m()), eps);\
-        value_ = (m()/(2.*std::log(2)))*m() / z;\
-        is_calculated_ = 1;\
-        return;\
-    } /* else */ \
-    if((value_ = (alpha() * m() * m() / sum)) < small_range_correction_threshold()) {\
-        if(counts[0]) {\
-            LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",\
-                       value_, m() * std::log((double)m() / counts[0]));\
-            value_ = m() * std::log((double)(m()) / counts[0]);\
-        }\
-    } else if(value_ > LARGE_RANGE_CORRECTION_THRESHOLD) {\
-        const long double corr(-TWO_POW_32 * std::log(1. - value_ / TWO_POW_32));\
-        if(!isnan(corr)) value_ = corr;\
-        LOG_DEBUG("Large range correction returned nan. Defaulting to regular calculation.\n");\
-    }\
-    is_calculated_ = 1;
+#if !NDEBUG
+template<typename T>
+std::string arrstr(T it, T it2) {
+    std::string ret;
+    for(auto i(it); i != it2; ++i) ret += "," + std::to_string(*i);
+    return ret;
+}
+#endif
 
-_STORAGE_ void hll_t::sum(double eps) {
-    std::uint64_t counts[64]{0};
+
+_STORAGE_ void hll_t::sum() {
+    std::uint64_t counts[65]{0};
     for(const auto i: core_) ++counts[i];
-    SUM_CORE
+    // Think about making a table of size 4096 and looking up two values at a time.
+    value_ = calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+    std::fprintf(stderr, "value: %lf\n", value_);
+    is_calculated_ = 1;
 }
 
 template<typename CoreType>
@@ -68,22 +88,23 @@ struct parsum_data_t {
 template<typename CoreType>
 _STORAGE_ void parsum_helper(void *data_, long index, int tid) {
     parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
-    std::uint64_t local_counts[64]{0};
+    std::uint64_t local_counts[65]{0};
     for(std::uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++i)
         ++local_counts[data.core_[i]];
-    for(std::uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
+    for(std::uint64_t i = 0; i < 65ull; ++i) data.counts_[i] += local_counts[i];
 }
 
-_STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb, double eps) {
+_STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
     if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
-    std::atomic<std::uint64_t> acounts[64];
+    std::atomic<std::uint64_t> acounts[65];
     std::memset(acounts, 0, sizeof acounts);
     parsum_data_t<decltype(core_)> data{acounts, core_, m(), pb};
     const std::uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
     kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
-    std::uint64_t counts[64];
+    std::uint64_t counts[65];
     std::memcpy(counts, acounts, sizeof(counts));
-    SUM_CORE
+    value_ = calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+    is_calculated_ = 1;
 }
 
 
@@ -294,6 +315,20 @@ _STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
     double i(intersection_size(first, other));
     i = i / (first.creport() + other.creport() - i);
     return i;
+}
+
+_STORAGE_ void dhll_t::sum() {
+    std::uint64_t fcounts[65]{0};
+    std::uint64_t rcounts[65]{0};
+    const auto &core(hll_t::data());
+    for(size_t i(0); i < core.size(); ++i) {
+        ++fcounts[core[i]]; ++rcounts[dcore_[i]];
+    }
+    double forward_val = calculate_estimate(fcounts, use_ertl(), m(), np_, alpha());
+    double reverse_val = calculate_estimate(rcounts, use_ertl(), m(), np_, alpha());
+    value_ = (forward_val + reverse_val)*0.5;
+    std::fprintf(stderr, "Forward %lf. Reverse: %lf. Mean: %lf.\n", forward_val, reverse_val, value_);
+    is_calculated_ = 1;
 }
 
 
