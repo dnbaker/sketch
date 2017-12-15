@@ -61,12 +61,10 @@ int main(int argc, char *argv[]) {
     if(argc < 2) usage();
     using clock_t = std::chrono::system_clock;
     unsigned nt(8), pb(1 << 15);
-    double eps(1e-10);
     std::vector<std::uint64_t> vals;
     int c;
     while((c = getopt(argc, argv, "e:p:b:h")) >= 0) {
         switch(c) {
-            case 'e': eps = atof(optarg); break;
             case 'p': nt = atoi(optarg); break;
             case 'b': pb = atoi(optarg); break;
             case 'h': case '?': usage();
