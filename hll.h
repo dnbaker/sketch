@@ -245,8 +245,10 @@ public:
     void free();
     void write(FILE *fp);
     void write(const char *path);
+    void write(const std::string &path) {write(path.data());}
     void read(FILE *fp);
     void read(const char *path);
+    void read(const std::string &path) {read(path.data());}
 #if _POSIX_VERSION
     void write(int fileno);
     void read(int fileno);

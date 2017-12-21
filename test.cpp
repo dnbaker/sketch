@@ -60,7 +60,6 @@ int main(int argc, char *argv[]) {
     int c;
     while((c = getopt(argc, argv, "e:p:b:h")) >= 0) {
         switch(c) {
-            case 'e': eps = atof(optarg); break;
             case 'p': nt = atoi(optarg); break;
             case 'b': pb = atoi(optarg); break;
             case 'h': case '?': usage();
