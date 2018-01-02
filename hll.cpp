@@ -22,11 +22,11 @@ namespace detail {
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
     static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
     static double small_range_correction_threshold(std::uint64_t m) {return 2.5 * m;}
-};
+}
 using std::isnan;
 
-double calculate_estimate(std::uint64_t *counts,
-                          bool use_ertl, std::uint64_t m, std::uint32_t p, double alpha) {
+static inline double calculate_estimate(std::uint64_t *counts,
+                                        bool use_ertl, std::uint64_t m, std::uint32_t p, double alpha) {
     double sum = 0, value;
     for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
     if(use_ertl) {
