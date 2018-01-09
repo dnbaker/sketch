@@ -258,6 +258,8 @@ public:
 };
 
 class hlldub_t: public hll_t {
+    // hlldub_t inserts each value twice (forward and reverse)
+    // and simply halves cardinality estimates.
 public:
     template<typename... Args>
     hlldub_t(Args &&...args): hll_t(std::forward<Args>(args)...) {}
