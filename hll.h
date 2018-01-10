@@ -227,7 +227,8 @@ public:
     // Clears, allows reuse with different np.
     void resize(std::size_t new_size);
     // Getter for is_calculated_
-    bool use_ertl() const {return use_ertl_;}
+    bool get_use_ertl() const {return use_ertl_;}
+    void set_use_ertl(bool val) {use_ertl_ = val;}
     bool is_ready() const {return is_calculated_;}
     void not_ready() {is_calculated_ = false;}
     void set_is_ready() {is_calculated_ = true;}
