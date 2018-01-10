@@ -71,9 +71,6 @@ std::string arrstr(T it, T it2) {
 _STORAGE_ void hll_t::sum() {
     std::uint64_t counts[65]{0};
     for(const auto i: core_) ++counts[i];
-#if !NDEBUG
-    std::fprintf(stderr, "Str: %s\n", arrstr(std::begin(counts), std::end(counts)).data());
-#endif
     // Think about making a table of size 4096 and looking up two values at a time.
     value_ = calculate_estimate(counts, use_ertl_, m(), np_, alpha());
     is_calculated_ = 1;
@@ -318,8 +315,8 @@ _STORAGE_ void dhll_t::sum() {
     for(size_t i(0); i < core.size(); ++i) {
         ++fcounts[core[i]]; ++rcounts[dcore_[i]];
     }
-    double forward_val = calculate_estimate(fcounts, use_ertl(), m(), np_, alpha());
-    double reverse_val = calculate_estimate(rcounts, use_ertl(), m(), np_, alpha());
+    double forward_val = calculate_estimate(fcounts, use_ertl_, m(), np_, alpha());
+    double reverse_val = calculate_estimate(rcounts, use_ertl_, m(), np_, alpha());
     value_ = (forward_val + reverse_val)*0.5;
     is_calculated_ = 1;
 }
