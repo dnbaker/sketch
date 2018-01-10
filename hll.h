@@ -259,6 +259,35 @@ public:
     std::size_t get_np() const {return np_;}
 };
 
+class hlldub_t: public hll_t {
+    // hlldub_t inserts each value twice (forward and reverse)
+    // and simply halves cardinality estimates.
+public:
+    template<typename... Args>
+    hlldub_t(Args &&...args): hll_t(std::forward<Args>(args)...) {}
+    INLINE void add(std::uint64_t hashval) {
+        hll_t::add(hashval);
+#ifndef NOT_THREADSAFE
+        for(const std::uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
+            core_[index] < lzt;
+            __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
+#else
+        const std::uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
+        if(core_[index] < lzt) core_[index] = lzt;
+#endif
+    }
+    double report() {
+        sum();
+        return hll_t::report() * 0.5;
+    }
+    double creport() {
+        return hll_t::creport() * 0.5;
+    }
+
+    INLINE void addh(std::uint64_t element) {add(wang_hash(element));}
+
+};
+
 class dhll_t: public hll_t {
     // dhll_t is a bidirectional hll sketch which does not currently support set operations
     // It is based on the idea that the properties of a hll sketch work for both leading and trailing zeros and uses them as independent samples.
