@@ -251,7 +251,6 @@ _STORAGE_ void hll_t::free() {
 
 _STORAGE_ void hll_t::write(const int fileno) {
     uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
-    std::fprintf(stderr, "Writing is calc %u. ertl: %u. nthreads: %u\n", is_calculated_, use_ertl_, nthreads_);
     ::write(fileno, bf, sizeof(bf));
     ::write(fileno, &np_, sizeof(np_));
     ::write(fileno, &value_, sizeof(value_));
@@ -262,7 +261,6 @@ _STORAGE_ void hll_t::read(const int fileno) {
     uint32_t bf[3];
     ::read(fileno, bf, sizeof(bf));
     is_calculated_ = bf[0]; use_ertl_ = bf[1]; nthreads_ = bf[2];
-    std::fprintf(stderr, "Reading is calc %u. ertl: %u. nthreads: %u\n", is_calculated_, use_ertl_, nthreads_);
     ::read(fileno, &np_, sizeof(np_));
     ::read(fileno, &value_, sizeof(value_));
     core_.resize(m());
