@@ -233,7 +233,6 @@ public:
     bool is_ready() const {return is_calculated_;}
     void not_ready() {is_calculated_ = false;}
     void set_is_ready() {is_calculated_ = true;}
-    void set_use_ertl(bool val) {use_ertl_ = val;}
 
     bool within_bounds(std::uint64_t actual_size) const {
         return std::abs(actual_size - creport()) < relative_error() * actual_size;
