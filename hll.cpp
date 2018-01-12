@@ -197,8 +197,8 @@ _STORAGE_ hll_t operator&(hll_t &first, hll_t &other) {
 }
 
 _STORAGE_ hll_t operator+(const hll_t &one, const hll_t &other) {
-    if(other.get_np() != one.get_np())
-        LOG_EXIT("np_ (%zu) != other.get_np() (%zu)\n", one.get_np(), other.get_np());
+    if(other.p() != one.p())
+        LOG_EXIT("p (%zu) != other.p (%zu)\n", one.p(), other.p());
     hll_t ret(one);
     ret += other;
     return ret;

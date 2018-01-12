@@ -256,7 +256,7 @@ public:
     void read(int fileno);
 #endif
 
-    std::size_t get_np() const {return np_;}
+    std::size_t size() const {return size_t(1) << np_;}
 };
 
 class hlldub_t: public hll_t {
