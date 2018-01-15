@@ -87,34 +87,29 @@ constexpr INLINE int clz_manual( std::uint64_t x )
 // I'd expect that this is acceptable. And on Haswell+, this value is the correct value.
 #if __GNUC__ || __clang__
 #ifdef AVOID_CLZ_UNDEF
-constexpr INLINE unsigned clz(unsigned long long x) {
-    return x ? __builtin_clzll(x) : sizeof(x) * CHAR_BIT;
-}
-constexpr INLINE unsigned clz(unsigned long x) {
-    return x ? __builtin_clzl(x) : sizeof(x) * CHAR_BIT;
-}
-constexpr INLINE unsigned ctz(unsigned long long x) {
-    return x ? __builtin_ctzll(x) : sizeof(x) * CHAR_BIT;
-}
-constexpr INLINE unsigned ctz(unsigned long x) {
-    return x ? __builtin_ctzl(x) : sizeof(x) * CHAR_BIT;
-}
+#define DEF_CHECK(fn) x ? fn(x) : sizeof(x) * CHAR_BIT
 #else
-constexpr INLINE unsigned clz(unsigned long long x) {
-    return __builtin_clzll(x);
-}
-constexpr INLINE unsigned clz(unsigned long x) {
-    return __builtin_clzl(x);
-}
-constexpr INLINE unsigned ctz(unsigned long long x) {
-    return __builtin_ctzll(x);
-}
-constexpr INLINE unsigned ctz(unsigned long x) {
-    return __builtin_ctzl(x);
-}
+#define DEF_CHECK(fn) fn(x)
 #endif
+
+constexpr INLINE unsigned clz(unsigned long long x) {
+    return DEF_CHECK(__builtin_clzll);
+}
+constexpr INLINE unsigned clz(unsigned long x) {
+    return DEF_CHECK(__builtin_clzl);
+}
+constexpr INLINE unsigned ctz(unsigned long long x) {
+    return DEF_CHECK(__builtin_ctzll);
+}
+constexpr INLINE unsigned ctz(unsigned long x) {
+    return DEF_CHECK(__builtin_ctzl);
+}
+constexpr INLINE unsigned ctz(unsigned x) {
+    return DEF_CHECK(__builtin_ctz);
+}
+#undef DEF_CHECK
 #else
-#pragma message("Using manual clz")
+#pragma message("Using manual clz instead of gcc/clang __builtin_*")
 #error("Have not created a manual ctz function. Must be compiled with gcc or clang.")
 #define clz(x) clz_manual(x)
 // https://en.wikipedia.org/wiki/Find_first_set#CLZ
