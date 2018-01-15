@@ -98,6 +98,9 @@ constexpr INLINE unsigned clz(unsigned long long x) {
 constexpr INLINE unsigned clz(unsigned long x) {
     return DEF_CHECK(__builtin_clzl);
 }
+constexpr INLINE unsigned clz(unsigned x) {
+    return DEF_CHECK(__builtin_clz);
+}
 constexpr INLINE unsigned ctz(unsigned long long x) {
     return DEF_CHECK(__builtin_ctzll);
 }
