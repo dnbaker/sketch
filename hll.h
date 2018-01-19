@@ -25,12 +25,17 @@
 
 namespace hll {
 
+using std::uint64_t;
+using std::uint32_t;
+using std::uint8_t;
+using std::size_t;
+
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
 // This is our core 64-bit hash.
 // It has a 1-1 mapping from any one 64-bit integer to another
 // and can be inverted with irving_inv_hash.
-static INLINE std::uint64_t wang_hash(std::uint64_t key) noexcept {
+static INLINE uint64_t wang_hash(uint64_t key) noexcept {
   key = (~key) + (key << 21); // key = (key << 21) - key - 1;
   key = key ^ (key >> 24);
   key = (key + (key << 3)) + (key << 8); // key * 265
@@ -41,7 +46,7 @@ static INLINE std::uint64_t wang_hash(std::uint64_t key) noexcept {
   return key;
 }
 
-static INLINE std::uint64_t roundup64(std::size_t x) noexcept {
+static INLINE uint64_t roundup64(size_t x) noexcept {
     --x;
     x |= x >> 1;
     x |= x >> 2;
@@ -60,7 +65,7 @@ static INLINE std::uint64_t roundup64(std::size_t x) noexcept {
         case 4: case 5: case 6: case 7: x += 1; break;\
     }} while(0)
 
-constexpr INLINE int clz_manual( std::uint32_t x )
+constexpr INLINE int clz_manual( uint32_t x )
 {
   int n(0);
   if ((x & 0xFFFF0000) == 0) {n  = 16; x <<= 16;}
@@ -71,7 +76,7 @@ constexpr INLINE int clz_manual( std::uint32_t x )
 }
 
 // Overload
-constexpr INLINE int clz_manual( std::uint64_t x )
+constexpr INLINE int clz_manual( uint64_t x )
 {
   int n(0);
   if ((x & 0xFFFFFFFF00000000ull) == 0) {n  = 32; x <<= 32;}
@@ -126,7 +131,7 @@ static_assert(clz(0x0000000000000003ull) == 62, "64-bit clz hand-rolled failed."
 static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz hand-rolled failed.");
 
 
-constexpr double make_alpha(std::size_t m) {
+constexpr double make_alpha(size_t m) {
     switch(m) {
         case 16: return .673;
         case 32: return .697;
@@ -136,13 +141,13 @@ constexpr double make_alpha(std::size_t m) {
 }
 
 #if HAS_AVX_512
-using Allocator = sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX512>;
+using Allocator = sse::AlignedAllocator<uint8_t, sse::Alignment::AVX512>;
 #elif __AVX2__
-using Allocator = sse::AlignedAllocator<std::uint8_t, sse::Alignment::AVX>;
+using Allocator = sse::AlignedAllocator<uint8_t, sse::Alignment::AVX>;
 #elif __SSE2__
-using Allocator = sse::AlignedAllocator<std::uint8_t, sse::SSE>;
+using Allocator = sse::AlignedAllocator<uint8_t, sse::Alignment::SSE>;
 #else
-using Allocator = std::allocator<std::uint8_t>;
+using Allocator = std::allocator<uint8_t>;
 #endif
 
 
@@ -156,8 +161,8 @@ class hll_t {
 
 // Attributes
 protected:
-    std::uint32_t np_;
-    std::vector<std::uint8_t, Allocator> core_;
+    uint32_t np_;
+    std::vector<uint8_t, Allocator> core_;
     double value_;
     uint32_t is_calculated_:1;
     uint32_t      use_ertl_:1;
@@ -169,7 +174,7 @@ public:
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(m());}
     // Constructor
-    explicit hll_t(std::size_t np, bool use_ertl=true, int nthreads=-1):
+    explicit hll_t(size_t np, bool use_ertl=true, int nthreads=-1):
         np_(np),
         core_(m(), 0),
         value_(0.), is_calculated_(0), use_ertl_(use_ertl),
@@ -182,7 +187,7 @@ public:
 
     // Call sum to recalculate if you have changed contents.
     void sum();
-    void parsum(int nthreads=-1, std::size_t per_batch=1<<18);
+    void parsum(int nthreads=-1, size_t per_batch=1<<18);
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const;
@@ -200,18 +205,18 @@ public:
     // Descriptive string.
     std::string desc_string() const;
 
-    INLINE void add(std::uint64_t hashval) {
+    INLINE void add(uint64_t hashval) {
 #ifndef NOT_THREADSAFE
-        for(const std::uint32_t index(hashval >> (64u - np_)), lzt(clz(hashval << np_) + 1);
+        for(const uint32_t index(hashval >> (64u - np_)), lzt(clz(hashval << np_) + 1);
             core_[index] < lzt;
             __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
 #else
-        const std::uint32_t index(hashval >> (64u - np_)), lzt(clz(hashval << np_) + 1);
+        const uint32_t index(hashval >> (64u - np_)), lzt(clz(hashval << np_) + 1);
         if(core_[index] < lzt) core_[index] = lzt;
 #endif
     }
 
-    INLINE void addh(std::uint64_t element) {add(wang_hash(element));}
+    INLINE void addh(uint64_t element) {add(wang_hash(element));}
 
     // Reset.
     void clear();
@@ -224,7 +229,7 @@ public:
     hll_t const &operator&=(const hll_t &other);
 
     // Clears, allows reuse with different np.
-    void resize(std::size_t new_size);
+    void resize(size_t new_size);
     // Getter for is_calculated_
     bool get_use_ertl() const {return use_ertl_;}
     void set_use_ertl(bool val) {use_ertl_ = val;}
@@ -232,11 +237,11 @@ public:
     void not_ready() {is_calculated_ = false;}
     void set_is_ready() {is_calculated_ = true;}
 
-    bool within_bounds(std::uint64_t actual_size) const {
+    bool within_bounds(uint64_t actual_size) const {
         return std::abs(actual_size - creport()) < relative_error() * actual_size;
     }
 
-    bool within_bounds(std::uint64_t actual_size) {
+    bool within_bounds(uint64_t actual_size) {
         return std::abs(actual_size - report()) < est_err();
     }
     const auto &data() const {return core_;}
@@ -254,7 +259,7 @@ public:
     void read(int fileno);
 #endif
 
-    std::size_t size() const {return size_t(1) << np_;}
+    size_t size() const {return size_t(1) << np_;}
 };
 
 class hlldub_t: public hll_t {
@@ -263,14 +268,14 @@ class hlldub_t: public hll_t {
 public:
     template<typename... Args>
     hlldub_t(Args &&...args): hll_t(std::forward<Args>(args)...) {}
-    INLINE void add(std::uint64_t hashval) {
+    INLINE void add(uint64_t hashval) {
         hll_t::add(hashval);
 #ifndef NOT_THREADSAFE
-        for(const std::uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
+        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
             core_[index] < lzt;
             __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
 #else
-        const std::uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
+        const uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
         if(core_[index] < lzt) core_[index] = lzt;
 #endif
     }
@@ -282,32 +287,32 @@ public:
         return hll_t::creport() * 0.5;
     }
 
-    INLINE void addh(std::uint64_t element) {add(wang_hash(element));}
+    INLINE void addh(uint64_t element) {add(wang_hash(element));}
 
 };
 
 class dhll_t: public hll_t {
     // dhll_t is a bidirectional hll sketch which does not currently support set operations
     // It is based on the idea that the properties of a hll sketch work for both leading and trailing zeros and uses them as independent samples.
-    std::vector<std::uint8_t, Allocator> dcore_;
+    std::vector<uint8_t, Allocator> dcore_;
 public:
     template<typename... Args>
     dhll_t(Args &&...args): hll_t(std::forward<Args>(args)...),
                             dcore_(1ull << hll_t::p()) {
     }
     void sum();
-    void add(std::uint64_t hashval) {
+    void add(uint64_t hashval) {
         hll_t::add(hashval);
 #ifndef NOT_THREADSAFE
-        for(const std::uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
+        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
             dcore_[index] < lzt;
             __sync_bool_compare_and_swap(dcore_.data() + index, dcore_[index], lzt));
 #else
-        const std::uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
+        const uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
         if(dcore_[index] < lzt) dcore_[index] = lzt;
 #endif
     }
-    void addh(std::uint64_t element) {
+    void addh(uint64_t element) {
         add(wang_hash(element));
     }
 };

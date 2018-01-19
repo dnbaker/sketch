@@ -21,27 +21,21 @@ namespace hll {
 namespace detail {
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
     static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
-    static double small_range_correction_threshold(std::uint64_t m) {return 2.5 * m;}
+    static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 }
 using std::isnan;
 
-static inline double calculate_estimate(std::uint64_t *counts,
-                                        bool use_ertl, std::uint64_t m, std::uint32_t p, double alpha) {
+static inline double calculate_estimate(uint64_t *counts,
+                                        bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
     double sum = 0, value;
     for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
     if(use_ertl) {
-#if 0
-        std::fprintf(stderr, "Calculating tau with m = %zu and count = %zu, p = %u\n",
-                     size_t(m), size_t(counts[64 - p + 1]), p);
-#endif
         double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
-        for(unsigned k = 64-p; k; --k) {
-            z += counts[k];
-            z *= 0.5;
-        }
+        for(unsigned k = 64-p; k; z += counts[k--], z *= 0.5);
         z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
         return (m/(2.*std::log(2)))*m / z;
-    } /* else */ 
+    }
+    /* else */
     // Small/large range corrections
     // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
     if((value = (alpha * m * m / sum)) < detail::small_range_correction_threshold(m)) {
@@ -69,7 +63,7 @@ std::string arrstr(T it, T it2) {
 
 
 _STORAGE_ void hll_t::sum() {
-    std::uint64_t counts[65]{0};
+    uint64_t counts[65]{0};
     for(const auto i: core_) ++counts[i];
     // Think about making a table of size 4096 and looking up two values at a time.
     value_ = calculate_estimate(counts, use_ertl_, m(), np_, alpha());
@@ -78,29 +72,28 @@ _STORAGE_ void hll_t::sum() {
 
 template<typename CoreType>
 struct parsum_data_t {
-    std::atomic<std::uint64_t> *counts_; // Array decayed to pointer.
+    std::atomic<uint64_t> *counts_; // Array decayed to pointer.
     const CoreType               &core_;
-    const std::uint64_t              l_;
-    const std::uint64_t             pb_; // Per-batch
+    const uint64_t              l_;
+    const uint64_t             pb_; // Per-batch
 };
 
 template<typename CoreType>
 _STORAGE_ void parsum_helper(void *data_, long index, int tid) {
     parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
-    std::uint64_t local_counts[65]{0};
-    for(std::uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++i)
-        ++local_counts[data.core_[i]];
-    for(std::uint64_t i = 0; i < 65ull; ++i) data.counts_[i] += local_counts[i];
+    uint64_t local_counts[65]{0};
+    for(uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++local_counts[data.core_[i++]]);
+    for(uint64_t i = 0; i < 65ull; ++i) data.counts_[i] += local_counts[i];
 }
 
 _STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
     if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
-    std::atomic<std::uint64_t> acounts[65];
+    std::atomic<uint64_t> acounts[65];
     std::memset(acounts, 0, sizeof acounts);
     parsum_data_t<decltype(core_)> data{acounts, core_, m(), pb};
-    const std::uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
+    const uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
     kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
-    std::uint64_t counts[65];
+    uint64_t counts[65];
     std::memcpy(counts, acounts, sizeof(counts));
     value_ = calculate_estimate(counts, use_ertl_, m(), np_, alpha());
     is_calculated_ = 1;
@@ -235,7 +228,7 @@ _STORAGE_ std::string hll_t::to_string() const {
 }
 
 _STORAGE_ std::string hll_t::desc_string() const {
-    char buf[1024];
+    char buf[512];
     std::sprintf(buf, "Size: %u. nb: %llu. error: %lf. Is calculated: %s. value: %lf\n",
                  np_, static_cast<long long unsigned int>(m()), relative_error(), is_calculated_ ? "true": "false", value_);
     return buf;
@@ -302,15 +295,12 @@ _STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
 _STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
     double i(intersection_size(first, other));
     i = i / (first.creport() + other.creport() - i);
-#if !NDEBUG
-    std::fprintf(stderr, "Size 1: %lf. Size 2: %lf. Jaccard: %lf\n", first.creport(), other.creport(), i);
-#endif
     return i;
 }
 
 _STORAGE_ void dhll_t::sum() {
-    std::uint64_t fcounts[65]{0};
-    std::uint64_t rcounts[65]{0};
+    uint64_t fcounts[65]{0};
+    uint64_t rcounts[65]{0};
     const auto &core(hll_t::data());
     for(size_t i(0); i < core.size(); ++i) {
         ++fcounts[core[i]]; ++rcounts[dcore_[i]];
