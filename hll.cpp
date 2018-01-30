@@ -201,7 +201,7 @@ _STORAGE_ hll_t operator+(const hll_t &one, const hll_t &other) {
 _STORAGE_ double intersection_size(const hll_t &first, const hll_t &other, hll_t &scratch) {
     scratch = first;
     scratch += other;
-    return first.creport() + other.creport() - scratch.report();
+    return std::max(0., first.creport() + other.creport() - scratch.report());
 }
 
 _STORAGE_ double intersection_size(const hll_t &first, const hll_t &other) {
