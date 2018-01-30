@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <string>
+#include <cstring>
 #include <vector>
 #include "logutil.h"
 #include "sseutil.h"
@@ -183,7 +184,7 @@ public:
         read(path);
     }
     hll_t(const std::string &path): hll_t(path.data()) {}
-    hll_t(): hll_t(20) {}
+    explicit hll_t(): hll_t(0, true, -1) {}
 
     // Call sum to recalculate if you have changed contents.
     void sum();
@@ -222,7 +223,18 @@ public:
     void clear();
     hll_t(const hll_t&) = default;
     hll_t(hll_t&&) = default;
-    hll_t& operator=(const hll_t&) = default;
+    hll_t& operator=(const hll_t &other) {
+        // Explicitly define to make sure we don't do unnecessary reallocation.
+        if(core_.size() != other.core_.size())
+            core_.resize(other.core_.size());
+        std::memcpy(core_.data(), other.core_.data(), core_.size());
+        np_ = other.np_;
+        value_ = other.value_;
+        is_calculated_ = other.is_calculated_;
+        use_ertl_ = other.use_ertl_;
+        nthreads_ = other.nthreads_;
+        return *this;
+    }
     hll_t& operator=(hll_t&&) = default;
 
     hll_t const &operator+=(const hll_t &other);
@@ -323,9 +335,14 @@ double operator^(hll_t &first, hll_t &other);
 hll_t operator&(hll_t &first, hll_t &other);
 // Returns the size of the set intersection
 double intersection_size(hll_t &first, hll_t &other) noexcept;
+double intersection_size(hll_t &first, hll_t &other, hll_t &scratch_space) noexcept;
 double intersection_size(const hll_t &first, const hll_t &other);
+double intersection_size(const hll_t &first, const hll_t &other,
+                         hll_t &scratch_space);
 double jaccard_index(hll_t &first, hll_t &other) noexcept;
 double jaccard_index(const hll_t &first, const hll_t &other);
+double jaccard_index(hll_t &first, hll_t &other, hll_t &scratch) noexcept;
+double jaccard_index(const hll_t &first, const hll_t &other, hll_t &scratch);
 // Returns a HyperLogLog union
 hll_t operator+(const hll_t &one, const hll_t &other);
 

@@ -198,13 +198,49 @@ _STORAGE_ hll_t operator+(const hll_t &one, const hll_t &other) {
 }
 
 // Returns the size of the set intersection
+_STORAGE_ double intersection_size(const hll_t &first, const hll_t &other, hll_t &scratch) {
+    scratch = first;
+    scratch += other;
+    return first.creport() + other.creport() - scratch.report();
+}
+
 _STORAGE_ double intersection_size(const hll_t &first, const hll_t &other) {
-    return first.creport() + other.creport() - hll_t(first + other).report();
+    hll_t scratch;
+    double ret(intersection_size(first, other, scratch));
+    return ret;
 }
 
 _STORAGE_ double intersection_size(hll_t &first, hll_t &other) noexcept {
     first.sum(); other.sum();
     return intersection_size((const hll_t &)first, (const hll_t &)other);
+}
+
+_STORAGE_ double intersection_size(hll_t &first, hll_t &other, hll_t &scratch) noexcept {
+    first.sum(); other.sum();
+    return intersection_size((const hll_t &)first, (const hll_t &)other, scratch);
+}
+
+_STORAGE_ double jaccard_index(hll_t &first, hll_t &other, hll_t &scratch) noexcept {
+    first.sum(); other.sum();
+    return jaccard_index((const hll_t &)first, (const hll_t &)other, scratch);
+}
+
+_STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other, hll_t &scratch) {
+    double i(intersection_size(first, other, scratch));
+    i /= (first.creport() + other.creport() - i);
+    return i;
+}
+
+_STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
+    hll_t scratch;
+    double ret(jaccard_index(first, other, scratch));
+    return ret;
+}
+
+_STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
+    hll_t scratch;
+    double ret(jaccard_index(first, other, scratch));
+    return ret;
 }
 
 // Clears, allows reuse with different np.
@@ -287,16 +323,6 @@ _STORAGE_ void hll_t::write(const char *path) {
     std::fclose(fp);
 }
 
-_STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
-    first.sum(); other.sum();
-    return jaccard_index((const hll_t &)first, (const hll_t &)other);
-}
-
-_STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
-    double i(intersection_size(first, other));
-    i = i / (first.creport() + other.creport() - i);
-    return i;
-}
 
 _STORAGE_ void dhll_t::sum() {
     uint64_t fcounts[65]{0};
