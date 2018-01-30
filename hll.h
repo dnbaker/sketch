@@ -12,6 +12,9 @@
 #include "util.h"
 #include "math.h"
 #include "unistd.h"
+#include "x86intrin.h"
+
+#define HAS_AVX_512 _FEATURE_AVX512F
 
 #ifndef INLINE
 #  if __GNUC__ || __clang__
@@ -21,8 +24,12 @@
 #  endif
 #endif
 
-#include "x86intrin.h"
-#define HAS_AVX_512 _FEATURE_AVX512F
+#ifdef HLL_HEADER_ONLY
+#  define _STORAGE_ inline
+#else
+#  define _STORAGE_
+#endif
+
 
 namespace hll {
 
@@ -187,24 +194,24 @@ public:
     explicit hll_t(): hll_t(0, true, -1) {}
 
     // Call sum to recalculate if you have changed contents.
-    void sum();
-    void parsum(int nthreads=-1, size_t per_batch=1<<18);
+    _STORAGE_ void sum();
+    _STORAGE_ void parsum(int nthreads=-1, size_t per_batch=1<<18);
 
     // Returns cardinality estimate. Sums if not calculated yet.
-    double creport() const;
+    _STORAGE_ double creport() const;
     double report() noexcept {
         if(!is_calculated_) sum();
         return creport();
     }
 
     // Returns error estimate
-    double cest_err() const;
-    double est_err()  noexcept;
+    _STORAGE_ double cest_err() const;
+    _STORAGE_ double est_err()  noexcept;
 
     // Returns string representation
-    std::string to_string() const;
+    _STORAGE_ std::string to_string() const;
     // Descriptive string.
-    std::string desc_string() const;
+    _STORAGE_ std::string desc_string() const;
 
     INLINE void add(uint64_t hashval) {
 #ifndef NOT_THREADSAFE
@@ -220,9 +227,12 @@ public:
     INLINE void addh(uint64_t element) {add(wang_hash(element));}
 
     // Reset.
-    void clear();
-    hll_t(const hll_t&) = default;
+    _STORAGE_ void clear();
     hll_t(hll_t&&) = default;
+    hll_t(const hll_t &other):
+        np_(other.np_), core_(other.core_), value_(other.value_),
+        is_calculated_(other.is_calculated_), use_ertl_(other.use_ertl_),
+        nthreads_(other.nthreads_) {}
     hll_t& operator=(const hll_t &other) {
         // Explicitly define to make sure we don't do unnecessary reallocation.
         if(core_.size() != other.core_.size())
@@ -237,11 +247,11 @@ public:
     }
     hll_t& operator=(hll_t&&) = default;
 
-    hll_t const &operator+=(const hll_t &other);
-    hll_t const &operator&=(const hll_t &other);
+    _STORAGE_ hll_t &operator+=(const hll_t &other);
+    _STORAGE_ hll_t &operator&=(const hll_t &other);
 
     // Clears, allows reuse with different np.
-    void resize(size_t new_size);
+    _STORAGE_ void resize(size_t new_size);
     // Getter for is_calculated_
     bool get_use_ertl() const {return use_ertl_;}
     void set_use_ertl(bool val) {use_ertl_ = val;}
@@ -259,16 +269,16 @@ public:
     const auto &data() const {return core_;}
 
     auto p() const {return np_;}
-    void free();
-    void write(FILE *fp);
-    void write(const char *path);
+    _STORAGE_ void free();
+    _STORAGE_ void write(FILE *fp);
+    _STORAGE_ void write(const char *path);
     void write(const std::string &path) {write(path.data());}
-    void read(FILE *fp);
-    void read(const char *path);
+    _STORAGE_ void read(FILE *fp);
+    _STORAGE_ void read(const char *path);
     void read(const std::string &path) {read(path.data());}
 #if _POSIX_VERSION
-    void write(int fileno);
-    void read(int fileno);
+    _STORAGE_ void write(int fileno);
+    _STORAGE_ void read(int fileno);
 #endif
 
     size_t size() const {return size_t(1) << np_;}

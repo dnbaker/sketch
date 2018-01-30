@@ -10,12 +10,6 @@
 #include <atomic>
 #include "kthread.h"
 
-#ifdef HLL_HEADER_ONLY
-#  define _STORAGE_ inline
-#else
-#  define _STORAGE_
-#endif
-
 namespace hll {
 
 namespace detail {
@@ -116,7 +110,7 @@ _STORAGE_ double hll_t::est_err() noexcept {
     return cest_err();
 }
 
-_STORAGE_ hll_t const &hll_t::operator+=(const hll_t &other) {
+_STORAGE_ hll_t &hll_t::operator+=(const hll_t &other) {
     if(other.np_ != np_) {
         char buf[256];
         sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
@@ -145,7 +139,7 @@ _STORAGE_ hll_t const &hll_t::operator+=(const hll_t &other) {
     return *this;
 }
 
-_STORAGE_ hll_t const &hll_t::operator&=(const hll_t &other) {
+_STORAGE_ hll_t &hll_t::operator&=(const hll_t &other) {
     std::fprintf(stderr, "Warning: This method doesn't work very well at all. For some reason. Do not trust.\n");
     if(other.np_ != np_) {
         char buf[256];
