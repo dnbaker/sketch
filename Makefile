@@ -10,8 +10,7 @@ DBG=-DNDEBUG
 else
 DBG=
 endif
-FLAGS=-O3 -funroll-loops -pipe -march=native -mavx2 -I. -fpic -Wall -Wextra -Wdisabled-optimization -Wno-unused-parameter $(DBG) \
-	  -DENABLE_HLL_DEVELOP
+FLAGS=-O3 -funroll-loops -pipe -march=native -mavx2 -I. -fpic -Wall -Wextra -Wdisabled-optimization -Wno-unused-parameter $(DBG)
 
 ifeq ($(shell uname),Darwin)
     UNDEFSTR=-undefined dynamic_lookup
@@ -41,7 +40,7 @@ python: _hll.cpython.so
 	$(CC) -c $(FLAGS)	$< -o $@
 
 test: test.cpp hll.o kthread.o
-	$(CXX) $(FLAGS)	-Wno-unused-parameter hll.o kthread.o -pthread $< -o $@
+	$(CXX) $(FLAGS)	-Wno-unused-parameter hll.o kthread.o -pthread -DENABLE_HLL_DEVELOP $< -o $@
 
 serial_test: serial_test.cpp hll.o kthread.o
 	$(CXX) $(FLAGS)	-Wno-unused-parameter -pthread $< -o $@

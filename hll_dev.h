@@ -24,7 +24,7 @@ public:
     }
     double report() {
         sum();
-        return hll_t::report() * 0.5;
+        return this->creport();
     }
     double creport() {
         return hll_t::creport() * 0.5;
@@ -53,9 +53,9 @@ public:
             // I don't this can be unrolled and LUT'd.
             ++fcounts[core[i]]; ++rcounts[dcore_[i]];
         }
-        double forward_val = calculate_estimate(fcounts, use_ertl_, m(), np_, alpha());
-        double reverse_val = calculate_estimate(rcounts, use_ertl_, m(), np_, alpha());
-        value_ = (forward_val + reverse_val)*0.5;
+        value_  = calculate_estimate(fcounts, use_ertl_, m(), np_, alpha());
+        value_ += calculate_estimate(rcounts, use_ertl_, m(), np_, alpha());
+        value_ *= 0.5;
         is_calculated_ = 1;
     }
     void add(uint64_t hashval) {
