@@ -1,11 +1,11 @@
 #ifndef HLL_DEV_H__
 #define HLL_DEV_H__
 
+namespace hll {
+
 #ifndef HLL_H_
 #  error("Please include hll.h first. Defining -DENABLE_HLL_DEVELOP is recommended instead, but so long as you include this after, no harm is done.")
 #endif
-
-namespace hll {
 
 class hlldub_t: public hll_t {
     // hlldub_t inserts each value twice (forward and reverse)
@@ -26,7 +26,7 @@ public:
     }
     double report() {
         sum();
-        return hll_t::report() * 0.5;
+        return this->creport();
     }
     double creport() {
         return hll_t::creport() * 0.5;
@@ -50,14 +50,14 @@ public:
     void sum() {
         uint32_t fcounts[65]{0};
         uint32_t rcounts[65]{0};
-        const auto &core(hll_t::data());
+        const auto &core(hll_t::core());
         for(size_t i(0); i < core.size(); ++i) {
             // I don't this can be unrolled and LUT'd.
             ++fcounts[core[i]]; ++rcounts[dcore_[i]];
         }
-        double forward_val = calculate_estimate(fcounts, use_ertl_, m(), np_, alpha());
-        double reverse_val = calculate_estimate(rcounts, use_ertl_, m(), np_, alpha());
-        value_ = (forward_val + reverse_val)*0.5;
+        value_  = detail::calculate_estimate(fcounts, use_ertl_, m(), np_, alpha());
+        value_ += detail::calculate_estimate(rcounts, use_ertl_, m(), np_, alpha());
+        value_ *= 0.5;
         is_calculated_ = 1;
     }
     void add(uint64_t hashval) {
