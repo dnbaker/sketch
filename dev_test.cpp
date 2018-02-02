@@ -59,7 +59,6 @@ void estimate(hll_t &h1, hll_t &h2, dhll_t &h3, hlldub_t &h4, std::uint64_t expe
  */
 
 int main(int argc, char *argv[]) {
-    if(argc < 2) usage();
     using clock_t = std::chrono::system_clock;
     unsigned nt(8), pb(1 << 15);
     std::vector<std::uint64_t> vals;
@@ -71,17 +70,18 @@ int main(int argc, char *argv[]) {
             case 'h': case '?': usage();
         }
     }
+    //if(argc < 3) usage();
     for(c = optind; c < argc; ++c) vals.push_back(strtoull(argv[c], 0, 10));
     if(vals.empty()) vals.push_back(1ull<<(BITS+1));
-    std::fprintf(stderr, "#Label\th1\th2\th3\n");
     std::vector<std::uint64_t> inputs;
-    std::mt19937_64 gen(std::time(nullptr));
+    std::mt19937_64 gen(13);
     if(vals.size() == 1) {
         std::uniform_int_distribution<uint64_t> dist(0, 1ull << 29ull);
         while(vals.size() < 64) vals.push_back(dist(gen));
     }
+    std::fprintf(stdout, "#Label\th1\th2\th3\n");
     for(const auto val: vals) {
-        std::fprintf(stderr, "#Value = %" PRIu64 "\n", val);
+        std::fprintf(stdout, "#Value = %" PRIu64 "\n", val);
         hll_t t(BITS), t2(BITS + 1);
         dhll_t t3(BITS);
         hlldub_t t4(BITS);
@@ -103,8 +103,8 @@ int main(int argc, char *argv[]) {
         t.parsum(nt, pb);
         auto end(clock_t::now());
         std::chrono::duration<double> timediff(end - start);
-        fprintf(stderr, "Time diff: %lf\n", timediff.count());
-        fprintf(stderr, "Quantity: %lf\n", t.report());
+        fprintf(stdout, "Time diff: %lf\n", timediff.count());
+        fprintf(stdout, "Quantity: %lf\n", t.report());
         auto startsum(clock_t::now());
         t.sum();
         auto endsum(clock_t::now());

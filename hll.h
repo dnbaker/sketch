@@ -162,11 +162,6 @@ using Allocator = sse::AlignedAllocator<uint8_t, sse::Alignment::SSE>;
 using Allocator = std::allocator<uint8_t>;
 #endif
 
-#if ENABLE_HLL_DEVELOP
-class hll_t; // Forward declaration so this function can be available to the class.
-static inline double union_size(const hll_t &h1, const hll_t &h2);
-#endif
-
 
 class hll_t {
 // HyperLogLog implementation.
@@ -305,14 +300,8 @@ double operator^(hll_t &first, hll_t &other);
 hll_t operator&(hll_t &first, hll_t &other);
 // Returns the size of the set intersection
 double intersection_size(hll_t &first, hll_t &other) noexcept;
-double intersection_size(hll_t &first, hll_t &other, hll_t &scratch_space) noexcept;
-double intersection_size(const hll_t &first, const hll_t &other);
-double intersection_size(const hll_t &first, const hll_t &other,
-                         hll_t &scratch_space);
 double jaccard_index(hll_t &first, hll_t &other) noexcept;
 double jaccard_index(const hll_t &first, const hll_t &other);
-double jaccard_index(hll_t &first, hll_t &other, hll_t &scratch) noexcept;
-double jaccard_index(const hll_t &first, const hll_t &other, hll_t &scratch);
 // Returns a HyperLogLog union
 hll_t operator+(const hll_t &one, const hll_t &other);
 
@@ -322,9 +311,11 @@ namespace detail {
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
     static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
-}
 static inline double calculate_estimate(uint32_t *counts,
                                         bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
+#if CRZY_DBG_INFO
+    std::fprintf(stderr, "Counts: %u|%u|%u|%u|%u|%u\n", counts[0], counts[1], 2[counts], 3[counts], 4[counts], 5[counts]);
+#endif
     // How do I modify this to account for the value at 65?
     // I'm guessing I just replace all the 64s with 65....
     double sum = 0, value;
@@ -352,13 +343,62 @@ static inline double calculate_estimate(uint32_t *counts,
     return value;
 }
 
+union SIMDHolder {
+public:
+#if HAS_AVX_512
+    using SType = __m512i;
+#  define MAX_FN(x, y) _mm512_max_epu8(x, y)
+#elif __AVX2__
+    using SType = __m256i;
+#  define MAX_FN(x, y) _mm256_max_epu8(x, y)
+#elif __SSE2__
+    using SType = __m128i;
+#  define MAX_FN(x, y) _mm_max_epu8(x, y)
+#else
+#  error("Need at least SSE2")
+#endif
+    static constexpr size_t nels = sizeof(SType) / sizeof(uint8_t);
+    using u8arr = uint8_t[nels];
+    SType val;
+    u8arr vals;
+};
+static_assert(sizeof(SIMDHolder) == sizeof(SIMDHolder::SType), "Size must add up");
+static_assert(sizeof(SIMDHolder) == sizeof(SIMDHolder::u8arr), "Size must add up");
+
+} // namespace detail
+
+static inline double union_size(const hll_t &h1, const hll_t &h2) {
+    using detail::SIMDHolder;
+    assert(h1.m() == h2.m());
+    using SType = typename SIMDHolder::SType;
+    uint32_t counts[65]{0};
+    const SType *p1((const SType *)(h1.data())), *p2((const SType *)(h2.data()));
+    const SType *pend(reinterpret_cast<const SType *>(&(*h1.core().cend())));
+    assert((uint8_t *)pend == (h1.data() + h1.m()));
+    SIMDHolder tmp;
+    tmp.val = MAX_FN(*p1++, *p2++);
+    // TODO: test unrolling in groups of 8.
+    for(const auto el: tmp.vals) ++counts[el];
+    while(p1 < pend) {
+        tmp.val = MAX_FN(*p1++, *p2++);
+        for(const auto el: tmp.vals) ++counts[el];
+    }
+    return detail::calculate_estimate(counts, h1.get_use_ertl(), h1.m(), h1.p(), h1.alpha());
+}
+static inline double intersection_size(const hll_t &h1, const hll_t &h2) {
+    return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
+}
+
+#undef MAX_FN
+
+
+
+} // namespace hll
+
 #ifdef ENABLE_HLL_DEVELOP
 #pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
 #include "hll_dev.h"
 #endif
-
-
-} // namespace hll
 
 #ifdef HLL_HEADER_ONLY
 #  include "hll.cpp"

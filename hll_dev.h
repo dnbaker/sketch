@@ -1,6 +1,8 @@
 #ifndef HLL_DEV_H__
 #define HLL_DEV_H__
 
+namespace hll {
+
 #ifndef HLL_H_
 #  error("Please include hll.h first. Defining -DENABLE_HLL_DEVELOP is recommended instead, but so long as you include this after, no harm is done.")
 #endif
@@ -53,8 +55,8 @@ public:
             // I don't this can be unrolled and LUT'd.
             ++fcounts[core[i]]; ++rcounts[dcore_[i]];
         }
-        value_  = calculate_estimate(fcounts, use_ertl_, m(), np_, alpha());
-        value_ += calculate_estimate(rcounts, use_ertl_, m(), np_, alpha());
+        value_  = detail::calculate_estimate(fcounts, use_ertl_, m(), np_, alpha());
+        value_ += detail::calculate_estimate(rcounts, use_ertl_, m(), np_, alpha());
         value_ *= 0.5;
         is_calculated_ = 1;
     }
@@ -75,41 +77,7 @@ public:
     }
 };
 
-union SIMDHolder {
-public:
-#if HAS_AVX_512
-    using SType = __m512i;
-#  define MAX_FN(x, y) _mm512_max_epu8(x, y)
-#elif __AVX2__
-    using SType = __m256i;
-#  define MAX_FN(x, y) _mm256_max_epu8(x, y)
-#elif __SSE2__
-    using SType = __m128i;
-#  define MAX_FN(x, y) _mm_max_epu8(x, y)
-#else
-#  error("Need at least SSE2")
-#endif
-    static constexpr size_t nels = sizeof(SType) / sizeof(char);
-    SType val;
-    uint8_t vals[nels];
-};
 
-static inline double union_size(const hll_t &h1, const hll_t &h2) {
-    assert(h1.m() == h2.m());
-    using SType = typename SIMDHolder::SType;
-    uint32_t counts[65];
-    const SType *p1((const SType *)(h1.data())), *p2((const SType *)(h2.data()));
-    const SType *pend(reinterpret_cast<const SType *>(h1.data() + h1.m()));
-    SIMDHolder tmp;
-    tmp.val = MAX_FN(*p1++, *p2++);
-    for(const auto el: tmp.vals) ++counts[el];
-    while(p1 < pend) {
-        tmp.val = MAX_FN(*p1++, *p2++);
-        for(const auto el: tmp.vals) ++counts[el];
-    }
-    return calculate_estimate(counts, h1.get_use_ertl(), h1.m(), h1.p(), h1.alpha());
-}
-
-#undef MAX_FN
+} // namespace hll
 
 #endif // #ifndef HLL_DEV_H__

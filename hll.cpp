@@ -27,7 +27,7 @@ _STORAGE_ void hll_t::sum() {
     uint32_t counts[65]{0};
     for(const auto i: core_) ++counts[i];
     // Think about making a table of size 4096 and looking up two values at a time.
-    value_ = calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+    value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
     is_calculated_ = 1;
 }
 
@@ -56,7 +56,7 @@ _STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
     kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
     uint32_t counts[65];
     std::memcpy(counts, acounts, sizeof(counts));
-    value_ = calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+    value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
     is_calculated_ = 1;
 }
 
@@ -158,50 +158,20 @@ _STORAGE_ hll_t operator+(const hll_t &one, const hll_t &other) {
     return ret;
 }
 
-// Returns the size of the set intersection
-_STORAGE_ double intersection_size(const hll_t &first, const hll_t &other, hll_t &scratch) {
-    scratch = first;
-    scratch += other;
-    return std::max(0., first.creport() + other.creport() - scratch.report());
-}
-
-_STORAGE_ double intersection_size(const hll_t &first, const hll_t &other) {
-    hll_t scratch;
-    double ret(intersection_size(first, other, scratch));
-    return ret;
-}
-
 _STORAGE_ double intersection_size(hll_t &first, hll_t &other) noexcept {
     first.sum(); other.sum();
     return intersection_size((const hll_t &)first, (const hll_t &)other);
 }
 
-_STORAGE_ double intersection_size(hll_t &first, hll_t &other, hll_t &scratch) noexcept {
-    first.sum(); other.sum();
-    return intersection_size((const hll_t &)first, (const hll_t &)other, scratch);
-}
-
-_STORAGE_ double jaccard_index(hll_t &first, hll_t &other, hll_t &scratch) noexcept {
-    first.sum(); other.sum();
-    return jaccard_index((const hll_t &)first, (const hll_t &)other, scratch);
-}
-
-_STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other, hll_t &scratch) {
-    double i(intersection_size(first, other, scratch));
-    i /= (first.creport() + other.creport() - i);
-    return i;
-}
-
 _STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
-    hll_t scratch;
-    double ret(jaccard_index(first, other, scratch));
-    return ret;
+    first.sum(); other.sum();
+    return jaccard_index((const hll_t &)first, (const hll_t &)other);
 }
 
 _STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
-    hll_t scratch;
-    double ret(jaccard_index(first, other, scratch));
-    return ret;
+    double i(intersection_size(first, other));
+    i /= (first.creport() + other.creport() - i);
+    return i;
 }
 
 // Clears, allows reuse with different np.
