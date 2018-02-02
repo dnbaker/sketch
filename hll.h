@@ -162,6 +162,11 @@ using Allocator = sse::AlignedAllocator<uint8_t, sse::Alignment::SSE>;
 using Allocator = std::allocator<uint8_t>;
 #endif
 
+#if ENABLE_HLL_DEVELOP
+class hll_t; // Forward declaration so this function can be available to the class.
+static inline double union_size(const hll_t &h1, const hll_t &h2);
+#endif
+
 
 class hll_t {
 // HyperLogLog implementation.
@@ -274,7 +279,8 @@ public:
     bool within_bounds(uint64_t actual_size) {
         return std::abs(actual_size - report()) < est_err();
     }
-    const auto &data() const {return core_;}
+    const auto &core() const {return core_;}
+    const auto  data() const {return core_.data();}
 
     auto p() const {return np_;}
     _STORAGE_ void free();
@@ -289,7 +295,7 @@ public:
     _STORAGE_ void read(int fileno);
 #endif
 
-    size_t size() const {return size_t(1) << np_;}
+    size_t size() const {return size_t(m());}
 };
 
 
@@ -319,6 +325,8 @@ namespace detail {
 }
 static inline double calculate_estimate(uint32_t *counts,
                                         bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
+    // How do I modify this to account for the value at 65?
+    // I'm guessing I just replace all the 64s with 65....
     double sum = 0, value;
     for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
     if(use_ertl) {

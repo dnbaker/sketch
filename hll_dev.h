@@ -48,7 +48,7 @@ public:
     void sum() {
         uint32_t fcounts[65]{0};
         uint32_t rcounts[65]{0};
-        const auto &core(hll_t::data());
+        const auto &core(hll_t::core());
         for(size_t i(0); i < core.size(); ++i) {
             // I don't this can be unrolled and LUT'd.
             ++fcounts[core[i]]; ++rcounts[dcore_[i]];
@@ -74,5 +74,42 @@ public:
         return hll_t::may_contain(hashval) && dcore_[hashval & ((m()) - 1)] >= ctz(hashval >> p()) + 1;
     }
 };
+
+union SIMDHolder {
+public:
+#if HAS_AVX_512
+    using SType = __m512i;
+#  define MAX_FN(x, y) _mm512_max_epu8(x, y)
+#elif __AVX2__
+    using SType = __m256i;
+#  define MAX_FN(x, y) _mm256_max_epu8(x, y)
+#elif __SSE2__
+    using SType = __m128i;
+#  define MAX_FN(x, y) _mm_max_epu8(x, y)
+#else
+#  error("Need at least SSE2")
+#endif
+    static constexpr size_t nels = sizeof(SType) / sizeof(char);
+    SType val;
+    uint8_t vals[nels];
+};
+
+static inline double union_size(const hll_t &h1, const hll_t &h2) {
+    assert(h1.m() == h2.m());
+    using SType = typename SIMDHolder::SType;
+    uint32_t counts[65];
+    const SType *p1((const SType *)(h1.data())), *p2((const SType *)(h2.data()));
+    const SType *pend(reinterpret_cast<const SType *>(h1.data() + h1.m()));
+    SIMDHolder tmp;
+    tmp.val = MAX_FN(*p1++, *p2++);
+    for(const auto el: tmp.vals) ++counts[el];
+    while(p1 < pend) {
+        tmp.val = MAX_FN(*p1++, *p2++);
+        for(const auto el: tmp.vals) ++counts[el];
+    }
+    return calculate_estimate(counts, h1.get_use_ertl(), h1.m(), h1.p(), h1.alpha());
+}
+
+#undef MAX_FN
 
 #endif // #ifndef HLL_DEV_H__
