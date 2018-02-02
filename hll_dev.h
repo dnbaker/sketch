@@ -5,6 +5,8 @@
 #  error("Please include hll.h first. Defining -DENABLE_HLL_DEVELOP is recommended instead, but so long as you include this after, no harm is done.")
 #endif
 
+namespace hll {
+
 class hlldub_t: public hll_t {
     // hlldub_t inserts each value twice (forward and reverse)
     // and simply halves cardinality estimates.
@@ -74,5 +76,7 @@ public:
         return hll_t::may_contain(hashval) && dcore_[hashval & ((m()) - 1)] >= ctz(hashval >> p()) + 1;
     }
 };
+
+} // namespace hll
 
 #endif // #ifndef HLL_DEV_H__

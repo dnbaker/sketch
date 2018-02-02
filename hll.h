@@ -310,8 +310,6 @@ double jaccard_index(const hll_t &first, const hll_t &other, hll_t &scratch);
 // Returns a HyperLogLog union
 hll_t operator+(const hll_t &one, const hll_t &other);
 
-using std::isnan;
-
 namespace detail {
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
     static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
@@ -338,19 +336,18 @@ static inline double calculate_estimate(uint32_t *counts,
         }
     } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
         const long double corr(-detail::TWO_POW_32 * std::log(1. - value / detail::TWO_POW_32));
-        if(!isnan(corr)) value = corr;
-        LOG_DEBUG("Large range correction returned nan. Defaulting to regular calculation.\n");
+        if(!std::isnan(corr)) value = corr;
+        else LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
     }
     return value;
 }
+
+} // namespace hll
 
 #ifdef ENABLE_HLL_DEVELOP
 #pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
 #include "hll_dev.h"
 #endif
-
-
-} // namespace hll
 
 #ifdef HLL_HEADER_ONLY
 #  include "hll.cpp"
