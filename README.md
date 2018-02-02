@@ -37,3 +37,6 @@ Additionally, if the sum is desired to be parallelized, the parsum function can 
 
 ## Python bindings
 Python bindings are available via pybind11 and then imported through hll.py. hll.py calls an object's __hash__ function. To link against python2, change the "python3-" in the Makefile to "python-".
+
+### Experimental extensions
+Several extensions and applications of HyperLogLog sketches are now stored in hll_dev.h. To enable these, add -DENABLE_HLL_DEVELOP to compilation flags.

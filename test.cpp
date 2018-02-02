@@ -14,25 +14,26 @@
 using namespace std::chrono;
 
 using tp = std::chrono::system_clock::time_point;
+using namespace hll;
 
 static const size_t BITS = 18;
 
 
 bool test_qty(size_t lim) {
-    hll::hll_t t(BITS);
+    hll_t t(BITS);
     for(size_t i(0); i < lim; t.addh(++i));
     return std::abs(t.report() - lim) <= t.est_err();
 }
 
 struct kt_data {
-    hll::hll_t &hll_;
+    hll_t &hll_;
     const std::uint64_t n_;
     const int nt_;
     const std::vector<std::uint64_t> &inputs_;
 };
 
 void kt_helper(void *data, long index, int tid) {
-    hll::hll_t &hll(((kt_data *)data)->hll_);
+    hll_t &hll(((kt_data *)data)->hll_);
     const std::vector<std::uint64_t> &inputs(((kt_data *)data)->inputs_);
     const std::uint64_t todo((((kt_data *)data)->n_ + ((kt_data *)data)->nt_ - 1) / ((kt_data *)data)->nt_);
     const std::uint64_t end(std::min(((kt_data *)data)->n_, (index + 1) * todo));
@@ -44,7 +45,7 @@ void usage() {
     std::exit(EXIT_FAILURE);
 }
 
-void estimate(hll::hll_t &h1, hll::hll_t &h2, hll::dhll_t &h3, hll::hlldub_t &h4, std::uint64_t expected) {
+void estimate(hll_t &h1, hll_t &h2, dhll_t &h3, hlldub_t &h4, std::uint64_t expected) {
     h1.sum(); h2.sum(); h3.sum(); h4.sum();
     std::fprintf(stderr, "Values\t%lf\t%lf\t%lf\t%lf\t%" PRIu64 "\n", h1.report(), h2.report(), h3.report(), h4.report(), expected);
     std::fprintf(stderr, "EstErr\t%lf\t%lf\t%lf\t%lf\t%" PRIu64 "\n", h1.est_err(), h2.est_err(), h3.est_err(), h4.est_err(), expected);
@@ -81,9 +82,9 @@ int main(int argc, char *argv[]) {
     }
     for(const auto val: vals) {
         std::fprintf(stderr, "#Value = %" PRIu64 "\n", val);
-        hll::hll_t t(BITS), t2(BITS + 1);
-        hll::dhll_t t3(BITS);
-        hll::hlldub_t t4(BITS);
+        hll_t t(BITS), t2(BITS + 1);
+        dhll_t t3(BITS);
+        hlldub_t t4(BITS);
         inputs.resize(val);
         for(auto &el: inputs) el = gen();
 #ifndef THREADSAFE

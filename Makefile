@@ -10,7 +10,8 @@ DBG=-DNDEBUG
 else
 DBG=
 endif
-FLAGS=-O3 -funroll-loops -pipe -march=native -mavx2 -I. -fpic -Wall -Wextra -Wdisabled-optimization -Wno-unused-parameter $(DBG)
+FLAGS=-O3 -funroll-loops -pipe -march=native -mavx2 -I. -fpic -Wall -Wextra -Wdisabled-optimization -Wno-unused-parameter $(DBG) \
+	  -DENABLE_HLL_DEVELOP
 
 ifeq ($(shell uname),Darwin)
     UNDEFSTR=-undefined dynamic_lookup

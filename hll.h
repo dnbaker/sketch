@@ -33,6 +33,10 @@
 
 namespace hll {
 
+/*
+ * TODO: calculate distance *directly* without copying to another sketch!
+ */
+
 using std::uint64_t;
 using std::uint32_t;
 using std::uint8_t;
@@ -258,6 +262,10 @@ public:
     bool is_ready() const {return is_calculated_;}
     void not_ready() {is_calculated_ = false;}
     void set_is_ready() {is_calculated_ = true;}
+    bool may_contain(uint64_t hashval) const {
+        // This returns false positives, but never a false negative.
+        return core_[hashval >> (64u - np_)] >= clz(hashval << np_) + 1;
+    }
 
     bool within_bounds(uint64_t actual_size) const {
         return std::abs(actual_size - creport()) < relative_error() * actual_size;
@@ -284,60 +292,6 @@ public:
     size_t size() const {return size_t(1) << np_;}
 };
 
-class hlldub_t: public hll_t {
-    // hlldub_t inserts each value twice (forward and reverse)
-    // and simply halves cardinality estimates.
-public:
-    template<typename... Args>
-    hlldub_t(Args &&...args): hll_t(std::forward<Args>(args)...) {}
-    INLINE void add(uint64_t hashval) {
-        hll_t::add(hashval);
-#ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
-            core_[index] < lzt;
-            __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
-#else
-        const uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
-        if(core_[index] < lzt) core_[index] = lzt;
-#endif
-    }
-    double report() {
-        sum();
-        return hll_t::report() * 0.5;
-    }
-    double creport() {
-        return hll_t::creport() * 0.5;
-    }
-
-    INLINE void addh(uint64_t element) {add(wang_hash(element));}
-
-};
-
-class dhll_t: public hll_t {
-    // dhll_t is a bidirectional hll sketch which does not currently support set operations
-    // It is based on the idea that the properties of a hll sketch work for both leading and trailing zeros and uses them as independent samples.
-    std::vector<uint8_t, Allocator> dcore_;
-public:
-    template<typename... Args>
-    dhll_t(Args &&...args): hll_t(std::forward<Args>(args)...),
-                            dcore_(1ull << hll_t::p()) {
-    }
-    void sum();
-    void add(uint64_t hashval) {
-        hll_t::add(hashval);
-#ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
-            dcore_[index] < lzt;
-            __sync_bool_compare_and_swap(dcore_.data() + index, dcore_[index], lzt));
-#else
-        const uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
-        if(dcore_[index] < lzt) dcore_[index] = lzt;
-#endif
-    }
-    void addh(uint64_t element) {
-        add(wang_hash(element));
-    }
-};
 
 // Returns the size of a symmetric set difference.
 double operator^(hll_t &first, hll_t &other);
@@ -356,8 +310,48 @@ double jaccard_index(const hll_t &first, const hll_t &other, hll_t &scratch);
 // Returns a HyperLogLog union
 hll_t operator+(const hll_t &one, const hll_t &other);
 
+using std::isnan;
+
+namespace detail {
+    static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
+    static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
+    static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
+}
+static inline double calculate_estimate(uint32_t *counts,
+                                        bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
+    double sum = 0, value;
+    for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
+    if(use_ertl) {
+        double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
+        for(unsigned k = 64-p; k; z += counts[k--], z *= 0.5);
+        z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
+        return (m/(2.*std::log(2)))*m / z;
+    }
+    /* else */
+    // Small/large range corrections
+    // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
+    if((value = (alpha * m * m / sum)) < detail::small_range_correction_threshold(m)) {
+        if(counts[0]) {
+            LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",
+                       value, m * std::log((double)m / counts[0]));
+            value = m * std::log((double)(m) / counts[0]);
+        }
+    } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
+        const long double corr(-detail::TWO_POW_32 * std::log(1. - value / detail::TWO_POW_32));
+        if(!isnan(corr)) value = corr;
+        LOG_DEBUG("Large range correction returned nan. Defaulting to regular calculation.\n");
+    }
+    return value;
+}
+
+#ifdef ENABLE_HLL_DEVELOP
+#pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
+#include "hll_dev.h"
+#endif
+
 
 } // namespace hll
+
 #ifdef HLL_HEADER_ONLY
 #  include "hll.cpp"
 #endif
