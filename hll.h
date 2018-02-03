@@ -107,34 +107,28 @@ constexpr INLINE int clz_manual( uint64_t x )
 }
 
 // clz wrappers. Apparently, __builtin_clzll is undefined for values of 0.
-// For our hash function, there is only 1 64-bit integer value which causes this problem.
-// I'd expect that this is acceptable. And on Haswell+, this value is the correct value.
-#if __GNUC__ || __clang__
-#ifdef AVOID_CLZ_UNDEF
-#define DEF_CHECK(fn) x ? fn(x) : sizeof(x) * CHAR_BIT
-#else
-#define DEF_CHECK(fn) fn(x)
-#endif
+// However, by modifying our code to set a 1-bit at the end of the shifted
+// region, we can guarantee that this does not happen for our use case.
 
+#if __GNUC__ || __clang__
 constexpr INLINE unsigned clz(unsigned long long x) {
-    return DEF_CHECK(__builtin_clzll);
+    return __builtin_clzll(x);
 }
 constexpr INLINE unsigned clz(unsigned long x) {
-    return DEF_CHECK(__builtin_clzl);
+    return __builtin_clzl(x);
 }
 constexpr INLINE unsigned clz(unsigned x) {
-    return DEF_CHECK(__builtin_clz);
+    return __builtin_clz(x);
 }
 constexpr INLINE unsigned ctz(unsigned long long x) {
-    return DEF_CHECK(__builtin_ctzll);
+    return __builtin_ctzll(x);
 }
 constexpr INLINE unsigned ctz(unsigned long x) {
-    return DEF_CHECK(__builtin_ctzl);
+    return __builtin_ctzl(x);
 }
 constexpr INLINE unsigned ctz(unsigned x) {
-    return DEF_CHECK(__builtin_ctz);
+    return __builtin_ctz(x);
 }
-#undef DEF_CHECK
 #else
 #pragma message("Using manual clz instead of gcc/clang __builtin_*")
 #error("Have not created a manual ctz function. Must be compiled with gcc or clang.")
@@ -143,11 +137,11 @@ constexpr INLINE unsigned ctz(unsigned x) {
 // Modified for constexpr, added 64-bit overload.
 #endif
 
-static_assert(clz(0x0000FFFFFFFFFFFFull) == 16, "64-bit clz hand-rolled failed.");
-static_assert(clz(0x000000000FFFFFFFull) == 36, "64-bit clz hand-rolled failed.");
-static_assert(clz(0x0000000000000FFFull) == 52, "64-bit clz hand-rolled failed.");
-static_assert(clz(0x0000000000000003ull) == 62, "64-bit clz hand-rolled failed.");
-static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz hand-rolled failed.");
+static_assert(clz(0x0000FFFFFFFFFFFFull) == 16, "64-bit clz failed.");
+static_assert(clz(0x000000000FFFFFFFull) == 36, "64-bit clz failed.");
+static_assert(clz(0x0000000000000FFFull) == 52, "64-bit clz failed.");
+static_assert(clz(0x0000000000000003ull) == 62, "64-bit clz failed.");
+static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz failed.");
 
 
 constexpr double make_alpha(size_t m) {
@@ -168,6 +162,11 @@ using Allocator = sse::AlignedAllocator<uint8_t, sse::Alignment::SSE>;
 #else
 using Allocator = std::allocator<uint8_t>;
 #endif
+
+// TODO: add a compact, 6-bit version
+// For now, I think that it's preferable for thread safety,
+// considering there's an intrinsic for the atomic load/store, but there would not
+// be for bit-packed versions.
 
 
 class hll_t {
@@ -226,12 +225,12 @@ public:
 
     INLINE void add(uint64_t hashval) {
 #ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval >> (64u - np_)), lzt(clz(hashval << np_) + 1);
+        for(const uint32_t index(hashval >> (64u - np_)), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
             core_[index] < lzt;
             __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
 #else
-        const uint32_t index(hashval >> (64u - np_)), lzt(clz(hashval << np_) + 1);
-        if(core_[index] < lzt) core_[index] = lzt;
+        const uint32_t index(hashval >> (64u - np_)), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
+        core_[index] = std::max(core_[index], lzt); 
 #endif
     }
 

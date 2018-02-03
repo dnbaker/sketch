@@ -16,12 +16,12 @@ public:
     INLINE void add(uint64_t hashval) {
         hll_t::add(hashval);
 #ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
+        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1);
             core_[index] < lzt;
             __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
 #else
-        const uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
-        if(core_[index] < lzt) core_[index] = lzt;
+        const uint32_t index(hashval & (m() - 1)), lzt(ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1);
+        core_[index] = std::min(core_[index], lzt);
 #endif
     }
     double report() {
@@ -63,17 +63,17 @@ public:
     void add(uint64_t hashval) {
         hll_t::add(hashval);
 #ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(hashval >> p()) + 1);
+        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1);
             dcore_[index] < lzt;
             __sync_bool_compare_and_swap(dcore_.data() + index, dcore_[index], lzt));
 #else
-        const uint32_t index(hashval & (m() - 1)), lzt(ctz(hashval >> p()) + 1);
-        if(dcore_[index] < lzt) dcore_[index] = lzt;
+        const uint32_t index(hashval & (m() - 1)), lzt(ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1);
+        dcore_[index] = std::min(dcore_[index], lzt);
 #endif
     }
     void addh(uint64_t element) {add(wang_hash(element));}
     bool may_contain(uint64_t hashval) {
-        return hll_t::may_contain(hashval) && dcore_[hashval & ((m()) - 1)] >= ctz(hashval >> p()) + 1;
+        return hll_t::may_contain(hashval) && dcore_[hashval & ((m()) - 1)] >= ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1;
     }
 };
 
@@ -102,6 +102,8 @@ public:
         element ^= seed_;
         add(wang_hash(element));
     }
+    uint64_t seed() const {return seed_;}
+
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) {
         static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");
@@ -116,13 +118,13 @@ public:
 #endif
 };
 
-class hllfilter_t {
+class hlf_t {
 protected:
     // Consider templating this to extend to hlldub_ts as well.
     std::vector<seedhll_t> hlls_;
 public:
     template<typename SeedContainer, typename... Args>
-    hllfilter_t(const SeedContainer &con, Args &&... args) {
+    hlf_t(const SeedContainer &con, Args &&... args) {
         hlls_.reserve(std::size(con));
         using SeedType = std::decay_t<decltype(*std::begin(con))>;
         static_assert(std::is_integral_v<SeedType>, "seeds must be integers....");
@@ -137,15 +139,35 @@ public:
     }
     auto size() const {return hlls_.size();}
     auto m() const {return hlls_[0].size();}
-#if 0
 
-    This will require more work, as we cannot just check for hashvals. We have to allow each hll to perform its hash, and then
-    test for membership. Look ahead, considering making it so that the double version is helpful.
+    // This only works for hlls using 64-bit integers.
+    // Looking ahead,consider templating so that the double version might be helpful.
 
-    auto may_contain(uint64_t element) {
-        return std::accumulate(hlls_.begin(), hlls_.end(), true, [hashval](auto a, auto b) {return a && b.may_contain(hashval);});
+    auto may_contain(uint64_t element) const {
+#pragma message("Note: may_contain only works for the HyperLogFilter in the case of 64-bit integer insertions. One must hash a string to a 64-bit integer first in order to use it for this purpose.")
+        return std::accumulate(hlls_.begin() + 1, hlls_.end(), hlls_.front().may_contain(wang_hash(element ^ hlls_.front().seed())),
+                               [element](auto a, auto b) {
+            return a && b.may_contain(wang_hash(element ^ b.seed()));
+        });
     }
-#endif
+    void add(uint64_t val) {
+        for(auto &hll: hlls_) hll.addh(val);
+    }
+    double creport() const {
+        double ret(hlls_[0].creport());
+        for(size_t i(1); i < size(); ++i)
+            ret += hlls_[i].creport();
+        ret /= static_cast<double>(size());
+        return ret;
+    }
+    double report() noexcept {
+        hlls_[0].sum();
+        double ret(hlls_[0].report());
+        for(size_t i(1); i < size(); ++i)
+            hlls_[i].sum(), ret += hlls_[i].report();
+        ret /= static_cast<double>(size());
+        return ret;
+    }
 };
 
 } // namespace hll

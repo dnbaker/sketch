@@ -40,7 +40,7 @@ python: _hll.cpython.so
 	$(CC) -c $(FLAGS)	$< -o $@
 
 test: test.cpp hll.o kthread.o
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter hll.o kthread.o -pthread -DENABLE_HLL_DEVELOP $< -o $@
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter hll.o kthread.o -pthread $< -o $@
 
 serial_test: serial_test.cpp hll.o kthread.o
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@
