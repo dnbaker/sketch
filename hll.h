@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <string>
+#include <stdexcept>
 #include <cstring>
 #include <vector>
 #include "logutil.h"
@@ -22,6 +23,12 @@
 #  else
 #    define INLINE inline
 #  endif
+#endif
+
+#ifdef INCLUDE_CLHASH_H_
+#  define ENABLE_CLHASH
+#elif ENABLE_CLHASH
+#  include "clhash.h"
 #endif
 
 #ifdef HLL_HEADER_ONLY
@@ -229,6 +236,18 @@ public:
     }
 
     INLINE void addh(uint64_t element) {add(wang_hash(element));}
+    template<typename T, typename Hasher=std::hash<T>>
+    INLINE void adds(const T element, const Hasher &hasher) {
+        static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");
+        add(hasher(element));
+    }
+#ifdef ENABLE_CLHASH
+    template<typename Hasher=clhasher>
+    INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
+        static_assert(std::is_same_v<std::decay_t<decltype(hasher(s, len))>, uint64_t>, "Must return 64-bit hash");
+        add(hasher(s, len));
+    }
+#endif
 
     // Reset.
     _STORAGE_ void clear();

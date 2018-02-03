@@ -40,13 +40,13 @@ python: _hll.cpython.so
 	$(CC) -c $(FLAGS)	$< -o $@
 
 test: test.cpp hll.o kthread.o
-	$(CXX) $(FLAGS)	-Wno-unused-parameter hll.o kthread.o -pthread -DENABLE_HLL_DEVELOP $< -o $@
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter hll.o kthread.o -pthread -DENABLE_HLL_DEVELOP $< -o $@
 
 serial_test: serial_test.cpp hll.o kthread.o
-	$(CXX) $(FLAGS)	-Wno-unused-parameter -pthread $< -o $@
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@
 
 dev_test: dev_test.cpp kthread.o
-	$(CXX) $(FLAGS)	-Wno-unused-parameter -pthread -DENABLE_HLL_DEVELOP -DHLL_HEADER_ONLY kthread.o $< -o $@
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread -DENABLE_HLL_DEVELOP -DHLL_HEADER_ONLY kthread.o $< -o $@
 
 clean:
 	rm -f test.o test hll.o kthread.o libhll.a *hll*cpython*so
