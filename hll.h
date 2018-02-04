@@ -404,12 +404,10 @@ static inline double union_size(const hll_t &h1, const hll_t &h2) {
     const SType *pend(reinterpret_cast<const SType *>(&(*h1.core().cend())));
     assert((uint8_t *)pend == (h1.data() + h1.m()));
     SIMDHolder tmp;
-    tmp.val = MAX_FN(*p1++, *p2++);
-    tmp.inc_counts(counts);
-    while(p1 < pend) {
+    do {
         tmp.val = MAX_FN(*p1++, *p2++);
         tmp.inc_counts(counts);
-    }
+    } while(p1 < pend);
     return detail::calculate_estimate(counts, h1.get_use_ertl(), h1.m(), h1.p(), h1.alpha());
 }
 
