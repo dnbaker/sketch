@@ -25,11 +25,6 @@ fprintf(stderr, "Elements estimated: %lf. Error bounds: %lf.\n", hll.report(), h
 To link against the library, add `$PATH/$TO/hll` to your LD_LIBRARY_PATH after building and pass -lhll during compilation. Alternatively, you can simply `#include hll/hll.h` and use the hll.o object file directly in your project.
 
 
-### `__builtin_clzll` undefined on 0
-The behavior of `__builtin_clzll` is undefined on both gcc and clang for an operand of 0.
-On most modern hardware, this returns the number of bits in the underlying type (64).
-If you wish to avoid this edge case out of principle, compile with `-DAVOID_CLZ_UNDEF`. Note that there is precisely one 64-bit integer [0x7ffffbffffdfffff] which hashes to 0, so that even if it doesn't perform as expected, it would have an extremely minimal effect in practice.
-
 ### Multithreading
 By default, updates to the data structure to occur using atomic operations, though threading should be handled by the calling code. Otherwise, the flag -DNOT_THREADSAFE should be passed. The cost of this is relatively minor, but in single-threaded situations, this could be preferred.
 
