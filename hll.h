@@ -230,7 +230,7 @@ public:
             __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
 #else
         const uint32_t index(hashval >> (64u - np_)), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
-        core_[index] = std::max(core_[index], lzt); 
+        core_[index] = std::max(core_[index], lzt);
 #endif
     }
 
@@ -327,13 +327,11 @@ namespace detail {
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
     static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
-static inline double calculate_estimate(uint32_t *counts,
+static inline double calculate_estimate(uint64_t *counts,
                                         bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
 #if 0
     std::fprintf(stderr, "Counts: %u|%u|%u|%u|%u|%u\n", counts[0], counts[1], 2[counts], 3[counts], 4[counts], 5[counts]);
 #endif
-    // How do I modify this to account for the value at 65?
-    // I'm guessing I just replace all the 64s with 65....
     double sum = 0, value;
     for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
     if(use_ertl) {
@@ -378,6 +376,9 @@ public:
     using u8arr = uint8_t[nels];
     SType val;
     u8arr vals;
+    void inc_counts(uint64_t *arr) const {
+        for(const auto el: vals) ++arr[el];
+    }
 };
 
 static_assert(sizeof(SIMDHolder) == sizeof(SIMDHolder::SType), "This union must be compact");
@@ -389,17 +390,16 @@ static inline double union_size(const hll_t &h1, const hll_t &h2) {
     using detail::SIMDHolder;
     assert(h1.m() == h2.m());
     using SType = typename SIMDHolder::SType;
-    uint32_t counts[65]{0};
+    uint64_t counts[64]{0};
     const SType *p1((const SType *)(h1.data())), *p2((const SType *)(h2.data()));
     const SType *pend(reinterpret_cast<const SType *>(&(*h1.core().cend())));
     assert((uint8_t *)pend == (h1.data() + h1.m()));
     SIMDHolder tmp;
     tmp.val = MAX_FN(*p1++, *p2++);
-    for(const auto el: tmp.vals) ++counts[el];
+    tmp.inc_counts(counts);
     while(p1 < pend) {
-        // TODO: test unrolling in groups of 8.
         tmp.val = MAX_FN(*p1++, *p2++);
-        for(const auto el: tmp.vals) ++counts[el];
+        tmp.inc_counts(counts);
     }
     return detail::calculate_estimate(counts, h1.get_use_ertl(), h1.m(), h1.p(), h1.alpha());
 }

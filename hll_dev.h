@@ -48,8 +48,8 @@ public:
                             dcore_(1ull << hll_t::p()) {
     }
     void sum() {
-        uint32_t fcounts[65]{0};
-        uint32_t rcounts[65]{0};
+        uint64_t fcounts[64]{0};
+        uint64_t rcounts[64]{0};
         const auto &core(hll_t::core());
         for(size_t i(0); i < core.size(); ++i) {
             // I don't this can be unrolled and LUT'd.

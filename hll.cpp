@@ -24,7 +24,7 @@ std::string arrstr(T it, T it2) {
 
 
 _STORAGE_ void hll_t::sum() {
-    uint32_t counts[65]{0};
+    uint64_t counts[64]{0};
     for(const auto i: core_) ++counts[i];
     // Think about making a table of size 4096 and looking up two values at a time.
     value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
@@ -33,7 +33,7 @@ _STORAGE_ void hll_t::sum() {
 
 template<typename CoreType>
 struct parsum_data_t {
-    std::atomic<uint32_t> *counts_; // Array decayed to pointer.
+    std::atomic<uint64_t> *counts_; // Array decayed to pointer.
     const CoreType               &core_;
     const uint64_t              l_;
     const uint64_t             pb_; // Per-batch
@@ -42,19 +42,19 @@ struct parsum_data_t {
 template<typename CoreType>
 _STORAGE_ void parsum_helper(void *data_, long index, int tid) {
     parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
-    uint32_t local_counts[65]{0};
+    uint64_t local_counts[64]{0};
     for(uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++local_counts[data.core_[i++]]);
-    for(uint64_t i = 0; i < 65ull; ++i) data.counts_[i] += local_counts[i];
+    for(uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
 }
 
 _STORAGE_ void hll_t::parsum(int nthreads, std::size_t pb) {
     if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
-    std::atomic<uint32_t> acounts[65];
+    std::atomic<uint64_t> acounts[64];
     std::memset(acounts, 0, sizeof acounts);
     parsum_data_t<decltype(core_)> data{acounts, core_, m(), pb};
     const uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
     kt_for(nthreads, parsum_helper<decltype(core_)>, &data, nr);
-    uint32_t counts[65];
+    uint64_t counts[64];
     std::memcpy(counts, acounts, sizeof(counts));
     value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
     is_calculated_ = 1;
