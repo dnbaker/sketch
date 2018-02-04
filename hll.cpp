@@ -24,9 +24,13 @@ std::string arrstr(T it, T it2) {
 
 
 _STORAGE_ void hll_t::sum() {
+    using detail::SIMDHolder;
     uint64_t counts[64]{0};
-    for(const auto i: core_) ++counts[i];
-    // Think about making a table of size 4096 and looking up two values at a time.
+    SIMDHolder tmp, *p((SIMDHolder *)core_.data()), *pend((SIMDHolder *)&*core_.end());
+    do {
+        tmp = *p++;
+        tmp.inc_counts(counts);
+    } while(p < pend);
     value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
     is_calculated_ = 1;
 }
@@ -41,9 +45,15 @@ struct parsum_data_t {
 
 template<typename CoreType>
 _STORAGE_ void parsum_helper(void *data_, long index, int tid) {
+    using detail::SIMDHolder;
     parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
     uint64_t local_counts[64]{0};
-    for(uint64_t i(index * data.pb_), e(std::min(data.l_, i + data.pb_)); i < e; ++local_counts[data.core_[i++]]);
+    SIMDHolder tmp, *p((SIMDHolder *)&data.core_[index * data.pb_]),
+                    *pend((SIMDHolder *)&data.core_[std::min(data.l_, (index+1) * data.pb_)]);
+    do {
+        tmp = *p++;
+        tmp.inc_counts(local_counts);
+    } while(p < pend);
     for(uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
 }
 
