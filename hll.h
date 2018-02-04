@@ -358,19 +358,24 @@ static inline double calculate_estimate(uint64_t *counts,
 }
 
 union SIMDHolder {
+
 public:
+
+#define DEC_MAX(fn) static constexpr decltype(&fn) max_fn = &fn
 #if HAS_AVX_512
     using SType = __m512i;
-#  define MAX_FN(x, y) _mm512_max_epu8(x, y)
+    DEC_MAX(_mm512_max_epu8);
 #elif __AVX2__
     using SType = __m256i;
-#  define MAX_FN(x, y) _mm256_max_epu8(x, y)
+    DEC_MAX(_mm256_max_epu8);
 #elif __SSE2__
     using SType = __m128i;
-#  define MAX_FN(x, y) _mm_max_epu8(x, y)
+    DEC_MAX(_mm_max_epu8);
 #else
 #  error("Need at least SSE2")
 #endif
+#undef DEC_MAX
+
     static constexpr size_t nels = sizeof(SType) / sizeof(uint8_t);
     using u8arr = uint8_t[nels];
     SType val;
@@ -405,7 +410,7 @@ static inline double union_size(const hll_t &h1, const hll_t &h2) {
     assert((uint8_t *)pend == (h1.data() + h1.m()));
     SIMDHolder tmp;
     do {
-        tmp.val = MAX_FN(*p1++, *p2++);
+        tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
         tmp.inc_counts(counts);
     } while(p1 < pend);
     return detail::calculate_estimate(counts, h1.get_use_ertl(), h1.m(), h1.p(), h1.alpha());
@@ -415,7 +420,6 @@ static inline double intersection_size(const hll_t &h1, const hll_t &h2) {
     return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
 }
 
-#undef MAX_FN
 
 
 } // namespace hll
