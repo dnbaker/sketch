@@ -15,7 +15,7 @@
 #include "unistd.h"
 #include "x86intrin.h"
 
-#define HAS_AVX_512 _FEATURE_AVX512F
+#define HAS_AVX_512 (_FEATURE_AVX512F | _FEATURE_AVX512ER | _FEATURE_AVX512PF | _FEATURE_AVX512CD)
 
 #ifndef INLINE
 #  if __GNUC__ || __clang__
@@ -357,7 +357,6 @@ static inline double calculate_estimate(uint64_t *counts,
     return value;
 }
 
-
 union SIMDHolder {
 public:
 #if HAS_AVX_512
@@ -377,8 +376,18 @@ public:
     SType val;
     u8arr vals;
     void inc_counts(uint64_t *arr) const {
-        for(const auto el: vals) ++arr[el];
+        unroller<0, nels> ur;
+        ur(*this, arr);
     }
+    template<size_t iternum, size_t niter_left> struct unroller {
+        void operator()(const SIMDHolder &ref, uint64_t *arr) const {
+            ++arr[ref.vals[iternum]];
+            unroller<iternum+1, niter_left-1>()(ref, arr);
+        }
+    };
+    template<size_t iternum> struct unroller<iternum, 0> {
+        void operator()(const SIMDHolder &ref, uint64_t *arr) const {}
+    };
 };
 
 static_assert(sizeof(SIMDHolder) == sizeof(SIMDHolder::SType), "This union must be compact");
