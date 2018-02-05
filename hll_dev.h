@@ -1,11 +1,10 @@
 #ifndef HLL_DEV_H__
 #define HLL_DEV_H__
 
-namespace hll {
+#include "hll.h"
+#include <random>
 
-#ifndef HLL_H_
-#  error("Please include hll.h first. Defining -DENABLE_HLL_DEVELOP is recommended instead, but so long as you include this after, no harm is done.")
-#endif
+namespace hll {
 
 class hlldub_t: public hll_t {
     // hlldub_t inserts each value twice (forward and reverse)
@@ -118,6 +117,16 @@ public:
 #endif
 };
 
+namespace detail {
+inline std::vector<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
+    LOG_DEBUG("Initializing a vector of seeds of size %zu with a seed-seed of %" PRIu64 "\n", size, seed);
+    std::mt19937_64 mt(seed);
+    std::vector<uint64_t> ret;
+    while(ret.size() < size) ret.emplace_back(mt());
+    return ret;
+}
+}
+
 class hlf_t {
 protected:
     // Consider templating this to extend to hlldub_ts as well.
@@ -125,6 +134,7 @@ protected:
 public:
     template<typename SeedContainer, typename... Args>
     hlf_t(const SeedContainer &con, Args &&... args) {
+        if(std::size(con) == 0) throw std::runtime_error("%s requires are least a size of 1.\n", __func__);
         hlls_.reserve(std::size(con));
         using SeedType = std::decay_t<decltype(*std::begin(con))>;
         static_assert(std::is_integral_v<SeedType>, "seeds must be integers....");
@@ -137,6 +147,8 @@ public:
         }
         if(seedset.size() != std::size(con)) throw std::runtime_error("Error: hllfilter_t requires distinct seeds for each subhll. Otherwise you don't improve your power.");
     }
+    template<typename SeedContainer, typename... Args>
+    hlf_t(size_t size, uint64_t seedseed, Args &&... args): hlf_t(detail::seeds_from_seed(seedseed, size), std::forward<Args>(args)...) {}
     auto size() const {return hlls_.size();}
     auto m() const {return hlls_[0].size();}
 
@@ -155,8 +167,7 @@ public:
     }
     double creport() const {
         double ret(hlls_[0].creport());
-        for(size_t i(1); i < size(); ++i)
-            ret += hlls_[i].creport();
+        for(size_t i(1); i < size(); ret += hlls_[i++].creport());
         ret /= static_cast<double>(size());
         return ret;
     }
