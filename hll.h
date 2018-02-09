@@ -296,6 +296,7 @@ public:
     const auto  data() const {return core_.data();}
 
     auto p() const {return np_;}
+    auto q() const {return 64 - np_;}
     _STORAGE_ void free();
     _STORAGE_ void write(FILE *fp);
     _STORAGE_ void write(const char *path);
@@ -324,21 +325,18 @@ double jaccard_index(const hll_t &first, const hll_t &other);
 hll_t operator+(const hll_t &one, const hll_t &other);
 
 namespace detail {
-    static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
-    static constexpr long double TWO_POW_32 = (1ull << 32) * 1.;
+    static constexpr long double LARGE_RANGE_CORRECTION_THRESHOLD = std::ldexp(1.L/30, 32);
+    static constexpr long double TWO_POW_32 = std::ldexp(1.L, 32);
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 static inline double calculate_estimate(uint64_t *counts,
-                                        bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
-#if 0
-    std::fprintf(stderr, "Counts: %u|%u|%u|%u|%u|%u\n", counts[0], counts[1], 2[counts], 3[counts], 4[counts], 5[counts]);
-#endif
-    double sum = 0, value;
+                                        bool use_ertl, uint64_t m, std::uint32_t p, long double alpha) {
+    long double sum = 0, value;
     for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
     if(use_ertl) {
-        double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
+        long double z = m * detail::gen_tau(static_cast<long double>((m-counts[64 - p +1]))/(long double)m);
         for(unsigned k = 64-p; k; z += counts[k--], z *= 0.5);
-        z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
-        return (m/(2.*std::log(2)))*m / z;
+        z += m * detail::gen_sigma(static_cast<long double>(counts[0])/static_cast<long double>(m));
+        return (m/(2.L*std::log(2.L)))*m / z;
     }
     /* else */
     // Small/large range corrections
@@ -350,8 +348,9 @@ static inline double calculate_estimate(uint64_t *counts,
             value = m * std::log((double)(m) / counts[0]);
         }
     } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
-        const long double corr(-detail::TWO_POW_32 * std::log(1. - value / detail::TWO_POW_32));
-        if(!std::isnan(corr)) value = corr;
+        // Reuse sum variable to hold correction.
+        sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
+        if(!std::isnan(sum)) value = sum;
         else LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
     }
     return value;
