@@ -234,7 +234,10 @@ public:
 #endif
     }
 
-    INLINE void addh(uint64_t element) {add(wang_hash(element));}
+    INLINE void addh(uint64_t element) {
+        element = wang_hash(element);
+        add(element);
+    }
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) {
         static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");
@@ -330,11 +333,12 @@ namespace detail {
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 static inline double calculate_estimate(uint64_t *counts,
                                         bool use_ertl, uint64_t m, std::uint32_t p, long double alpha) {
-    long double sum = 0, value;
-    for(unsigned i(0); i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
+    long double sum = counts[0], value;
+    unsigned i;
+    for(i = 1; i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
     if(use_ertl) {
         long double z = m * detail::gen_tau(static_cast<long double>((m-counts[64 - p +1]))/(long double)m);
-        for(unsigned k = 64-p; k; z += counts[k--], z *= 0.5);
+        for(i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
         z += m * detail::gen_sigma(static_cast<long double>(counts[0])/static_cast<long double>(m));
         return (m/(2.L*std::log(2.L)))*m / z;
     }
@@ -350,8 +354,9 @@ static inline double calculate_estimate(uint64_t *counts,
     } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
         // Reuse sum variable to hold correction.
         sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
-        if(!std::isnan(sum)) value = sum;
-        else LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
+        if(std::isnan(sum)) {
+            LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
+        } else value = sum;
     }
     return value;
 }
@@ -392,10 +397,9 @@ public:
     template<size_t iternum> struct unroller<iternum, 0> {
         void operator()(const SIMDHolder &ref, uint64_t *arr) const {}
     };
+    static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
 };
 
-static_assert(sizeof(SIMDHolder) == sizeof(SIMDHolder::SType), "This union must be compact");
-static_assert(sizeof(SIMDHolder) == sizeof(SIMDHolder::u8arr), "both items in the union must have the same size");
 
 } // namespace detail
 
