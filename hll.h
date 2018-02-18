@@ -328,7 +328,7 @@ double jaccard_index(const hll_t &first, const hll_t &other);
 hll_t operator+(const hll_t &one, const hll_t &other);
 
 namespace detail {
-    static constexpr long double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.
+    static constexpr long double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
     static constexpr long double TWO_POW_32 = 1ull << 32;
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 static inline double calculate_estimate(uint64_t *counts,
@@ -408,7 +408,8 @@ static inline double union_size(const hll_t &h1, const hll_t &h2) {
     assert(h1.m() == h2.m());
     using SType = typename SIMDHolder::SType;
     uint64_t counts[64]{0};
-    const SType *p1((const SType *)(h1.data())), *p2((const SType *)(h2.data()));
+    // We can do this because we use an aligned allocator.
+    const SType *p1(reinterpret_cast<const SType *>(h1.data())), *p2(reinterpret_cast<const SType *>(h2.data()));
     const SType *pend(reinterpret_cast<const SType *>(&(*h1.core().cend())));
     assert((uint8_t *)pend == (h1.data() + h1.m()));
     SIMDHolder tmp;
@@ -422,8 +423,6 @@ static inline double union_size(const hll_t &h1, const hll_t &h2) {
 static inline double intersection_size(const hll_t &h1, const hll_t &h2) {
     return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
 }
-
-
 
 } // namespace hll
 
