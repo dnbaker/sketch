@@ -328,8 +328,8 @@ double jaccard_index(const hll_t &first, const hll_t &other);
 hll_t operator+(const hll_t &one, const hll_t &other);
 
 namespace detail {
-    static constexpr long double LARGE_RANGE_CORRECTION_THRESHOLD = std::ldexp(1.L/30, 32);
-    static constexpr long double TWO_POW_32 = std::ldexp(1.L, 32);
+    static constexpr long double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.
+    static constexpr long double TWO_POW_32 = 1ull << 32;
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 static inline double calculate_estimate(uint64_t *counts,
                                         bool use_ertl, uint64_t m, std::uint32_t p, long double alpha) {
