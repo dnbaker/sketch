@@ -120,18 +120,18 @@ constexpr INLINE unsigned clz(unsigned long x) {
 constexpr INLINE unsigned clz(unsigned x) {
     return __builtin_clz(x);
 }
-constexpr INLINE unsigned ctz(unsigned long long x) {
-    return __builtin_ctzll(x);
+constexpr INLINE unsigned ffs(unsigned long long x) {
+    return __builtin_ffsll(x);
 }
-constexpr INLINE unsigned ctz(unsigned long x) {
-    return __builtin_ctzl(x);
+constexpr INLINE unsigned ffs(unsigned long x) {
+    return __builtin_ffsl(x);
 }
-constexpr INLINE unsigned ctz(unsigned x) {
-    return __builtin_ctz(x);
+constexpr INLINE unsigned ffs(unsigned x) {
+    return __builtin_ffs(x);
 }
 #else
 #pragma message("Using manual clz instead of gcc/clang __builtin_*")
-#error("Have not created a manual ctz function. Must be compiled with gcc or clang.")
+#error("Have not created a manual ffs function. Must be compiled with gcc or clang. (Or a compiler supporting it.)")
 #define clz(x) clz_manual(x)
 // https://en.wikipedia.org/wiki/Find_first_set#CLZ
 // Modified for constexpr, added 64-bit overload.
@@ -328,7 +328,7 @@ double jaccard_index(const hll_t &first, const hll_t &other);
 hll_t operator+(const hll_t &one, const hll_t &other);
 
 namespace detail {
-    static constexpr long double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.
+    static constexpr long double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
     static constexpr long double TWO_POW_32 = 1ull << 32;
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 static inline double calculate_estimate(uint64_t *counts,

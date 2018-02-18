@@ -15,11 +15,11 @@ public:
     INLINE void add(uint64_t hashval) {
         hll_t::add(hashval);
 #ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1);
+        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)));
             core_[index] < lzt;
             __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
 #else
-        const uint32_t index(hashval & (m() - 1)), lzt(ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1);
+        const uint32_t index(hashval & (m() - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)));
         core_[index] = std::min(core_[index], lzt);
 #endif
     }
@@ -31,7 +31,7 @@ public:
         return hll_t::creport() * 0.5;
     }
     bool may_contain(uint64_t hashval) {
-        return hll_t::may_contain(hashval) && core_[hashval & ((m()) - 1)] >= ctz(hashval >> p()) + 1;
+        return hll_t::may_contain(hashval) && core_[hashval & ((m()) - 1)] >= ffs(hashval >> p());
     }
 
     INLINE void addh(uint64_t element) {add(wang_hash(element));}
@@ -62,17 +62,17 @@ public:
     void add(uint64_t hashval) {
         hll_t::add(hashval);
 #ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1);
+        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)));
             dcore_[index] < lzt;
             __sync_bool_compare_and_swap(dcore_.data() + index, dcore_[index], lzt));
 #else
-        const uint32_t index(hashval & (m() - 1)), lzt(ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1);
+        const uint32_t index(hashval & (m() - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)));
         dcore_[index] = std::min(dcore_[index], lzt);
 #endif
     }
     void addh(uint64_t element) {add(wang_hash(element));}
     bool may_contain(uint64_t hashval) {
-        return hll_t::may_contain(hashval) && dcore_[hashval & ((m()) - 1)] >= ctz(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)) + 1;
+        return hll_t::may_contain(hashval) && dcore_[hashval & ((m()) - 1)] >= ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1));
     }
 };
 
