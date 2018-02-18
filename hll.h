@@ -120,18 +120,18 @@ constexpr INLINE unsigned clz(unsigned long x) {
 constexpr INLINE unsigned clz(unsigned x) {
     return __builtin_clz(x);
 }
-constexpr INLINE unsigned ctz(unsigned long long x) {
-    return __builtin_ctzll(x);
+constexpr INLINE unsigned ffs(unsigned long long x) {
+    return __builtin_ffsll(x);
 }
-constexpr INLINE unsigned ctz(unsigned long x) {
-    return __builtin_ctzl(x);
+constexpr INLINE unsigned ffs(unsigned long x) {
+    return __builtin_ffsl(x);
 }
-constexpr INLINE unsigned ctz(unsigned x) {
-    return __builtin_ctz(x);
+constexpr INLINE unsigned ffs(unsigned x) {
+    return __builtin_ffs(x);
 }
 #else
 #pragma message("Using manual clz instead of gcc/clang __builtin_*")
-#error("Have not created a manual ctz function. Must be compiled with gcc or clang.")
+#error("Have not created a manual ffs function. Must be compiled with gcc or clang. (Or a compiler supporting it.)")
 #define clz(x) clz_manual(x)
 // https://en.wikipedia.org/wiki/Find_first_set#CLZ
 // Modified for constexpr, added 64-bit overload.
