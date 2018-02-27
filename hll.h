@@ -277,9 +277,9 @@ public:
 
     // Clears, allows reuse with different np.
     _STORAGE_ void resize(size_t new_size);
-    // Getter for is_calculated_
     bool get_use_ertl() const {return use_ertl_;}
     void set_use_ertl(bool val) {use_ertl_ = val;}
+    // Getter for is_calculated_
     bool is_ready() const {return is_calculated_;}
     void not_ready() {is_calculated_ = false;}
     void set_is_ready() {is_calculated_ = true;}

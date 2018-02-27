@@ -169,14 +169,14 @@ _STORAGE_ hll_t operator+(const hll_t &one, const hll_t &other) {
 }
 
 _STORAGE_ double intersection_size(hll_t &first, hll_t &other) noexcept {
-    if(!first.is_calculated_) first.sum();
-    if(!other.is_calculated_) other.sum();
+    if(!first.is_ready()) first.sum();
+    if(!other.is_ready()) other.sum();
     return intersection_size((const hll_t &)first, (const hll_t &)other);
 }
 
 _STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
-    if(!first.is_calculated_) first.sum();
-    if(!other.is_calculated_) other.sum();
+    if(!first.is_ready()) first.sum();
+    if(!other.is_ready()) other.sum();
     return jaccard_index((const hll_t &)first, (const hll_t &)other);
 }
 
