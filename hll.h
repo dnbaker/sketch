@@ -410,13 +410,11 @@ static inline double union_size(const hll_t &h1, const hll_t &h2) {
     uint64_t counts[64]{0};
     // We can do this because we use an aligned allocator.
     const SType *p1(reinterpret_cast<const SType *>(h1.data())), *p2(reinterpret_cast<const SType *>(h2.data()));
-    const SType *pend(reinterpret_cast<const SType *>(&(*h1.core().cend())));
-    assert((uint8_t *)pend == (h1.data() + h1.m()));
     SIMDHolder tmp;
     do {
         tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
         tmp.inc_counts(counts);
-    } while(p1 < pend);
+    } while(p1 < reinterpret_cast<const SType *>(&(*h1.core().cend())));
     return detail::calculate_estimate(counts, h1.get_use_ertl(), h1.m(), h1.p(), h1.alpha());
 }
 
