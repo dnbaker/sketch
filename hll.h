@@ -295,8 +295,8 @@ public:
     bool within_bounds(uint64_t actual_size) {
         return std::abs(actual_size - report()) < est_err();
     }
-    const auto &core() const {return core_;}
-    const auto  data() const {return core_.data();}
+    const auto &core()    const {return core_;}
+    const uint8_t *data() const {return core_.data();}
 
     auto p() const {return np_;}
     auto q() const {return 64 - np_;}
