@@ -237,6 +237,17 @@ _STORAGE_ void hll_t::read(const int fileno) {
     ::read(fileno, core_.data(), core_.size());
 }
 
+_STORAGE_ void hll_t::read(gzFile fp) {
+#define CR(fp, dst, len) do {if((uint64_t)gzread(fp, dst, len) != len) throw std::runtime_error("Error reading from file.");} while(0)
+    uint32_t bf[3];
+    CR(fp, bf, sizeof(bf));
+    is_calculated_ = bf[0]; use_ertl_ = bf[1]; nthreads_ = bf[2];
+    CR(fp, &np_, sizeof(np_));
+    CR(fp, &value_, sizeof(value_));
+    core_.resize(m());
+    CR(fp, core_.data(), core_.size());
+#undef CR
+}
 
 _STORAGE_ void hll_t::write(std::FILE *fp) {
 #if _POSIX_VERSION
@@ -244,6 +255,16 @@ _STORAGE_ void hll_t::write(std::FILE *fp) {
 #else
     static_assert(false, "Needs posix for now, will write non-posix version later.");
 #endif
+}
+
+_STORAGE_ void hll_t::write(gzFile fp) {
+#define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
+    uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
+    CW(fp, bf, sizeof(bf));
+    CW(fp, &np_, sizeof(np_));
+    CW(fp, &value_, sizeof(value_));
+    CW(fp, core_.data(), core_.size() * sizeof(core_[0]));
+#undef CW
 }
 
 _STORAGE_ void hll_t::read(std::FILE *fp) {
@@ -254,17 +275,31 @@ _STORAGE_ void hll_t::read(std::FILE *fp) {
 #endif
 }
 
-_STORAGE_ void hll_t::read(const char *path) {
-    std::FILE *fp(std::fopen(path, "rb"));
-    if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
-    read(fp);
-    std::fclose(fp);
+_STORAGE_ void hll_t::read(const char *path, bool read_gz) {
+    if(read_gz) {
+        gzFile fp(gzopen(path, "rb"));
+        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+        read(fp);
+        gzclose(fp);
+    } else {
+        std::FILE *fp(std::fopen(path, "rb"));
+        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+        read(fp);
+        std::fclose(fp);
+    }
 }
-_STORAGE_ void hll_t::write(const char *path) {
-    std::FILE *fp(std::fopen(path, "wb"));
-    if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
-    write(fp);
-    std::fclose(fp);
+_STORAGE_ void hll_t::write(const char *path, bool write_gz) {
+    if(write_gz) {
+        gzFile fp(gzopen(path, "wb"));
+        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+        write(fp);
+        gzclose(fp);
+    } else {
+        std::FILE *fp(std::fopen(path, "wb"));
+        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+        write(fp);
+        std::fclose(fp);
+    }
 }
 
 
