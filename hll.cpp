@@ -169,19 +169,22 @@ _STORAGE_ hll_t operator+(const hll_t &one, const hll_t &other) {
 }
 
 _STORAGE_ double intersection_size(hll_t &first, hll_t &other) noexcept {
-    first.sum(); other.sum();
+    if(!first.is_ready()) first.sum();
+    if(!other.is_ready()) other.sum();
     return intersection_size((const hll_t &)first, (const hll_t &)other);
 }
 
 _STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
-    first.sum(); other.sum();
+    if(!first.is_ready()) first.sum();
+    if(!other.is_ready()) other.sum();
     return jaccard_index((const hll_t &)first, (const hll_t &)other);
 }
 
 _STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
     double i(intersection_size(first, other));
-    i /= (first.creport() + other.creport() - i);
-    return i;
+    const double div = (first.creport() + other.creport() - i);
+    if(unlikely(div == 0)) return 1.;
+    return i /= div;
 }
 
 // Clears, allows reuse with different np.

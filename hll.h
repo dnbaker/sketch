@@ -277,9 +277,9 @@ public:
 
     // Clears, allows reuse with different np.
     _STORAGE_ void resize(size_t new_size);
-    // Getter for is_calculated_
     bool get_use_ertl() const {return use_ertl_;}
     void set_use_ertl(bool val) {use_ertl_ = val;}
+    // Getter for is_calculated_
     bool is_ready() const {return is_calculated_;}
     void not_ready() {is_calculated_ = false;}
     void set_is_ready() {is_calculated_ = true;}
@@ -328,23 +328,23 @@ double jaccard_index(const hll_t &first, const hll_t &other);
 hll_t operator+(const hll_t &one, const hll_t &other);
 
 namespace detail {
-    static constexpr long double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
-    static constexpr long double TWO_POW_32 = 1ull << 32;
+    static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
+    static constexpr double TWO_POW_32 = 1ull << 32;
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 static inline double calculate_estimate(uint64_t *counts,
-                                        bool use_ertl, uint64_t m, std::uint32_t p, long double alpha) {
-    long double sum = counts[0], value;
+                                        bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
+    double sum = counts[0], value;
     unsigned i;
-    for(i = 1; i < 64; ++i) sum += counts[i] * (1. / (1ull << i));
     if(use_ertl) {
-        long double z = m * detail::gen_tau(static_cast<long double>((m-counts[64 - p +1]))/(long double)m);
+        double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
         for(i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
-        z += m * detail::gen_sigma(static_cast<long double>(counts[0])/static_cast<long double>(m));
+        z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
         return (m/(2.L*std::log(2.L)))*m / z;
     }
     /* else */
     // Small/large range corrections
     // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
+    for(i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
     if((value = (alpha * m * m / sum)) < detail::small_range_correction_threshold(m)) {
         if(counts[0]) {
             LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",
@@ -410,13 +410,11 @@ static inline double union_size(const hll_t &h1, const hll_t &h2) {
     uint64_t counts[64]{0};
     // We can do this because we use an aligned allocator.
     const SType *p1(reinterpret_cast<const SType *>(h1.data())), *p2(reinterpret_cast<const SType *>(h2.data()));
-    const SType *pend(reinterpret_cast<const SType *>(&(*h1.core().cend())));
-    assert((uint8_t *)pend == (h1.data() + h1.m()));
     SIMDHolder tmp;
     do {
         tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
         tmp.inc_counts(counts);
-    } while(p1 < pend);
+    } while(p1 < reinterpret_cast<const SType *>(&(*h1.core().cend())));
     return detail::calculate_estimate(counts, h1.get_use_ertl(), h1.m(), h1.p(), h1.alpha());
 }
 
