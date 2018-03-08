@@ -313,7 +313,9 @@ public:
     _STORAGE_ void read(FILE *fp);
     _STORAGE_ void read(gzFile fp);
     _STORAGE_ void read(const char *path, bool read_gz=false);
-    void read(const std::string &path) {read(path.data());}
+    _STORAGE_ void read(const std::string &path, bool read_gz=false) {
+        read(path.data(), read_gz);
+    }
 #if _POSIX_VERSION
     _STORAGE_ void write(int fileno);
     _STORAGE_ void read(int fileno);
