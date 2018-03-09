@@ -183,7 +183,7 @@ _STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
 _STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
     double i(intersection_size(first, other));
     const double div = (first.creport() + other.creport() - i);
-    if(unlikely(div == 0)) return 1.;
+    if(__builtin_expect(div == 0, 0)) return 1.;
     return i /= div;
 }
 
