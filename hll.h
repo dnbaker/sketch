@@ -14,6 +14,11 @@
 #include "math.h"
 #include "unistd.h"
 #include "x86intrin.h"
+#if ZWRAP_USE_ZSTD
+#  include "zstd_zlibwrapper.h"
+#else
+#  include <zlib.h>
+#endif
 
 #define HAS_AVX_512 (_FEATURE_AVX512F | _FEATURE_AVX512ER | _FEATURE_AVX512PF | _FEATURE_AVX512CD)
 
@@ -295,18 +300,22 @@ public:
     bool within_bounds(uint64_t actual_size) {
         return std::abs(actual_size - report()) < est_err();
     }
-    const auto &core() const {return core_;}
-    const auto  data() const {return core_.data();}
+    const auto &core()    const {return core_;}
+    const uint8_t *data() const {return core_.data();}
 
     auto p() const {return np_;}
     auto q() const {return 64 - np_;}
     _STORAGE_ void free();
     _STORAGE_ void write(FILE *fp);
-    _STORAGE_ void write(const char *path);
-    void write(const std::string &path) {write(path.data());}
+    _STORAGE_ void write(gzFile fp);
+    _STORAGE_ void write(const char *path, bool write_gz=false);
+    void write(const std::string &path, bool write_gz=false) {write(path.data(), write_gz);}
     _STORAGE_ void read(FILE *fp);
-    _STORAGE_ void read(const char *path);
-    void read(const std::string &path) {read(path.data());}
+    _STORAGE_ void read(gzFile fp);
+    _STORAGE_ void read(const char *path, bool read_gz=false);
+    _STORAGE_ void read(const std::string &path, bool read_gz=false) {
+        read(path.data(), read_gz);
+    }
 #if _POSIX_VERSION
     _STORAGE_ void write(int fileno);
     _STORAGE_ void read(int fileno);
