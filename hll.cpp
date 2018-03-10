@@ -249,14 +249,6 @@ _STORAGE_ void hll_t::read(gzFile fp) {
 #undef CR
 }
 
-_STORAGE_ void hll_t::write(std::FILE *fp) {
-#if _POSIX_VERSION
-    write(fileno(fp));
-#else
-    static_assert(false, "Needs posix for now, will write non-posix version later.");
-#endif
-}
-
 _STORAGE_ void hll_t::write(gzFile fp) {
 #define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
     uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
@@ -266,27 +258,11 @@ _STORAGE_ void hll_t::write(gzFile fp) {
     CW(fp, core_.data(), core_.size() * sizeof(core_[0]));
 #undef CW
 }
-
-_STORAGE_ void hll_t::read(std::FILE *fp) {
-#if _POSIX_VERSION
-    read(fileno(fp));
-#else
-    static_assert(false, "Needs posix for now, will write non-posix version later.");
-#endif
-}
-
-_STORAGE_ void hll_t::read(const char *path, bool read_gz) {
-    if(read_gz) {
-        gzFile fp(gzopen(path, "rb"));
-        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
-        read(fp);
-        gzclose(fp);
-    } else {
-        std::FILE *fp(std::fopen(path, "rb"));
-        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
-        read(fp);
-        std::fclose(fp);
-    }
+_STORAGE_ void hll_t::read(const char *path) {
+    gzFile fp(gzopen(path, "rb"));
+    if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+    read(fp);
+    gzclose(fp);
 }
 _STORAGE_ void hll_t::write(const char *path, bool write_gz) {
     if(write_gz) {

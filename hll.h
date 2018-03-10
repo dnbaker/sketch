@@ -230,11 +230,11 @@ public:
 
     INLINE void add(uint64_t hashval) {
 #ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval >> (64u - np_)), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
+        for(const uint32_t index(hashval >> q()), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
             core_[index] < lzt;
             __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
 #else
-        const uint32_t index(hashval >> (64u - np_)), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
+        const uint32_t index(hashval >> q()), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
         core_[index] = std::max(core_[index], lzt);
 #endif
     }
@@ -290,7 +290,7 @@ public:
     void set_is_ready() {is_calculated_ = true;}
     bool may_contain(uint64_t hashval) const {
         // This returns false positives, but never a false negative.
-        return core_[hashval >> (64u - np_)] >= clz(hashval << np_) + 1;
+        return core_[hashval >> q()] >= clz(hashval << np_) + 1;
     }
 
     bool within_bounds(uint64_t actual_size) const {
@@ -303,18 +303,17 @@ public:
     const auto &core()    const {return core_;}
     const uint8_t *data() const {return core_.data();}
 
-    auto p() const {return np_;}
-    auto q() const {return 64 - np_;}
+    uint32_t p() const {return np_;}
+    uint32_t q() const {return (sizeof(uint64_t) * CHAR_BIT) - np_;}
     _STORAGE_ void free();
     _STORAGE_ void write(FILE *fp);
     _STORAGE_ void write(gzFile fp);
     _STORAGE_ void write(const char *path, bool write_gz=false);
     void write(const std::string &path, bool write_gz=false) {write(path.data(), write_gz);}
-    _STORAGE_ void read(FILE *fp);
     _STORAGE_ void read(gzFile fp);
-    _STORAGE_ void read(const char *path, bool read_gz=false);
-    _STORAGE_ void read(const std::string &path, bool read_gz=false) {
-        read(path.data(), read_gz);
+    _STORAGE_ void read(const char *path);
+    _STORAGE_ void read(const std::string &path) {
+        read(path.data());
     }
 #if _POSIX_VERSION
     _STORAGE_ void write(int fileno);
