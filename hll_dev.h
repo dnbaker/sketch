@@ -181,6 +181,60 @@ public:
     }
 };
 
+#if 0
+    auto p = hll1.p();
+    auto q = hll1.q();
+    const double cAX = hll1.report();
+    const double cBX = hll2.report();
+    const double cABX = union_size(hll1, hll2);
+    uint64_t AXBhalfsum = total_sum_of_stuff;
+    uint64_t BXAhalfsum = total_sum_of_stuff;
+    uint64_t cAXBhalf[64]{0}; // 
+    uint64_t cBXAhalf[64]{0}; // 
+    for(unsigned _q = 0; _q < q; ++_q)
+        cAXBhalf[q] = num_larger1(q) + num_same(q) + num_larger2(q + 1);
+        cAXBhalf[q] = num_larger2(q) + num_same(q) + num_larger1(q + 1);
+        halfsums -= respective_halves[q];
+    }
+    cAXBhalf[q] = AXBhalfsum;
+    cBXAhalf[q] = BXAhalfsum;
+    new_est_type = lambda p, q, data: estimate with p, but this time with q - 1
+    cAXBhalf = new_est_type(countsAXBhalf, p, q) // And the omplment
+    cA = cABX - cBX;
+    cB = cABX - cAX;
+    cX1 = (1.5 * cBX + 1.5*xAX - cBXAhalf - cAXBhalf);
+    cX2 = 2.*(cBXAhalf + cAXBhalf) - 3.*cABX;
+    return std::max(0, 0.5 * (cX1 + cX2));
+/*
+ *  Now go through and make 3 arrays:
+ *
+ */
+
+    std::vector<int> countsAXBhalf(jointStatistic.getQ() + 1);
+    std::vector<int> countsBXAhalf(jointStatistic.getQ() + 1);
+    int sumAXBhalf= jointStatistic.getNumRegisters();
+    int sumBXAhalf= jointStatistic.getNumRegisters();
+    for (int q = 0; q < jointStatistic.getQ(); ++q) {
+        countsAXBhalf[q] = jointStatistic.getLarger1Count(q) + jointStatistic.getEqualCount(q) + jointStatistic.getLarger2Count(q+1);
+        countsBXAhalf[q] = jointStatistic.getLarger2Count(q) + jointStatistic.getEqualCount(q) + jointStatistic.getLarger1Count(q+1);
+        sumAXBhalf -= countsAXBhalf[q];
+        sumBXAhalf -= countsBXAhalf[q];
+    }
+    countsAXBhalf[jointStatistic.getQ()] = sumAXBhalf;
+    countsBXAhalf[jointStatistic.getQ()] = sumBXAhalf;
+    const MaxLikelihoodEstimator estimator2(jointStatistic.getP(), jointStatistic.getQ()-1);
+
+    const double cardinalityAXBhalf = estimator2(countsAXBhalf);
+    const double cardinalityBXAhalf = estimator2(countsBXAhalf);
+
+    cardinalityA = cardinalityABX - cardinalityBX;
+    cardinalityB = cardinalityABX - cardinalityAX;
+    double cardinalityX1 = 1.5*cardinalityBX + 1.5*cardinalityAX - cardinalityBXAhalf - cardinalityAXBhalf;
+    double cardinalityX2 = 2.*(cardinalityBXAhalf + cardinalityAXBhalf) - 3*cardinalityABX;
+
+cardinalityX = std::max(0., 0.5*(cardinalityX1 + cardinalityX2));
+#endif
+
 } // namespace hll
 
 #endif // #ifndef HLL_DEV_H__
