@@ -206,6 +206,9 @@ public:
         read(path);
     }
     hll_t(const std::string &path): hll_t(path.data()) {}
+    hll_t(gzFile fp): hll_t() {
+        this->read(fp);
+    }
     explicit hll_t(): hll_t(0, true, -1) {}
 
     // Call sum to recalculate if you have changed contents.
@@ -306,10 +309,10 @@ public:
     uint32_t p() const {return np_;}
     uint32_t q() const {return (sizeof(uint64_t) * CHAR_BIT) - np_;}
     _STORAGE_ void free();
-    _STORAGE_ void write(FILE *fp);
-    _STORAGE_ void write(gzFile fp);
-    _STORAGE_ void write(const char *path, bool write_gz=false);
-    void write(const std::string &path, bool write_gz=false) {write(path.data(), write_gz);}
+    _STORAGE_ void write(FILE *fp) const;
+    _STORAGE_ void write(gzFile fp) const;
+    _STORAGE_ void write(const char *path, bool write_gz=false) const;
+    void write(const std::string &path, bool write_gz=false) const {write(path.data(), write_gz);}
     _STORAGE_ void read(gzFile fp);
     _STORAGE_ void read(const char *path);
     _STORAGE_ void read(const std::string &path) {

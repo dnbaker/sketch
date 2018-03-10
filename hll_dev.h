@@ -88,7 +88,7 @@ static inline uint64_t finalize(uint64_t h) {
 
 class seedhll_t: public hll_t {
 protected:
-    const uint64_t seed_; // 64-bit integers are xored with this value before passing it to a hash.
+    uint64_t seed_; // 64-bit integers are xored with this value before passing it to a hash.
                           // This is almost free, in the content of 
 public:
     template<typename... Args>
@@ -97,17 +97,55 @@ public:
                                    " Also, if you are only using one of these at a time, don't use seedhll_t, just use hll_t and save yourself an xor per insertion"
                                    ", not to mention a 64-bit integer in space.");
     }
+    seedhll_t(gzFile fp): hll_t() {
+        this->read(fp);
+    }
     void addh(uint64_t element) {
         element ^= seed_;
         add(wang_hash(element));
     }
     uint64_t seed() const {return seed_;}
+    void write(const char *fn, bool write_gz) {
+        if(write_gz) {
+            gzFile fp = gzopen(fn, "wb");
+            if(fp == nullptr) throw std::runtime_error("Could not open file.");
+            this->write(fp);
+            gzclose(fp);
+        } else {
+            std::FILE *fp = std::fopen(fn, "wb");
+            if(fp == nullptr) throw std::runtime_error("Could not open file.");
+            this->write(fileno(fp));
+            std::fclose(fp);
+        }
+    }
+    void write(gzFile fp) const {
+        hll_t::write(fp);
+        gzwrite(fp, &seed_, sizeof(seed_));
+    }
+    void read(gzFile fp) {
+        hll_t::read(fp);
+        gzread(fp, &seed_, sizeof(seed_));
+    }
+    void write(int fn) const {
+        hll_t::write(fn);
+        ::write(fn, &seed_, sizeof(seed_));
+    }
+    void read(int fn) {
+        hll_t::read(fn);
+        ::read(fn, &seed_, sizeof(seed_));
+    }
+    void read(const char *fn) {
+        gzFile fp = gzopen(fn, "rb");
+        this->read(fp);
+        gzclose(fp);
+    }
 
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) {
         static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");
         add(finalize(hasher(element) ^ seed_));
     }
+
 #ifdef ENABLE_CLHASH
     template<typename Hasher=clhasher>
     INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
@@ -151,6 +189,33 @@ public:
     hlf_t(size_t size, uint64_t seedseed, Args &&... args): hlf_t(detail::seeds_from_seed(seedseed, size), std::forward<Args>(args)...) {}
     auto size() const {return hlls_.size();}
     auto m() const {return hlls_[0].size();}
+    void write(const char *fn) const {
+        gzFile fp = gzopen(fn, "wb");
+        if(fp == nullptr) throw std::runtime_error("Could not open file.");
+        this->write(fp);
+        gzclose(fp);
+    }
+    void read(const char *fn) {
+        gzFile fp = gzopen(fn, "rb");
+        if(fp == nullptr) throw std::runtime_error("Could not open file.");
+        this->read(fp);
+        gzclose(fp);
+    }
+    void write(gzFile fp) const {
+        uint64_t sz = hlls_.size();
+        gzwrite(fp, &sz, sizeof(sz));
+        for(const auto &hll: hlls_) {
+            hll.write(fp);
+        }
+        gzclose(fp);
+    }
+    void read(gzFile fp) {
+        uint64_t size;
+        gzread(fp, &size, sizeof(size));
+        hlls_.clear();
+        while(hlls_.size() < size) hlls_.emplace_back(fp);
+        gzclose(fp);
+    }
 
     // This only works for hlls using 64-bit integers.
     // Looking ahead,consider templating so that the double version might be helpful.

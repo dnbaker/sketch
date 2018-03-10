@@ -231,7 +231,7 @@ _STORAGE_ void hll_t::read(gzFile fp) {
 #undef CR
 }
 
-_STORAGE_ void hll_t::write(gzFile fp) {
+_STORAGE_ void hll_t::write(gzFile fp) const {
 #define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
     uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
     CW(fp, bf, sizeof(bf));
@@ -246,7 +246,7 @@ _STORAGE_ void hll_t::read(const char *path) {
     read(fp);
     gzclose(fp);
 }
-_STORAGE_ void hll_t::write(const char *path, bool write_gz) {
+_STORAGE_ void hll_t::write(const char *path, bool write_gz) const {
     if(write_gz) {
         gzFile fp(gzopen(path, "wb"));
         if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
