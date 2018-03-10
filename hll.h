@@ -315,10 +315,22 @@ public:
     _STORAGE_ void read(const std::string &path) {
         read(path.data());
     }
-#if _POSIX_VERSION
-    _STORAGE_ void write(int fileno);
-    _STORAGE_ void read(int fileno);
-#endif
+    void write(int fileno) const {
+        uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
+        ::write(fileno, bf, sizeof(bf));
+        ::write(fileno, &np_, sizeof(np_));
+        ::write(fileno, &value_, sizeof(value_));
+        ::write(fileno, core_.data(), core_.size() * sizeof(core_[0]));
+    }
+    void read(int fileno) {
+        uint32_t bf[3];
+        ::read(fileno, bf, sizeof(bf));
+        is_calculated_ = bf[0]; use_ertl_ = bf[1]; nthreads_ = bf[2];
+        ::read(fileno, &np_, sizeof(np_));
+        ::read(fileno, &value_, sizeof(value_));
+        core_.resize(m());
+        ::read(fileno, core_.data(), core_.size());
+    }
 
     size_t size() const {return size_t(m());}
 };
