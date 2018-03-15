@@ -237,10 +237,12 @@ public:
         return ret;
     }
     double report() noexcept {
-        hlls_[0].sum();
+        if(!hlls_[0].is_ready()) hlls_[0].sum();
         double ret(hlls_[0].report());
-        for(size_t i(1); i < size(); ++i)
-            hlls_[i].sum(), ret += hlls_[i].report();
+        for(size_t i(1); i < size(); ++i) {
+            if(!hlls_[i].is_ready()) hlls_[i].sum();
+            ret += hlls_[i].report();
+        }
         ret /= static_cast<double>(size());
         return ret;
     }
