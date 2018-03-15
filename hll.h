@@ -368,6 +368,13 @@ static inline double calculate_estimate(uint64_t *counts,
     // Small/large range corrections
     // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
     for(i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+#if !NDEBUG
+    {
+        double sum2 = 0.;
+        for(int i = 0; i < 64; ++i) sum2 += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        assert(sum2 == sum);
+    }
+#endif
     if((value = (alpha * m * m / sum)) < detail::small_range_correction_threshold(m)) {
         if(counts[0]) {
             LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",
@@ -377,9 +384,8 @@ static inline double calculate_estimate(uint64_t *counts,
     } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
         // Reuse sum variable to hold correction.
         sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
-        if(std::isnan(sum)) {
-            LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
-        } else value = sum;
+        if(!std::isnan(sum)) value = sum;
+        else LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
     }
     return value;
 }

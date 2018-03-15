@@ -32,6 +32,19 @@ _STORAGE_ void hll_t::sum() {
         tmp.inc_counts(counts);
     } while(p < pend);
     value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+#if !NDEBUG
+    uint64_t counts2[64]{0};
+    for(const auto val: core_) ++counts2[val];
+    double val2 = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+    assert(val2 == value_ || !std::fprintf(stderr, "val2: %lf. val: %lf\n", val2, value_));
+    {
+        bool allmatch = true;
+        for(size_t i(0); i < 64; ++i)
+            if(counts[i] != counts2[i])
+                allmatch = false, std::fprintf(stderr, "At pos %zu, counts differ (%i, %i)\n", i, (int)counts[i], (int)counts2[i]);
+        assert(allmatch);
+    }
+#endif
     is_calculated_ = 1;
 }
 
@@ -180,11 +193,12 @@ _STORAGE_ double jaccard_index(hll_t &first, hll_t &other) noexcept {
     return jaccard_index((const hll_t &)first, (const hll_t &)other);
 }
 
-_STORAGE_ double jaccard_index(const hll_t &first, const hll_t &other) {
-    double i(intersection_size(first, other));
-    const double div = (first.creport() + other.creport() - i);
-    if(__builtin_expect(div == 0, 0)) return 1.;
-    return i /= div;
+_STORAGE_ double jaccard_index(const hll_t &h1, const hll_t &h2) {
+    const double us = union_size(h1, h2);
+    double is = h1.creport() + h2.creport() - us;
+    if(is <= 0) return 0.;
+    is /= us;
+    return is;
 }
 
 // Clears, allows reuse with different np.
