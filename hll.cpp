@@ -32,10 +32,10 @@ _STORAGE_ void hll_t::sum() {
         tmp.inc_counts(counts);
     } while(p < pend);
     value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
-#if !NDEBUG
+#if !defined(NDEBUG) || NDEBUG == 0
     uint64_t counts2[64]{0};
     for(const auto val: core_) ++counts2[val];
-    double val2 = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+    double val2 = detail::calculate_estimate(counts2, use_ertl_, m(), np_, alpha());
     assert(val2 == value_ || !std::fprintf(stderr, "val2: %lf. val: %lf\n", val2, value_));
     {
         bool allmatch = true;
