@@ -42,6 +42,13 @@
 #  define _STORAGE_
 #endif
 
+#if defined(NDEBUG)
+#  if NDEBUG == 0
+#    undef NDEBUG
+#  endif
+#endif
+
+
 
 namespace hll {
 
