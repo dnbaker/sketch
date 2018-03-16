@@ -1,10 +1,17 @@
 #ifndef HLL_DEV_H__
 #define HLL_DEV_H__
 
-#include "hll.h"
 #include <random>
+#include <algorithm>
+#include <set>
 
 namespace hll {
+
+#ifdef ENABLE_HLL_DEVELOP
+#pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
+#else
+namespace dev {
+#endif
 
 class hlldub_t: public hll_t {
     // hlldub_t inserts each value twice (forward and reverse)
@@ -84,7 +91,7 @@ static inline uint64_t finalize(uint64_t h) {
     h *= 0xc4ceb9fe1a85ec53;
     h ^= h >> 33;
     return h;
-};
+}
 
 class seedhll_t: public hll_t {
 protected:
@@ -156,12 +163,12 @@ public:
 };
 
 namespace detail {
-inline std::vector<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
+inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
     LOG_DEBUG("Initializing a vector of seeds of size %zu with a seed-seed of %" PRIu64 "\n", size, seed);
     std::mt19937_64 mt(seed);
-    std::vector<uint64_t> ret;
-    while(ret.size() < size) ret.emplace_back(mt());
-    return ret;
+    std::set<uint64_t> rset;
+    while(rset.size() < size) rset.emplace(mt());
+    return rset;
 }
 }
 
@@ -169,24 +176,17 @@ class hlf_t {
 protected:
     // Consider templating this to extend to hlldub_ts as well.
     std::vector<seedhll_t> hlls_;
+    mutable double value_;
+    bool is_calculated_;
 public:
-    template<typename SeedContainer, typename... Args>
-    hlf_t(const SeedContainer &con, Args &&... args) {
-        if(std::size(con) == 0) throw std::runtime_error("%s requires are least a size of 1.\n", __func__);
-        hlls_.reserve(std::size(con));
-        using SeedType = std::decay_t<decltype(*std::begin(con))>;
-        static_assert(std::is_integral_v<SeedType>, "seeds must be integers....");
-        std::vector<SeedType> seedset;
-        for(const auto seed: con) {
+    template<typename... Args>
+    hlf_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0) {
+        auto sfs = detail::seeds_from_seed(seedseed, size);
+        assert(sfs.size());
+        hlls_.reserve(size);
+        for(const auto seed: sfs)
             hlls_.emplace_back(seed, std::forward<Args>(args)...);
-            if(std::find(std::begin(seedset), std::end(seedset), seed) != std::end(seedset))
-                throw std::runtime_error("Error: hllfilter_t requires distinct seeds for each subhll. Otherwise you don't improve your power.");
-            seedset.push_back(seed);
-        }
-        if(seedset.size() != std::size(con)) throw std::runtime_error("Error: hllfilter_t requires distinct seeds for each subhll. Otherwise you don't improve your power.");
     }
-    template<typename SeedContainer, typename... Args>
-    hlf_t(size_t size, uint64_t seedseed, Args &&... args): hlf_t(detail::seeds_from_seed(seedseed, size), std::forward<Args>(args)...) {}
     auto size() const {return hlls_.size();}
     auto m() const {return hlls_[0].size();}
     void write(const char *fn) const {
@@ -194,6 +194,10 @@ public:
         if(fp == nullptr) throw std::runtime_error("Could not open file.");
         this->write(fp);
         gzclose(fp);
+    }
+    void clear() {
+        value_ = is_calculated_ = 0;
+        for(auto &hll: hlls_) hll.clear();
     }
     void read(const char *fn) {
         gzFile fp = gzopen(fn, "rb");
@@ -231,12 +235,15 @@ public:
         for(auto &hll: hlls_) hll.addh(val);
     }
     double creport() const {
+        if(is_calculated_) return value_;
         double ret(hlls_[0].creport());
         for(size_t i(1); i < size(); ret += hlls_[i++].creport());
         ret /= static_cast<double>(size());
-        return ret;
+        value_ = ret;
+        return value_;
     }
     double report() noexcept {
+        if(is_calculated_) return value_;
         if(!hlls_[0].is_ready()) hlls_[0].sum();
         double ret(hlls_[0].report());
         for(size_t i(1); i < size(); ++i) {
@@ -244,7 +251,15 @@ public:
             ret += hlls_[i].report();
         }
         ret /= static_cast<double>(size());
-        return ret;
+        return value_ = ret;
+    }
+    double med_report() noexcept {
+        std::vector<double> values;
+        values.reserve(size());
+        for(auto hll: hlls_) values.emplace_back(hll.report());
+        std::sort(values.begin(), values.end());
+        if(size() & 1) return values[size() >> 1];
+        return 0.5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
     }
 };
 
@@ -262,7 +277,6 @@ public:
         cAXBhalf[q] = num_larger1(q) + num_same(q) + num_larger2(q + 1);
         cAXBhalf[q] = num_larger2(q) + num_same(q) + num_larger1(q + 1);
         halfsums -= respective_halves[q];
-    }
     cAXBhalf[q] = AXBhalfsum;
     cBXAhalf[q] = BXAhalfsum;
     new_est_type = lambda p, q, data: estimate with p, but this time with q - 1
@@ -302,6 +316,11 @@ public:
 cardinalityX = std::max(0., 0.5*(cardinalityX1 + cardinalityX2));
 #endif
 
-} // namespace hll
+#ifdef ENABLE_HLL_DEVELOP
+#pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
+#else
+} // namespace dev
+#endif
+}
 
 #endif // #ifndef HLL_DEV_H__

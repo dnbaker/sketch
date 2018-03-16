@@ -460,10 +460,8 @@ static inline double intersection_size(const hll_t &h1, const hll_t &h2) {
 
 } // namespace hll
 
-#ifdef ENABLE_HLL_DEVELOP
-#pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
 #include "hll_dev.h"
-#endif
+
 
 #ifdef HLL_HEADER_ONLY
 #  include "hll.cpp"
