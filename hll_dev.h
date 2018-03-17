@@ -160,7 +160,8 @@ using seedhll_t = seedhllbase_t<>;
 template<typename SeedHllType=seedhll_t>
 class hlfbase_t {
 protected:
-    // Consider templating this to extend to hlldub_base_t's as well.
+    // Note: Consider using a shared buffer and then do a weighted average
+    // of estimates from subhlls of power of 2 sizes.
     std::vector<SeedHllType> hlls_;
     mutable double value_;
     bool is_calculated_;
