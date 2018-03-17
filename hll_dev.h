@@ -94,9 +94,10 @@ protected:
 public:
     template<typename... Args>
     seedhllbase_t(uint64_t seed, Args &&...args): hll_t(std::forward<Args>(args)...), seed_(seed) {
-        if(seed_ == 0) LOG_WARNING("Note: seed is set to 0. No more than one of these at a time should have this value, and this is only for the purpose of multiplying hashes."
-                                   " Also, if you are only using one of these at a time, don't use seedhllbase_t, just use hll_t and save yourself an xor per insertion"
-                                   ", not to mention a 64-bit integer in space.");
+        if(seed_ == 0) std::fprintf(stderr,
+            "[W:%s:%d] Note: seed is set to 0. No more than one of these at a time should have this value, and this is only for the purpose of multiplying hashes."
+            " Also, if you are only using one of these at a time, don't use seedhllbase_t, just use hll_t and save yourself an xor per insertion"
+            ", not to mention a 64-bit integer in space.", __PRETTY_FUNCTION__, __LINE__);
     }
     seedhllbase_t(gzFile fp): hll_t() {
         this->read(fp);

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <algorithm>
 #include <numeric>
+#include <cinttypes>
 #include "hll.h"
 #include "kthread.h"
 

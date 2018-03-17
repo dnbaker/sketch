@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <cstddef>
 #include <cassert>
-#include "logutil.h"
 
 namespace sse {
 

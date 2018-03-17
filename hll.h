@@ -14,7 +14,6 @@
 #include <thread>
 #include <vector>
 #include "sseutil.h"
-#include "logutil.h"
 #include "util.h"
 #include "math.h"
 #include "unistd.h"
@@ -176,7 +175,6 @@ static inline uint64_t finalize(uint64_t h) {
 }
 
 inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
-    LOG_DEBUG("Initializing a vector of seeds of size %zu with a seed-seed of %" PRIu64 "\n", size, seed);
     std::mt19937_64 mt(seed);
     std::set<uint64_t> rset;
     while(rset.size() < size) rset.emplace(mt());
@@ -510,7 +508,6 @@ public:
     // Clears, allows reuse with different np.
     void resize(size_t new_size) {
         new_size = roundup64(new_size);
-        LOG_DEBUG("Resizing to %zu, with np = %zu\n", new_size, (std::size_t)std::log2(new_size));
         clear();
         core_.resize(new_size);
         np_ = (std::size_t)std::log2(new_size);
