@@ -1,9 +1,5 @@
-#ifndef HLL_DEV_H__
-#define HLL_DEV_H__
+#pragma once
 
-#include <random>
-#include <algorithm>
-#include <set>
 
 namespace hll {
 
@@ -13,44 +9,49 @@ namespace hll {
 namespace dev {
 #endif
 
-class hlldub_t: public hll_t {
-    // hlldub_t inserts each value twice (forward and reverse)
+template<typename HashFunc=WangHash>
+class hlldub_base_t: public hllbase_t<HashFunc> {
+    // hlldub_base_t inserts each value twice (forward and reverse)
     // and simply halves cardinality estimates.
+    HashFunc hf_;
 public:
     template<typename... Args>
-    hlldub_t(Args &&...args): hll_t(std::forward<Args>(args)...) {}
+    hlldub_base_t(Args &&...args): hll_t(std::forward<Args>(args)...) {}
     INLINE void add(uint64_t hashval) {
-        hll_t::add(hashval);
+        hllbase_t<HashFunc>::add(hashval);
 #ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)));
-            core_[index] < lzt;
-            __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
+        for(const uint32_t index(hashval & ((this->m()) - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
+            this->core_[index] < lzt;
+            __sync_bool_compare_and_swap(this->core_.data() + index, this->core_[index], lzt));
 #else
-        const uint32_t index(hashval & (m() - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)));
-        core_[index] = std::min(core_[index], lzt);
+        const uint32_t index(hashval & (this->m() - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
+        this->core_[index] = std::min(this->core_[index], lzt);
 #endif
     }
     double report() {
-        sum();
+        this->sum();
         return this->creport();
     }
-    double creport() {
-        return hll_t::creport() * 0.5;
+    double creport() const {
+        return hllbase_t<HashFunc>::creport() * 0.5;
     }
-    bool may_contain(uint64_t hashval) {
-        return hll_t::may_contain(hashval) && core_[hashval & ((m()) - 1)] >= ffs(hashval >> p());
+    bool may_contain(uint64_t hashval) const {
+        return hllbase_t<HashFunc>::may_contain(hashval) && this->core_[hashval & ((this->m()) - 1)] >= ffs(hashval >> this->p());
     }
 
-    INLINE void addh(uint64_t element) {add(wang_hash(element));}
+    INLINE void addh(uint64_t element) {add(hf_(element));}
 };
+using hlldub_t = hlldub_base_t<>;
 
-class dhll_t: public hll_t {
-    // dhll_t is a bidirectional hll sketch which does not currently support set operations
+template<typename HashFunc=WangHash>
+class dhllbase_t: public hllbase_t<HashFunc> {
+    // dhllbase_t is a bidirectional hll sketch which does not currently support set operations
     // It is based on the idea that the properties of a hll sketch work for both leading and trailing zeros and uses them as independent samples.
     std::vector<uint8_t, Allocator> dcore_;
+    using hll_t = hllbase_t<HashFunc>;
 public:
     template<typename... Args>
-    dhll_t(Args &&...args): hll_t(std::forward<Args>(args)...),
+    dhllbase_t(Args &&...args): hll_t(std::forward<Args>(args)...),
                             dcore_(1ull << hll_t::p()) {
     }
     void sum() {
@@ -61,55 +62,49 @@ public:
             // I don't this can be unrolled and LUT'd.
             ++fcounts[core[i]]; ++rcounts[dcore_[i]];
         }
-        value_  = detail::calculate_estimate(fcounts, use_ertl_, m(), np_, alpha());
-        value_ += detail::calculate_estimate(rcounts, use_ertl_, m(), np_, alpha());
-        value_ *= 0.5;
-        is_calculated_ = 1;
+        this->value_  = detail::calculate_estimate(fcounts, this->use_ertl_, this->m(), this->np_, this->alpha());
+        this->value_ += detail::calculate_estimate(rcounts, this->use_ertl_, this->m(), this->np_, this->alpha());
+        this->value_ *= 0.5;
+        this->is_calculated_ = 1;
     }
     void add(uint64_t hashval) {
         hll_t::add(hashval);
 #ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval & ((m()) - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)));
+        for(const uint32_t index(hashval & ((this->m()) - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
             dcore_[index] < lzt;
             __sync_bool_compare_and_swap(dcore_.data() + index, dcore_[index], lzt));
 #else
-        const uint32_t index(hashval & (m() - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1)));
+        const uint32_t index(hashval & (this->m() - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
         dcore_[index] = std::min(dcore_[index], lzt);
 #endif
     }
-    void addh(uint64_t element) {add(wang_hash(element));}
-    bool may_contain(uint64_t hashval) {
-        return hll_t::may_contain(hashval) && dcore_[hashval & ((m()) - 1)] >= ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (p() - 1));
+    void addh(uint64_t element) {add(this->hf_(element));}
+    bool may_contain(uint64_t hashval) const {
+        return hll_t::may_contain(hashval) && dcore_[hashval & ((this->m()) - 1)] >= ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1));
     }
 };
+using dhll_t = dhllbase_t<>;
 
-static inline uint64_t finalize(uint64_t h) {
-    // Murmurhash3 finalizer, for multiplying hash functions for seedhll_t and hllfilter_t.
-    h ^= h >> 33;
-    h *= 0xff51afd7ed558ccd;
-    h ^= h >> 33;
-    h *= 0xc4ceb9fe1a85ec53;
-    h ^= h >> 33;
-    return h;
-}
 
-class seedhll_t: public hll_t {
+template<typename HashFunc=WangHash>
+class seedhllbase_t: public hllbase_t<HashFunc> {
 protected:
     uint64_t seed_; // 64-bit integers are xored with this value before passing it to a hash.
                           // This is almost free, in the content of 
+    using hll_t = hllbase_t<HashFunc>;
 public:
     template<typename... Args>
-    seedhll_t(uint64_t seed, Args &&...args): hll_t(std::forward<Args>(args)...), seed_(seed) {
+    seedhllbase_t(uint64_t seed, Args &&...args): hll_t(std::forward<Args>(args)...), seed_(seed) {
         if(seed_ == 0) LOG_WARNING("Note: seed is set to 0. No more than one of these at a time should have this value, and this is only for the purpose of multiplying hashes."
-                                   " Also, if you are only using one of these at a time, don't use seedhll_t, just use hll_t and save yourself an xor per insertion"
+                                   " Also, if you are only using one of these at a time, don't use seedhllbase_t, just use hll_t and save yourself an xor per insertion"
                                    ", not to mention a 64-bit integer in space.");
     }
-    seedhll_t(gzFile fp): hll_t() {
+    seedhllbase_t(gzFile fp): hll_t() {
         this->read(fp);
     }
     void addh(uint64_t element) {
         element ^= seed_;
-        add(wang_hash(element));
+        this->add(wang_hash(element));
     }
     uint64_t seed() const {return seed_;}
     void write(const char *fn, bool write_gz) {
@@ -150,37 +145,29 @@ public:
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) {
         static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");
-        add(finalize(hasher(element) ^ seed_));
+        add(detail::finalize(hasher(element) ^ seed_));
     }
 
 #ifdef ENABLE_CLHASH
     template<typename Hasher=clhasher>
     INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
         static_assert(std::is_same_v<std::decay_t<decltype(hasher(s, len))>, uint64_t>, "Must return 64-bit hash");
-        add(finalize(hasher(s, len) ^ seed_));
+        add(detail::finalize(hasher(s, len) ^ seed_));
     }
 #endif
 };
+using seedhll_t = seedhllbase_t<>;
 
-namespace detail {
-inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
-    LOG_DEBUG("Initializing a vector of seeds of size %zu with a seed-seed of %" PRIu64 "\n", size, seed);
-    std::mt19937_64 mt(seed);
-    std::set<uint64_t> rset;
-    while(rset.size() < size) rset.emplace(mt());
-    return rset;
-}
-}
-
-class hlf_t {
+template<typename SeedHllType=seedhll_t>
+class hlfbase_t {
 protected:
-    // Consider templating this to extend to hlldub_ts as well.
-    std::vector<seedhll_t> hlls_;
+    // Consider templating this to extend to hlldub_base_t's as well.
+    std::vector<SeedHllType> hlls_;
     mutable double value_;
     bool is_calculated_;
 public:
     template<typename... Args>
-    hlf_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0) {
+    hlfbase_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0) {
         auto sfs = detail::seeds_from_seed(seedseed, size);
         assert(sfs.size());
         hlls_.reserve(size);
@@ -232,7 +219,8 @@ public:
         });
     }
     void add(uint64_t val) {
-        for(auto &hll: hlls_) hll.addh(val);
+        val = hlls_[0].hf_(val);
+        for(auto &hll: hlls_) hll.add(val);
     }
     double creport() const {
         if(is_calculated_) return value_;
@@ -240,7 +228,7 @@ public:
         for(size_t i(1); i < size(); ret += hlls_[i++].creport());
         ret /= static_cast<double>(size());
         value_ = ret;
-        return value_;
+        return value_ = ret;
     }
     double report() noexcept {
         if(is_calculated_) return value_;
@@ -262,6 +250,7 @@ public:
         return 0.5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
     }
 };
+using hlf_t = hlfbase_t<>;
 
 #if 0
     auto p = hll1.p();
@@ -317,10 +306,7 @@ cardinalityX = std::max(0., 0.5*(cardinalityX1 + cardinalityX2));
 #endif
 
 #ifdef ENABLE_HLL_DEVELOP
-#pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
 #else
 } // namespace dev
 #endif
-}
-
-#endif // #ifndef HLL_DEV_H__
+} // namespace hll

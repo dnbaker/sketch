@@ -42,7 +42,7 @@ test: test.cpp kthread.o
 serial_test: serial_test.cpp
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
 
-dev_test: dev_test.cpp
+dev_test: dev_test.cpp kthread.o
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread -DENABLE_HLL_DEVELOP kthread.o $< -o $@ -lz
 
 clean:

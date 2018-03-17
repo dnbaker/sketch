@@ -1,11 +1,14 @@
 #ifndef HLL_H_
 #define HLL_H_
+#include <algorithm>
 #include <atomic>
 #include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <random>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -151,8 +154,7 @@ public:
 
 template<typename CoreType>
 void parsum_helper(void *data_, long index, int tid) {
-    using detail::SIMDHolder;
-    detail::parsum_data_t<CoreType> &data(*(detail::parsum_data_t<CoreType> *)data_);
+    parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
     uint64_t local_counts[64]{0};
     SIMDHolder tmp, *p((SIMDHolder *)&data.core_[index * data.pb_]),
                     *pend((SIMDHolder *)&data.core_[std::min(data.l_, (index+1) * data.pb_)]);
@@ -161,6 +163,24 @@ void parsum_helper(void *data_, long index, int tid) {
         tmp.inc_counts(local_counts);
     } while(p < pend);
     for(uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
+}
+
+static inline uint64_t finalize(uint64_t h) {
+    // Murmurhash3 finalizer, for multiplying hash functions for seedhll_t and hllfilter_t.
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccd;
+    h ^= h >> 33;
+    h *= 0xc4ceb9fe1a85ec53;
+    h ^= h >> 33;
+    return h;
+}
+
+inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
+    LOG_DEBUG("Initializing a vector of seeds of size %zu with a seed-seed of %" PRIu64 "\n", size, seed);
+    std::mt19937_64 mt(seed);
+    std::set<uint64_t> rset;
+    while(rset.size() < size) rset.emplace(mt());
+    return rset;
 }
 
 } // namespace detail
@@ -184,6 +204,11 @@ static INLINE uint64_t wang_hash(uint64_t key) noexcept {
 struct WangHash {
     auto operator()(uint64_t key) const {
         return wang_hash(key);
+    }
+};
+struct MurmurFinHash {
+    auto operator()(uint64_t key) const {
+        return detail::finalize(key);
     }
 };
 
@@ -291,7 +316,8 @@ using Allocator = std::allocator<uint8_t>;
 // be for bit-packed versions.
 
 
-class hll_t {
+template<typename HashStruct=WangHash>
+class hllbase_t {
 // HyperLogLog implementation.
 // To make it general, the actual point of entry is a 64-bit integer hash function.
 // Therefore, you have to perform a hash function to convert various types into a suitable query.
@@ -307,6 +333,7 @@ protected:
     uint32_t is_calculated_:1;
     uint32_t      use_ertl_:1;
     uint32_t     nthreads_:30;
+    HashStruct            hf_;
 
 
 public:
@@ -314,19 +341,19 @@ public:
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(m());}
     // Constructor
-    explicit hll_t(size_t np, bool use_ertl=true, int nthreads=-1):
+    explicit hllbase_t(size_t np, bool use_ertl=true, int nthreads=-1):
         np_(np),
         core_(m(), 0),
         value_(0.), is_calculated_(0), use_ertl_(use_ertl),
         nthreads_(nthreads > 0 ? nthreads: 1) {}
-    hll_t(const char *path) {
+    hllbase_t(const char *path) {
         read(path);
     }
-    hll_t(const std::string &path): hll_t(path.data()) {}
-    hll_t(gzFile fp): hll_t() {
+    hllbase_t(const std::string &path): hllbase_t(path.data()) {}
+    hllbase_t(gzFile fp): hllbase_t() {
         this->read(fp);
     }
-    explicit hll_t(): hll_t(0, true, -1) {}
+    explicit hllbase_t(): hllbase_t(0, true, -1) {}
 
     // Call sum to recalculate if you have changed contents.
     void sum() {
@@ -400,7 +427,7 @@ public:
     }
 
     INLINE void addh(uint64_t element) {
-        element = wang_hash(element);
+        element = hf_(element);
         add(element);
     }
     template<typename T, typename Hasher=std::hash<T>>
@@ -433,12 +460,12 @@ public:
         std::fill(std::begin(core_), std::end(core_), 0u);
         value_ = is_calculated_ = 0;
     }
-    hll_t(hll_t&&) = default;
-    hll_t(const hll_t &other):
+    hllbase_t(hllbase_t&&) = default;
+    hllbase_t(const hllbase_t &other):
         np_(other.np_), core_(other.core_), value_(other.value_),
         is_calculated_(other.is_calculated_), use_ertl_(other.use_ertl_),
         nthreads_(other.nthreads_) {}
-    hll_t& operator=(const hll_t &other) {
+    hllbase_t& operator=(const hllbase_t &other) {
         // Explicitly define to make sure we don't do unnecessary reallocation.
         if(core_.size() != other.core_.size())
             core_.resize(other.core_.size());
@@ -450,9 +477,9 @@ public:
         nthreads_ = other.nthreads_;
         return *this;
     }
-    hll_t& operator=(hll_t&&) = default;
+    hllbase_t& operator=(hllbase_t&&) = default;
 
-    hll_t &operator+=(const hll_t &other) {
+    hllbase_t &operator+=(const hllbase_t &other) {
         if(other.np_ != np_) {
             char buf[256];
             sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
@@ -578,14 +605,14 @@ public:
         core_.resize(m());
         ::read(fileno, core_.data(), core_.size());
     }
-    hll_t operator+(const hll_t &other) {
+    hllbase_t operator+(const hllbase_t &other) {
         if(other.p() != p())
             throw std::runtime_error(std::string("p (") + std::to_string(p()) + " != other.p (" + std::to_string(other.p()));
-        hll_t ret(*this);
+        hllbase_t ret(*this);
         ret += other;
         return ret;
     }
-    double union_size(const hll_t &other) const {
+    double union_size(const hllbase_t &other) const {
         using detail::SIMDHolder;
         assert(m() == other.m());
         using SType = typename SIMDHolder::SType;
@@ -599,12 +626,12 @@ public:
         } while(p1 < reinterpret_cast<const SType *>(&(*core().cend())));
         return detail::calculate_estimate(counts, get_use_ertl(), m(), p(), alpha());
     }
-    double jaccard_index(hll_t &other) {
+    double jaccard_index(hllbase_t &other) {
         if(!is_ready())             sum();
         if(!other.is_ready()) other.sum();
         return jaccard_index(other);
     }
-    double jaccard_index(const hll_t &h2) const {
+    double jaccard_index(const hllbase_t &h2) const {
         const double us = union_size(h2);
         double is = creport() + h2.creport() - us;
         if(is <= 0) return 0.;
@@ -613,6 +640,8 @@ public:
     }
     size_t size() const {return size_t(m());}
 };
+
+using hll_t = hllbase_t<>;
 
 // Returns the size of the set intersection
 template<typename HllType>
