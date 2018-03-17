@@ -1,19 +1,22 @@
 #ifndef HLL_H_
 #define HLL_H_
+#include <atomic>
 #include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
-#include <string>
-#include <stdexcept>
 #include <cstring>
+#include <stdexcept>
+#include <string>
+#include <thread>
 #include <vector>
-#include "logutil.h"
 #include "sseutil.h"
+#include "logutil.h"
 #include "util.h"
 #include "math.h"
 #include "unistd.h"
 #include "x86intrin.h"
+#include "kthread.h"
 #if ZWRAP_USE_ZSTD
 #  include "zstd_zlibwrapper.h"
 #else
@@ -36,12 +39,6 @@
 #  include "clhash.h"
 #endif
 
-#ifdef HLL_HEADER_ONLY
-#  define _STORAGE_ inline
-#else
-#  define _STORAGE_
-#endif
-
 #if defined(NDEBUG)
 #  if NDEBUG == 0
 #    undef NDEBUG
@@ -61,6 +58,113 @@ using std::uint32_t;
 using std::uint8_t;
 using std::size_t;
 
+
+namespace detail {
+    // Miscellaneous requirements.
+    static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
+    static constexpr double TWO_POW_32 = 1ull << 32;
+    static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
+static inline double calculate_estimate(uint64_t *counts,
+                                        bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
+    double sum = counts[0], value;
+    unsigned i;
+    if(use_ertl) {
+        double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
+        for(i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
+        z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
+        return (m/(2.L*std::log(2.L)))*m / z;
+    }
+    /* else */
+    // Small/large range corrections
+    // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
+    for(i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+#if !NDEBUG
+    {
+        double sum2 = 0.;
+        for(int i = 0; i < 64; ++i) sum2 += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        assert(sum2 == sum);
+    }
+#endif
+    if((value = (alpha * m * m / sum)) < detail::small_range_correction_threshold(m)) {
+        if(counts[0]) {
+            std::fprintf(stderr, "[W:%s:%d]Small value correction. Original estimate %lf. New estimate %lf.\n",
+                         __PRETTY_FUNCTION__, __LINE__, value, m * std::log((double)m / counts[0]));
+            value = m * std::log((double)(m) / counts[0]);
+        }
+    } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
+        // Reuse sum variable to hold correction.
+        sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
+        if(!std::isnan(sum)) value = sum;
+        else std::fprintf(stderr, "[W:%s:%d] Large range correction returned nan. Defaulting to regular calculation.\n", __PRETTY_FUNCTION__, __LINE__);
+    }
+    return value;
+}
+
+template<typename CoreType>
+struct parsum_data_t {
+    std::atomic<uint64_t> *counts_; // Array decayed to pointer.
+    const CoreType          &core_;
+    const uint64_t              l_;
+    const uint64_t             pb_; // Per-batch
+};
+
+
+
+union SIMDHolder {
+
+public:
+
+#define DEC_MAX(fn) static constexpr decltype(&fn) max_fn = &fn
+#if HAS_AVX_512
+    using SType = __m512i;
+    DEC_MAX(_mm512_max_epu8);
+#elif __AVX2__
+    using SType = __m256i;
+    DEC_MAX(_mm256_max_epu8);
+#elif __SSE2__
+    using SType = __m128i;
+    DEC_MAX(_mm_max_epu8);
+#else
+#  error("Need at least SSE2")
+#endif
+#undef DEC_MAX
+
+    static constexpr size_t nels = sizeof(SType) / sizeof(uint8_t);
+    using u8arr = uint8_t[nels];
+    SType val;
+    u8arr vals;
+    void inc_counts(uint64_t *arr) const {
+        unroller<0, nels> ur;
+        ur(*this, arr);
+    }
+    template<size_t iternum, size_t niter_left> struct unroller {
+        void operator()(const SIMDHolder &ref, uint64_t *arr) const {
+            ++arr[ref.vals[iternum]];
+            unroller<iternum+1, niter_left-1>()(ref, arr);
+        }
+    };
+    template<size_t iternum> struct unroller<iternum, 0> {
+        void operator()(const SIMDHolder &ref, uint64_t *arr) const {}
+    };
+    static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
+};
+
+template<typename CoreType>
+void parsum_helper(void *data_, long index, int tid) {
+    using detail::SIMDHolder;
+    detail::parsum_data_t<CoreType> &data(*(detail::parsum_data_t<CoreType> *)data_);
+    uint64_t local_counts[64]{0};
+    SIMDHolder tmp, *p((SIMDHolder *)&data.core_[index * data.pb_]),
+                    *pend((SIMDHolder *)&data.core_[std::min(data.l_, (index+1) * data.pb_)]);
+    do {
+        tmp = *p++;
+        tmp.inc_counts(local_counts);
+    } while(p < pend);
+    for(uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
+}
+
+} // namespace detail
+
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
 // This is our core 64-bit hash.
@@ -76,6 +180,12 @@ static INLINE uint64_t wang_hash(uint64_t key) noexcept {
   key = key + (key << 31);
   return key;
 }
+
+struct WangHash {
+    auto operator()(uint64_t key) const {
+        return wang_hash(key);
+    }
+};
 
 static INLINE uint64_t roundup64(size_t x) noexcept {
     --x;
@@ -219,24 +329,64 @@ public:
     explicit hll_t(): hll_t(0, true, -1) {}
 
     // Call sum to recalculate if you have changed contents.
-    _STORAGE_ void sum();
-    _STORAGE_ void parsum(int nthreads=-1, size_t per_batch=1<<18);
+    void sum() {
+        using detail::SIMDHolder;
+        uint64_t counts[64]{0};
+        SIMDHolder tmp, *p((SIMDHolder *)core_.data()), *pend((SIMDHolder *)&*core_.end());
+        do {
+            tmp = *p++;
+            tmp.inc_counts(counts);
+        } while(p < pend);
+        value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+#if VERIFY_SIMD
+        uint64_t counts2[64]{0};
+        for(const auto val: core_) ++counts2[val];
+        double val2 = detail::calculate_estimate(counts2, use_ertl_, m(), np_, alpha());
+        assert(val2 == value_ || !std::fprintf(stderr, "val2: %lf. val: %lf\n", val2, value_));
+        {
+            bool allmatch = true;
+            for(size_t i(0); i < 64; ++i)
+                if(counts[i] != counts2[i])
+                    allmatch = false, std::fprintf(stderr, "At pos %zu, counts differ (%i, %i)\n", i, (int)counts[i], (int)counts2[i]);
+            assert(allmatch);
+        }
+#endif
+        is_calculated_ = 1;
+    }
 
     // Returns cardinality estimate. Sums if not calculated yet.
-    _STORAGE_ double creport() const;
+    double creport() const {
+        if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
+                                                     " Try the report() function.");
+        return value_;
+    }
     double report() noexcept {
         if(!is_calculated_) sum();
         return creport();
     }
 
     // Returns error estimate
-    _STORAGE_ double cest_err() const;
-    _STORAGE_ double est_err()  noexcept;
-
+    double cest_err() const {
+        if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report.");
+        return relative_error() * creport();
+    }
+    double est_err()  noexcept {
+        if(!is_calculated_) sum();
+        return cest_err();
+    }
     // Returns string representation
-    _STORAGE_ std::string to_string() const;
+    std::string to_string() const {
+        std::string params(std::string("p:") + std::to_string(np_) + ";");
+        return (params + (is_calculated_ ? std::to_string(creport()) + ", +- " + std::to_string(cest_err())
+                                         : desc_string()));
+    }
     // Descriptive string.
-    _STORAGE_ std::string desc_string() const;
+    std::string desc_string() const {
+        char buf[256];
+        std::sprintf(buf, "Size: %u. nb: %llu. error: %lf. Is calculated: %s. value: %lf\n",
+                     np_, static_cast<long long unsigned int>(m()), relative_error(), is_calculated_ ? "true": "false", value_);
+        return buf;
+    }
 
     INLINE void add(uint64_t hashval) {
 #ifndef NOT_THREADSAFE
@@ -265,9 +415,24 @@ public:
         add(hasher(s, len));
     }
 #endif
-
+    void parsum(int nthreads=-1, size_t pb=4096) {
+        if(nthreads < 0) nthreads = std::thread::hardware_concurrency();
+        std::atomic<uint64_t> acounts[64];
+        std::memset(acounts, 0, sizeof acounts);
+        detail::parsum_data_t<decltype(core_)> data{acounts, core_, m(), pb};
+        const uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
+        kt_for(nthreads, detail::parsum_helper<decltype(core_)>, &data, nr);
+        uint64_t counts[64];
+        std::memcpy(counts, acounts, sizeof(counts));
+        value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+        is_calculated_ = 1;
+    }
     // Reset.
-    _STORAGE_ void clear();
+    void clear() {
+        // Note: this can be accelerated with SIMD.
+        std::fill(std::begin(core_), std::end(core_), 0u);
+        value_ = is_calculated_ = 0;
+    }
     hll_t(hll_t&&) = default;
     hll_t(const hll_t &other):
         np_(other.np_), core_(other.core_), value_(other.value_),
@@ -287,11 +452,43 @@ public:
     }
     hll_t& operator=(hll_t&&) = default;
 
-    _STORAGE_ hll_t &operator+=(const hll_t &other);
-    _STORAGE_ hll_t &operator&=(const hll_t &other);
+    hll_t &operator+=(const hll_t &other) {
+        if(other.np_ != np_) {
+            char buf[256];
+            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
+            throw std::runtime_error(buf);
+        }
+        unsigned i;
+#if HAS_AVX_512
+        __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
+        const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
+        for(i = 0; i < m() >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]);
+        if(m() < 64) for(;i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
+#elif __AVX2__
+        __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
+        const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
+        for(i = 0; i < m() >> 5; ++i) els[i] = _mm256_max_epu8(els[i], oels[i]);
+        if(m() < 32) for(;i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
+#elif __SSE2__
+        __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
+        const __m128i *oels(reinterpret_cast<const __m128i *>(other.core_.data()));
+        for(i = 0; i < m() >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
+        if(m() < 16) for(; i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
+#else
+        for(i = 0; i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
+#endif
+        not_ready();
+        return *this;
+    }
 
     // Clears, allows reuse with different np.
-    _STORAGE_ void resize(size_t new_size);
+    void resize(size_t new_size) {
+        new_size = roundup64(new_size);
+        LOG_DEBUG("Resizing to %zu, with np = %zu\n", new_size, (std::size_t)std::log2(new_size));
+        clear();
+        core_.resize(new_size);
+        np_ = (std::size_t)std::log2(new_size);
+    }
     bool get_use_ertl() const {return use_ertl_;}
     void set_use_ertl(bool val) {use_ertl_ = val;}
     // Getter for is_calculated_
@@ -315,14 +512,54 @@ public:
 
     uint32_t p() const {return np_;}
     uint32_t q() const {return (sizeof(uint64_t) * CHAR_BIT) - np_;}
-    _STORAGE_ void free();
-    _STORAGE_ void write(FILE *fp) const;
-    _STORAGE_ void write(gzFile fp) const;
-    _STORAGE_ void write(const char *path, bool write_gz=false) const;
+    void free() {
+        decltype(core_) tmp{};
+        std::swap(core_, tmp);
+    }
+    void write(FILE *fp) const {
+        write(fileno(fp));
+    }
+    void write(gzFile fp) const {
+#define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
+        uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
+        CW(fp, bf, sizeof(bf));
+        CW(fp, &np_, sizeof(np_));
+        CW(fp, &value_, sizeof(value_));
+        CW(fp, core_.data(), core_.size() * sizeof(core_[0]));
+#undef CW
+    }
+    void write(const char *path, bool write_gz=false) const {
+        if(write_gz) {
+            gzFile fp(gzopen(path, "wb"));
+            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+            write(fp);
+            gzclose(fp);
+        } else {
+            std::FILE *fp(std::fopen(path, "wb"));
+            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+            write(fileno(fp));
+            std::fclose(fp);
+        }
+    }
     void write(const std::string &path, bool write_gz=false) const {write(path.data(), write_gz);}
-    _STORAGE_ void read(gzFile fp);
-    _STORAGE_ void read(const char *path);
-    _STORAGE_ void read(const std::string &path) {
+    void read(gzFile fp) {
+#define CR(fp, dst, len) do {if((uint64_t)gzread(fp, dst, len) != len) throw std::runtime_error("Error reading from file.");} while(0)
+        uint32_t bf[3];
+        CR(fp, bf, sizeof(bf));
+        is_calculated_ = bf[0]; use_ertl_ = bf[1]; nthreads_ = bf[2];
+        CR(fp, &np_, sizeof(np_));
+        CR(fp, &value_, sizeof(value_));
+        core_.resize(m());
+        CR(fp, core_.data(), core_.size());
+#undef CR
+    }
+    void read(const char *path) {
+        gzFile fp(gzopen(path, "rb"));
+        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+        read(fp);
+        gzclose(fp);
+    }
+    void read(const std::string &path) {
         read(path.data());
     }
     void write(int fileno) const {
@@ -341,130 +578,77 @@ public:
         core_.resize(m());
         ::read(fileno, core_.data(), core_.size());
     }
-
+    hll_t operator+(const hll_t &other) {
+        if(other.p() != p())
+            throw std::runtime_error(std::string("p (") + std::to_string(p()) + " != other.p (" + std::to_string(other.p()));
+        hll_t ret(*this);
+        ret += other;
+        return ret;
+    }
+    double union_size(const hll_t &other) const {
+        using detail::SIMDHolder;
+        assert(m() == other.m());
+        using SType = typename SIMDHolder::SType;
+        uint64_t counts[64]{0};
+        // We can do this because we use an aligned allocator.
+        const SType *p1(reinterpret_cast<const SType *>(data())), *p2(reinterpret_cast<const SType *>(other.data()));
+        SIMDHolder tmp;
+        do {
+            tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
+            tmp.inc_counts(counts);
+        } while(p1 < reinterpret_cast<const SType *>(&(*core().cend())));
+        return detail::calculate_estimate(counts, get_use_ertl(), m(), p(), alpha());
+    }
+    double jaccard_index(hll_t &other) {
+        if(!is_ready())             sum();
+        if(!other.is_ready()) other.sum();
+        return jaccard_index(other);
+    }
+    double jaccard_index(const hll_t &h2) const {
+        const double us = union_size(h2);
+        double is = creport() + h2.creport() - us;
+        if(is <= 0) return 0.;
+        is /= us;
+        return is;
+    }
     size_t size() const {return size_t(m());}
 };
 
-
-// Returns the size of a symmetric set difference.
-double operator^(hll_t &first, hll_t &other);
-// Returns the set intersection of two sketches.
-hll_t operator&(hll_t &first, hll_t &other);
 // Returns the size of the set intersection
-double intersection_size(hll_t &first, hll_t &other) noexcept;
-double jaccard_index(hll_t &first, hll_t &other) noexcept;
-double jaccard_index(const hll_t &first, const hll_t &other);
+template<typename HllType>
+inline double intersection_size(HllType &first, HllType &other) noexcept {
+    if(!first.is_ready()) first.sum();
+    if(!other.is_ready()) other.sum();
+    return intersection_size((const HllType &)first, (const HllType &)other);
+}
+
+template<typename HllType>
+inline double jaccard_index(HllType &first, HllType &other) noexcept {
+    if(!first.is_ready()) first.sum();
+    if(!other.is_ready()) other.sum();
+    return jaccard_index((const HllType &)first, (const HllType &)other);
+}
+
+template<typename HllType>
+inline double jaccard_index(const HllType &h1, const HllType &h2) {
+    return h1.jaccard_index(h2);
+}
+
 // Returns a HyperLogLog union
-hll_t operator+(const hll_t &one, const hll_t &other);
 
-namespace detail {
-    static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
-    static constexpr double TWO_POW_32 = 1ull << 32;
-    static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
-static inline double calculate_estimate(uint64_t *counts,
-                                        bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
-    double sum = counts[0], value;
-    unsigned i;
-    if(use_ertl) {
-        double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
-        for(i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
-        z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
-        return (m/(2.L*std::log(2.L)))*m / z;
-    }
-    /* else */
-    // Small/large range corrections
-    // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
-    for(i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
-#if !NDEBUG
-    {
-        double sum2 = 0.;
-        for(int i = 0; i < 64; ++i) sum2 += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
-        assert(sum2 == sum);
-    }
-#endif
-    if((value = (alpha * m * m / sum)) < detail::small_range_correction_threshold(m)) {
-        if(counts[0]) {
-            LOG_DEBUG("Small value correction. Original estimate %lf. New estimate %lf.\n",
-                       value, m * std::log((double)m / counts[0]));
-            value = m * std::log((double)(m) / counts[0]);
-        }
-    } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
-        // Reuse sum variable to hold correction.
-        sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
-        if(!std::isnan(sum)) value = sum;
-        else LOG_WARNING("Large range correction returned nan. Defaulting to regular calculation.\n");
-    }
-    return value;
+
+template<typename HllType>
+static inline double union_size(const HllType &h1, const HllType &h2) {
+    return h1.union_size(h2);
 }
 
-union SIMDHolder {
-
-public:
-
-#define DEC_MAX(fn) static constexpr decltype(&fn) max_fn = &fn
-#if HAS_AVX_512
-    using SType = __m512i;
-    DEC_MAX(_mm512_max_epu8);
-#elif __AVX2__
-    using SType = __m256i;
-    DEC_MAX(_mm256_max_epu8);
-#elif __SSE2__
-    using SType = __m128i;
-    DEC_MAX(_mm_max_epu8);
-#else
-#  error("Need at least SSE2")
-#endif
-#undef DEC_MAX
-
-    static constexpr size_t nels = sizeof(SType) / sizeof(uint8_t);
-    using u8arr = uint8_t[nels];
-    SType val;
-    u8arr vals;
-    void inc_counts(uint64_t *arr) const {
-        unroller<0, nels> ur;
-        ur(*this, arr);
-    }
-    template<size_t iternum, size_t niter_left> struct unroller {
-        void operator()(const SIMDHolder &ref, uint64_t *arr) const {
-            ++arr[ref.vals[iternum]];
-            unroller<iternum+1, niter_left-1>()(ref, arr);
-        }
-    };
-    template<size_t iternum> struct unroller<iternum, 0> {
-        void operator()(const SIMDHolder &ref, uint64_t *arr) const {}
-    };
-    static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
-};
-
-
-} // namespace detail
-
-static inline double union_size(const hll_t &h1, const hll_t &h2) {
-    using detail::SIMDHolder;
-    assert(h1.m() == h2.m());
-    using SType = typename SIMDHolder::SType;
-    uint64_t counts[64]{0};
-    // We can do this because we use an aligned allocator.
-    const SType *p1(reinterpret_cast<const SType *>(h1.data())), *p2(reinterpret_cast<const SType *>(h2.data()));
-    SIMDHolder tmp;
-    do {
-        tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
-        tmp.inc_counts(counts);
-    } while(p1 < reinterpret_cast<const SType *>(&(*h1.core().cend())));
-    return detail::calculate_estimate(counts, h1.get_use_ertl(), h1.m(), h1.p(), h1.alpha());
-}
-
-static inline double intersection_size(const hll_t &h1, const hll_t &h2) {
+template<typename HllType>
+static inline double intersection_size(const HllType &h1, const HllType &h2) {
     return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
 }
 
 } // namespace hll
 
 #include "hll_dev.h"
-
-
-#ifdef HLL_HEADER_ONLY
-#  include "hll.cpp"
-#endif
 
 #endif // #ifndef HLL_H_

@@ -22,16 +22,10 @@ fprintf(stderr, "Elements estimated: %lf. Error bounds: %lf.\n", hll.report(), h
 
 ```
 
-To link against the library, add `$PATH/$TO/hll` to your LD_LIBRARY_PATH after building and pass -lhll during compilation. Alternatively, you can simply `#include hll/hll.h` and use the hll.o object file directly in your project.
-
+Simply `#include hll/hll.h`. Experimental features are included in the `hll::dev` namespace by default, but can be moved into the `hll` namespace with -DENABLE_HLL_DEVELOP
 
 ### Multithreading
 By default, updates to the data structure to occur using atomic operations, though threading should be handled by the calling code. Otherwise, the flag -DNOT_THREADSAFE should be passed. The cost of this is relatively minor, but in single-threaded situations, this could be preferred.
 
-Additionally, if the sum is desired to be parallelized, the parsum function can use any number of threads to speed up calculation of the final quantity. This uses kthread from [klib](https://github.com/AttractiveChaos/klib), which significantly outperforms openmp in experiments.
-
 ## Python bindings
 Python bindings are available via pybind11 and then imported through hll.py. hll.py calls an object's __hash__ function. To link against python2, change the "python3-" in the Makefile to "python-".
-
-### Experimental extensions
-Several extensions and applications of HyperLogLog sketches are now stored in hll_dev.h. To enable these, add -DENABLE_HLL_DEVELOP to compilation flags.

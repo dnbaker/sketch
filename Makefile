@@ -18,10 +18,7 @@ else
     UNDEFSTR=
 endif
 
-all: test libhll.a
-
-libhll.a: hll.o
-	ar cr $@ $<
+all: test
 
 INCLUDES=-I`python3-config --includes` -Ipybind11/include
 SUF=`python3-config --extension-suffix`
@@ -39,16 +36,16 @@ python: _hll.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-test: test.cpp hll.o kthread.o
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter hll.o kthread.o -pthread $< -o $@ -lz
+test: test.cpp kthread.o
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-serial_test: serial_test.cpp hll.o kthread.o
+serial_test: serial_test.cpp
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
 
-dev_test: dev_test.cpp kthread.o
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread -DENABLE_HLL_DEVELOP -DHLL_HEADER_ONLY kthread.o $< -o $@ -lz
+dev_test: dev_test.cpp
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread -DENABLE_HLL_DEVELOP kthread.o $< -o $@ -lz
 
 clean:
-	rm -f test.o test hll.o kthread.o libhll.a *hll*cpython*so
+	rm -f test.o test hll.o kthread.o *hll*cpython*so
 
 mostlyclean: clean
