@@ -333,10 +333,9 @@ protected:
     uint32_t is_calculated_:1;
     uint32_t      use_ertl_:1;
     uint32_t     nthreads_:30;
+public:
     HashStruct            hf_;
 
-
-public:
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(m());}

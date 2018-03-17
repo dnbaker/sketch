@@ -13,7 +13,6 @@ template<typename HashFunc=WangHash>
 class hlldub_base_t: public hllbase_t<HashFunc> {
     // hlldub_base_t inserts each value twice (forward and reverse)
     // and simply halves cardinality estimates.
-    HashFunc hf_;
 public:
     template<typename... Args>
     hlldub_base_t(Args &&...args): hll_t(std::forward<Args>(args)...) {}
@@ -39,7 +38,7 @@ public:
         return hllbase_t<HashFunc>::may_contain(hashval) && this->core_[hashval & ((this->m()) - 1)] >= ffs(hashval >> this->p());
     }
 
-    INLINE void addh(uint64_t element) {add(hf_(element));}
+    INLINE void addh(uint64_t element) {add(this->hf_(element));}
 };
 using hlldub_t = hlldub_base_t<>;
 
@@ -233,12 +232,11 @@ public:
     double report() noexcept {
         if(is_calculated_) return value_;
         if(!hlls_[0].is_ready()) hlls_[0].sum();
-        double ret(hlls_[0].report());
+        double ret(hlls_[0].report() / static_cast<double>(size()));
         for(size_t i(1); i < size(); ++i) {
             if(!hlls_[i].is_ready()) hlls_[i].sum();
-            ret += hlls_[i].report();
+            ret += hlls_[i].report() / static_cast<double>(size());
         }
-        ret /= static_cast<double>(size());
         return value_ = ret;
     }
     double med_report() noexcept {
