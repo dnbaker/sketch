@@ -253,11 +253,14 @@ public:
     double chunk_report() const {
         if((size() & (size() - 1)) == 0) {
             std::array<uint64_t, 64> counts{0};
-            for(const auto &hll: hlls_) inc_counts(counts, hll.core());
-            auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1);
-            return calculate_estimate(counts, hlls_[0].use_ertl(), hlls_[0].m() << diff,
-                                      hlls_[0].p() + diff, make_alpha(hlls_[0].m() << diff));
+            for(const auto &hll: hlls_) detail::inc_counts(counts, hll.core());
+            const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1);
+            const auto new_p = hlls_[0].p() + diff;
+            const auto new_m = (1ull << new_p);
+            return detail::calculate_estimate(counts, hlls_[0].get_use_ertl(), new_m,
+                                              new_p, make_alpha(new_m)) / (1ull << diff);
         } else {
+            std::fprintf(stderr, "chunk_report is currently only supported for powers of two.");
             return creport();
             // Could try weight averaging, but currently I just report default when size is not a power of two.
         }
