@@ -36,13 +36,13 @@ python: _hll.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-test: test.cpp kthread.o
+test: test.cpp kthread.o hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-serial_test: serial_test.cpp
+serial_test: serial_test.cpp hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
 
-dev_test: dev_test.cpp kthread.o
+dev_test: dev_test.cpp kthread.o hll.h hll_dev.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread -DENABLE_HLL_DEVELOP kthread.o $< -o $@ -lz
 
 clean:

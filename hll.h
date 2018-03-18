@@ -1,6 +1,7 @@
 #ifndef HLL_H_
 #define HLL_H_
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <climits>
 #include <cmath>
@@ -60,34 +61,47 @@ using std::uint32_t;
 using std::uint8_t;
 using std::size_t;
 
+#ifdef MANUAL_CHECKS
+#  ifndef VERIFY_SUM
+#    define VERIFY_SUM 1
+#  endif
+#  ifndef VERIFY_SIMD
+#    define VERIFY_SIMD 1
+#  endif
+#endif
+
+
 
 namespace detail {
     // Miscellaneous requirements.
     static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
     static constexpr double TWO_POW_32 = 1ull << 32;
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
-static inline double calculate_estimate(uint64_t *counts,
-                                        bool use_ertl, uint64_t m, std::uint32_t p, double alpha) {
-    double sum = counts[0], value;
-    unsigned i;
+
+template<typename CountArrType>
+inline double calculate_estimate(const CountArrType &counts,
+                                 bool use_ertl, uint64_t m, uint32_t p, double alpha) {
+    static_assert(std::is_same_v<std::decay_t<decltype(counts[0])>, uint64_t>, "Counts must be a container for uint64_ts.");
     if(use_ertl) {
         double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
-        for(i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
+        for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
         z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
         return (m/(2.L*std::log(2.L)))*m / z;
     }
     /* else */
     // Small/large range corrections
     // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
-    for(i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
-#if !NDEBUG
+    double sum = counts[0];
+    for(unsigned i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+#if VERIFY_SUM
     {
         double sum2 = 0.;
-        for(int i = 0; i < 64; ++i) sum2 += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        for(int i = 0; i < 64; ++i) sum2 += counts[i] * (1. / (1ull << i)); // doing all counts just to verify I'm not crazy.
         assert(sum2 == sum);
     }
 #endif
-    if((value = (alpha * m * m / sum)) < detail::small_range_correction_threshold(m)) {
+    double value(alpha * m * m / sum);
+    if(value < detail::small_range_correction_threshold(m)) {
         if(counts[0]) {
             std::fprintf(stderr, "[W:%s:%d]Small value correction. Original estimate %lf. New estimate %lf.\n",
                          __PRETTY_FUNCTION__, __LINE__, value, m * std::log((double)m / counts[0]));
@@ -95,6 +109,7 @@ static inline double calculate_estimate(uint64_t *counts,
         }
     } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
         // Reuse sum variable to hold correction.
+        // I do think I've seen worse accuracy with the large range correction, but I would need to rerun experiments to be sure.
         sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
         if(!std::isnan(sum)) value = sum;
         else std::fprintf(stderr, "[W:%s:%d] Large range correction returned nan. Defaulting to regular calculation.\n", __PRETTY_FUNCTION__, __LINE__);
@@ -135,21 +150,53 @@ public:
     using u8arr = uint8_t[nels];
     SType val;
     u8arr vals;
-    void inc_counts(uint64_t *arr) const {
-        unroller<0, nels> ur;
+    template<typename T>
+    void inc_counts(T &arr) const {
+        static_assert(std::is_same_v<std::decay_t<decltype(arr[0])>, uint64_t>, "Must container 64-bit integers.");
+        unroller<T, 0, nels> ur;
         ur(*this, arr);
     }
-    template<size_t iternum, size_t niter_left> struct unroller {
-        void operator()(const SIMDHolder &ref, uint64_t *arr) const {
+    // Worth considering: it's possible that reinterpreting it as a set of 16-bit integers
+    // and make a lookup table.
+    template<typename T, size_t iternum, size_t niter_left> struct unroller {
+        void operator()(const SIMDHolder &ref, T &arr) const {
             ++arr[ref.vals[iternum]];
-            unroller<iternum+1, niter_left-1>()(ref, arr);
+            unroller<T, iternum+1, niter_left-1>()(ref, arr);
         }
     };
-    template<size_t iternum> struct unroller<iternum, 0> {
-        void operator()(const SIMDHolder &ref, uint64_t *arr) const {}
+    template<typename T, size_t iternum> struct unroller<T, iternum, 0> {
+        void operator()(const SIMDHolder &ref, T &arr) const {}
     };
     static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
 };
+
+template<typename T>
+inline void inc_counts(T &counts, const SIMDHolder *p, const SIMDHolder *pend) {
+    static_assert(std::is_same_v<std::decay_t<decltype(counts[0])>, uint64_t>, "Counts must contain 64-bit integers.");
+    SIMDHolder tmp;
+    do {
+        tmp = *p++;
+        tmp.inc_counts(counts);
+    } while(p < pend);
+}
+
+static inline std::array<uint64_t, 64> sum_counts(const SIMDHolder *p, const SIMDHolder *pend) {
+    // Should add Contiguous Container requirement.
+    std::array<uint64_t, 64> counts{0};
+    inc_counts(counts, p, pend);
+    return counts;
+}
+
+template<typename Container>
+inline std::array<uint64_t, 64> sum_counts(const Container &con) {
+    static_assert(std::is_same_v<std::decay_t<decltype(con[0])>, uint8_t>, "Container must contain 8-bit unsigned integers.");
+    return sum_counts(reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
+}
+template<typename T, typename Container>
+inline void inc_counts(T &counts, const Container &con) {
+    static_assert(std::is_same_v<std::decay_t<decltype(con[0])>, uint8_t>, "Container must contain 8-bit unsigned integers.");
+    return inc_counts(counts, reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
+}
 
 template<typename CoreType>
 void parsum_helper(void *data_, long index, int tid) {
@@ -354,27 +401,8 @@ public:
 
     // Call sum to recalculate if you have changed contents.
     void sum() {
-        using detail::SIMDHolder;
-        uint64_t counts[64]{0};
-        SIMDHolder tmp, *p((SIMDHolder *)core_.data()), *pend((SIMDHolder *)&*core_.end());
-        do {
-            tmp = *p++;
-            tmp.inc_counts(counts);
-        } while(p < pend);
+        const auto counts(detail::sum_counts(core_)); // std::array<uint64_t, 64>
         value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
-#if VERIFY_SIMD
-        uint64_t counts2[64]{0};
-        for(const auto val: core_) ++counts2[val];
-        double val2 = detail::calculate_estimate(counts2, use_ertl_, m(), np_, alpha());
-        assert(val2 == value_ || !std::fprintf(stderr, "val2: %lf. val: %lf\n", val2, value_));
-        {
-            bool allmatch = true;
-            for(size_t i(0); i < 64; ++i)
-                if(counts[i] != counts2[i])
-                    allmatch = false, std::fprintf(stderr, "At pos %zu, counts differ (%i, %i)\n", i, (int)counts[i], (int)counts2[i]);
-            assert(allmatch);
-        }
-#endif
         is_calculated_ = 1;
     }
 

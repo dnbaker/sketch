@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <numeric>
 #include <chrono>
+#include <cinttypes>
 #include <getopt.h>
 #include "hll.h"
 #include "kthread.h"

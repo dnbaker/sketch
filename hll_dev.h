@@ -244,10 +244,23 @@ public:
     double med_report() noexcept {
         std::vector<double> values;
         values.reserve(size());
-        for(auto hll: hlls_) values.emplace_back(hll.report());
+        for(auto &hll: hlls_) values.emplace_back(hll.report());
         std::sort(values.begin(), values.end());
-        if(size() & 1) return values[size() >> 1];
-        return 0.5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
+        return size() & 1 ? values[size() >> 1]
+                          : 0.5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
+    }
+    // Attempt strength borrowing across hlls with different seeds
+    double chunk_report() const {
+        if((size() & (size() - 1)) == 0) {
+            std::array<uint64_t, 64> counts{0};
+            for(const auto &hll: hlls_) inc_counts(counts, hll.core());
+            auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1);
+            return calculate_estimate(counts, hlls_[0].use_ertl(), hlls_[0].m() << diff,
+                                      hlls_[0].p() + diff, make_alpha(hlls_[0].m() << diff));
+        } else {
+            return creport();
+            // Could try weight averaging, but currently I just report default when size is not a power of two.
+        }
     }
 };
 using hlf_t = hlfbase_t<>;
