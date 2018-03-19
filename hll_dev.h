@@ -61,8 +61,8 @@ public:
             // I don't this can be unrolled and LUT'd.
             ++fcounts[core[i]]; ++rcounts[dcore_[i]];
         }
-        this->value_  = detail::calculate_estimate(fcounts, this->use_ertl_, this->m(), this->np_, this->alpha());
-        this->value_ += detail::calculate_estimate(rcounts, this->use_ertl_, this->m(), this->np_, this->alpha());
+        this->value_  = detail::calculate_estimate(fcounts, this->estim_, this->m(), this->np_, this->alpha());
+        this->value_ += detail::calculate_estimate(rcounts, this->estim_, this->m(), this->np_, this->alpha());
         this->value_ *= 0.5;
         this->is_calculated_ = 1;
     }
@@ -257,7 +257,7 @@ public:
             const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1);
             const auto new_p = hlls_[0].p() + diff;
             const auto new_m = (1ull << new_p);
-            return detail::calculate_estimate(counts, hlls_[0].get_use_ertl(), new_m,
+            return detail::calculate_estimate(counts, hlls_[0].get_estim(), new_m,
                                               new_p, make_alpha(new_m)) / (1ull << diff);
         } else {
             std::fprintf(stderr, "chunk_report is currently only supported for powers of two.");
@@ -268,58 +268,76 @@ public:
 };
 using hlf_t = hlfbase_t<>;
 
-#if 0
-    auto p = hll1.p();
-    auto q = hll1.q();
-    const double cAX = hll1.report();
-    const double cBX = hll2.report();
-    const double cABX = union_size(hll1, hll2);
-    uint64_t AXBhalfsum = total_sum_of_stuff;
-    uint64_t BXAhalfsum = total_sum_of_stuff;
-    uint64_t cAXBhalf[64]{0}; // 
-    uint64_t cBXAhalf[64]{0}; // 
-    for(unsigned _q = 0; _q < q; ++_q)
-        cAXBhalf[q] = num_larger1(q) + num_same(q) + num_larger2(q + 1);
-        cAXBhalf[q] = num_larger2(q) + num_same(q) + num_larger1(q + 1);
-        halfsums -= respective_halves[q];
-    cAXBhalf[q] = AXBhalfsum;
-    cBXAhalf[q] = BXAhalfsum;
-    new_est_type = lambda p, q, data: estimate with p, but this time with q - 1
-    cAXBhalf = new_est_type(countsAXBhalf, p, q) // And the omplment
-    cA = cABX - cBX;
-    cB = cABX - cAX;
-    cX1 = (1.5 * cBX + 1.5*xAX - cBXAhalf - cAXBhalf);
-    cX2 = 2.*(cBXAhalf + cAXBhalf) - 3.*cABX;
-    return std::max(0, 0.5 * (cX1 + cX2));
-/*
- *  Now go through and make 3 arrays:
- *
- */
 
-    std::vector<int> countsAXBhalf(jointStatistic.getQ() + 1);
-    std::vector<int> countsBXAhalf(jointStatistic.getQ() + 1);
-    int sumAXBhalf= jointStatistic.getNumRegisters();
-    int sumBXAhalf= jointStatistic.getNumRegisters();
-    for (int q = 0; q < jointStatistic.getQ(); ++q) {
-        countsAXBhalf[q] = jointStatistic.getLarger1Count(q) + jointStatistic.getEqualCount(q) + jointStatistic.getLarger2Count(q+1);
-        countsBXAhalf[q] = jointStatistic.getLarger2Count(q) + jointStatistic.getEqualCount(q) + jointStatistic.getLarger1Count(q+1);
-        sumAXBhalf -= countsAXBhalf[q];
-        sumBXAhalf -= countsBXAhalf[q];
+template<typename HllType>
+std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
+    std::array<double, 3> ret;
+    auto p = h1.p();
+    auto q = h1.q();
+    auto c1 = detail::sum_counts(h1.core());
+    auto c2 = detail::sum_counts(h2.core());
+    const double cAX = ertl_ml_estimate(c1, h1.p(), h1.q());
+    const double cBX = ertl_ml_estimate(c2, h2.p(), h2.q());
+    std::fprintf(stderr, "cAX ml est: %lf. cBX ml els: %lf\n", cAX, cBX);
+    //const double cBX = hl2.creport();
+    //const double cBX = hl2.creport();
+    const double cABX = union_size(h1, h2);
+    std::array<uint64_t, 64> countsAXBhalf{0}; // 
+    std::array<uint64_t, 64> countsBXAhalf{0}; // 
+    countsAXBhalf[q] = h1.m();
+    countsBXAhalf[q] = h1.m();
+    std::array<uint64_t, 64> countsG1{0};
+    std::array<uint64_t, 64> countsG2{0};
+    std::array<uint64_t, 64> countsL1{0};
+    std::array<uint64_t, 64> countsL2{0};
+    std::array<uint64_t, 64> countsEq{0};
+    {
+        const auto &core1(h1.core()), &core2(h2.core());
+        for(uint64_t i(0); i < core1.size(); ++i) {
+            switch((core1[i] > core2[i]) << 1 | (core2[i] > core1[i])) {
+                case 0:
+                    ++countsEq[core1[i]]; break;
+                case 1:
+                    ++countsG2[core2[i]];
+                    ++countsL1[core1[i]];
+                    break;
+                case 2: 
+                    ++countsG1[core1[i]];
+                    ++countsL2[core2[i]];
+                    break;
+            }
+        }
     }
-    countsAXBhalf[jointStatistic.getQ()] = sumAXBhalf;
-    countsBXAhalf[jointStatistic.getQ()] = sumBXAhalf;
-    const MaxLikelihoodEstimator estimator2(jointStatistic.getP(), jointStatistic.getQ()-1);
+    for(unsigned _q = 0; _q < q; ++_q) {
+        // Handle AXBhalf
+        countsAXBhalf[_q] = countsG1[_q] + countsEq[_q] + countsG2[_q + 1];
+        assert(countsAXBhalf[q] >= countsAXBhalf[_q]);
+        countsAXBhalf[q] -= countsAXBhalf[_q];
 
-    const double cardinalityAXBhalf = estimator2(countsAXBhalf);
-    const double cardinalityBXAhalf = estimator2(countsBXAhalf);
+        // Handle BXAhalf
+        countsBXAhalf[_q] = countsG2[_q] + countsEq[_q] + countsG1[_q + 1];
+        assert(countsBXAhalf[q] >= countsBXAhalf[_q]);
+        countsBXAhalf[q] -= countsBXAhalf[_q];
+    }
+    double cAXBhalf = ertl_ml_estimate(countsAXBhalf, p, q - 1);
+    double cBXAhalf = ertl_ml_estimate(countsBXAhalf, p, q - 1);
+    std::fprintf(stderr, "cAXBhalf = %lf\n", cAXBhalf);
+    std::fprintf(stderr, "cBXAhalf = %lf\n", cBXAhalf);
+    ret[0] = cABX - cBX;
+    ret[1] = cABX - cAX;
+    double cX1 = (1.5 * cBX + 1.5*cAX - cBXAhalf - cAXBhalf);
+    double cX2 = 2.*(cBXAhalf + cAXBhalf) - 3.*cABX;
+    std::fprintf(stderr, "Halves of contribution: %lf, %lf. Initial est: %lf. Result: %lf\n", cX1, cX2, cABX, std::max(0., 0.5 * (cX1 + cX2)));
+    ret[2] = std::max(0., 0.5 * (cX1 + cX2));
+    return ret;
+}
 
-    cardinalityA = cardinalityABX - cardinalityBX;
-    cardinalityB = cardinalityABX - cardinalityAX;
-    double cardinalityX1 = 1.5*cardinalityBX + 1.5*cardinalityAX - cardinalityBXAhalf - cardinalityAXBhalf;
-    double cardinalityX2 = 2.*(cardinalityBXAhalf + cardinalityAXBhalf) - 3*cardinalityABX;
-
-cardinalityX = std::max(0., 0.5*(cardinalityX1 + cardinalityX2));
-#endif
+template<typename HllType>
+std::array<double, 3> ertl_joint_union(HllType &h1, HllType &h2) {
+    if(h1.not_ready()) h1.sum();
+    if(h2.not_ready()) h2.sum();
+    return ertl_joint_union(static_cast<const HllType &>(h1), static_cast<const HllType &>(h2));
+}
 
 #ifdef ENABLE_HLL_DEVELOP
 #else

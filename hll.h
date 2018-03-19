@@ -61,6 +61,12 @@ using std::uint32_t;
 using std::uint8_t;
 using std::size_t;
 
+enum EstimationMethod {
+    ORIGINAL      = 0,
+    ERTL_IMPROVED = 1,
+    ERTL_MLE      = 2
+};
+
 #ifdef MANUAL_CHECKS
 #  ifndef VERIFY_SUM
 #    define VERIFY_SUM 1
@@ -78,43 +84,48 @@ namespace detail {
     static constexpr double TWO_POW_32 = 1ull << 32;
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 
+template<typename T>
+double ertl_ml_estimate(const T& c, unsigned p, unsigned q); // forward declaration
+
 template<typename CountArrType>
 inline double calculate_estimate(const CountArrType &counts,
-                                 bool use_ertl, uint64_t m, uint32_t p, double alpha) {
+                                 EstimationMethod estim, uint64_t m, uint32_t p, double alpha) {
     static_assert(std::is_same_v<std::decay_t<decltype(counts[0])>, uint64_t>, "Counts must be a container for uint64_ts.");
-    if(use_ertl) {
-        double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
-        for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
-        z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
-        return (m/(2.L*std::log(2.L)))*m / z;
-    }
-    /* else */
-    // Small/large range corrections
-    // See Flajolet, et al. HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm
-    double sum = counts[0];
-    for(unsigned i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
-#if VERIFY_SUM
-    {
-        double sum2 = 0.;
-        for(int i = 0; i < 64; ++i) sum2 += counts[i] * (1. / (1ull << i)); // doing all counts just to verify I'm not crazy.
-        assert(sum2 == sum);
-    }
-#endif
-    double value(alpha * m * m / sum);
-    if(value < detail::small_range_correction_threshold(m)) {
-        if(counts[0]) {
-            std::fprintf(stderr, "[W:%s:%d]Small value correction. Original estimate %lf. New estimate %lf.\n",
-                         __PRETTY_FUNCTION__, __LINE__, value, m * std::log((double)m / counts[0]));
-            value = m * std::log((double)(m) / counts[0]);
+    switch(estim) {
+        case ERTL_IMPROVED: {
+            double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
+            for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
+            z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
+            return (m/(2.L*std::log(2.L)))*m / z;
         }
-    } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
-        // Reuse sum variable to hold correction.
-        // I do think I've seen worse accuracy with the large range correction, but I would need to rerun experiments to be sure.
-        sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
-        if(!std::isnan(sum)) value = sum;
-        else std::fprintf(stderr, "[W:%s:%d] Large range correction returned nan. Defaulting to regular calculation.\n", __PRETTY_FUNCTION__, __LINE__);
+        case ERTL_MLE: {
+            return ertl_ml_estimate(counts, p, 64 - p);
+        }
+        default: {
+            double sum = counts[0];
+            for(unsigned i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+            double value(alpha * m * m / sum);
+            if(value < detail::small_range_correction_threshold(m)) {
+                if(counts[0]) {
+                    std::fprintf(stderr, "[W:%s:%d]Small value correction. Original estimate %lf. New estimate %lf.\n",
+                                 __PRETTY_FUNCTION__, __LINE__, value, m * std::log((double)m / counts[0]));
+                    value = m * std::log((double)(m) / counts[0]);
+                }
+            } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
+                // Reuse sum variable to hold correction.
+                // I do think I've seen worse accuracy with the large range correction, but I would need to rerun experiments to be sure.
+                sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
+                if(!std::isnan(sum)) value = sum;
+                else std::fprintf(stderr, "[W:%s:%d] Large range correction returned nan. Defaulting to regular calculation.\n", __PRETTY_FUNCTION__, __LINE__);
+            }
+            return value;
+        }
     }
-    return value;
+}
+template<typename CountArrType>
+inline double calculate_estimate(const CountArrType &counts,
+                                 int estim, uint64_t m, uint32_t p, double alpha) {
+    return calculate_estimate(counts, (EstimationMethod)estim, m, p, alpha);
 }
 
 template<typename CoreType>
@@ -227,6 +238,65 @@ inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
     while(rset.size() < size) rset.emplace(mt());
     return rset;
 }
+template<typename T>
+double ertl_ml_estimate(const T& c, unsigned p, unsigned q) {
+    const uint64_t m = 1ull << p;
+    if (c[q+1] == m) return std::numeric_limits<double>::infinity();
+
+    int kMin, kMax;
+    for(kMin=0; c[kMin]==0; ++kMin);
+    int kMinPrime = std::max(1, kMin);
+    for(kMax=q+1; kMax && c[kMax]==0; --kMax);
+    int kMaxPrime = std::min((int)q, kMax);
+    double z = 0.;
+    for(int k = kMaxPrime; k >= kMinPrime; --k) {
+        z = 0.5*z + c[k];
+    }
+    z = ldexp(z, -kMinPrime);
+    unsigned cPrime = c[q+1];
+    if(q) cPrime += c[kMaxPrime];
+    double gprev;
+    double x;
+    double a = z + c[0];
+    int mPrime = m - c[0];
+    gprev = z + ldexp(c[q+1], -q); // Reuse gprev, setting to 0 after.
+    x = gprev <= 1.5*a ? mPrime/(0.5*gprev+a): (mPrime/gprev)*std::log1p(gprev/a);
+    gprev = 0;
+    double deltaX = x;
+    const double relativeErrorLimit = 1e-2/(std::sqrt(m));
+    while(deltaX > x*relativeErrorLimit) {
+        int kappaMinus1;
+        frexp(x, &kappaMinus1);
+        double xPrime = ldexp(x, -std::max((int)kMaxPrime+1, kappaMinus1+2));
+        double xPrime2 = xPrime*xPrime;
+        double h = xPrime - xPrime2/3 + (xPrime2*xPrime2)*(1./45. - xPrime2/472.5);
+        for(int k = kappaMinus1; k >= kMaxPrime; --k) {
+            double hPrime = 1. - h;
+            h = (xPrime + h*hPrime)/(xPrime+hPrime);
+            xPrime += xPrime;
+        }
+        double g = cPrime*h;
+        for(int k = kMaxPrime-1; k >= kMinPrime; --k) {
+            double hPrime = 1. - h;
+            h = (xPrime + h*hPrime)/(xPrime+hPrime);
+            xPrime += xPrime;
+            g += c[k] * h;
+        }
+        g += x*a;
+        if(gprev < g && g <= mPrime) deltaX *= (g-mPrime)/(gprev-g);
+        else                             deltaX  = 0;
+        x += deltaX;
+        gprev = g;
+    }
+    return x*m;
+}
+
+template<typename HllType>
+double ertl_ml_estimate(const HllType& c) {
+    const auto counts = detail::sum_counts(c.core());
+    return ertl_ml_estimate(counts, c.p(), c.q());
+}
+
 
 } // namespace detail
 
@@ -361,6 +431,7 @@ using Allocator = std::allocator<uint8_t>;
 // be for bit-packed versions.
 
 
+
 template<typename HashStruct=WangHash>
 class hllbase_t {
 // HyperLogLog implementation.
@@ -376,8 +447,8 @@ protected:
     std::vector<uint8_t, Allocator> core_;
     double value_;
     uint32_t is_calculated_:1;
-    uint32_t      use_ertl_:1;
-    uint32_t     nthreads_:30;
+    uint32_t         estim_:2;
+    uint32_t     nthreads_:29;
 public:
     HashStruct            hf_;
 
@@ -385,10 +456,10 @@ public:
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(m());}
     // Constructor
-    explicit hllbase_t(size_t np, bool use_ertl=true, int nthreads=-1):
+    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, int nthreads=-1):
         np_(np),
         core_(m(), 0),
-        value_(0.), is_calculated_(0), use_ertl_(use_ertl),
+        value_(0.), is_calculated_(0), estim_(estim),
         nthreads_(nthreads > 0 ? nthreads: 1) {}
     hllbase_t(const char *path) {
         read(path);
@@ -402,7 +473,7 @@ public:
     // Call sum to recalculate if you have changed contents.
     void sum() {
         const auto counts(detail::sum_counts(core_)); // std::array<uint64_t, 64>
-        value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+        value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
 
@@ -476,7 +547,7 @@ public:
         kt_for(nthreads, detail::parsum_helper<decltype(core_)>, &data, nr);
         uint64_t counts[64];
         std::memcpy(counts, acounts, sizeof(counts));
-        value_ = detail::calculate_estimate(counts, use_ertl_, m(), np_, alpha());
+        value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
     // Reset.
@@ -488,7 +559,7 @@ public:
     hllbase_t(hllbase_t&&) = default;
     hllbase_t(const hllbase_t &other):
         np_(other.np_), core_(other.core_), value_(other.value_),
-        is_calculated_(other.is_calculated_), use_ertl_(other.use_ertl_),
+        is_calculated_(other.is_calculated_), estim_(other.estim_),
         nthreads_(other.nthreads_) {}
     hllbase_t& operator=(const hllbase_t &other) {
         // Explicitly define to make sure we don't do unnecessary reallocation.
@@ -498,7 +569,7 @@ public:
         np_ = other.np_;
         value_ = other.value_;
         is_calculated_ = other.is_calculated_;
-        use_ertl_ = other.use_ertl_;
+        estim_ = other.estim_;
         nthreads_ = other.nthreads_;
         return *this;
     }
@@ -540,8 +611,8 @@ public:
         core_.resize(new_size);
         np_ = (std::size_t)std::log2(new_size);
     }
-    bool get_use_ertl() const {return use_ertl_;}
-    void set_use_ertl(bool val) {use_ertl_ = val;}
+    EstimationMethod get_estim() const {return estim_;}
+    void set_estim(EstimationMethod val) {estim_ = val;}
     // Getter for is_calculated_
     bool is_ready() const {return is_calculated_;}
     void not_ready() {is_calculated_ = false;}
@@ -572,7 +643,7 @@ public:
     }
     void write(gzFile fp) const {
 #define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
-        uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
+        uint32_t bf[3]{is_calculated_, estim_, nthreads_};
         CW(fp, bf, sizeof(bf));
         CW(fp, &np_, sizeof(np_));
         CW(fp, &value_, sizeof(value_));
@@ -597,7 +668,7 @@ public:
 #define CR(fp, dst, len) do {if((uint64_t)gzread(fp, dst, len) != len) throw std::runtime_error("Error reading from file.");} while(0)
         uint32_t bf[3];
         CR(fp, bf, sizeof(bf));
-        is_calculated_ = bf[0]; use_ertl_ = bf[1]; nthreads_ = bf[2];
+        is_calculated_ = bf[0]; estim_ = bf[1]; nthreads_ = bf[2];
         CR(fp, &np_, sizeof(np_));
         CR(fp, &value_, sizeof(value_));
         core_.resize(m());
@@ -614,7 +685,7 @@ public:
         read(path.data());
     }
     void write(int fileno) const {
-        uint32_t bf[3]{is_calculated_, use_ertl_, nthreads_};
+        uint32_t bf[3]{is_calculated_, estim_, nthreads_};
         ::write(fileno, bf, sizeof(bf));
         ::write(fileno, &np_, sizeof(np_));
         ::write(fileno, &value_, sizeof(value_));
@@ -623,7 +694,7 @@ public:
     void read(int fileno) {
         uint32_t bf[3];
         ::read(fileno, bf, sizeof(bf));
-        is_calculated_ = bf[0]; use_ertl_ = bf[1]; nthreads_ = bf[2];
+        is_calculated_ = bf[0]; estim_ = bf[1]; nthreads_ = bf[2];
         ::read(fileno, &np_, sizeof(np_));
         ::read(fileno, &value_, sizeof(value_));
         core_.resize(m());
@@ -648,7 +719,7 @@ public:
             tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
             tmp.inc_counts(counts);
         } while(p1 < reinterpret_cast<const SType *>(&(*core().cend())));
-        return detail::calculate_estimate(counts, get_use_ertl(), m(), p(), alpha());
+        return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
     }
     double jaccard_index(hllbase_t &other) {
         if(!is_ready())             sum();

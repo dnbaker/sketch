@@ -45,7 +45,9 @@ int main(int argc, char *argv[]) {
     std::vector<std::uint64_t> vals;
     for(char **p(argv + 1); *p; ++p) vals.push_back(strtoull(*p, 0, 10));
     if(vals.empty()) vals.push_back(1ull<<(BITS+1));
-    for(auto val: vals) {
+    for(const auto val: vals) {
+        std::fprintf(stderr, "Processing val = %" PRIu64 "\n", val);
+        using hll::detail::ertl_ml_estimate;
         hll::hll_t t(BITS);
 #ifdef NOT_THREADSAFE
         for(size_t i(0); i < val; t.addh(i++));
@@ -53,8 +55,9 @@ int main(int argc, char *argv[]) {
         kt_data data {t, val, nt};
         kt_for(nt, &kt_helper, &data, (val + nt - 1) / nt);
 #endif
-        fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s\n",
-                val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false");
+        std::fprintf(stderr, "Calculating for val = %" PRIu64 "\n", val);
+        fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
+                val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false", ertl_ml_estimate(t), std::abs(ertl_ml_estimate(t) - val));
     }
 	return EXIT_SUCCESS;
 }

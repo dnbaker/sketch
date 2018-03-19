@@ -36,7 +36,7 @@ python: _hll.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-test: test.cpp kthread.o hll.h
+test: test.cpp kthread.o hll.h hll_dev.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
 serial_test: serial_test.cpp hll.h
