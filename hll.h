@@ -66,6 +66,11 @@ enum EstimationMethod {
     ERTL_IMPROVED = 1,
     ERTL_MLE      = 2
 };
+static const char *EST_STRS [] {
+    "original",
+    "ertl_improved",
+    "ertl_mle"
+};
 
 #ifdef MANUAL_CHECKS
 #  ifndef VERIFY_SUM
@@ -101,7 +106,8 @@ inline double calculate_estimate(const CountArrType &counts,
         case ERTL_MLE: {
             return ertl_ml_estimate(counts, p, 64 - p, relerr);
         }
-        default: {
+        case ORIGINAL: {
+            assert(estim != ERTL_MLE);
             double sum = counts[0];
             for(unsigned i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
             double value(alpha * m * m / sum);
@@ -121,10 +127,12 @@ inline double calculate_estimate(const CountArrType &counts,
             return value;
         }
     }
+    throw std::runtime_error(std::string("This is not possible. Number is ") + std::to_string((int)estim) + "str is %s\n" + EST_STRS[estim]);
 }
 template<typename CountArrType>
 inline double calculate_estimate(const CountArrType &counts,
                                  int estim, uint64_t m, uint32_t p, double alpha) {
+    asset(estim <= 2 && estim >= 0);
     return calculate_estimate(counts, (EstimationMethod)estim, m, p, alpha);
 }
 
@@ -446,9 +454,9 @@ protected:
     uint32_t np_;
     std::vector<uint8_t, Allocator> core_;
     double value_;
-    uint32_t is_calculated_:1;
-    uint32_t         estim_:2;
-    uint32_t     nthreads_:29;
+    uint32_t is_calculated_;
+    EstimationMethod estim_;
+    uint32_t      nthreads_;
 public:
     HashStruct            hf_;
 
@@ -460,7 +468,8 @@ public:
         np_(np),
         core_(m(), 0),
         value_(0.), is_calculated_(0), estim_(estim),
-        nthreads_(nthreads > 0 ? nthreads: 1) {}
+        nthreads_(nthreads > 0 ? nthreads: 1) {
+        }
     hllbase_t(const char *path) {
         read(path);
     }
