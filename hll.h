@@ -85,11 +85,11 @@ namespace detail {
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 
 template<typename T>
-double ertl_ml_estimate(const T& c, unsigned p, unsigned q); // forward declaration
+inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr=1e-3); // forward declaration
 
 template<typename CountArrType>
 inline double calculate_estimate(const CountArrType &counts,
-                                 EstimationMethod estim, uint64_t m, uint32_t p, double alpha) {
+                                 EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-3) {
     static_assert(std::is_same_v<std::decay_t<decltype(counts[0])>, uint64_t>, "Counts must be a container for uint64_ts.");
     switch(estim) {
         case ERTL_IMPROVED: {
@@ -99,7 +99,7 @@ inline double calculate_estimate(const CountArrType &counts,
             return (m/(2.L*std::log(2.L)))*m / z;
         }
         case ERTL_MLE: {
-            return ertl_ml_estimate(counts, p, 64 - p);
+            return ertl_ml_estimate(counts, p, 64 - p, relerr);
         }
         default: {
             double sum = counts[0];
@@ -239,7 +239,7 @@ inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
     return rset;
 }
 template<typename T>
-double ertl_ml_estimate(const T& c, unsigned p, unsigned q) {
+inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr) {
     const uint64_t m = 1ull << p;
     if (c[q+1] == m) return std::numeric_limits<double>::infinity();
 
@@ -263,8 +263,8 @@ double ertl_ml_estimate(const T& c, unsigned p, unsigned q) {
     x = gprev <= 1.5*a ? mPrime/(0.5*gprev+a): (mPrime/gprev)*std::log1p(gprev/a);
     gprev = 0;
     double deltaX = x;
-    const double relativeErrorLimit = 1e-2/(std::sqrt(m));
-    while(deltaX > x*relativeErrorLimit) {
+    relerr /= std::sqrt(m);
+    while(deltaX > x*relerr) {
         int kappaMinus1;
         frexp(x, &kappaMinus1);
         double xPrime = ldexp(x, -std::max((int)kMaxPrime+1, kappaMinus1+2));
@@ -284,7 +284,7 @@ double ertl_ml_estimate(const T& c, unsigned p, unsigned q) {
         }
         g += x*a;
         if(gprev < g && g <= mPrime) deltaX *= (g-mPrime)/(gprev-g);
-        else                             deltaX  = 0;
+        else                         deltaX  = 0;
         x += deltaX;
         gprev = g;
     }
@@ -292,9 +292,9 @@ double ertl_ml_estimate(const T& c, unsigned p, unsigned q) {
 }
 
 template<typename HllType>
-double ertl_ml_estimate(const HllType& c) {
+double ertl_ml_estimate(const HllType& c, double relerr=1e-3) {
     const auto counts = detail::sum_counts(c.core());
-    return ertl_ml_estimate(counts, c.p(), c.q());
+    return ertl_ml_estimate(counts, c.p(), c.q(), relerr);
 }
 
 
@@ -611,7 +611,7 @@ public:
         core_.resize(new_size);
         np_ = (std::size_t)std::log2(new_size);
     }
-    EstimationMethod get_estim() const {return estim_;}
+    EstimationMethod get_estim() const {return (EstimationMethod)estim_;}
     void set_estim(EstimationMethod val) {estim_ = val;}
     // Getter for is_calculated_
     bool is_ready() const {return is_calculated_;}
