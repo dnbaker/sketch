@@ -925,7 +925,7 @@ public:
                 tmp.inc_counts(counts);
             } while(p1 < reinterpret_cast<const SType *>(&(*core().cend())));
             return estim_ == ORIGINAL ? detail::calculate_estimate(counts, get_estim(), m(), p(), alpha())
-                                      : ertl_mle(counts, p(), q()); // This isn't exactly perfect because now there are 4 ways to do it, but I'd rather avoid bias.
+                                      : detail::ertl_ml_estimate(counts, p(), q()); // This isn't exactly perfect because now there are 4 ways to do it, but I'd rather avoid bias.
         }
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
