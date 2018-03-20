@@ -215,9 +215,9 @@ public:
     // Looking ahead,consider templating so that the double version might be helpful.
 
     auto may_contain(uint64_t element) const {
-#if !NDEBUG
-#pragma message("Note: may_contain only works for the HyperLogFilter in the case of 64-bit integer insertions. One must hash a string to a 64-bit integer first in order to use it for this purpose.")
-#endif
+//#if !NDEBUG
+//#pragma message("Note: may_contain only works for the HyperLogFilter in the case of 64-bit integer insertions. One must hash a string to a 64-bit integer first in order to use it for this purpose.")
+//#endif
         return std::accumulate(hlls_.begin() + 1, hlls_.end(), hlls_.front().may_contain(wang_hash(element ^ hlls_.front().seed())),
                                [element](auto a, auto b) {
             return a && b.may_contain(wang_hash(element ^ b.seed()));
@@ -272,9 +272,17 @@ public:
 };
 using hlf_t = hlfbase_t<>;
 
-
+/*
+ *Returns the estimated number of elements:
+ * [0] uniquely in h1
+ * [1] uniquely in h2
+ * [2] in the intersection
+ * size of the union is [0] + [1] + [2]
+ * size of the intersection is [2]
+ */
+#if VERIFY_SIMD_JOINT
 template<typename HllType>
-std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
+std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
     using detail::ertl_ml_estimate;
     std::array<double, 3> ret;
     auto p = h1.p();
@@ -283,7 +291,7 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     auto c2 = detail::sum_counts(h2.core());
     const double cAX = ertl_ml_estimate(c1, h1.p(), h1.q());
     const double cBX = ertl_ml_estimate(c2, h2.p(), h2.q());
-    std::fprintf(stderr, "cAX ml est: %lf. cBX ml els: %lf\n", cAX, cBX);
+    //std::fprintf(stderr, "cAX ml est: %lf. cBX ml els: %lf\n", cAX, cBX);
     //const double cBX = hl2.creport();
     //const double cBX = hl2.creport();
     const double cABX = union_size(h1, h2);
@@ -291,23 +299,23 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     std::array<uint64_t, 64> countsBXAhalf{0}; // 
     countsAXBhalf[q] = h1.m();
     countsBXAhalf[q] = h1.m();
-    std::array<uint64_t, 64> countsG1{0};
-    std::array<uint64_t, 64> countsG2{0};
+    std::array<uint64_t, 64> cg1{0};
+    std::array<uint64_t, 64> cg2{0};
     //std::array<uint64_t, 64> countsL1{0};
     //std::array<uint64_t, 64> countsL2{0};
-    std::array<uint64_t, 64> countsEq{0};
+    std::array<uint64_t, 64> ceq{0};
     {
         const auto &core1(h1.core()), &core2(h2.core());
         for(uint64_t i(0); i < core1.size(); ++i) {
             switch((core1[i] > core2[i]) << 1 | (core2[i] > core1[i])) {
                 case 0:
-                    ++countsEq[core1[i]]; break;
+                    ++ceq[core1[i]]; break;
                 case 1:
-                    ++countsG2[core2[i]];
+                    ++cg2[core2[i]];
                     // ++countsL1[core1[i]];
                     break;
                 case 2: 
-                    ++countsG1[core1[i]];
+                    ++cg1[core1[i]];
                     // ++countsL2[core2[i]];
                     break;
             }
@@ -315,34 +323,33 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     }
     for(unsigned _q = 0; _q < q; ++_q) {
         // Handle AXBhalf
-        countsAXBhalf[_q] = countsG1[_q] + countsEq[_q] + countsG2[_q + 1];
+        countsAXBhalf[_q] = cg1[_q] + ceq[_q] + cg2[_q + 1];
         assert(countsAXBhalf[q] >= countsAXBhalf[_q]);
         countsAXBhalf[q] -= countsAXBhalf[_q];
 
         // Handle BXAhalf
-        countsBXAhalf[_q] = countsG2[_q] + countsEq[_q] + countsG1[_q + 1];
+        countsBXAhalf[_q] = cg2[_q] + ceq[_q] + cg1[_q + 1];
         assert(countsBXAhalf[q] >= countsBXAhalf[_q]);
         countsBXAhalf[q] -= countsBXAhalf[_q];
     }
     double cAXBhalf = ertl_ml_estimate(countsAXBhalf, p, q - 1);
     double cBXAhalf = ertl_ml_estimate(countsBXAhalf, p, q - 1);
-    std::fprintf(stderr, "cAXBhalf = %lf\n", cAXBhalf);
-    std::fprintf(stderr, "cBXAhalf = %lf\n", cBXAhalf);
+#if !NDEBUG
+    //std::fprintf(stderr, "cAXBhalf = %lf\n", cAXBhalf);
+    //std::fprintf(stderr, "cBXAhalf = %lf\n", cBXAhalf);
+#endif
     ret[0] = cABX - cBX;
     ret[1] = cABX - cAX;
     double cX1 = (1.5 * cBX + 1.5*cAX - cBXAhalf - cAXBhalf);
     double cX2 = 2.*(cBXAhalf + cAXBhalf) - 3.*cABX;
-    std::fprintf(stderr, "Halves of contribution: %lf, %lf. Initial est: %lf. Result: %lf\n", cX1, cX2, cABX, std::max(0., 0.5 * (cX1 + cX2)));
     ret[2] = std::max(0., 0.5 * (cX1 + cX2));
+#if !NDEBUG
+    //std::fprintf(stderr, "Halves of contribution: %lf, %lf. Initial est: %lf. Result: %lf\n", cX1, cX2, cABX, ret[2]);
+#endif
     return ret;
 }
+#endif
 
-template<typename HllType>
-std::array<double, 3> ertl_joint_union(HllType &h1, HllType &h2) {
-    if(h1.not_ready()) h1.sum();
-    if(h2.not_ready()) h2.sum();
-    return ertl_joint_union(static_cast<const HllType &>(h1), static_cast<const HllType &>(h2));
-}
 
 #ifdef ENABLE_HLL_DEVELOP
 #else

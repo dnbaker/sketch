@@ -26,7 +26,7 @@
 #  include <zlib.h>
 #endif
 
-#define HAS_AVX_512 (_FEATURE_AVX512F | _FEATURE_AVX512ER | _FEATURE_AVX512PF | _FEATURE_AVX512CD)
+#define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__)
 
 #ifndef INLINE
 #  if __GNUC__ || __clang__
@@ -37,7 +37,7 @@
 #endif
 
 #ifdef INCLUDE_CLHASH_H_
-#  define ENABLE_CLHASH
+#  define ENABLE_CLHASH 1
 #elif ENABLE_CLHASH
 #  include "clhash.h"
 #endif
@@ -77,11 +77,18 @@ static const char *EST_STRS [] {
 #  ifndef VERIFY_SUM
 #    define VERIFY_SUM 1
 #  endif
+#  ifndef VERIFY_SIMD_JOINT
+#    define VERIFY_SIMD_JOINT 1
+#  endif
 #  ifndef VERIFY_SIMD
 #    define VERIFY_SIMD 1
 #  endif
 #endif
 
+#if VERIFY_SIMD_JOINT
+template<typename HllType>
+std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2);
+#endif
 
 
 namespace detail {
@@ -153,21 +160,94 @@ union SIMDHolder {
 public:
 
 #define DEC_MAX(fn) static constexpr decltype(&fn) max_fn = &fn
+#define DEC_GT(fn)  static constexpr decltype(&fn) gt_fn  = &fn
+#define DEC_EQ(fn)  static constexpr decltype(&fn) eq_fn  = &fn
+
+// vpcmpub has roughly the same latency as
+// vpcmpOPub, but twice the throughput, so we use it instead.
+// (the *epu8_mask version over the *epu8_mask)
 #if HAS_AVX_512
-    using SType = __m512i;
+    using SType    = __m512i;
+#  if __AVX512BW__
     DEC_MAX(_mm512_max_epu8);
+    using MaskType = __mmask64;
+    static_assert(sizeof(MaskType) == sizeof(__mmask64), "Mask type should be 64-bits in size.");
+    static_assert(sizeof(__mmask64) == sizeof(unsigned long long), "Mask type should be 64-bits in size.");
+    DEC_GT(_mm512_cmpgt_epu8_mask);
+    DEC_EQ(_mm512_cmpeq_epu8_mask);
+#  else
+    __m256i subs[2];
+    using MaskType = SIMDHolder;
+    static SIMDHolder gt_fn(__m512i a, __m512i b) {
+        SIMDHolder ret;
+        ret.subs[0] = _mm256_cmpgt_epi8(*(__m256i *)(&a), *(__m256i *)(&b));
+        ret.subs[1] = _mm256_cmpgt_epi8(*(__m256i *)(((uint8_t *)&a) + 32), *(__m256i *)(((uint8_t *)&b) + 32));
+#if !NDEBUG
+        SIMDHolder ac(a), bc(b);
+        for(unsigned i(0); i < sizeof(ret); ++i) {
+            assert(!!ret.vals[i] == !!(ac.vals[i] > bc.vals[i]));
+        }
+#endif
+        return ret;
+    }
+    static SIMDHolder max_fn(__m512i a, __m512i b) {
+        SIMDHolder ret;
+        ret.subs[0] = _mm256_max_epu8(*(__m256i *)(&a), *(__m256i *)(&b));
+        ret.subs[1] = _mm256_max_epu8(*(__m256i *)(((uint8_t *)&a) + 32), *(__m256i *)(((uint8_t *)&b) + 32));
+#if !NDEBUG
+        SIMDHolder ac(a), bc(b);
+        for(unsigned i(0); i < sizeof(ret); ++i) {
+            assert(ret.vals[i] == std::max(ac.vals[i], bc.vals[i]));
+        }
+#endif
+        return ret;
+    }
+    static SIMDHolder eq_fn(__m512i a, __m512i b) {
+        SIMDHolder ret;
+        ret.subs[0] = _mm256_cmpeq_epi8(*(__m256i *)(&a), *(__m256i *)(&b));
+        ret.subs[1] = _mm256_cmpeq_epi8(*(__m256i *)(((uint8_t *)&a) + 32), *(__m256i *)(((uint8_t *)&b) + 32));
+#if !NDEBUG
+        SIMDHolder tmp, ac(a), bc(b);
+        ac.val = a; bc.val = b;
+        for(unsigned i(0); i < sizeof(ret); ++i) {
+            assert(!!ret.vals[i] == !!(ac.vals[i] == bc.vals[i]));
+        }
+#endif
+        return ret;
+    }
+#  endif
 #elif __AVX2__
     using SType = __m256i;
+    using MaskType = SIMDHolder;
     DEC_MAX(_mm256_max_epu8);
+    DEC_EQ (_mm256_cmpeq_epi8);
+    DEC_GT (_mm256_cmpgt_epi8);
+    //DEC_GT(_mm256_cmpgt_epu8_mask);
 #elif __SSE2__
     using SType = __m128i;
+    using MaskType = SIMDHolder;
     DEC_MAX(_mm_max_epu8);
+    DEC_GT(_mm_cmpgt_epi8);
+    DEC_EQ(_mm_cmpeq_epi8);
 #else
 #  error("Need at least SSE2")
 #endif
 #undef DEC_MAX
+#undef DEC_GT
+#undef DEC_EQ
 
-    static constexpr size_t nels = sizeof(SType) / sizeof(uint8_t);
+    SIMDHolder() {} // empty constructor
+    SIMDHolder(SType val_) {
+        val = val_;
+    }
+    operator SType &() {
+        return val;
+    }
+    operator const SType &() const {
+        return val;
+    }
+    static constexpr size_t nels  = sizeof(SType) / sizeof(uint8_t);
+    static constexpr size_t nbits = sizeof(SType) / sizeof(uint8_t) * CHAR_BIT;
     using u8arr = uint8_t[nels];
     SType val;
     u8arr vals;
@@ -189,6 +269,73 @@ public:
         void operator()(const SIMDHolder &ref, T &arr) const {}
     };
     static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
+};
+
+struct joint_unroller {
+    using MType = SIMDHolder::MaskType;
+    using SType = SIMDHolder::SType;
+#if defined(__AVX512BW__)
+    static_assert(sizeof(MType) == sizeof(uint64_t), "Must be 64 bits");
+#endif
+    template<typename T, size_t iternum, size_t niter_left> struct ju_impl {
+        void operator()(const SIMDHolder &ref1, const SIMDHolder &ref2, const SIMDHolder &u, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq, MType gtmask1, MType gtmask2, MType eqmask) const {
+            ++arrh1[ref1.vals[iternum]];
+            ++arrh2[ref2.vals[iternum]];
+            ++arru[u.vals[iternum]];
+#if __AVX512BW__
+            arrg1[ref1.vals[iternum]] += gtmask1 & 1;
+            arreq[ref1.vals[iternum]] += eqmask  & 1;
+            arrg2[ref2.vals[iternum]] += gtmask2 & 1;
+            gtmask1 >>= 1;
+            gtmask2 >>= 1;
+            eqmask  >>= 1; // Consider packing these into an SIMD type and shifting them as a set.
+#else
+            static_assert(sizeof(MType) == sizeof(SIMDHolder), "Wrong size?");
+            arrg1[ref1.vals[iternum]] += gtmask1.vals[iternum] != 0;
+            arreq[ref1.vals[iternum]] += eqmask.vals [iternum] != 0;
+            arrg2[ref2.vals[iternum]] += gtmask2.vals[iternum] != 0;
+#endif
+            ju_impl<T, iternum+1, niter_left-1> ju;
+            ju(ref1, ref2, u, arrh1, arrh2, arru, arrg1, arrg2, arreq, gtmask1, gtmask2, eqmask);
+        }
+    };
+    template<typename T, size_t iternum> struct ju_impl<T, iternum, 0> {
+        INLINE void operator()(const SIMDHolder &ref1, const SIMDHolder &ref2, const SIMDHolder &u, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq, MType gtmask1, MType gtmask2, MType eqmask) const {}
+    };
+    template<typename T>
+    INLINE void operator()(const SIMDHolder &ref1, const SIMDHolder &ref2, const SIMDHolder &u, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq) const {
+        ju_impl<T, 0, SIMDHolder::nels> ju;
+#if __AVX512BW__
+        auto g1 = SIMDHolder::gt_fn(ref1.val, ref2.val);
+        auto g2 = SIMDHolder::gt_fn(ref2.val, ref1.val);
+        auto eq = SIMDHolder::eq_fn(ref1.val, ref2.val);
+#else
+        auto g1 = SIMDHolder(SIMDHolder::gt_fn(ref1.val, ref2.val));
+        auto g2 = SIMDHolder(SIMDHolder::gt_fn(ref2.val, ref1.val));
+        auto eq = SIMDHolder(SIMDHolder::eq_fn(ref1.val, ref2.val));
+#endif
+        static_assert(std::is_same_v<MType, std::decay_t<decltype(g1)>>, "g1 should be the same time as MType");
+        ju(ref1, ref2, u, arrh1, arrh2, arru, arrg1, arrg2, arreq, g1, g2, eq);
+//#else
+//        ju(ref1, ref2, u, arrh1, arrh2, arru, arrg1, arrg2, arreq, (MType)g1, (MType)g2, (MType)eq);
+//#endif
+    }
+    template<typename T>
+    INLINE void sum_arrays(const SType *arr1, const SType *arr2, const SType *const arr1end, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq) const {
+        SIMDHolder v1, v2, u;
+        do {
+            v1.val = *arr1++;
+            v2.val = *arr2++;
+            u.val  = SIMDHolder::max_fn(v1.val, v2.val);
+            this->operator()(v1, v2, u, arrh1, arrh2, arru, arrg1, arrg2, arreq);
+        } while(arr1 < arr1end);
+    }
+    template<typename T, typename VectorType>
+    INLINE void sum_arrays(const VectorType &c1, const VectorType &c2, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq) const {
+        assert(c1.size() == c2.size());
+        assert((c1.size() & (SIMDHolder::nels - 1)) == 0);
+        sum_arrays(reinterpret_cast<const SType *>(&c1[0]), reinterpret_cast<const SType *>(&c2[0]), reinterpret_cast<const SType *>(&*c1.cend()), arrh1, arrh2, arru, arrg1, arrg2, arreq);
+    }
 };
 
 template<typename T>
@@ -259,9 +406,7 @@ inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr
     for(kMax=q+1; kMax && c[kMax]==0; --kMax);
     int kMaxPrime = std::min((int)q, kMax);
     double z = 0.;
-    for(int k = kMaxPrime; k >= kMinPrime; --k) {
-        z = 0.5*z + c[k];
-    }
+    for(int k = kMaxPrime; k >= kMinPrime; z = 0.5*z + c[k--]);
     z = ldexp(z, -kMinPrime);
     unsigned cPrime = c[q+1];
     if(q) cPrime += c[kMaxPrime];
@@ -303,12 +448,57 @@ inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr
 
 template<typename HllType>
 double ertl_ml_estimate(const HllType& c, double relerr=1e-3) {
-    const auto counts = detail::sum_counts(c.core());
-    return ertl_ml_estimate(counts, c.p(), c.q(), relerr);
+    return ertl_ml_estimate(detail::sum_counts(c.core()), c.p(), c.q(), relerr);
 }
 
 
 } // namespace detail
+
+template<typename HllType>
+std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
+    using detail::ertl_ml_estimate;
+    std::array<double, 3> ret;
+    auto p = h1.p();
+    auto q = h1.q();
+    std::array<uint64_t, 64> c1{0}, c2{0}, cu{0}, ceq{0}, cg1{0}, cg2{0};
+    detail::joint_unroller ju;
+    ju.sum_arrays(h1.core(), h2.core(), c1, c2, cu, cg1, cg2, ceq);
+    const double cAX = ertl_ml_estimate(c1, h1.p(), h1.q());
+    const double cBX = ertl_ml_estimate(c2, h2.p(), h2.q());
+    const double cABX = ertl_ml_estimate(cu, h1.p(), h1.q());
+    std::array<uint64_t, 64> countsAXBhalf{0}; // 
+    std::array<uint64_t, 64> countsBXAhalf{0}; // 
+    countsAXBhalf[q] = h1.m();
+    countsBXAhalf[q] = h1.m();
+    for(unsigned _q = 0; _q < q; ++_q) {
+        // Handle AXBhalf
+        countsAXBhalf[_q] = cg1[_q] + ceq[_q] + cg2[_q + 1];
+        assert(countsAXBhalf[q] >= countsAXBhalf[_q]);
+        countsAXBhalf[q] -= countsAXBhalf[_q];
+
+        // Handle BXAhalf
+        countsBXAhalf[_q] = cg2[_q] + ceq[_q] + cg1[_q + 1];
+        assert(countsBXAhalf[q] >= countsBXAhalf[_q]);
+        countsBXAhalf[q] -= countsBXAhalf[_q];
+    }
+    double cAXBhalf = ertl_ml_estimate(countsAXBhalf, p, q - 1);
+    double cBXAhalf = ertl_ml_estimate(countsBXAhalf, p, q - 1);
+    ret[0] = cABX - cBX;
+    ret[1] = cABX - cAX;
+    double cX1 = (.75 * (cBX + cAX) - cBXAhalf - cAXBhalf);
+    ret[2] = std::max(0., (cBXAhalf + cAXBhalf) - 1.5*cABX + cX1);
+#if VERIFY_SIMD_JOINT
+    assert(ret == ertl_joint_simple(h1, h2));
+#endif
+    return ret;
+}
+
+template<typename HllType>
+std::array<double, 3> ertl_joint(HllType &h1, HllType &h2) {
+    if(!h1.is_ready()) h1.sum();
+    if(!h2.is_ready()) h2.sum();
+    return ertl_joint(static_cast<const HllType &>(h1), static_cast<const HllType &>(h2));
+}
 
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
@@ -331,6 +521,7 @@ struct WangHash {
         return wang_hash(key);
     }
 };
+
 struct MurmurFinHash {
     auto operator()(uint64_t key) const {
         return detail::finalize(key);
@@ -510,15 +701,15 @@ public:
     }
     // Returns string representation
     std::string to_string() const {
-        std::string params(std::string("p:") + std::to_string(np_) + ";");
+        std::string params(std::string("p:") + std::to_string(np_) + '|' + EST_STRS[estim_] + ";");
         return (params + (is_calculated_ ? std::to_string(creport()) + ", +- " + std::to_string(cest_err())
                                          : desc_string()));
     }
     // Descriptive string.
     std::string desc_string() const {
         char buf[256];
-        std::sprintf(buf, "Size: %u. nb: %llu. error: %lf. Is calculated: %s. value: %lf\n",
-                     np_, static_cast<long long unsigned int>(m()), relative_error(), is_calculated_ ? "true": "false", value_);
+        std::sprintf(buf, "Size: %u. nb: %llu. error: %lf. Is calculated: %s. value: %lf. Estimation method: %s\n",
+                     np_, static_cast<long long unsigned int>(m()), relative_error(), is_calculated_ ? "true": "false", value_, EST_STRS[estim_]);
         return buf;
     }
 
@@ -721,18 +912,23 @@ public:
         return ret;
     }
     double union_size(const hllbase_t &other) const {
-        using detail::SIMDHolder;
-        assert(m() == other.m());
-        using SType = typename SIMDHolder::SType;
-        uint64_t counts[64]{0};
-        // We can do this because we use an aligned allocator.
-        const SType *p1(reinterpret_cast<const SType *>(data())), *p2(reinterpret_cast<const SType *>(other.data()));
-        SIMDHolder tmp;
-        do {
-            tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
-            tmp.inc_counts(counts);
-        } while(p1 < reinterpret_cast<const SType *>(&(*core().cend())));
-        return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
+        if(estim_ == ORIGINAL || estim_ == ERTL_IMPROVED) {
+            using detail::SIMDHolder;
+            assert(m() == other.m());
+            using SType = typename SIMDHolder::SType;
+            uint64_t counts[64]{0};
+            // We can do this because we use an aligned allocator.
+            const SType *p1(reinterpret_cast<const SType *>(data())), *p2(reinterpret_cast<const SType *>(other.data()));
+            SIMDHolder tmp;
+            do {
+                tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
+                tmp.inc_counts(counts);
+            } while(p1 < reinterpret_cast<const SType *>(&(*core().cend())));
+            return estim_ == ORIGINAL ? detail::calculate_estimate(counts, get_estim(), m(), p(), alpha())
+                                      : ertl_mle(counts, p(), q()); // This isn't exactly perfect because now there are 4 ways to do it, but I'd rather avoid bias.
+        }
+        const auto full_counts = ertl_joint(*this, other);
+        return full_counts[0] + full_counts[1] + full_counts[2];
     }
     double jaccard_index(hllbase_t &other) {
         if(!is_ready())             sum();

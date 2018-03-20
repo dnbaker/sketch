@@ -78,19 +78,19 @@ int main(int argc, char *argv[]) {
     std::vector<std::uint64_t> inputs;
     std::mt19937_64 gen(13);
     if(vals.size() == 1) {
-        std::uniform_int_distribution<uint64_t> dist(0, 1ull << 29ull);
-        while(vals.size() < 64) vals.push_back(dist(gen));
+        std::uniform_int_distribution<uint64_t> dist(0, 1ull << 28ull);
+        while(vals.size() < 16) vals.push_back(dist(gen));
     }
     std::fprintf(stdout, "#Label\th1\th2\th3\n");
     for(const auto val: vals) {
         std::fprintf(stdout, "#Value = %" PRIu64 "\n", val);
-        hll_t t(BITS), t2(BITS + 1), tcp1(BITS);
+        hll_t t(BITS), t2(BITS + 1), tcp1(BITS), tcp(BITS);
         dhll_t t3(BITS);
         hlldub_t t4(BITS);
         inputs.resize(val);
         for(auto &el: inputs) el = gen();
 //#ifndef THREADSAFE
-        for(const auto el: inputs) t.addh(el), t2.addh(el), t3.addh(el), t4.addh(el), tcp1.addh(el + 1);
+        for(const auto el: inputs) t.addh(el), t2.addh(el), t3.addh(el), t4.addh(el), tcp1.addh(el + 1), tcp.addh(el);
 #if 0
 //#else
         kt_data data {t, val, (int)nt, inputs};
@@ -120,6 +120,10 @@ int main(int argc, char *argv[]) {
         estimate(t, t2, t3, t4, val);
         auto cmp = ertl_joint(t, tcp1);
         std::fprintf(stderr, "Joint: %lf|%lf|%lf\n", cmp[0], cmp[1], cmp[2]);
+        cmp = ertl_joint(t, tcp);
+        std::fprintf(stderr, "Joint for equivalent sets (should now have full union size): %lf|%lf|%lf\n", cmp[0], cmp[1], cmp[2]);
+        cmp = ertl_joint(t, tcp);
+        std::fprintf(stderr, "Joint for equivalent sets (should now have full union size): %lf|%lf|%lf\n", cmp[0], cmp[1], cmp[2]);
     }
 	return EXIT_SUCCESS;
 }
