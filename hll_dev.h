@@ -4,7 +4,9 @@
 namespace hll {
 
 #ifdef ENABLE_HLL_DEVELOP
-#pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
+#  if !NDEBUG
+#    pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
+#  endif
 #else
 namespace dev {
 #endif

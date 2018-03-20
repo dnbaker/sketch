@@ -477,7 +477,7 @@ public:
     hllbase_t(gzFile fp): hllbase_t() {
         this->read(fp);
     }
-    explicit hllbase_t(): hllbase_t(0, true, -1) {}
+    explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, -1) {}
 
     // Call sum to recalculate if you have changed contents.
     void sum() {
@@ -677,7 +677,9 @@ public:
 #define CR(fp, dst, len) do {if((uint64_t)gzread(fp, dst, len) != len) throw std::runtime_error("Error reading from file.");} while(0)
         uint32_t bf[3];
         CR(fp, bf, sizeof(bf));
-        is_calculated_ = bf[0]; estim_ = bf[1]; nthreads_ = bf[2];
+        is_calculated_ = bf[0];
+        estim_ = (EstimationMethod)bf[1];
+        nthreads_ = bf[2];
         CR(fp, &np_, sizeof(np_));
         CR(fp, &value_, sizeof(value_));
         core_.resize(m());
