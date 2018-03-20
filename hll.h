@@ -61,11 +61,12 @@ using std::uint32_t;
 using std::uint8_t;
 using std::size_t;
 
-enum EstimationMethod {
+enum EstimationMethod: uint32_t {
     ORIGINAL      = 0,
     ERTL_IMPROVED = 1,
     ERTL_MLE      = 2
 };
+
 static const char *EST_STRS [] {
     "original",
     "ertl_improved",
@@ -113,7 +114,7 @@ inline double calculate_estimate(const CountArrType &counts,
             double value(alpha * m * m / sum);
             if(value < detail::small_range_correction_threshold(m)) {
                 if(counts[0]) {
-                    std::fprintf(stderr, "[W:%s:%d]Small value correction. Original estimate %lf. New estimate %lf.\n",
+                    std::fprintf(stderr, "[W:%s:%d] Small value correction. Original estimate %lf. New estimate %lf.\n",
                                  __PRETTY_FUNCTION__, __LINE__, value, m * std::log((double)m / counts[0]));
                     value = m * std::log((double)(m) / counts[0]);
                 }
@@ -127,7 +128,8 @@ inline double calculate_estimate(const CountArrType &counts,
             return value;
         }
     }
-    throw std::runtime_error(std::string("This is not possible. Number is ") + std::to_string((int)estim) + "str is %s\n" + EST_STRS[estim]);
+    __builtin_unreachable();
+    //throw std::runtime_error(std::string("This is not possible. Number is ") + std::to_string((int)estim) + "str is %s\n" + EST_STRS[estim]);
 }
 template<typename CountArrType>
 inline double calculate_estimate(const CountArrType &counts,

@@ -16,6 +16,7 @@ using namespace std::chrono;
 
 using tp = std::chrono::system_clock::time_point;
 using namespace hll;
+using namespace hll::dev;
 
 static const size_t BITS = 18;
 
@@ -83,14 +84,15 @@ int main(int argc, char *argv[]) {
     std::fprintf(stdout, "#Label\th1\th2\th3\n");
     for(const auto val: vals) {
         std::fprintf(stdout, "#Value = %" PRIu64 "\n", val);
-        hll_t t(BITS), t2(BITS + 1);
+        hll_t t(BITS), t2(BITS + 1), tcp1(BITS);
         dhll_t t3(BITS);
         hlldub_t t4(BITS);
         inputs.resize(val);
         for(auto &el: inputs) el = gen();
-#ifndef THREADSAFE
-        for(const auto el: inputs) t.addh(el), t2.addh(el), t3.addh(el), t4.addh(el);
-#else
+//#ifndef THREADSAFE
+        for(const auto el: inputs) t.addh(el), t2.addh(el), t3.addh(el), t4.addh(el), tcp1.addh(el + 1);
+#if 0
+//#else
         kt_data data {t, val, (int)nt, inputs};
         kt_data data2{t2, val, (int)nt, inputs};
         kt_data data3{t3, val, (int)nt, inputs};
@@ -99,6 +101,7 @@ int main(int argc, char *argv[]) {
         kt_for(nt, &kt_helper, &data2, (val + nt - 1) / nt);
         kt_for(nt, &kt_helper, &data3, (val + nt - 1) / nt);
         kt_for(nt, &kt_helper, &data4, (val + nt - 1) / nt);
+//#endif
 #endif
         auto start(clock_t::now());
         t.parsum(nt, pb);
@@ -115,6 +118,8 @@ int main(int argc, char *argv[]) {
         //fprintf(stderr, "Time diff not parallel: %lf\n", timediffsum.count());
         //fprintf(stderr, "Using %i threads is %4lf%% as fast as 1.\n", nt, timediffsum.count() / timediff.count() * 100.);
         estimate(t, t2, t3, t4, val);
+        auto cmp = ertl_joint(t, tcp1);
+        std::fprintf(stderr, "Joint: %lf|%lf|%lf\n", cmp[0], cmp[1], cmp[2]);
     }
 	return EXIT_SUCCESS;
 }

@@ -215,7 +215,9 @@ public:
     // Looking ahead,consider templating so that the double version might be helpful.
 
     auto may_contain(uint64_t element) const {
+#if !NDEBUG
 #pragma message("Note: may_contain only works for the HyperLogFilter in the case of 64-bit integer insertions. One must hash a string to a 64-bit integer first in order to use it for this purpose.")
+#endif
         return std::accumulate(hlls_.begin() + 1, hlls_.end(), hlls_.front().may_contain(wang_hash(element ^ hlls_.front().seed())),
                                [element](auto a, auto b) {
             return a && b.may_contain(wang_hash(element ^ b.seed()));
@@ -273,6 +275,7 @@ using hlf_t = hlfbase_t<>;
 
 template<typename HllType>
 std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
+    using detail::ertl_ml_estimate;
     std::array<double, 3> ret;
     auto p = h1.p();
     auto q = h1.q();
@@ -290,8 +293,8 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     countsBXAhalf[q] = h1.m();
     std::array<uint64_t, 64> countsG1{0};
     std::array<uint64_t, 64> countsG2{0};
-    std::array<uint64_t, 64> countsL1{0};
-    std::array<uint64_t, 64> countsL2{0};
+    //std::array<uint64_t, 64> countsL1{0};
+    //std::array<uint64_t, 64> countsL2{0};
     std::array<uint64_t, 64> countsEq{0};
     {
         const auto &core1(h1.core()), &core2(h2.core());
@@ -301,11 +304,11 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
                     ++countsEq[core1[i]]; break;
                 case 1:
                     ++countsG2[core2[i]];
-                    ++countsL1[core1[i]];
+                    // ++countsL1[core1[i]];
                     break;
                 case 2: 
                     ++countsG1[core1[i]];
-                    ++countsL2[core2[i]];
+                    // ++countsL2[core2[i]];
                     break;
             }
         }

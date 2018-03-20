@@ -43,7 +43,7 @@ serial_test: serial_test.cpp hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
 
 dev_test: dev_test.cpp kthread.o hll.h hll_dev.h
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread -DENABLE_HLL_DEVELOP kthread.o $< -o $@ -lz
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
 clean:
 	rm -f test.o test hll.o kthread.o *hll*cpython*so
