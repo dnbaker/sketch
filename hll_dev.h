@@ -219,7 +219,7 @@ public:
             return a && b.may_contain(wang_hash(element ^ b.seed()));
         });
     }
-    void add(uint64_t val) {
+    void addh(uint64_t val) {
         val = hlls_[0].hf_(val);
         for(auto &hll: hlls_) hll.add(val);
     }

@@ -132,7 +132,7 @@ inline double calculate_estimate(const CountArrType &counts,
 template<typename CountArrType>
 inline double calculate_estimate(const CountArrType &counts,
                                  int estim, uint64_t m, uint32_t p, double alpha) {
-    asset(estim <= 2 && estim >= 0);
+    assert(estim <= 2 && estim >= 0);
     return calculate_estimate(counts, (EstimationMethod)estim, m, p, alpha);
 }
 
