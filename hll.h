@@ -58,19 +58,28 @@ namespace hll {
 
 using std::uint64_t;
 using std::uint32_t;
+using std::uint16_t;
 using std::uint8_t;
 using std::size_t;
 
-enum EstimationMethod: uint32_t {
-    ORIGINAL      = 0,
-    ERTL_IMPROVED = 1,
-    ERTL_MLE      = 2
+enum EstimationMethod: uint16_t {
+    ORIGINAL       = 0,
+    ERTL_IMPROVED  = 1,
+    ERTL_MLE       = 2
+};
+
+enum JointEstimationMethod: uint16_t {
+    //ORIGINAL       = 0,
+    //ERTL_IMPROVED  = 1, // Improved but biased method
+    //ERTL_MLE       = 2, // element-wise max, followed by MLE
+    ERTL_JOINT_MLE = 3  // Ertl special version
 };
 
 static const char *EST_STRS [] {
     "original",
     "ertl_improved",
-    "ertl_mle"
+    "ertl_mle",
+    "ertl_joint_mle"
 };
 
 #ifdef MANUAL_CHECKS
@@ -188,17 +197,9 @@ namespace detail {
 template<typename CountArrType>
 inline double calculate_estimate(const CountArrType &counts,
                                  EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-3) {
+    assert(estim <= 3 && estim >= 0);
     static_assert(std::is_same_v<std::decay_t<decltype(counts[0])>, uint64_t>, "Counts must be a container for uint64_ts.");
     switch(estim) {
-        case ERTL_IMPROVED: {
-            double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p +1]))/(double)m);
-            for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
-            z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
-            return (m/(2.L*std::log(2.L)))*m / z;
-        }
-        case ERTL_MLE: {
-            return ertl_ml_estimate(counts, p, 64 - p, relerr);
-        }
         case ORIGINAL: {
             assert(estim != ERTL_MLE);
             double sum = counts[0];
@@ -219,15 +220,16 @@ inline double calculate_estimate(const CountArrType &counts,
             }
             return value;
         }
+        case ERTL_IMPROVED: {
+            static const double divinv = 1. / (2.L*std::log(2.L));
+            double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p + 1]))/(double)m);
+            for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
+            z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
+            return m * divinv * m / z;
+        }
+        case ERTL_MLE: return ertl_ml_estimate(counts, p, 64 - p, relerr);
     }
     __builtin_unreachable();
-    //throw std::runtime_error(std::string("This is not possible. Number is ") + std::to_string((int)estim) + "str is %s\n" + EST_STRS[estim]);
-}
-template<typename CountArrType>
-inline double calculate_estimate(const CountArrType &counts,
-                                 int estim, uint64_t m, uint32_t p, double alpha) {
-    assert(estim <= 2 && estim >= 0);
-    return calculate_estimate(counts, (EstimationMethod)estim, m, p, alpha);
 }
 
 template<typename CoreType>
@@ -359,6 +361,7 @@ public:
 struct joint_unroller {
     using MType = SIMDHolder::MaskType;
     using SType = SIMDHolder::SType;
+    // Woof....
 #if defined(__AVX512BW__)
     static_assert(sizeof(MType) == sizeof(uint64_t), "Must be 64 bits");
 #endif
@@ -541,8 +544,18 @@ double ertl_ml_estimate(const HllType& c, double relerr=1e-3) {
 
 template<typename HllType>
 std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
-    using detail::ertl_ml_estimate;
     std::array<double, 3> ret;
+    if(h1.get_jestim() != ERTL_JOINT_MLE) {
+        ret[2] = h1.union_size(h2);
+        ret[0] = h1.creport();
+        ret[1] = h2.creport();
+        ret[2] = ret[0] + ret[1] - ret[2];
+        ret[0] -= ret[2];
+        ret[1] -= ret[2];
+        ret[2] = std::max(ret[2], 0.);
+        return ret;
+    }
+    using detail::ertl_ml_estimate;
     auto p = h1.p();
     auto q = h1.q();
     std::array<uint64_t, 64> c1{0}, c2{0}, cu{0}, ceq{0}, cg1{0}, cg2{0};
@@ -586,8 +599,10 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
 
 template<typename HllType>
 std::array<double, 3> ertl_joint(HllType &h1, HllType &h2) {
-    if(!h1.is_ready()) h1.sum();
-    if(!h2.is_ready()) h2.sum();
+    if(h1.get_jestim() != ERTL_JOINT_MLE) {
+        if(!h1.get_is_ready()) h1.sum();
+        if(!h2.get_is_ready()) h2.sum();
+    }
     return ertl_joint(static_cast<const HllType &>(h1), static_cast<const HllType &>(h2));
 }
 
@@ -737,31 +752,29 @@ class hllbase_t {
 protected:
     uint32_t np_;
     std::vector<uint8_t, Allocator> core_;
-    double value_;
-    uint32_t is_calculated_;
-    EstimationMethod estim_;
-    uint32_t      nthreads_;
+    double                 value_;
+    uint32_t       is_calculated_;
+    EstimationMethod       estim_;
+    JointEstimationMethod jestim_;
+    uint32_t            nthreads_;
 public:
-    HashStruct            hf_;
+    const HashStruct          hf_;
 
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(m());}
     // Constructor
-    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, int nthreads=-1):
+    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1):
         np_(np),
-        core_(m(), 0),
+        core_(m()),
         value_(0.), is_calculated_(0), estim_(estim),
-        nthreads_(nthreads > 0 ? nthreads: 1) {
-        }
-    hllbase_t(const char *path) {
-        read(path);
+        nthreads_(nthreads > 0 ? nthreads: 1), hf_{}
+    {
     }
+    explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE) {}
+    hllbase_t(const char *path) {read(path);}
     hllbase_t(const std::string &path): hllbase_t(path.data()) {}
-    hllbase_t(gzFile fp): hllbase_t() {
-        this->read(fp);
-    }
-    explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, -1) {}
+    hllbase_t(gzFile fp): hllbase_t() {this->read(fp);}
 
     // Call sum to recalculate if you have changed contents.
     void sum() {
@@ -850,10 +863,7 @@ public:
         value_ = is_calculated_ = 0;
     }
     hllbase_t(hllbase_t&&) = default;
-    hllbase_t(const hllbase_t &other):
-        np_(other.np_), core_(other.core_), value_(other.value_),
-        is_calculated_(other.is_calculated_), estim_(other.estim_),
-        nthreads_(other.nthreads_) {}
+    hllbase_t(const hllbase_t &other) = default;
     hllbase_t& operator=(const hllbase_t &other) {
         // Explicitly define to make sure we don't do unnecessary reallocation.
         if(core_.size() != other.core_.size())
@@ -875,10 +885,10 @@ public:
             throw std::runtime_error(buf);
         }
         unsigned i;
-#if HAS_AVX_512
+#if HAS_AVX_512 && __AVX512BW__
         __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
         const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
-        for(i = 0; i < m() >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]);
+        for(i = 0; i < m() >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]); // mm512_max_epu8 is available on with AVX512BW :(
         if(m() < 64) for(;i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #elif __AVX2__
         __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
@@ -904,10 +914,14 @@ public:
         core_.resize(new_size);
         np_ = (std::size_t)std::log2(new_size);
     }
-    EstimationMethod get_estim() const {return (EstimationMethod)estim_;}
-    void set_estim(EstimationMethod val) {estim_ = val;}
+    EstimationMethod get_estim()       const {return  estim_;}
+    JointEstimationMethod get_jestim() const {return jestim_;}
+    void set_estim(EstimationMethod val)       {estim_  = val;}
+    void set_jestim(JointEstimationMethod val) {jestim_ = val;}
+    void set_jestim(uint16_t val) {jestim_ = (JointEstimationMethod)val;}
+    void set_estim(uint16_t val)  {estim_  = (EstimationMethod)val;}
     // Getter for is_calculated_
-    bool is_ready() const {return is_calculated_;}
+    bool get_is_ready() const {return is_calculated_;}
     void not_ready() {is_calculated_ = false;}
     void set_is_ready() {is_calculated_ = true;}
     bool may_contain(uint64_t hashval) const {
@@ -1003,11 +1017,11 @@ public:
         return ret;
     }
     double union_size(const hllbase_t &other) const {
-        if(estim_ == ORIGINAL || estim_ == ERTL_IMPROVED) {
+        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) {
             using detail::SIMDHolder;
             assert(m() == other.m());
             using SType = typename SIMDHolder::SType;
-            uint64_t counts[64]{0};
+            std::array<uint64_t, 64> counts{0};
             // We can do this because we use an aligned allocator.
             const SType *p1(reinterpret_cast<const SType *>(data())), *p2(reinterpret_cast<const SType *>(other.data()));
             SIMDHolder tmp;
@@ -1015,16 +1029,25 @@ public:
                 tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
                 tmp.inc_counts(counts);
             } while(p1 < reinterpret_cast<const SType *>(&(*core().cend())));
-            return estim_ == ORIGINAL ? detail::calculate_estimate(counts, get_estim(), m(), p(), alpha())
-                                      : detail::ertl_ml_estimate(counts, p(), q()); // This isn't exactly perfect because now there are 4 ways to do it, but I'd rather avoid bias.
+            return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
+    double jaccard_index(hllbase_t &h2) {
+        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) {
+            if(!is_calculated_) sum();
+            if(!h2.is_calculated_) h2.sum();
+        }
+        return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
+    }
     double jaccard_index(const hllbase_t &h2) const {
-        auto full_cmps = ertl_joint(*this, h2);
-        std::fprintf(stderr, "Full cmps: union %lf, set1: %lf, set2: %lf\n", full_cmps[0], full_cmps[1], full_cmps[2]);
-        return full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+        if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
+            auto full_cmps = ertl_joint(*this, h2);
+            return full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+        }
+        const auto us = union_size(h2);
+        return (creport() + h2.creport() - us) / us;
     }
     size_t size() const {return size_t(m());}
 };
@@ -1034,23 +1057,24 @@ using hll_t = hllbase_t<>;
 // Returns the size of the set intersection
 template<typename HllType>
 inline double intersection_size(HllType &first, HllType &other) noexcept {
-    if(!first.is_ready()) first.sum();
-    if(!other.is_ready()) other.sum();
+    if(!first.get_is_ready()) first.sum();
+    if(!other.get_is_ready()) other.sum();
     return intersection_size((const HllType &)first, (const HllType &)other);
 }
 
+// Returns the jaccard index
 template<typename HllType>
-inline double jaccard_index(const HllType &h1, const HllType &h2) {
-    return h1.jaccard_index(h2);
+inline double jaccard_index(HllType &h1, HllType &h2) {
+    if(h1.get_jestim() != ERTL_JOINT_MLE) if(!h1.get_is_ready()) h1.sum();
+    if(h2.get_jestim() != ERTL_JOINT_MLE) if(!h2.get_is_ready()) h2.sum();
+    return jaccard_index(static_cast<const HllType &>(h1), static_cast<const HllType &>(h2));
 }
+template<typename HllType>
+inline double jaccard_index(const HllType &h1, const HllType &h2) {return h1.jaccard_index(h2);}
 
 // Returns a HyperLogLog union
-
-
 template<typename HllType>
-static inline double union_size(const HllType &h1, const HllType &h2) {
-    return h1.union_size(h2);
-}
+static inline double union_size(const HllType &h1, const HllType &h2) {return h1.union_size(h2);}
 
 template<typename HllType>
 static inline double intersection_size(const HllType &h1, const HllType &h2) {

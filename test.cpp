@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
     for(const auto val: vals) {
         std::fprintf(stderr, "Processing val = %" PRIu64 "\n", val);
         using hll::detail::ertl_ml_estimate;
-        hll::hll_t t(BITS);
+        hll::hll_t t(BITS, hll::ORIGINAL);
 #ifdef NOT_THREADSAFE
         for(size_t i(0); i < val; t.addh(i++));
 #else

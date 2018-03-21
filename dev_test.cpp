@@ -118,10 +118,13 @@ int main(int argc, char *argv[]) {
         //fprintf(stderr, "Time diff not parallel: %lf\n", timediffsum.count());
         //fprintf(stderr, "Using %i threads is %4lf%% as fast as 1.\n", nt, timediffsum.count() / timediff.count() * 100.);
         estimate(t, t2, t3, t4, val);
+        t.set_jestim(hll::ERTL_JOINT_MLE);
         auto cmp = ertl_joint(t, tcp1);
         std::fprintf(stderr, "Joint: %lf|%lf|%lf\n", cmp[0], cmp[1], cmp[2]);
-        cmp = ertl_joint(t, tcp);
-        std::fprintf(stderr, "Joint for equivalent sets (should now have full union size): %lf|%lf|%lf\n", cmp[0], cmp[1], cmp[2]);
+        t.set_jestim(hll::ERTL_MLE);
+        cmp = ertl_joint(t, tcp1);
+        t.set_jestim(hll::ERTL_JOINT_MLE);
+        std::fprintf(stderr, "Joint: %lf|%lf|%lf\n", cmp[0], cmp[1], cmp[2]);
         cmp = ertl_joint(t, tcp);
         std::fprintf(stderr, "Joint for equivalent sets (should now have full union size): %lf|%lf|%lf\n", cmp[0], cmp[1], cmp[2]);
     }
