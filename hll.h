@@ -85,9 +85,96 @@ static const char *EST_STRS [] {
 #  endif
 #endif
 
+namespace detail {
+template<typename T>
+inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr=1e-3); // forward declaration
+template<typename Container>
+inline std::array<uint64_t, 64> sum_counts(const Container &con);
+}
 #if VERIFY_SIMD_JOINT
+/*
+ *Returns the estimated number of elements:
+ * [0] uniquely in h1
+ * [1] uniquely in h2
+ * [2] in the intersection
+ * size of the union is [0] + [1] + [2]
+ * size of the intersection is [2]
+ */
+std::string counts2str(const std::array<uint64_t, 64> &arr) {
+    std::string ret;
+    for(const auto el: arr) {
+        ret += std::to_string(el);
+        ret += ',';
+    }
+    ret.pop_back();
+    return ret;
+}
 template<typename HllType>
-std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2);
+std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
+    using detail::ertl_ml_estimate;
+    std::array<double, 3> ret;
+    auto p = h1.p();
+    auto q = h1.q();
+    auto c1 = detail::sum_counts(h1.core());
+    auto c2 = detail::sum_counts(h2.core());
+    const double cAX = ertl_ml_estimate(c1, h1.p(), h1.q());
+    const double cBX = ertl_ml_estimate(c2, h2.p(), h2.q());
+    //std::fprintf(stderr, "cAX ml est: %lf. cBX ml els: %lf\n", cAX, cBX);
+    //const double cBX = hl2.creport();
+    //const double cBX = hl2.creport();
+    auto tmph = h1 + h2;
+    const double cABX = tmph.report();
+    std::array<uint64_t, 64> countsAXBhalf{0}; //
+    std::array<uint64_t, 64> countsBXAhalf{0}; //
+    countsAXBhalf[q] = h1.m();
+    countsBXAhalf[q] = h1.m();
+    std::array<uint64_t, 64> cg1{0};
+    std::array<uint64_t, 64> cg2{0};
+    std::array<uint64_t, 64> ceq{0};
+    {
+        const auto &core1(h1.core()), &core2(h2.core());
+        for(uint64_t i(0); i < core1.size(); ++i) {
+            switch((core1[i] > core2[i]) << 1 | (core2[i] > core1[i])) {
+                case 0:
+                    ++ceq[core1[i]]; break;
+                case 1:
+                    ++cg2[core2[i]];
+                    break;
+                case 2:
+                    ++cg1[core1[i]];
+                    break;
+                default:
+                    __builtin_unreachable();
+            }
+        }
+    }
+    for(unsigned _q = 0; _q < q; ++_q) {
+        // Handle AXBhalf
+        countsAXBhalf[_q] = cg1[_q] + ceq[_q] + cg2[_q + 1];
+        assert(countsAXBhalf[q] >= countsAXBhalf[_q]);
+        countsAXBhalf[q] -= countsAXBhalf[_q];
+
+        // Handle BXAhalf
+        countsBXAhalf[_q] = cg2[_q] + ceq[_q] + cg1[_q + 1];
+        assert(countsBXAhalf[q] >= countsBXAhalf[_q]);
+        countsBXAhalf[q] -= countsBXAhalf[_q];
+    }
+    double cAXBhalf = ertl_ml_estimate(countsAXBhalf, p, q - 1);
+    double cBXAhalf = ertl_ml_estimate(countsBXAhalf, p, q - 1);
+#if !NDEBUG
+    std::fprintf(stderr, "cAXBhalf = %lf\n", cAXBhalf);
+    std::fprintf(stderr, "cBXAhalf = %lf\n", cBXAhalf);
+#endif
+    ret[0] = cABX - cBX;
+    ret[1] = cABX - cAX;
+    double cX1 = (1.5 * cBX + 1.5*cAX - cBXAhalf - cAXBhalf);
+    double cX2 = 2.*(cBXAhalf + cAXBhalf) - 3.*cABX;
+    ret[2] = std::max(0., 0.5 * (cX1 + cX2));
+#if !NDEBUG
+    std::fprintf(stderr, "Halves of contribution: %lf, %lf. Initial est: %lf. Result: %lf\n", cX1, cX2, cABX, ret[2]);
+#endif
+    return ret;
+}
 #endif
 
 
@@ -97,8 +184,6 @@ namespace detail {
     static constexpr double TWO_POW_32 = 1ull << 32;
     static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 
-template<typename T>
-inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr=1e-3); // forward declaration
 
 template<typename CountArrType>
 inline double calculate_estimate(const CountArrType &counts,
@@ -466,8 +551,9 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     const double cAX = ertl_ml_estimate(c1, h1.p(), h1.q());
     const double cBX = ertl_ml_estimate(c2, h2.p(), h2.q());
     const double cABX = ertl_ml_estimate(cu, h1.p(), h1.q());
-    std::array<uint64_t, 64> countsAXBhalf{0}; // 
-    std::array<uint64_t, 64> countsBXAhalf{0}; // 
+    // std::fprintf(stderr, "Made initials: %lf, %lf, %lf\n", cAX, cBX, cABX);
+    std::array<uint64_t, 64> countsAXBhalf{0};
+    std::array<uint64_t, 64> countsBXAhalf{0};
     countsAXBhalf[q] = h1.m();
     countsBXAhalf[q] = h1.m();
     for(unsigned _q = 0; _q < q; ++_q) {
@@ -483,12 +569,17 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     }
     double cAXBhalf = ertl_ml_estimate(countsAXBhalf, p, q - 1);
     double cBXAhalf = ertl_ml_estimate(countsBXAhalf, p, q - 1);
+    //std::fprintf(stderr, "Made halves: %lf, %lf\n", cAXBhalf, cBXAhalf);
     ret[0] = cABX - cBX;
     ret[1] = cABX - cAX;
-    double cX1 = (.75 * (cBX + cAX) - cBXAhalf - cAXBhalf);
-    ret[2] = std::max(0., (cBXAhalf + cAXBhalf) - 1.5*cABX + cX1);
+    double cX1 = (1.5 * cBX + 1.5*cAX - cBXAhalf - cAXBhalf);
+    double cX2 = 2.*(cBXAhalf + cAXBhalf) - 3.*cABX;
+    ret[2] = std::max(0., 0.5 * (cX1 + cX2));
 #if VERIFY_SIMD_JOINT
-    assert(ret == ertl_joint_simple(h1, h2));
+    auto other = ertl_joint_simple<HllType>(h1, h2);
+    std::fprintf(stderr, "Made other\n");
+    std::fprintf(stderr, "other: %lf|%lf|%lf. This: %lf|%lf|%lf\n", other[0], other[1], other[2], ret[0], ret[1], ret[2]);
+    assert(ret == other);
 #endif
     return ret;
 }
@@ -904,7 +995,7 @@ public:
         core_.resize(m());
         ::read(fileno, core_.data(), core_.size());
     }
-    hllbase_t operator+(const hllbase_t &other) {
+    hllbase_t operator+(const hllbase_t &other) const {
         if(other.p() != p())
             throw std::runtime_error(std::string("p (") + std::to_string(p()) + " != other.p (" + std::to_string(other.p()));
         hllbase_t ret(*this);
@@ -930,17 +1021,10 @@ public:
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
-    double jaccard_index(hllbase_t &other) {
-        if(!is_ready())             sum();
-        if(!other.is_ready()) other.sum();
-        return jaccard_index(other);
-    }
     double jaccard_index(const hllbase_t &h2) const {
-        const double us = union_size(h2);
-        double is = creport() + h2.creport() - us;
-        if(is <= 0) return 0.;
-        is /= us;
-        return is;
+        auto full_cmps = ertl_joint(*this, h2);
+        std::fprintf(stderr, "Full cmps: union %lf, set1: %lf, set2: %lf\n", full_cmps[0], full_cmps[1], full_cmps[2]);
+        return full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
     }
     size_t size() const {return size_t(m());}
 };
@@ -953,13 +1037,6 @@ inline double intersection_size(HllType &first, HllType &other) noexcept {
     if(!first.is_ready()) first.sum();
     if(!other.is_ready()) other.sum();
     return intersection_size((const HllType &)first, (const HllType &)other);
-}
-
-template<typename HllType>
-inline double jaccard_index(HllType &first, HllType &other) noexcept {
-    if(!first.is_ready()) first.sum();
-    if(!other.is_ready()) other.sum();
-    return jaccard_index((const HllType &)first, (const HllType &)other);
 }
 
 template<typename HllType>
