@@ -163,6 +163,35 @@ public:
 };
 using seedhll_t = seedhllbase_t<>;
 
+namespace sort {
+// insertion_sort from https://github.com/orlp/pdqsort
+// Slightly modified stylistically.
+template<class Iter, class Compare>
+inline void insertion_sort(Iter begin, Iter end, Compare comp) {
+    using T = typename std::iterator_traits<Iter>::value_type;
+    if (begin == end) return;
+
+    for (Iter cur = begin + 1; cur != end; ++cur) {
+        Iter sift = cur;
+        Iter sift_1 = cur - 1;
+
+        // Compare first so we can avoid 2 moves for an element already positioned correctly.
+        if (comp(*sift, *sift_1)) {
+            T tmp = std::move(*sift);
+
+            do { *sift-- = std::move(*sift_1); }
+            while (sift != begin && comp(tmp, *--sift_1));
+
+            *sift = std::move(tmp);
+        }
+    }
+}
+template<class Iter>
+inline void insertion_sort(Iter begin, Iter end) {
+    insertion_sort(begin, end, std::less<std::decay_t<decltype(*begin)>>());
+}
+} // namespace sort
+
 template<typename SeedHllType=hll_t>
 class hlfbase_t {
 protected:
@@ -181,7 +210,7 @@ public:
         for(const auto seed: sfs)
             hlls_.emplace_back(std::forward<Args>(args)...), seeds_.emplace_back(seed);
     }
-    auto size() const {return hlls_.size();}
+    uint64_t size() const {return hlls_.size();}
     auto m() const {return hlls_[0].size();}
     void write(const char *fn) const {
         gzFile fp = gzopen(fn, "wb");
@@ -218,17 +247,43 @@ public:
     // This only works for hlls using 64-bit integers.
     // Looking ahead,consider templating so that the double version might be helpful.
 
-    auto may_contain(uint64_t element) const {
-//#if !NDEBUG
-//#pragma message("Note: may_contain only works for the HyperLogFilter in the case of 64-bit integer insertions. One must hash a string to a 64-bit integer first in order to use it for this purpose.")
-//#endif
-        return std::accumulate(hlls_.begin() + 1, hlls_.end(), hlls_.front().may_contain(wang_hash(element ^ hlls_.front().seed())),
-                               [element](auto a, auto b) {
-            return a && b.may_contain(wang_hash(element ^ b.seed()));
-        });
+    bool may_contain(uint64_t element) const {
+        if constexpr(std::is_same_v<WangHash, typename SeedHllType::HashType>) {
+            using Space = vec::SIMDTypes<uint64_t>;
+            using SType = typename Space::Type;
+            using VType = typename Space::VType;
+            unsigned k = 0;
+            if(size() >= Space::COUNT) {
+                if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+                SType *sptr = (SType *)&seeds_[0];
+                SType *eptr = (SType *)&seeds_.back();
+                VType key;
+                do {
+                    key = *sptr++ ^ element;
+                    auto tmp = ~key.simd_;
+                    key = Space::slli(key.simd_, 21);
+                    key = Space::add(Space::add(Space::slli(key.simd_, 23), Space::slli(key.simd_, 8)), key.simd_);
+                    tmp = Space::srli(key.simd_, 14);
+                    key = key.simd_ ^ tmp;
+                    key = Space::add(Space::add(Space::slli(key.simd_, 2), Space::slli(key.simd_, 4)), key.simd_);
+                    tmp = Space::srli(key.simd_, 28);
+                    key = key.simd_ ^ tmp;
+                    key = Space::add(Space::slli(key.simd_, 31), key.simd_);
+                    // hash stuff
+                    for(unsigned i(0) ; i < Space::COUNT; ++k, ++i) if(!hlls_[k].may_contain(key.arr_[i])) return false;
+                } while(sptr < eptr);
+                return true;
+            } else { // if size() >= Space::COUNT
+                for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(hlls_[i].hf_(element ^ seeds_[i]))) return false;
+                return true;
+            }
+        } else {// if std::is_same_v<WangHash, typename SeedHllType::HashType>
+            for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(hlls_[i].hf_(element ^ seeds_[i]))) return false;
+            return true;
+        }
     }
     void addh(uint64_t val) {
-        if constexpr(std::is_same_v<WangHash, SeedHllType::HashType>) {
+        if constexpr(std::is_same_v<WangHash, typename SeedHllType::HashType>) {
             using Space = vec::SIMDTypes<uint64_t>;
             using SType = typename Space::Type;
             using VType = typename Space::VType;
@@ -250,11 +305,10 @@ public:
                     key = key.simd_ ^ tmp;
                     key = Space::add(Space::slli(key.simd_, 31), key.simd_);
                     // hash stuff
-                    for(unsigned i(0) ; i < Space::COUNT; ++k, ++i) hlls_[k].add(seeds_[k]);
+                    for(unsigned i(0) ; i < Space::COUNT; ++k, ++i) hlls_[k].add(key.arr_[i]);
                 } while(sptr < eptr);
             } else for(unsigned i(0); i < size(); ++i) hlls_[i].addh(val ^ seeds_[i]);
-        } else
-            for(unsigned i(0); i < size(); ++i) hlls_[i].addh(val ^ seeds_[i]);
+        } else for(unsigned i(0); i < size(); ++i) hlls_[i].addh(val ^ seeds_[i]);
     }
     double creport() const {
         if(is_calculated_) return value_;
@@ -290,13 +344,13 @@ public:
         for(auto &hll: hlls_) values.emplace_back(hll.report());
         if(size() & 1) {
             if(size() < 32)
-                std::sort(std::begin(values), std::end(values));
+                sort::insertion_sort(std::begin(values), std::end(values));
             else
                 std::nth_element(std::begin(values), std::begin(values) + (size() >> 1) + 1, std::end(values));
             return values[size() >> 1];
         }
         if(size() < 32) {
-            std::sort(std::begin(values), std::end(values));
+            sort::insertion_sort(std::begin(values), std::end(values));
             return .5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
         }
         std::nth_element(std::begin(values), std::begin(values) + (size() >> 1) - 1, std::end(values));
