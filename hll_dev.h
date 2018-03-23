@@ -1,7 +1,4 @@
 #pragma once
-#define NO_SLEEF
-#define NO_BLAZE
-#include "vec.h"
 
 
 namespace hll {
@@ -199,11 +196,14 @@ protected:
     // of estimates from subhlls of power of 2 sizes.
     std::vector<SeedHllType>                      hlls_;
     std::vector<uint64_t, Allocator<uint64_t>>   seeds_;
-    mutable double value_;
-    bool   is_calculated_;
+    std::vector<double>                         values_;
+    mutable double                               value_;
+    bool                                 is_calculated_;
+    using HashType     = typename SeedHllType::HashType;
+    const HashType                                  hf_;
 public:
     template<typename... Args>
-    hlfbase_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0) {
+    hlfbase_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0), hf_{} {
         auto sfs = detail::seeds_from_seed(seedseed, size);
         assert(sfs.size());
         hlls_.reserve(size);
@@ -231,6 +231,7 @@ public:
     void write(gzFile fp) const {
         uint64_t sz = hlls_.size();
         gzwrite(fp, &sz, sizeof(sz));
+        for(auto &seed: seeds_) gzwrite(fp, &seed, sizeof(seed));
         for(const auto &hll: hlls_) {
             hll.write(fp);
         }
@@ -239,6 +240,8 @@ public:
     void read(gzFile fp) {
         uint64_t size;
         gzread(fp, &size, sizeof(size));
+        seeds_.resize(size);
+        for(unsigned i(0); i < size; gzread(fp, seeds_.data() + i++, sizeof(seeds_[0])));
         hlls_.clear();
         while(hlls_.size() < size) hlls_.emplace_back(fp);
         gzclose(fp);
@@ -248,37 +251,22 @@ public:
     // Looking ahead,consider templating so that the double version might be helpful.
 
     bool may_contain(uint64_t element) const {
-        if constexpr(std::is_same_v<WangHash, typename SeedHllType::HashType>) {
-            using Space = vec::SIMDTypes<uint64_t>;
-            using SType = typename Space::Type;
-            using VType = typename Space::VType;
-            unsigned k = 0;
-            if(size() >= Space::COUNT) {
-                if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
-                SType *sptr = (SType *)&seeds_[0];
-                SType *eptr = (SType *)&seeds_.back();
-                VType key;
-                do {
-                    key = *sptr++ ^ element;
-                    auto tmp = ~key.simd_;
-                    key = Space::slli(key.simd_, 21);
-                    key = Space::add(Space::add(Space::slli(key.simd_, 23), Space::slli(key.simd_, 8)), key.simd_);
-                    tmp = Space::srli(key.simd_, 14);
-                    key = key.simd_ ^ tmp;
-                    key = Space::add(Space::add(Space::slli(key.simd_, 2), Space::slli(key.simd_, 4)), key.simd_);
-                    tmp = Space::srli(key.simd_, 28);
-                    key = key.simd_ ^ tmp;
-                    key = Space::add(Space::slli(key.simd_, 31), key.simd_);
-                    // hash stuff
-                    for(unsigned i(0) ; i < Space::COUNT; ++k, ++i) if(!hlls_[k].may_contain(key.arr_[i])) return false;
-                } while(sptr < eptr);
-                return true;
-            } else { // if size() >= Space::COUNT
-                for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(hlls_[i].hf_(element ^ seeds_[i]))) return false;
-                return true;
-            }
-        } else {// if std::is_same_v<WangHash, typename SeedHllType::HashType>
-            for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(hlls_[i].hf_(element ^ seeds_[i]))) return false;
+        using Space = vec::SIMDTypes<uint64_t>;
+        using SType = typename Space::Type;
+        using VType = typename Space::VType;
+        unsigned k = 0;
+        if(size() >= Space::COUNT) {
+            if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                for(unsigned i(0); i < Space::COUNT;) if(!hlls_[k++].may_contain(key.arr_[i++])) return false;
+            } while(sptr < eptr);
+            return true;
+        } else { // if size() >= Space::COUNT
+            for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(hf_(element ^ seeds_[i]))) return false;
             return true;
         }
     }
@@ -290,25 +278,16 @@ public:
             unsigned k = 0;
             if(size() >= Space::COUNT) {
                 if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
-                SType *sptr = (SType *)&seeds_[0];
-                SType *eptr = (SType *)&seeds_.back();
+                const SType *sptr = (const SType *)&seeds_[0];
+                const SType *eptr = (const SType *)&seeds_.back();
+                const SType element = Space::set1(val);
                 VType key;
                 do {
-                    key = *sptr++ ^ val;
-                    auto tmp = ~key.simd_;
-                    key = Space::slli(key.simd_, 21);
-                    key = Space::add(Space::add(Space::slli(key.simd_, 23), Space::slli(key.simd_, 8)), key.simd_);
-                    tmp = Space::srli(key.simd_, 14);
-                    key = key.simd_ ^ tmp;
-                    key = Space::add(Space::add(Space::slli(key.simd_, 2), Space::slli(key.simd_, 4)), key.simd_);
-                    tmp = Space::srli(key.simd_, 28);
-                    key = key.simd_ ^ tmp;
-                    key = Space::add(Space::slli(key.simd_, 31), key.simd_);
-                    // hash stuff
-                    for(unsigned i(0) ; i < Space::COUNT; ++k, ++i) hlls_[k].add(key.arr_[i]);
+                    key = hf_(*sptr++ ^ element);
+                    for(unsigned i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
                 } while(sptr < eptr);
             } else for(unsigned i(0); i < size(); ++i) hlls_[i].addh(val ^ seeds_[i]);
-        } else for(unsigned i(0); i < size(); ++i) hlls_[i].addh(val ^ seeds_[i]);
+        }
     }
     double creport() const {
         if(is_calculated_) return value_;
@@ -339,22 +318,22 @@ public:
     }
     double med_report() noexcept {
         // Only do partial sort, which saves us just a little bit of work.
-        std::vector<double> values;
-        values.reserve(size());
-        for(auto &hll: hlls_) values.emplace_back(hll.report());
+        values_.reserve(size());
+        values_.clear();
+        for(auto &hll: hlls_) values_.emplace_back(hll.report());
         if(size() & 1) {
             if(size() < 32)
-                sort::insertion_sort(std::begin(values), std::end(values));
+                sort::insertion_sort(std::begin(values_), std::end(values_));
             else
-                std::nth_element(std::begin(values), std::begin(values) + (size() >> 1) + 1, std::end(values));
-            return values[size() >> 1];
+                std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) + 1, std::end(values_));
+            return values_[size() >> 1];
         }
         if(size() < 32) {
-            sort::insertion_sort(std::begin(values), std::end(values));
-            return .5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
+            sort::insertion_sort(std::begin(values_), std::end(values_));
+            return .5 * (values_[size() >> 1] + values_[(size() >> 1) - 1]);
         }
-        std::nth_element(std::begin(values), std::begin(values) + (size() >> 1) - 1, std::end(values));
-        return .5 * (values[(values.size() >> 1) - 1] + *std::min_element(std::cbegin(values) + (size() >> 1), std::end(values)));
+        std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) - 1, std::end(values_));
+        return .5 * (values_[(values_.size() >> 1) - 1] + *std::min_element(std::cbegin(values_) + (size() >> 1), std::cend(values_)));
     }
     // Attempt strength borrowing across hlls with different seeds
     double chunk_report() const {

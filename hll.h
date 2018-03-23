@@ -26,6 +26,10 @@
 #  include <zlib.h>
 #endif
 
+#define NO_SLEEF
+#define NO_BLAZE
+#include "vec.h" // Import vec.h, but disable blaze and sleef.
+
 #define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__)
 
 #ifndef INLINE
@@ -624,8 +628,21 @@ static INLINE uint64_t wang_hash(uint64_t key) noexcept {
 }
 
 struct WangHash {
+    using Space = vec::SIMDTypes<uint64_t>;
+    using Type = typename vec::SIMDTypes<uint64_t>::Type;
+    using VType = typename vec::SIMDTypes<uint64_t>::VType;
     auto operator()(uint64_t key) const {
         return wang_hash(key);
+    }
+    INLINE Type operator()(Type element) const {
+        VType key = Space::add(Space::slli(element, 21), ~element); // key = (~key) + (key << 21);
+        key = Space::srli(key.simd_, 24) ^ key.simd_; //key ^ (key >> 24)
+        key = Space::add(Space::add(Space::slli(key.simd_, 3), Space::slli(key.simd_, 8)), key.simd_); // (key + (key << 3)) + (key << 8);
+        key = key.simd_ ^ Space::srli(key.simd_, 14);  // key ^ (key >> 14);
+        key = Space::add(Space::add(Space::slli(key.simd_, 2), Space::slli(key.simd_, 4)), key.simd_); // (key + (key << 2)) + (key << 4); // key * 21
+        key = key.simd_ ^ Space::srli(key.simd_, 28); // key ^ (key >> 28);
+        key = Space::add(Space::slli(key.simd_, 31), key.simd_);    // key + (key << 31);
+        return key.simd_;
     }
 };
 
