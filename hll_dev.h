@@ -91,7 +91,7 @@ template<typename HashFunc=WangHash>
 class seedhllbase_t: public hllbase_t<HashFunc> {
 protected:
     uint64_t seed_; // 64-bit integers are xored with this value before passing it to a hash.
-                          // This is almost free, in the content of 
+                          // This is almost free, in the content of
     using hll_t = hllbase_t<HashFunc>;
 public:
     template<typename... Args>
@@ -224,8 +224,7 @@ public:
         });
     }
     void addh(uint64_t val) {
-        val = hlls_[0].hf_(val);
-        for(auto &hll: hlls_) hll.add(val);
+        for(auto &hll: hlls_) hll.addh(val);
     }
     double creport() const {
         if(is_calculated_) return value_;
@@ -237,21 +236,41 @@ public:
     }
     double report() noexcept {
         if(is_calculated_) return value_;
-        if(!hlls_[0].is_ready()) hlls_[0].sum();
+        hlls_[0].csum();
+#if DIVIDE_EVERY_TIME
         double ret(hlls_[0].report() / static_cast<double>(size()));
         for(size_t i(1); i < size(); ++i) {
-            if(!hlls_[i].is_ready()) hlls_[i].sum();
+            hlls_[i].csum();
             ret += hlls_[i].report() / static_cast<double>(size());
         }
+#else
+        double ret(hlls_[0].report());
+        for(size_t i(1); i < size(); ++i) {
+            hlls_[i].csum();
+            ret += hlls_[i].report();
+        }
+        ret /= static_cast<double>(size());
+#endif
         return value_ = ret;
     }
     double med_report() noexcept {
+        // Only do partial sort, which saves us just a little bit of work.
         std::vector<double> values;
         values.reserve(size());
         for(auto &hll: hlls_) values.emplace_back(hll.report());
-        std::sort(values.begin(), values.end());
-        return size() & 1 ? values[size() >> 1]
-                          : 0.5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
+        if(size() & 1) {
+            if(size() < 32)
+                std::sort(std::begin(values), std::end(values));
+            else
+                std::nth_element(std::begin(values), std::begin(values) + (size() >> 1) + 1, std::end(values));
+            return values[size() >> 1];
+        }
+        if(size() < 32) {
+            std::sort(std::begin(values), std::end(values));
+            return values[size() >> 1];
+        }
+        std::nth_element(std::begin(values), std::begin(values) + (size() >> 1) - 1, std::end(values));
+        return .5 * (values[(values.size() >> 1) - 1] + *std::min_element(std::cbegin(values) + (size() >> 1), std::end(values)));
     }
     // Attempt strength borrowing across hlls with different seeds
     double chunk_report() const {

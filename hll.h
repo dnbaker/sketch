@@ -207,8 +207,10 @@ inline double calculate_estimate(const CountArrType &counts,
             double value(alpha * m * m / sum);
             if(value < detail::small_range_correction_threshold(m)) {
                 if(counts[0]) {
+#if !NDEBUG
                     std::fprintf(stderr, "[W:%s:%d] Small value correction. Original estimate %lf. New estimate %lf.\n",
                                  __PRETTY_FUNCTION__, __LINE__, value, m * std::log((double)m / counts[0]));
+#endif
                     value = m * std::log((double)(m) / counts[0]);
                 }
             } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
@@ -216,7 +218,9 @@ inline double calculate_estimate(const CountArrType &counts,
                 // I do think I've seen worse accuracy with the large range correction, but I would need to rerun experiments to be sure.
                 sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
                 if(!std::isnan(sum)) value = sum;
+#if !NDEBUG
                 else std::fprintf(stderr, "[W:%s:%d] Large range correction returned nan. Defaulting to regular calculation.\n", __PRETTY_FUNCTION__, __LINE__);
+#endif
             }
             return value;
         }
@@ -599,10 +603,7 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
 
 template<typename HllType>
 std::array<double, 3> ertl_joint(HllType &h1, HllType &h2) {
-    if(h1.get_jestim() != ERTL_JOINT_MLE) {
-        if(!h1.get_is_ready()) h1.sum();
-        if(!h2.get_is_ready()) h2.sum();
-    }
+    if(h1.get_jestim() != ERTL_JOINT_MLE) h1.csum(), h2.csum();
     return ertl_joint(static_cast<const HllType &>(h1), static_cast<const HllType &>(h2));
 }
 
@@ -782,6 +783,9 @@ public:
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
+    void csum() {
+        if(!is_calculated_) sum();
+    }
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const {
@@ -790,7 +794,7 @@ public:
         return value_;
     }
     double report() noexcept {
-        if(!is_calculated_) sum();
+        csum();
         return creport();
     }
 
@@ -800,7 +804,7 @@ public:
         return relative_error() * creport();
     }
     double est_err()  noexcept {
-        if(!is_calculated_) sum();
+        csum();
         return cest_err();
     }
     // Returns string representation
@@ -1036,8 +1040,7 @@ public:
     }
     double jaccard_index(hllbase_t &h2) {
         if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) {
-            if(!is_calculated_) sum();
-            if(!h2.is_calculated_) h2.sum();
+            csum(), h2.csum();
         }
         return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
     }
@@ -1050,6 +1053,9 @@ public:
         return (creport() + h2.creport() - us) / us;
     }
     size_t size() const {return size_t(m());}
+#if LZ_COUNTER
+    // keep track of leader zero count bias
+#endif
 };
 
 using hll_t = hllbase_t<>;
@@ -1057,20 +1063,18 @@ using hll_t = hllbase_t<>;
 // Returns the size of the set intersection
 template<typename HllType>
 inline double intersection_size(HllType &first, HllType &other) noexcept {
-    if(!first.get_is_ready()) first.sum();
-    if(!other.get_is_ready()) other.sum();
+    first.csum(), other.csum();
     return intersection_size((const HllType &)first, (const HllType &)other);
 }
 
-// Returns the jaccard index
 template<typename HllType>
-inline double jaccard_index(HllType &h1, HllType &h2) {
-    if(h1.get_jestim() != ERTL_JOINT_MLE) if(!h1.get_is_ready()) h1.sum();
-    if(h2.get_jestim() != ERTL_JOINT_MLE) if(!h2.get_is_ready()) h2.sum();
-    return jaccard_index(static_cast<const HllType &>(h1), static_cast<const HllType &>(h2));
+inline double jaccard_index(const HllType &h1, const HllType &h2) {
+    return h1.jaccard_index(h2);
 }
 template<typename HllType>
-inline double jaccard_index(const HllType &h1, const HllType &h2) {return h1.jaccard_index(h2);}
+inline double jaccard_index(HllType &h1, HllType &h2) {
+    return h1.jaccard_index(h2);
+}
 
 // Returns a HyperLogLog union
 template<typename HllType>
