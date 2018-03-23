@@ -267,7 +267,7 @@ public:
         }
         if(size() < 32) {
             std::sort(std::begin(values), std::end(values));
-            return values[size() >> 1];
+            return .5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
         }
         std::nth_element(std::begin(values), std::begin(values) + (size() >> 1) - 1, std::end(values));
         return .5 * (values[(values.size() >> 1) - 1] + *std::min_element(std::cbegin(values) + (size() >> 1), std::end(values)));
