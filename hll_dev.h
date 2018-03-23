@@ -1,4 +1,7 @@
 #pragma once
+#define NO_SLEEF
+#define NO_BLAZE
+#include "vec.h"
 
 
 namespace hll {
@@ -48,7 +51,7 @@ template<typename HashFunc=WangHash>
 class dhllbase_t: public hllbase_t<HashFunc> {
     // dhllbase_t is a bidirectional hll sketch which does not currently support set operations
     // It is based on the idea that the properties of a hll sketch work for both leading and trailing zeros and uses them as independent samples.
-    std::vector<uint8_t, Allocator> dcore_;
+    std::vector<uint8_t, Allocator<uint8_t>> dcore_;
     using hll_t = hllbase_t<HashFunc>;
 public:
     template<typename... Args>
@@ -160,14 +163,15 @@ public:
 };
 using seedhll_t = seedhllbase_t<>;
 
-template<typename SeedHllType=seedhll_t>
+template<typename SeedHllType=hll_t>
 class hlfbase_t {
 protected:
     // Note: Consider using a shared buffer and then do a weighted average
     // of estimates from subhlls of power of 2 sizes.
-    std::vector<SeedHllType> hlls_;
+    std::vector<SeedHllType>                      hlls_;
+    std::vector<uint64_t, Allocator<uint64_t>>   seeds_;
     mutable double value_;
-    bool is_calculated_;
+    bool   is_calculated_;
 public:
     template<typename... Args>
     hlfbase_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0) {
@@ -175,7 +179,7 @@ public:
         assert(sfs.size());
         hlls_.reserve(size);
         for(const auto seed: sfs)
-            hlls_.emplace_back(seed, std::forward<Args>(args)...);
+            hlls_.emplace_back(std::forward<Args>(args)...), seeds_.emplace_back(seed);
     }
     auto size() const {return hlls_.size();}
     auto m() const {return hlls_[0].size();}
@@ -224,7 +228,33 @@ public:
         });
     }
     void addh(uint64_t val) {
-        for(auto &hll: hlls_) hll.addh(val);
+        if constexpr(std::is_same_v<WangHash, SeedHllType::HashType>) {
+            using Space = vec::SIMDTypes<uint64_t>;
+            using SType = typename Space::Type;
+            using VType = typename Space::VType;
+            unsigned k = 0;
+            if(size() >= Space::COUNT) {
+                if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+                SType *sptr = (SType *)&seeds_[0];
+                SType *eptr = (SType *)&seeds_.back();
+                VType key;
+                do {
+                    key = *sptr++ ^ val;
+                    auto tmp = ~key.simd_;
+                    key = Space::slli(key.simd_, 21);
+                    key = Space::add(Space::add(Space::slli(key.simd_, 23), Space::slli(key.simd_, 8)), key.simd_);
+                    tmp = Space::srli(key.simd_, 14);
+                    key = key.simd_ ^ tmp;
+                    key = Space::add(Space::add(Space::slli(key.simd_, 2), Space::slli(key.simd_, 4)), key.simd_);
+                    tmp = Space::srli(key.simd_, 28);
+                    key = key.simd_ ^ tmp;
+                    key = Space::add(Space::slli(key.simd_, 31), key.simd_);
+                    // hash stuff
+                    for(unsigned i(0) ; i < Space::COUNT; ++k, ++i) hlls_[k].add(seeds_[k]);
+                } while(sptr < eptr);
+            } else for(unsigned i(0); i < size(); ++i) hlls_[i].addh(val ^ seeds_[i]);
+        } else
+            for(unsigned i(0); i < size(); ++i) hlls_[i].addh(val ^ seeds_[i]);
     }
     double creport() const {
         if(is_calculated_) return value_;

@@ -723,14 +723,15 @@ constexpr double make_alpha(size_t m) {
     }
 }
 
+template<typename ValueType>
 #if HAS_AVX_512
-using Allocator = sse::AlignedAllocator<uint8_t, sse::Alignment::AVX512>;
+using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX512>;
 #elif __AVX2__
-using Allocator = sse::AlignedAllocator<uint8_t, sse::Alignment::AVX>;
+using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX>;
 #elif __SSE2__
-using Allocator = sse::AlignedAllocator<uint8_t, sse::Alignment::SSE>;
+using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::SSE>;
 #else
-using Allocator = std::allocator<uint8_t>;
+using Allocator = std::allocator<ValueType>;
 #endif
 
 // TODO: add a compact, 6-bit version
@@ -752,13 +753,14 @@ class hllbase_t {
 // Attributes
 protected:
     uint32_t np_;
-    std::vector<uint8_t, Allocator> core_;
+    std::vector<uint8_t, Allocator<uint8_t>> core_;
     double                 value_;
     uint32_t       is_calculated_;
     EstimationMethod       estim_;
     JointEstimationMethod jestim_;
     uint32_t            nthreads_;
 public:
+    using HashType = HashStruct;
     const HashStruct          hf_;
 
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
