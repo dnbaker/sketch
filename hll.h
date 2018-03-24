@@ -855,6 +855,12 @@ public:
         element = hf_(element);
         add(element);
     }
+    using VectorSpace = vec::SIMDTypes<uint64_t>;
+    using VType       = typename vec::SIMDTypes<uint64_t>::VType;
+    INLINE void addh(VType element) {
+        element = hf_(element.simd_);
+        element.for_each([&](uint64_t val) {add(val);});
+    }
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) {
         static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");

@@ -58,6 +58,8 @@ int main(int argc, char *argv[]) {
         std::fprintf(stderr, "Calculating for val = %" PRIu64 "\n", val);
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
                 val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false", ertl_ml_estimate(t), std::abs(ertl_ml_estimate(t) - val));
+        hll::hll_t::VType tmpv = static_cast<uint64_t>(1337);
+        t.addh(tmpv);
     }
 	return EXIT_SUCCESS;
 }
