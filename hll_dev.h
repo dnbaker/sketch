@@ -269,22 +269,21 @@ public:
         }
     }
     void addh(uint64_t val) {
-        if constexpr(std::is_same_v<WangHash, typename SeedHllType::HashType>) {
-            using Space = vec::SIMDTypes<uint64_t>;
-            using SType = typename Space::Type;
-            using VType = typename Space::VType;
-            unsigned k = 0;
-            if(size() >= Space::COUNT) {
-                if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
-                const SType *sptr = (const SType *)&seeds_[0];
-                const SType *eptr = (const SType *)&seeds_.back();
-                const SType element = Space::set1(val);
-                VType key;
-                do {
-                    key = hf_(*sptr++ ^ element);
-                    for(unsigned i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
-                } while(sptr < eptr);
-            } else for(unsigned i(0); i < size(); ++i) hlls_[i].addh(val ^ seeds_[i]);
+        using Space = vec::SIMDTypes<uint64_t>;
+        using SType = typename Space::Type;
+        using VType = typename Space::VType;
+        unsigned k = 0;
+        if(size() >= Space::COUNT) {
+            if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            const SType element = Space::set1(val);
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                for(unsigned i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
+                assert(k <= size());
+            } while(sptr < eptr);
         }
     }
     double creport() const {
@@ -315,8 +314,8 @@ public:
         return value_ = ret;
     }
     double med_report() noexcept {
-        // Only do partial sort, which saves us just a little bit of work.
-        values_.reserve(size());
+        if(values_.empty())
+            values_.reserve(size());
         values_.clear();
         for(auto &hll: hlls_) values_.emplace_back(hll.report());
         if(size() & 1) {

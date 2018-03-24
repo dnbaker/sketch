@@ -872,6 +872,17 @@ public:
         element = hf_(element);
         add(element);
     }
+    INLINE void addh(const std::string &element) {
+#ifdef ENABLE_CLHASH
+        if constexpr(std::is_same<HashStruct, clhasher>) {
+            add(hf_(element));
+        } else {
+#endif
+            add(std::hash<std::string>{}(element));
+#ifdef ENABLE_CLHASH
+        }
+#endif
+    }
     using VectorSpace = vec::SIMDTypes<uint64_t>;
     using VType       = typename vec::SIMDTypes<uint64_t>::VType;
     INLINE void addh(VType element) {
