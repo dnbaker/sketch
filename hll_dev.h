@@ -143,7 +143,6 @@ public:
         this->read(fp);
         gzclose(fp);
     }
-
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) {
         static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");
@@ -166,9 +165,8 @@ namespace sort {
 template<class Iter, class Compare>
 inline void insertion_sort(Iter begin, Iter end, Compare comp) {
     using T = typename std::iterator_traits<Iter>::value_type;
-    if (begin == end) return;
 
-    for (Iter cur = begin + 1; cur != end; ++cur) {
+    for (Iter cur = begin + 1; cur < end; ++cur) {
         Iter sift = cur;
         Iter sift_1 = cur - 1;
 

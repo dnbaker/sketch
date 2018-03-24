@@ -876,7 +876,7 @@ public:
     using VType       = typename vec::SIMDTypes<uint64_t>::VType;
     INLINE void addh(VType element) {
         element = hf_(element.simd_);
-        element.for_each([&](uint64_t val) {add(val);});
+        element.for_each([&](uint64_t &val) {add(val);});
     }
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) {
