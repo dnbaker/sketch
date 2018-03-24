@@ -193,9 +193,18 @@ std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
 
 namespace detail {
     // Miscellaneous requirements.
-    static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
-    static constexpr double TWO_POW_32 = 1ull << 32;
-    static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
+static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
+static constexpr double TWO_POW_32 = 1ull << 32;
+static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
+
+uint64_t finalize(uint64_t key) {
+    key ^= key >> 33;
+    key *= 0xff51afd7ed558ccd;
+    key ^= key >> 33;
+    key *= 0xc4ceb9fe1a85ec53;
+    key ^= key >> 33;
+    return key;
+}
 
 
 template<typename CountArrType>
@@ -475,16 +484,6 @@ void parsum_helper(void *data_, long index, int tid) {
     for(uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
 }
 
-static inline uint64_t finalize(uint64_t h) {
-    // Murmurhash3 finalizer, for multiplying hash functions for seedhll_t and hllfilter_t.
-    h ^= h >> 33;
-    h *= 0xff51afd7ed558ccd;
-    h ^= h >> 33;
-    h *= 0xc4ceb9fe1a85ec53;
-    h ^= h >> 33;
-    return h;
-}
-
 inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
     std::mt19937_64 mt(seed);
     std::set<uint64_t> rset;
@@ -647,8 +646,26 @@ struct WangHash {
 };
 
 struct MurmurFinHash {
-    auto operator()(uint64_t key) const {
-        return detail::finalize(key);
+    using Space = vec::SIMDTypes<uint64_t>;
+    using Type = typename vec::SIMDTypes<uint64_t>::Type;
+    using VType = typename vec::SIMDTypes<uint64_t>::VType;
+    INLINE uint64_t operator()(uint64_t key) const {
+        key ^= key >> 33;
+        key *= 0xff51afd7ed558ccd;
+        key ^= key >> 33;
+        key *= 0xc4ceb9fe1a85ec53;
+        key ^= key >> 33;
+        return key;
+    }
+    INLINE Type operator()(Type key) const {
+        static const Type mul1 = Space::set1(0xff51afd7ed558ccd);
+        static const Type mul2 = Space::set1(0xc4ceb9fe1a85ec53);
+        key = Space::srli(key, 33) ^ key; // h ^= h >> 33;
+        key = Space::mullo(key, mul1); // h *= 0xff51afd7ed558ccd;
+        key = Space::srli(key, 33) ^ key;  // h ^= h >> 33;
+        key = Space::mullo(key, mul2); // h *= 0xc4ceb9fe1a85ec53;
+        key = Space::srli(key, 33) ^ key;  // h ^= h >> 33;
+        return key;
     }
 };
 
