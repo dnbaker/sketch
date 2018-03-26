@@ -349,6 +349,169 @@ public:
         }
     }
 };
+template<typename SeedHllType=hll_t>
+class chlf_t { // contiguous hyperlogfilter
+protected:
+    // Note: Consider using a shared buffer and then do a weighted average
+    // of estimates from subhlls of power of 2 sizes.
+    std::vector<uint8_t, Allocator<uint8_t>>      core_;
+    std::vector<uint64_t, Allocator<uint64_t>>   seeds_;
+    std::vector<double>                         values_;
+    const uint32_t                                subp_;
+    const uint32_t                                l2ns_; // log 2 number of subsketches
+    mutable double                               value_;
+    bool                                 is_calculated_;
+    using HashType     = typename SeedHllType::HashType;
+    const HashType                                  hf_;
+public:
+    template<typename... Args>
+    chlf_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0), hf_{} {
+        auto sfs = detail::seeds_from_seed(seedseed, size);
+        assert(sfs.size());
+    }
+#if 0
+    uint64_t size() const {return hlls_.size();}
+    auto m() const {return hlls_[0].size();}
+    void write(const char *fn) const {
+        gzFile fp = gzopen(fn, "wb");
+        if(fp == nullptr) throw std::runtime_error("Could not open file.");
+        this->write(fp);
+        gzclose(fp);
+    }
+    void clear() {
+        value_ = is_calculated_ = 0;
+        for(auto &hll: hlls_) hll.clear();
+    }
+    void read(const char *fn) {
+        gzFile fp = gzopen(fn, "rb");
+        if(fp == nullptr) throw std::runtime_error("Could not open file.");
+        this->read(fp);
+        gzclose(fp);
+    }
+    void write(gzFile fp) const {
+        uint64_t sz = hlls_.size();
+        gzwrite(fp, &sz, sizeof(sz));
+        for(auto &seed: seeds_) gzwrite(fp, &seed, sizeof(seed));
+        for(const auto &hll: hlls_) {
+            hll.write(fp);
+        }
+        gzclose(fp);
+    }
+    void read(gzFile fp) {
+        uint64_t size;
+        gzread(fp, &size, sizeof(size));
+        seeds_.resize(size);
+        for(unsigned i(0); i < size; gzread(fp, seeds_.data() + i++, sizeof(seeds_[0])));
+        hlls_.clear();
+        while(hlls_.size() < size) hlls_.emplace_back(fp);
+        gzclose(fp);
+    }
+
+    // This only works for hlls using 64-bit integers.
+    // Looking ahead,consider templating so that the double version might be helpful.
+
+    bool may_contain(uint64_t element) const {
+        using Space = vec::SIMDTypes<uint64_t>;
+        using SType = typename Space::Type;
+        using VType = typename Space::VType;
+        unsigned k = 0;
+        if(size() >= Space::COUNT) {
+            if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                for(unsigned i(0); i < Space::COUNT;) if(!hlls_[k++].may_contain(key.arr_[i++])) return false;
+            } while(sptr < eptr);
+            return true;
+        } else { // if size() >= Space::COUNT
+            for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(hf_(element ^ seeds_[i]))) return false;
+            return true;
+        }
+    }
+    void addh(uint64_t val) {
+        using Space = vec::SIMDTypes<uint64_t>;
+        using SType = typename Space::Type;
+        using VType = typename Space::VType;
+        unsigned k = 0;
+        if(size() >= Space::COUNT) {
+            if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            const SType element = Space::set1(val);
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                for(unsigned i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
+                assert(k <= size());
+            } while(sptr < eptr);
+        }
+    }
+    double creport() const {
+        if(is_calculated_) return value_;
+        double ret(hlls_[0].creport());
+        for(size_t i(1); i < size(); ret += hlls_[i++].creport());
+        ret /= static_cast<double>(size());
+        value_ = ret;
+        return value_ = ret;
+    }
+    double report() noexcept {
+        if(is_calculated_) return value_;
+        hlls_[0].csum();
+#if DIVIDE_EVERY_TIME
+        double ret(hlls_[0].report() / static_cast<double>(size()));
+        for(size_t i(1); i < size(); ++i) {
+            hlls_[i].csum();
+            ret += hlls_[i].report() / static_cast<double>(size());
+        }
+#else
+        double ret(hlls_[0].report());
+        for(size_t i(1); i < size(); ++i) {
+            hlls_[i].csum();
+            ret += hlls_[i].report();
+        }
+        ret /= static_cast<double>(size());
+#endif
+        return value_ = ret;
+    }
+    double med_report() noexcept {
+        if(values_.empty())
+            values_.reserve(size());
+        values_.clear();
+        for(auto &hll: hlls_) values_.emplace_back(hll.report());
+        if(size() & 1) {
+            if(size() < 32)
+                sort::insertion_sort(std::begin(values_), std::end(values_));
+            else
+                std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) + 1, std::end(values_));
+            return values_[size() >> 1];
+        }
+        if(size() < 32) {
+            sort::insertion_sort(std::begin(values_), std::end(values_));
+            return .5 * (values_[size() >> 1] + values_[(size() >> 1) - 1]);
+        }
+        std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) - 1, std::end(values_));
+        return .5 * (values_[(values_.size() >> 1) - 1] + *std::min_element(std::cbegin(values_) + (size() >> 1), std::cend(values_)));
+    }
+    // Attempt strength borrowing across hlls with different seeds
+    double chunk_report() const {
+        if((size() & (size() - 1)) == 0) {
+            std::array<uint64_t, 64> counts{0};
+            for(const auto &hll: hlls_) detail::inc_counts(counts, hll.core());
+            const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1);
+            const auto new_p = hlls_[0].p() + diff;
+            const auto new_m = (1ull << new_p);
+            return detail::calculate_estimate(counts, hlls_[0].get_estim(), new_m,
+                                              new_p, make_alpha(new_m)) / (1ull << diff);
+        } else {
+            std::fprintf(stderr, "chunk_report is currently only supported for powers of two.");
+            return creport();
+            // Could try weight averaging, but currently I just report default when size is not a power of two.
+        }
+    }
+#endif
+};
 using hlf_t = hlfbase_t<>;
 
 

@@ -197,7 +197,7 @@ static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
 static constexpr double TWO_POW_32 = 1ull << 32;
 static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 
-uint64_t finalize(uint64_t key) {
+static INLINE uint64_t finalize(uint64_t key) {
     key ^= key >> 33;
     key *= 0xff51afd7ed558ccd;
     key ^= key >> 33;
@@ -645,7 +645,7 @@ struct WangHash {
     }
 };
 
-struct MurmurFinHash {
+struct MurFinHash {
     using Space = vec::SIMDTypes<uint64_t>;
     using Type = typename vec::SIMDTypes<uint64_t>::Type;
     using VType = typename vec::SIMDTypes<uint64_t>::VType;
@@ -658,14 +658,32 @@ struct MurmurFinHash {
         return key;
     }
     INLINE Type operator()(Type key) const {
+        return this->operator()(*((VType *)&key));
+    }
+    INLINE Type operator()(VType key) const {
+#if (HAS_AVX_512)
         static const Type mul1 = Space::set1(0xff51afd7ed558ccd);
         static const Type mul2 = Space::set1(0xc4ceb9fe1a85ec53);
-        key = Space::srli(key, 33) ^ key; // h ^= h >> 33;
-        key = Space::mullo(key, mul1); // h *= 0xff51afd7ed558ccd;
-        key = Space::srli(key, 33) ^ key;  // h ^= h >> 33;
-        key = Space::mullo(key, mul2); // h *= 0xc4ceb9fe1a85ec53;
-        key = Space::srli(key, 33) ^ key;  // h ^= h >> 33;
-        return key;
+#endif
+
+#if !NDEBUG
+        auto save = key.arr_[0];
+#endif
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+#if (HAS_AVX_512) == 0
+        key.for_each([](uint64_t &x) {x *= 0xff51afd7ed558ccd;});
+#  else
+        key = Space::mullo(key.simd_, mul1); // h *= 0xff51afd7ed558ccd;
+#endif
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+#if (HAS_AVX_512) == 0
+        key.for_each([](uint64_t &x) {x *= 0xc4ceb9fe1a85ec53;});
+#  else
+        key = Space::mullo(key.simd_, mul2); // h *= 0xc4ceb9fe1a85ec53;
+#endif
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+        assert(this->operator()(save) == key.arr_[0]);
+        return key.simd_;
     }
 };
 
@@ -874,7 +892,7 @@ public:
     }
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
-        if constexpr(std::is_same<HashStruct, clhasher>) {
+        if constexpr(std::is_same<HashStruct, clhasher>::value) {
             add(hf_(element));
         } else {
 #endif
