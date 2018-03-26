@@ -208,6 +208,8 @@ public:
         for(const auto seed: sfs)
             hlls_.emplace_back(std::forward<Args>(args)...), seeds_.emplace_back(seed);
     }
+    hlfbase_t(const hlfbase_t &) = default;
+    hlfbase_t(hlfbase_t &&) = default;
     uint64_t size() const {return hlls_.size();}
     auto m() const {return hlls_[0].size();}
     void write(const char *fn) const {
@@ -294,6 +296,20 @@ public:
         value_ = ret;
         return value_ = ret;
     }
+    hlfbase_t &operator+=(const hlfbase_t &other) {
+        if(other.size() != size()) throw std::runtime_error("Wrong number of subsketches.");
+        if(other.hlls_[0].p() != hlls_[0].p()) throw std::runtime_error("Wrong size of subsketches.");
+        for(unsigned i(0); i < size(); ++i) {
+            hlls_[i] += other.hlls_[i];
+            hlls_[i].not_ready();
+        }
+        is_calculated_ = false;
+    }
+    hlfbase_t operator+(const hlfbase_t &other) const {
+        // Could be more directly optimized.
+        hlfbase_t ret = *this;
+        ret += other;
+    }
     double report() noexcept {
         if(is_calculated_) return value_;
         hlls_[0].csum();
@@ -349,7 +365,7 @@ public:
         }
     }
 };
-template<typename SeedHllType=hll_t>
+template<typename HashType>
 class chlf_t { // contiguous hyperlogfilter
 protected:
     // Note: Consider using a shared buffer and then do a weighted average
@@ -358,10 +374,11 @@ protected:
     std::vector<uint64_t, Allocator<uint64_t>>   seeds_;
     std::vector<double>                         values_;
     const uint32_t                                subp_;
-    const uint32_t                                l2ns_; // log 2 number of subsketches
+    const uint32_t                                  ns_; // log 2 number of subsketches
+    EstimationMethod                             estim_;
+    JointEstimationMethod                       jestim_;
     mutable double                               value_;
     bool                                 is_calculated_;
-    using HashType     = typename SeedHllType::HashType;
     const HashType                                  hf_;
 public:
     template<typename... Args>
@@ -369,9 +386,43 @@ public:
         auto sfs = detail::seeds_from_seed(seedseed, size);
         assert(sfs.size());
     }
+    auto nbytes()    const {return core_.size();}
+    auto nsketches() const {return ns_;}
+    auto m() const {return core_.size();}
+    auto subp() const {return subp_;}
+    auto subq() const {return (sizeof(uint64_t) * CHAR_BIT) - subp_;}
+    void add(uint64_t hashval, unsigned subidx) {
+#ifndef NOT_THREADSAFE
+        // subidx << subp gets us to the subtable, hashval >> subq gets us to the slot within that table.
+        for(const uint32_t index((hashval >> subq()) + (subidx << subp())), lzt(clz(((hashval << 1)|1) << (subp() - 1)) + 1);
+            core_[index] < lzt;
+            __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
+#else
+        const uint32_t index((hashval >> subq()) + (subidx << subp())), lzt(clz(((hashval << 1)|1) << (subp() - 1)) + 1);
+        core_[index] = std::max(core_[index], lzt);
+#endif
+        
+    }
+    void addh(uint64_t val) {
+        using Space = vec::SIMDTypes<uint64_t>;
+        using SType = typename Space::Type;
+        using VType = typename Space::VType;
+        unsigned k = 0;
+        if(nsketches() >= Space::COUNT) {
+            if(nsketches() & (nsketches() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            const SType element = Space::set1(val);
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                for(unsigned i(0); i < Space::COUNT;add(key.arr_[i++], k++));
+                assert(k <= nsketches);
+            } while(sptr < eptr);
+        }
+        else for(unsigned i(0); i < nsketches();add(hf_(val ^ seeds_[i]), i), ++i);
+    }
 #if 0
-    uint64_t size() const {return hlls_.size();}
-    auto m() const {return hlls_[0].size();}
     void write(const char *fn) const {
         gzFile fp = gzopen(fn, "wb");
         if(fp == nullptr) throw std::runtime_error("Could not open file.");
@@ -389,8 +440,7 @@ public:
         gzclose(fp);
     }
     void write(gzFile fp) const {
-        uint64_t sz = hlls_.size();
-        gzwrite(fp, &sz, sizeof(sz));
+        gzwrite(fp, &ns_, sizeof(ns_));
         for(auto &seed: seeds_) gzwrite(fp, &seed, sizeof(seed));
         for(const auto &hll: hlls_) {
             hll.write(fp);
@@ -428,24 +478,6 @@ public:
         } else { // if size() >= Space::COUNT
             for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(hf_(element ^ seeds_[i]))) return false;
             return true;
-        }
-    }
-    void addh(uint64_t val) {
-        using Space = vec::SIMDTypes<uint64_t>;
-        using SType = typename Space::Type;
-        using VType = typename Space::VType;
-        unsigned k = 0;
-        if(size() >= Space::COUNT) {
-            if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
-            const SType *sptr = (const SType *)&seeds_[0];
-            const SType *eptr = (const SType *)&seeds_.back();
-            const SType element = Space::set1(val);
-            VType key;
-            do {
-                key = hf_(*sptr++ ^ element);
-                for(unsigned i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
-                assert(k <= size());
-            } while(sptr < eptr);
         }
     }
     double creport() const {
