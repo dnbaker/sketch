@@ -825,6 +825,7 @@ public:
         value_(0.), is_calculated_(0), estim_(estim),
         nthreads_(nthreads > 0 ? nthreads: 1), hf_{}
     {
+        //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
     explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE) {}
     hllbase_t(const char *path) {read(path);}
@@ -952,6 +953,9 @@ public:
         return *this;
     }
     hllbase_t& operator=(hllbase_t&&) = default;
+    hllbase_t clone() const {
+        return hllbase_t(np_, estim_, jestim_, nthreads_);
+    }
 
     hllbase_t &operator+=(const hllbase_t &other) {
         if(other.np_ != np_) {
