@@ -376,24 +376,25 @@ public:
     }
 };
 using hlf_t = hlfbase_t<>;
-template<typename HashType>
+template<typename HashType=WangHash>
 class chlf_t { // contiguous hyperlogfilter
 protected:
     // Note: Consider using a shared buffer and then do a weighted average
     // of estimates from subhlls of power of 2 sizes.
     std::vector<uint64_t, Allocator<uint64_t>>   seeds_;
     std::vector<double>                         values_;
-    const uint32_t                                subp_;
-    const uint32_t                                  ns_; // number of subsketches
     EstimationMethod                             estim_;
     JointEstimationMethod                       jestim_;
+    const uint32_t                                subp_;
+    const uint16_t                                  ns_; // number of subsketches
+    const uint16_t                                  np_;
     mutable double                               value_;
     bool                                 is_calculated_;
     const HashType                                  hf_;
     std::vector<uint8_t, Allocator<uint8_t>>      core_;
 public:
     chlf_t(size_t l2ss, EstimationMethod estim,
-           JointEstimationMethod jestim, unsigned p, uint64_t seedseed=0): estim_(estim), jestim_(jestim), subp_(p - l2ss), ns_(1 << l2ss), value_(0), is_calculated_(0), hf_{}, core_(1ull << p) {
+           JointEstimationMethod jestim, unsigned p, uint64_t seedseed=0): estim_(estim), jestim_(jestim), subp_(p - l2ss), ns_(1 << l2ss), np_(p), value_(0), is_calculated_(0), hf_{}, core_(1ull << p) {
         auto sfs = detail::seeds_from_seed(seedseed ? seedseed: ns_ + l2ss * p + 137, ns_);
         seeds_ = std::vector<uint64_t, Allocator<uint64_t>>(std::begin(sfs), std::end(sfs));
         assert(sfs.size());
@@ -427,28 +428,29 @@ public:
             VType key;
             do {
                 key = hf_(*sptr++ ^ element);
-                for(unsigned i(0); i < Space::COUNT;add(key.arr_[i++], k++), std::fprintf(stderr, "Processing for %u, %u\n", i, k));
+                for(unsigned i(0); i < Space::COUNT; add(key.arr_[i++], k++));
                 assert(k <= ns_);
             } while(sptr < eptr);
         } else for(;k < ns_;add(hf_(val ^ seeds_[k]), k), ++k);
     }
-#if 0
     double chunk_report() const {
+#if NON_POW2
         if((size() & (size() - 1)) == 0) {
-            std::array<uint64_t, 64> counts{0};
-            for(const auto &hll: hlls_) detail::inc_counts(counts, hll.core());
-            const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1);
-            const auto new_p = hlls_[0].p() + diff;
-            const auto new_m = (1ull << new_p);
-            return detail::calculate_estimate(counts, hlls_[0].get_estim(), new_m,
-                                              new_p, make_alpha(new_m)) / (1ull << diff);
+#endif
+        std::array<uint64_t, 64> counts{0};
+        detail::inc_counts(counts, core_);
+        //const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1); Maybe do this instead of storing l2ns_?
+        return detail::calculate_estimate(counts, estim_, core_.size(),
+                                          np_, make_alpha(core_.size())) / ns_;
+#if NON_POW2
         } else {
             std::fprintf(stderr, "chunk_report is currently only supported for powers of two.");
             return creport();
             // Could try weight averaging, but currently I just report default when size is not a power of two.
         }
-    }
 #endif
+    }
+    size_t size() const {return core_.size();}
 };
 
 

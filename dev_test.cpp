@@ -18,7 +18,7 @@ using tp = std::chrono::system_clock::time_point;
 using namespace hll;
 using namespace hll::dev;
 
-static const size_t BITS = 18;
+static const size_t BITS = 15;
 
 
 bool test_qty(size_t lim) {
@@ -47,11 +47,11 @@ void usage() {
     std::exit(EXIT_FAILURE);
 }
 
-void estimate(hll_t &h1, hll_t &h2, dhll_t &h3, hlldub_t &h4, std::uint64_t expected) {
+void estimate(hll_t &h1, hll_t &h2, dhll_t &h3, hlldub_t &h4, chlf_t<> &ch, std::uint64_t expected) {
     h1.sum(); h2.sum(); h3.sum(); h4.sum();
-    std::fprintf(stderr, "Values\t%lf\t%lf\t%lf\t%lf\t%" PRIu64 "\n", h1.report(), h2.report(), h3.report(), h4.report(), expected);
-    std::fprintf(stderr, "EstErr\t%lf\t%lf\t%lf\t%lf\t%" PRIu64 "\n", h1.est_err(), h2.est_err(), h3.est_err(), h4.est_err(), expected);
-    std::fprintf(stderr, "Err\t%lf\t%lf\t%lf\t%lf\t%" PRIu64 "\n", std::abs(h1.report() - expected), std::abs(h2.report() - expected), std::abs(h3.report() - expected), std::abs(h4.report() - expected), expected);
+    std::fprintf(stderr, "Values\t%lf\t%lf\t%lf\t%lf\t%lf\t%" PRIu64 "\n", h1.report(), h2.report(), h3.report(), h4.report(), ch.chunk_report(), expected);
+    std::fprintf(stderr, "EstErr\t%lf\t%lf\t%lf\t%lf\t%lf\t%" PRIu64 "\n", h1.est_err(), h2.est_err(), h3.est_err(), h4.est_err(), -1337., expected);
+    std::fprintf(stderr, "Err\t%lf\t%lf\t%lf\t%lf\t%lf\t%" PRIu64 "\n", std::abs(h1.report() - expected), std::abs(h2.report() - expected), std::abs(h3.report() - expected), std::abs(h4.report() - expected), std::abs(ch.chunk_report() - expected), expected);
 }
 
 
@@ -87,10 +87,11 @@ int main(int argc, char *argv[]) {
         hll_t t(BITS), t2(BITS + 1), tcp1(BITS), tcp(BITS);
         dhll_t t3(BITS);
         hlldub_t t4(BITS);
+        chlf_t<> contigt(3, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE, BITS);
         inputs.resize(val);
         for(auto &el: inputs) el = gen();
 //#ifndef THREADSAFE
-        for(const auto el: inputs) t.addh(el), t2.addh(el), t3.addh(el), t4.addh(el), tcp1.addh(el + 1), tcp.addh(el);
+        for(const auto el: inputs) t.addh(el), t2.addh(el), t3.addh(el), t4.addh(el), tcp1.addh(el + 1), tcp.addh(el), contigt.addh(el);
 #if 0
 //#else
         kt_data data {t, val, (int)nt, inputs};
@@ -117,7 +118,7 @@ int main(int argc, char *argv[]) {
         std::chrono::duration<double> timediffsum(endsum - startsum);
         //fprintf(stderr, "Time diff not parallel: %lf\n", timediffsum.count());
         //fprintf(stderr, "Using %i threads is %4lf%% as fast as 1.\n", nt, timediffsum.count() / timediff.count() * 100.);
-        estimate(t, t2, t3, t4, val);
+        estimate(t, t2, t3, t4, contigt, val);
         t.set_jestim(hll::ERTL_JOINT_MLE);
         auto cmp = ertl_joint(t, tcp1);
         std::fprintf(stderr, "Joint: %lf|%lf|%lf\n", cmp[0], cmp[1], cmp[2]);
