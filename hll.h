@@ -822,12 +822,12 @@ public:
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1):
         np_(np),
         core_(m()),
-        value_(0.), is_calculated_(0), estim_(estim),
+        value_(0.), is_calculated_(0), estim_(estim), jestim_(jestim),
         nthreads_(nthreads > 0 ? nthreads: 1), hf_{}
     {
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
-    explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE) {}
+    explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
     hllbase_t(const char *path) {read(path);}
     hllbase_t(const std::string &path): hllbase_t(path.data()) {}
     hllbase_t(gzFile fp): hllbase_t() {this->read(fp);}
@@ -1120,6 +1120,9 @@ public:
         return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
     }
     double jaccard_index(const hllbase_t &h2) const {
+#if !NDEBUG
+        //std::fprintf(stderr, "Performing jaccard index estimation using method %s\n", EST_STRS[jestim_]);
+#endif
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
             return full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
