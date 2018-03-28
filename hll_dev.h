@@ -3,13 +3,7 @@
 
 namespace hll {
 
-#ifdef ENABLE_HLL_DEVELOP
-#  if !NDEBUG
-#    pragma message("hll develop enabled (-DENABLE_HLL_DEVELOP)")
-#  endif
-#else
 namespace dev {
-#endif
 
 template<typename HashFunc=WangHash>
 class hlldub_base_t: public hllbase_t<HashFunc> {
@@ -416,10 +410,34 @@ public:
 #endif
         
     }
+    using Space = vec::SIMDTypes<uint64_t>;
+    using SType = typename Space::Type;
+    using VType = typename Space::VType;
+    INLINE bool may_contain(uint64_t val) const {
+        unsigned k = 0;
+        bool success = true;
+        if(ns_ >= Space::COUNT) {
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            const SType element = Space::set1(val);
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                key.for_each([&](const uint64_t &val) { // Use this rather than a loop, save on a variable, force unrolling.
+                    success &= ((clz(((val << 1)|1) << (subp() - 1)) + 1) > core_[(val >> subq()) + (k++ << subp())]);
+                });
+                if(!success) goto end;
+                assert(k <= ns_);
+            } while(sptr < eptr);
+        } else while(k < ns_) {
+            auto tmp = hf_(val ^ seeds_[k]);
+            success &= ((clz(((tmp << 1)|1) << (subp() - 1)) + 1) > core_[(tmp >> subq()) + (k++ << subp())]);
+            if(!success) goto end;
+        }
+        end:
+        return success;
+    }
     void addh(uint64_t val) {
-        using Space = vec::SIMDTypes<uint64_t>;
-        using SType = typename Space::Type;
-        using VType = typename Space::VType;
         unsigned k = 0;
         if(ns_ >= Space::COUNT) {
             const SType *sptr = (const SType *)&seeds_[0];
@@ -428,7 +446,7 @@ public:
             VType key;
             do {
                 key = hf_(*sptr++ ^ element);
-                for(unsigned i(0); i < Space::COUNT; add(key.arr_[i++], k++));
+                key.for_each([&](const uint64_t &val) {add(val, k++);});
                 assert(k <= ns_);
             } while(sptr < eptr);
         } else for(;k < ns_;add(hf_(val ^ seeds_[k]), k), ++k);
@@ -451,12 +469,17 @@ public:
 #endif
     }
     size_t size() const {return core_.size();}
+    void clear() {
+        std::fill(std::begin(core_), std::end(core_), 0);
+        is_calculated_ = 0;
+        value_         = 0;
+    }
 };
 
 
 
-#ifdef ENABLE_HLL_DEVELOP
-#else
 } // namespace dev
+#ifdef ENABLE_HLL_DEVELOP
+using namespace dev;
 #endif
 } // namespace hll
