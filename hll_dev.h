@@ -415,7 +415,6 @@ public:
     using VType = typename Space::VType;
     INLINE bool may_contain(uint64_t val) const {
         unsigned k = 0;
-        bool success = true;
         if(ns_ >= Space::COUNT) {
             const SType *sptr = (const SType *)&seeds_[0];
             const SType *eptr = (const SType *)&seeds_.back();
@@ -423,19 +422,16 @@ public:
             VType key;
             do {
                 key = hf_(*sptr++ ^ element);
-                key.for_each([&](const uint64_t &val) { // Use this rather than a loop, save on a variable, force unrolling.
-                    success &= ((clz(((val << 1)|1) << (subp() - 1)) + 1) > core_[(val >> subq()) + (k++ << subp())]);
-                });
-                if(!success) goto end;
+                for(const auto val: key.arr_)
+                    if((clz(((val << 1)|1) << (subp() - 1)) + 1) > core_[(val >> subq()) + (k++ << subp())])
+                        return false;
                 assert(k <= ns_);
             } while(sptr < eptr);
         } else while(k < ns_) {
             auto tmp = hf_(val ^ seeds_[k]);
-            success &= ((clz(((tmp << 1)|1) << (subp() - 1)) + 1) > core_[(tmp >> subq()) + (k++ << subp())]);
-            if(!success) goto end;
+            if((clz(((tmp << 1)|1) << (subp() - 1)) + 1) > core_[(tmp >> subq()) + (k++ << subp())]) return false;
         }
-        end:
-        return success;
+        return true;
     }
     void addh(uint64_t val) {
         unsigned k = 0;
