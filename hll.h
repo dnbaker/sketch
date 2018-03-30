@@ -807,10 +807,10 @@ protected:
     uint32_t np_;
     std::vector<uint8_t, Allocator<uint8_t>> core_;
     double                 value_;
-    uint32_t       is_calculated_;
+    uint16_t       is_calculated_;
     EstimationMethod       estim_;
     JointEstimationMethod jestim_;
-    uint32_t            nthreads_;
+    uint16_t            nthreads_;
 public:
     using HashType = HashStruct;
     const HashStruct          hf_;
@@ -859,7 +859,6 @@ public:
         return relative_error() * creport();
     }
     double est_err()  noexcept {
-        csum();
         return cest_err();
     }
     // Returns string representation
@@ -1120,15 +1119,22 @@ public:
         return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
     }
     double jaccard_index(const hllbase_t &h2) const {
-#if !NDEBUG
-        //std::fprintf(stderr, "Performing jaccard index estimation using method %s\n", EST_STRS[jestim_]);
-#endif
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
+#ifndef NO_CLAMP
+            auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+            return ret < relative_error() ? 0.: ret;
+#else
             return full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+#endif
         }
         const auto us = union_size(h2);
-        return (creport() + h2.creport() - us) / us;
+#ifndef NO_CLAMP
+        const auto ret = (creport() + h2.creport() - us) / us;
+        return ret < relative_error() ? 0.: ret;
+#else
+        return std::max(0., creport() + h2.creport() - us) / us;
+#endif
     }
     size_t size() const {return size_t(m());}
 #if LZ_COUNTER
@@ -1160,7 +1166,12 @@ static inline double union_size(const HllType &h1, const HllType &h2) {return h1
 
 template<typename HllType>
 static inline double intersection_size(const HllType &h1, const HllType &h2) {
+#ifndef NO_CLAMP
+    const auto us = union_size(h1, h2), is = h1.creport() + h2.creport() - us;
+    return is < h1.relative_error() * us ? 0.: is;
+#else
     return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
+#endif
 }
 
 } // namespace hll
