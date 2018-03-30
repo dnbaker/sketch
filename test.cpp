@@ -49,17 +49,18 @@ int main(int argc, char *argv[]) {
         std::fprintf(stderr, "Processing val = %" PRIu64 "\n", val);
         using hll::detail::ertl_ml_estimate;
         hll::hll_t t(BITS, hll::ORIGINAL);
-#ifdef NOT_THREADSAFE
-        for(size_t i(0); i < val; t.addh(i++));
-#else
-        kt_data data {t, val, nt};
-        kt_for(nt, &kt_helper, &data, (val + nt - 1) / nt);
-#endif
+        hll::hllbase_t<hll::MurFinHash> tmf(BITS, hll::ORIGINAL);
+        for(size_t i(0); i < val; t.addh(i), tmf.addh(i++));
         std::fprintf(stderr, "Calculating for val = %" PRIu64 "\n", val);
+        t.csum();
+        tmf.csum();
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
                 val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false", ertl_ml_estimate(t), std::abs(ertl_ml_estimate(t) - val));
+        fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
+                val, tmf.report(), tmf.est_err(), std::abs(val - tmf.report()), tmf.est_err() >= std::abs(val - tmf.report()) ? "true": "false", ertl_ml_estimate(tmf), std::abs(ertl_ml_estimate(tmf) - val));
         hll::hll_t::VType tmpv = static_cast<uint64_t>(1337);
         t.addh(tmpv);
+        tmf.addh(tmpv);
     }
 	return EXIT_SUCCESS;
 }

@@ -39,6 +39,9 @@ python: _hll.cpython.so
 test: test.cpp kthread.o hll.h hll_dev.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
+lztest: test.cpp kthread.o hll.h hll_dev.h
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
+
 serial_test: serial_test.cpp hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
 

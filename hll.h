@@ -814,6 +814,9 @@ protected:
 public:
     using HashType = HashStruct;
     const HashStruct          hf_;
+#if LZ_COUNTER
+    std::array<std::atomic<uint64_t>, 64> clz_counts_; // To check for bias in insertion
+#endif
 
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
     double alpha()          const {return make_alpha(m());}
@@ -823,7 +826,11 @@ public:
         np_(np),
         core_(m()),
         value_(0.), is_calculated_(0), estim_(estim), jestim_(jestim),
-        nthreads_(nthreads > 0 ? nthreads: 1), hf_{}
+        nthreads_(nthreads > 0 ? nthreads: 1),
+        hf_{}
+#if LZ_COUNTER
+        , clz_counts_{0}
+#endif
     {
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
@@ -883,6 +890,9 @@ public:
 #else
         const uint32_t index(hashval >> q()), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
         core_[index] = std::max(core_[index], lzt);
+#endif
+#if !NDEBUG
+        ++clz_counts_[clz(((hashval << 1)|1) << (np_ - 1)) + 1];
 #endif
     }
 
@@ -1138,7 +1148,12 @@ public:
     }
     size_t size() const {return size_t(m());}
 #if LZ_COUNTER
-    // keep track of leader zero count bias
+    ~hllbase_t() {
+        std::string tmp;
+        for(const auto &val: clz_counts_) tmp += std::to_string(val), tmp += ',';
+        tmp.pop_back();
+        std::fprintf(stderr, "counts: %s\n", tmp.data());
+    }
 #endif
 };
 
