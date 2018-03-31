@@ -891,7 +891,7 @@ public:
         const uint32_t index(hashval >> q()), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
         core_[index] = std::max(core_[index], lzt);
 #endif
-#if !NDEBUG
+#if LZ_COUNTER
         ++clz_counts_[clz(((hashval << 1)|1) << (np_ - 1)) + 1];
 #endif
     }
