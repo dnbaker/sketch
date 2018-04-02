@@ -804,16 +804,17 @@ class hllbase_t {
 
 // Attributes
 protected:
-    uint32_t np_;
+    uint32_t                  np_;
     std::vector<uint8_t, Allocator<uint8_t>> core_;
     double                 value_;
-    uint16_t       is_calculated_;
+    uint16_t       is_calculated_:8;
+    uint16_t               clamp_:8;
     EstimationMethod       estim_;
     JointEstimationMethod jestim_;
     uint16_t            nthreads_;
 public:
     using HashType = HashStruct;
-    const HashStruct          hf_;
+    const HashStruct        hf_;
 #if LZ_COUNTER
     std::array<std::atomic<uint64_t>, 64> clz_counts_; // To check for bias in insertion
 #endif
@@ -822,10 +823,10 @@ public:
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(m());}
     // Constructor
-    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1):
-        np_(np),
-        core_(m()),
-        value_(0.), is_calculated_(0), estim_(estim), jestim_(jestim),
+    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1, bool clamp=true):
+        np_(np), core_(m()),
+        value_(0.), is_calculated_(0), clamp_(clamp),
+        estim_(estim), jestim_(jestim),
         nthreads_(nthreads > 0 ? nthreads: 1),
         hf_{}
 #if LZ_COUNTER
@@ -1038,7 +1039,7 @@ public:
     }
     void write(gzFile fp) const {
 #define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
-        uint32_t bf[3]{is_calculated_, estim_, nthreads_};
+        uint32_t bf[]{is_calculated_, clamp_, estim_, jestim_, nthreads_};
         CW(fp, bf, sizeof(bf));
         CW(fp, &np_, sizeof(np_));
         CW(fp, &value_, sizeof(value_));
@@ -1061,11 +1062,13 @@ public:
     void write(const std::string &path, bool write_gz=false) const {write(path.data(), write_gz);}
     void read(gzFile fp) {
 #define CR(fp, dst, len) do {if((uint64_t)gzread(fp, dst, len) != len) throw std::runtime_error("Error reading from file.");} while(0)
-        uint32_t bf[3];
+        uint32_t bf[5];
         CR(fp, bf, sizeof(bf));
         is_calculated_ = bf[0];
-        estim_ = (EstimationMethod)bf[1];
-        nthreads_ = bf[2];
+        clamp_  = bf[1];
+        estim_  = (EstimationMethod)bf[2];
+        jestim_ = (JointEstimationMethod)bf[3];
+        nthreads_ = bf[4];
         CR(fp, &np_, sizeof(np_));
         CR(fp, &value_, sizeof(value_));
         core_.resize(m());
@@ -1082,16 +1085,20 @@ public:
         read(path.data());
     }
     void write(int fileno) const {
-        uint32_t bf[3]{is_calculated_, estim_, nthreads_};
+        uint32_t bf[]{is_calculated_, clamp_, estim_, jestim_, nthreads_};
         ::write(fileno, bf, sizeof(bf));
         ::write(fileno, &np_, sizeof(np_));
         ::write(fileno, &value_, sizeof(value_));
         ::write(fileno, core_.data(), core_.size() * sizeof(core_[0]));
     }
     void read(int fileno) {
-        uint32_t bf[3];
+        uint32_t bf[5];
         ::read(fileno, bf, sizeof(bf));
-        is_calculated_ = bf[0]; estim_ = bf[1]; nthreads_ = bf[2];
+        is_calculated_ = bf[0];
+        clamp_         = bf[1];
+        estim_         = (EstimationMethod)bf[2];
+        jestim_        = (JointEstimationMethod)bf[3];
+        nthreads_      = bf[4];
         ::read(fileno, &np_, sizeof(np_));
         ::read(fileno, &value_, sizeof(value_));
         core_.resize(m());
@@ -1131,22 +1138,22 @@ public:
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
-#ifndef NO_CLAMP
-            auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
-            return ret < relative_error() ? 0.: ret;
-#else
+            if(clamp()) {
+                auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+                return ret < relative_error() ? 0.: ret;
+            } // else
             return full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
-#endif
         }
         const auto us = union_size(h2);
-#ifndef NO_CLAMP
-        const auto ret = (creport() + h2.creport() - us) / us;
-        return ret < relative_error() ? 0.: ret;
-#else
+        if(clamp()) {
+            const auto ret = (creport() + h2.creport() - us) / us;
+            return ret < relative_error() ? 0.: ret;
+        } // else
         return std::max(0., creport() + h2.creport() - us) / us;
-#endif
     }
     size_t size() const {return size_t(m());}
+    bool clamp()  const {return clamp_;}
+    void set_clamp(bool val) {clamp_ = val;}
 #if LZ_COUNTER
     ~hllbase_t() {
         std::string tmp;
@@ -1181,12 +1188,11 @@ static inline double union_size(const HllType &h1, const HllType &h2) {return h1
 
 template<typename HllType>
 static inline double intersection_size(const HllType &h1, const HllType &h2) {
-#ifndef NO_CLAMP
-    const auto us = union_size(h1, h2), is = h1.creport() + h2.creport() - us;
-    return is < h1.relative_error() * us ? 0.: is;
-#else
+    if(h1.clamp()) {
+        const auto us = union_size(h1, h2), is = h1.creport() + h2.creport() - us;
+        return is < h1.relative_error() * us ? 0.: is;
+    } // else
     return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
-#endif
 }
 
 } // namespace hll
