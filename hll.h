@@ -421,9 +421,6 @@ struct joint_unroller {
 #endif
         static_assert(std::is_same_v<MType, std::decay_t<decltype(g1)>>, "g1 should be the same time as MType");
         ju(ref1, ref2, u, arrh1, arrh2, arru, arrg1, arrg2, arreq, g1, g2, eq);
-//#else
-//        ju(ref1, ref2, u, arrh1, arrh2, arru, arrg1, arrg2, arreq, (MType)g1, (MType)g2, (MType)eq);
-//#endif
     }
     template<typename T>
     INLINE void sum_arrays(const SType *arr1, const SType *arr2, const SType *const arr1end, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq) const {
@@ -783,7 +780,7 @@ using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX>;
 #elif __SSE2__
 using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::SSE>;
 #else
-using Allocator = std::allocator<ValueType>;
+using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
 #endif
 
 // TODO: add a compact, 6-bit version
@@ -990,7 +987,9 @@ public:
         for(i = 0; i < m() >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
         if(m() < 16) for(; i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #else
-        for(i = 0; i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
+        uint64_t *els(reinterpret_cast<__m128i *>(core_.data()));
+        const uint64_t *oels(reinterpret_cast<const uint64_t *>(other.core_.data()));
+        while(els < oels) *els = std::max(*els, *oels), ++els, ++oels;
 #endif
         not_ready();
         return *this;
@@ -1130,10 +1129,22 @@ public:
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
     double jaccard_index(hllbase_t &h2) {
-        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) {
-            csum(), h2.csum();
-        }
+        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
         return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
+    }
+    std::pair<double, bool> bjaccard_index(hllbase_t &h2) {
+        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
+        return const_cast<hllbase_t &>(*this).bjaccard_index(const_cast<const hllbase_t &>(h2));
+    }
+    std::pair<double, bool> bjaccard_index(const hllbase_t &h2) const {
+        if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
+            auto full_cmps = ertl_joint(*this, h2);
+            auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+            return std::make_pair(ret, ret > relative_error());
+        }
+        const auto us = union_size(h2);
+        const auto ret = std::max(0., creport() + h2.creport() - us) / us;
+        return std::make_pair(ret, ret > relative_error());
     }
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
@@ -1173,14 +1184,10 @@ inline double intersection_size(HllType &first, HllType &other) noexcept {
     return intersection_size((const HllType &)first, (const HllType &)other);
 }
 
-template<typename HllType>
-inline double jaccard_index(const HllType &h1, const HllType &h2) {
-    return h1.jaccard_index(h2);
-}
-template<typename HllType>
-inline double jaccard_index(HllType &h1, HllType &h2) {
-    return h1.jaccard_index(h2);
-}
+template<typename HllType> inline double jaccard_index(const HllType &h1, const HllType &h2) {return h1.jaccard_index(h2);}
+template<typename HllType> inline double jaccard_index(HllType &h1, HllType &h2) {return h1.jaccard_index(h2);}
+template<typename HllType> inline std::pair<double, bool> bjaccard_index(const HllType &h1, const HllType &h2) {return h1.bjaccard_index(h2);}
+template<typename HllType> inline std::pair<double, bool> bjaccard_index(HllType &h1, HllType &h2) {return h1.bjaccard_index(h2);}
 
 // Returns a HyperLogLog union
 template<typename HllType>
