@@ -66,13 +66,13 @@ using std::uint16_t;
 using std::uint8_t;
 using std::size_t;
 
-enum EstimationMethod: uint16_t {
+enum EstimationMethod: uint8_t {
     ORIGINAL       = 0,
     ERTL_IMPROVED  = 1,
     ERTL_MLE       = 2
 };
 
-enum JointEstimationMethod: uint16_t {
+enum JointEstimationMethod: uint8_t {
     //ORIGINAL       = 0,
     //ERTL_IMPROVED  = 1, // Improved but biased method
     //ERTL_MLE       = 2, // element-wise max, followed by MLE
@@ -137,13 +137,9 @@ std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
     //const double cBX = hl2.creport();
     auto tmph = h1 + h2;
     const double cABX = tmph.report();
-    std::array<uint64_t, 64> countsAXBhalf{0}; //
-    std::array<uint64_t, 64> countsBXAhalf{0}; //
-    countsAXBhalf[q] = h1.m();
-    countsBXAhalf[q] = h1.m();
-    std::array<uint64_t, 64> cg1{0};
-    std::array<uint64_t, 64> cg2{0};
-    std::array<uint64_t, 64> ceq{0};
+    std::array<uint64_t, 64> countsAXBhalf{0}, countsBXAhalf{0};
+    countsAXBhalf[q] = countsBXAhalf[q] = h1.m();
+    std::array<uint64_t, 64> cg1{0}, cg2{0}, ceq{0};
     {
         const auto &core1(h1.core()), &core2(h2.core());
         for(uint64_t i(0); i < core1.size(); ++i) {
@@ -801,14 +797,14 @@ class hllbase_t {
 
 // Attributes
 protected:
-    uint32_t                  np_;
     std::vector<uint8_t, Allocator<uint8_t>> core_;
     double                 value_;
-    uint16_t       is_calculated_:8;
-    uint16_t               clamp_:8;
+    uint32_t                  np_;
+    uint8_t        is_calculated_:1;
+    uint8_t                clamp_:1;
+    uint8_t             nthreads_;
     EstimationMethod       estim_;
     JointEstimationMethod jestim_;
-    uint16_t            nthreads_;
 public:
     using HashType = HashStruct;
     const HashStruct        hf_;
@@ -821,10 +817,10 @@ public:
     double relative_error() const {return 1.03896 / std::sqrt(m());}
     // Constructor
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1, bool clamp=true):
-        np_(np), core_(m()),
-        value_(0.), is_calculated_(0), clamp_(clamp),
-        estim_(estim), jestim_(jestim),
+        core_(static_cast<uint64_t>(1) << np),
+        value_(0.), np_(np), is_calculated_(0), clamp_(clamp),
         nthreads_(nthreads > 0 ? nthreads: 1),
+        estim_(estim), jestim_(jestim),
         hf_{}
 #if LZ_COUNTER
         , clz_counts_{0}
