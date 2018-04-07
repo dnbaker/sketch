@@ -816,7 +816,7 @@ public:
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(m());}
     // Constructor
-    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1, bool clamp=true):
+    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1, bool clamp=false):
         core_(static_cast<uint64_t>(1) << np),
         value_(0.), np_(np), is_calculated_(0), clamp_(clamp),
         nthreads_(nthreads > 0 ? nthreads: 1),
