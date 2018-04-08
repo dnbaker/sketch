@@ -1161,8 +1161,6 @@ public:
     size_t size() const {return size_t(m());}
     bool clamp()  const {return clamp_;}
     void set_clamp(bool val) {clamp_ = val;}
-    hllbase_t &hll() {return *this;}
-    const hllbase_t &hll() const {return *this;}
 #if LZ_COUNTER
     ~hllbase_t() {
         std::string tmp;
