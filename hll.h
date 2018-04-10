@@ -1161,6 +1161,9 @@ public:
     size_t size() const {return size_t(m());}
     bool clamp()  const {return clamp_;}
     void set_clamp(bool val) {clamp_ = val;}
+    unsigned min_size() const {
+        return std::log2(sizeof(SIMDHolder));
+    }
 #if LZ_COUNTER
     ~hllbase_t() {
         std::string tmp;

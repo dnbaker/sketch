@@ -202,16 +202,6 @@ public:
         for(const auto seed: sfs) seeds_.emplace_back(seed);
         while(hlls_.size() < seeds_.size()) hlls_.emplace_back(std::forward<Args>(args)...);
     }
-#if 0
-    hlfbase_t(size_t size, uint64_t seedseed, unsigned np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE): value_(0), is_calculated_(0), hf_{} {
-        auto sfs = detail::seeds_from_seed(seedseed, size);
-        std::fprintf(stderr, "size: %zu. seedseed: %zu.\n", size, seedseed);
-        assert(sfs.size());
-        hlls_.reserve(size);
-        for(const auto seed: sfs) seeds_.emplace_back(seed);
-        while(hlls_.size() < seeds_.size()) hlls_.emplace_back(np, estim, jestim);
-    }
-#endif
     hlfbase_t(const hlfbase_t &) = default;
     hlfbase_t(hlfbase_t &&) = default;
     uint64_t size() const {return hlls_.size();}
