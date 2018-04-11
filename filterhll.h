@@ -1,0 +1,103 @@
+#ifndef FILTER_HLL_H__
+#define FILTER_HLL_H__
+#include "hll.h"
+#include "cbf.h"
+
+namespace fhll {
+template<typename HashType=hll::WangHash>
+class fhllbase_t {
+    using cbf_t = bf::cbfbase_t<HashType>;
+    using hll_t = hll::hllbase_t<HashType>;
+    cbf_t cbf_;
+    hll_t hll_;
+    unsigned threshold_;
+public:
+    fhllbase_t(unsigned np_, size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval,
+               unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool clamp=true):
+        cbf_(nbfs, l2sz, nhashes, seedseedseedval), hll_(np_, estim, jestim, -1, clamp), threshold_(threshold) {
+        if(threshold > (1u << (nbfs - 1))) throw std::runtime_error("Count threshold must be countable-to");
+    }
+    void addh(uint64_t val) {
+        cbf_.addh(val); // This wastes one check in bf1. TODO: elide this.
+        if(cbf_.est_count(val) >= threshold_) hll_.addh(val);
+    }
+    void clear() {
+        hll_.clear();
+        cbf_.clear();
+    }
+    void set_threshold(unsigned threshold) {threshold_ = threshold;}
+    void resize_bloom(unsigned newnp) {
+        cbf_.resize_sketches(newnp);
+    }
+    auto threshold() const {return threshold_;}
+    void not_ready() {hll_.not_ready();}
+    hll_t       &hll()       {return hll_;}
+    const hll_t &hll() const {return hll_;}
+    void free_cbf() {cbf_.free();}
+    void free_hll() {hll_.free();}
+    fhllbase_t clone(uint64_t seed=0) const {
+        return fhllbase_t(hll_.p(), cbf_.size(), cbf_.filter_size(), cbf_.nhashes(), seed ? seed: ((uint64_t)std::rand() << 32) | std::rand(), threshold_, hll_.get_estim(), hll_.get_jestim(), hll_.clamp());
+    }
+};
+using fhll_t = fhllbase_t<>;
+template<typename HashType=hll::WangHash>
+using filterhll_t = fhllbase_t<HashType>;
+
+} // namespace fhll
+
+namespace cbf {
+template<typename HashStruct=hll::WangHash>
+class pcbfbase_t {
+protected:
+    using bf_t  = bf::bfbase_t<HashStruct>;
+    using hll_t = hll::dev::seedhllbase_t<HashStruct>;
+
+    std::vector<hll_t> hlls_;
+    std::vector<bf_t>   bfs_;
+    RNG_TYPE            rng_;
+    uint64_t            gen_;
+    uint8_t           nbits_;
+public:
+    explicit pcbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes,
+                       uint64_t seedseedseedval, unsigned hllp=0, hll::EstimationMethod estim=hll::ERTL_MLE,
+                       hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=false):
+        rng_{seedseedseedval}, gen_(rng_()), nbits_(64)
+    {
+        bfs_.reserve(nbfs);
+        hlls_.reserve(nbfs);
+        while(bfs_.size() < nbfs) bfs_.emplace_back(l2sz, nhashes, rng_());
+        if(shrinkpow2) for(int hllstart = hllp ? hllp: l2sz > 12 ? l2sz - 4: 8; hlls_.size() < nbfs; hlls_.emplace_back(rng_(), std::max(hllstart--, static_cast<int>(hll::hllbase_t<HashStruct>::min_size())), estim, jestim, 1, false));
+        else while(hlls_.size() < nbfs) hlls_.emplace_back(rng_(), hllp ? hllp: l2sz > 12 ? l2sz - 4: 8, estim, jestim, 1, false);
+    }
+    INLINE void addh(uint64_t val) {
+        unsigned i(0);
+        if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain(val)) {
+            bfs_[i].addh(val);
+            hlls_[i].addh(val);
+            return;
+        }
+        while(++i != bfs_.size() && bfs_[i].may_contain(val) && hlls_[i].may_contain(val));
+        if(i == bfs_.size()) return;
+        if(__builtin_expect(nbits_ < i, 0)) gen_ = rng_(), nbits_ = 64;
+        if((gen_ & (UINT64_C(-1) >> (64 - i))) == 0) bfs_[i].addh(val), hlls_[i].addh(val);
+        gen_ >>= i, nbits_ -= i;
+    }
+    bool may_contain(uint64_t val) const {
+        for(unsigned i(0); i < bfs_.size(); ++i)
+            if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain) return false;
+        return true;
+    }
+    unsigned naive_est_count(uint64_t val) const {
+        unsigned i(0);
+        if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain(val)) return 0;
+        while(++i != bfs_.size() && bfs_[i].may_contain(val) && hlls_[i].may_contain(val));
+        return 1u << (i - 1);
+    }
+    // TODO: better estimate using the hlls to provide error rate estimates.
+};
+
+using pcbf_t = pcbfbase_t<hll::WangHash>;
+
+} // namespace cbf
+
+#endif // #ifndef FILTER_HLL_H__
