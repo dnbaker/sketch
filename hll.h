@@ -687,6 +687,9 @@ struct MurFinHash {
     }
 };
 
+#ifdef roundup64
+#undef roundu64
+#endif
 static INLINE uint64_t roundup64(size_t x) noexcept {
     --x;
     x |= x >> 1;
