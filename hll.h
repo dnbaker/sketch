@@ -814,7 +814,7 @@ public:
 
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
     double alpha()          const {return make_alpha(m());}
-    double relative_error() const {return 1.03896 / std::sqrt(m());}
+    double relative_error() const {return 1.03896 / std::sqrt(static_cast<double>(m()));}
     // Constructor
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1, bool clamp=false):
         core_(static_cast<uint64_t>(1) << np),
@@ -1114,11 +1114,7 @@ public:
             std::array<uint64_t, 64> counts{0};
             // We can do this because we use an aligned allocator.
             const SType *p1(reinterpret_cast<const SType *>(data())), *p2(reinterpret_cast<const SType *>(other.data()));
-            SIMDHolder tmp;
-            do {
-                tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
-                tmp.inc_counts(counts);
-            } while(p1 < reinterpret_cast<const SType *>(&(*core().cend())));
+            for(SIMDHolder tmp;p1 < reinterpret_cast<const SType *>(&(*core().cend()));tmp.val = SIMDHolder::max_fn(*p1++, *p2++), tmp.inc_counts(counts));
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
         const auto full_counts = ertl_joint(*this, other);
@@ -1138,25 +1134,26 @@ public:
             auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
             return std::make_pair(ret, ret > relative_error());
         }
-        const auto us = union_size(h2);
-        const auto ret = std::max(0., creport() + h2.creport() - us) / us;
+        const double us = union_size(h2);
+        const double ret = std::max(0., creport() + h2.creport() - us) / us;
         return std::make_pair(ret, ret > relative_error());
     }
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
-            if(clamp()) {
-                auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
-                return ret < relative_error() ? 0.: ret;
-            } // else
-            return full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+            const auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+            return clamp_ && ret < relative_error() ? 0.: ret;
         }
-        const auto us = union_size(h2);
-        if(clamp()) {
-            const auto ret = (creport() + h2.creport() - us) / us;
-            return ret < relative_error() ? 0.: ret;
-        } // else
-        return std::max(0., creport() + h2.creport() - us) / us;
+        const double us = union_size(h2);
+        const double ret = (creport() + h2.creport() - us) / us;
+#if !NDEBUG
+        double tmp = clamp_ ? ret < relative_error() ? 0.: ret
+                            : std::max(0., ret);
+        if(tmp < 0) std::fprintf(stderr, "ZOMG WTFFFFFFFFFFFFFFFFFFFFF tmp is %lf with clamp = %s and naive estimate %lf\n", tmp, clamp_ ? "true": "false", ret);
+#else
+        return clamp_ ? ret < relative_error() ? 0.: ret
+                      : std::max(0., ret);
+#endif
     }
     size_t size() const {return size_t(m());}
     bool clamp()  const {return clamp_;}
