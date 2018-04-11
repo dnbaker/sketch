@@ -829,7 +829,7 @@ public:
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
     explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
-    hllbase_t(const char *path) {read(path);}
+    hllbase_t(const char *path): hf_{} {read(path);}
     hllbase_t(const std::string &path): hllbase_t(path.data()) {}
     hllbase_t(gzFile fp): hllbase_t() {this->read(fp);}
 
