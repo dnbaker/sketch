@@ -66,13 +66,13 @@ using std::uint16_t;
 using std::uint8_t;
 using std::size_t;
 
-enum EstimationMethod: uint16_t {
+enum EstimationMethod: uint8_t {
     ORIGINAL       = 0,
     ERTL_IMPROVED  = 1,
     ERTL_MLE       = 2
 };
 
-enum JointEstimationMethod: uint16_t {
+enum JointEstimationMethod: uint8_t {
     //ORIGINAL       = 0,
     //ERTL_IMPROVED  = 1, // Improved but biased method
     //ERTL_MLE       = 2, // element-wise max, followed by MLE
@@ -137,13 +137,9 @@ std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
     //const double cBX = hl2.creport();
     auto tmph = h1 + h2;
     const double cABX = tmph.report();
-    std::array<uint64_t, 64> countsAXBhalf{0}; //
-    std::array<uint64_t, 64> countsBXAhalf{0}; //
-    countsAXBhalf[q] = h1.m();
-    countsBXAhalf[q] = h1.m();
-    std::array<uint64_t, 64> cg1{0};
-    std::array<uint64_t, 64> cg2{0};
-    std::array<uint64_t, 64> ceq{0};
+    std::array<uint64_t, 64> countsAXBhalf{0}, countsBXAhalf{0};
+    countsAXBhalf[q] = countsBXAhalf[q] = h1.m();
+    std::array<uint64_t, 64> cg1{0}, cg2{0}, ceq{0};
     {
         const auto &core1(h1.core()), &core2(h2.core());
         for(uint64_t i(0); i < core1.size(); ++i) {
@@ -421,9 +417,6 @@ struct joint_unroller {
 #endif
         static_assert(std::is_same_v<MType, std::decay_t<decltype(g1)>>, "g1 should be the same time as MType");
         ju(ref1, ref2, u, arrh1, arrh2, arru, arrg1, arrg2, arreq, g1, g2, eq);
-//#else
-//        ju(ref1, ref2, u, arrh1, arrh2, arru, arrg1, arrg2, arreq, (MType)g1, (MType)g2, (MType)eq);
-//#endif
     }
     template<typename T>
     INLINE void sum_arrays(const SType *arr1, const SType *arr2, const SType *const arr1end, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq) const {
@@ -786,7 +779,7 @@ using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX>;
 #elif __SSE2__
 using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::SSE>;
 #else
-using Allocator = std::allocator<ValueType>;
+using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
 #endif
 
 // TODO: add a compact, 6-bit version
@@ -807,14 +800,14 @@ class hllbase_t {
 
 // Attributes
 protected:
-    uint32_t                  np_;
     std::vector<uint8_t, Allocator<uint8_t>> core_;
     double                 value_;
-    uint16_t       is_calculated_:8;
-    uint16_t               clamp_:8;
+    uint32_t                  np_;
+    uint8_t        is_calculated_:1;
+    uint8_t                clamp_:1;
+    uint8_t             nthreads_;
     EstimationMethod       estim_;
     JointEstimationMethod jestim_;
-    uint16_t            nthreads_;
 public:
     using HashType = HashStruct;
     const HashStruct        hf_;
@@ -824,13 +817,13 @@ public:
 
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
     double alpha()          const {return make_alpha(m());}
-    double relative_error() const {return 1.03896 / std::sqrt(m());}
+    double relative_error() const {return 1.03896 / std::sqrt(static_cast<double>(m()));}
     // Constructor
-    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1, bool clamp=true):
-        np_(np), core_(m()),
-        value_(0.), is_calculated_(0), clamp_(clamp),
-        estim_(estim), jestim_(jestim),
+    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1, bool clamp=false):
+        core_(static_cast<uint64_t>(1) << np),
+        value_(0.), np_(np), is_calculated_(0), clamp_(clamp),
         nthreads_(nthreads > 0 ? nthreads: 1),
+        estim_(estim), jestim_(jestim),
         hf_{}
 #if LZ_COUNTER
         , clz_counts_{0}
@@ -839,7 +832,7 @@ public:
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
     explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
-    hllbase_t(const char *path) {read(path);}
+    hllbase_t(const char *path): hf_{} {read(path);}
     hllbase_t(const std::string &path): hllbase_t(path.data()) {}
     hllbase_t(gzFile fp): hllbase_t() {this->read(fp);}
 
@@ -993,7 +986,9 @@ public:
         for(i = 0; i < m() >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
         if(m() < 16) for(; i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #else
-        for(i = 0; i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
+        uint64_t *els(reinterpret_cast<__m128i *>(core_.data()));
+        const uint64_t *oels(reinterpret_cast<const uint64_t *>(other.core_.data()));
+        while(els < oels) *els = std::max(*els, *oels), ++els, ++oels;
 #endif
         not_ready();
         return *this;
@@ -1122,41 +1117,53 @@ public:
             std::array<uint64_t, 64> counts{0};
             // We can do this because we use an aligned allocator.
             const SType *p1(reinterpret_cast<const SType *>(data())), *p2(reinterpret_cast<const SType *>(other.data()));
-            SIMDHolder tmp;
-            do {
-                tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
-                tmp.inc_counts(counts);
-            } while(p1 < reinterpret_cast<const SType *>(&(*core().cend())));
+            for(SIMDHolder tmp;p1 < reinterpret_cast<const SType *>(&(*core().cend()));tmp.val = SIMDHolder::max_fn(*p1++, *p2++), tmp.inc_counts(counts));
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
     double jaccard_index(hllbase_t &h2) {
-        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) {
-            csum(), h2.csum();
-        }
+        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
         return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
+    }
+    std::pair<double, bool> bjaccard_index(hllbase_t &h2) {
+        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
+        return const_cast<hllbase_t &>(*this).bjaccard_index(const_cast<const hllbase_t &>(h2));
+    }
+    std::pair<double, bool> bjaccard_index(const hllbase_t &h2) const {
+        if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
+            auto full_cmps = ertl_joint(*this, h2);
+            auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+            return std::make_pair(ret, ret > relative_error());
+        }
+        const double us = union_size(h2);
+        const double ret = std::max(0., creport() + h2.creport() - us) / us;
+        return std::make_pair(ret, ret > relative_error());
     }
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
-            if(clamp()) {
-                auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
-                return ret < relative_error() ? 0.: ret;
-            } // else
-            return full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+            const auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
+            return clamp_ && ret < relative_error() ? 0.: ret;
         }
-        const auto us = union_size(h2);
-        if(clamp()) {
-            const auto ret = (creport() + h2.creport() - us) / us;
-            return ret < relative_error() ? 0.: ret;
-        } // else
-        return std::max(0., creport() + h2.creport() - us) / us;
+        const double us = union_size(h2);
+        const double ret = (creport() + h2.creport() - us) / us;
+#if !NDEBUG
+        double tmp = clamp_ ? ret < relative_error() ? 0.: ret
+                            : std::max(0., ret);
+        if(tmp < 0) std::fprintf(stderr, "ZOMG WTFFFFFFFFFFFFFFFFFFFFF tmp is %lf with clamp = %s and naive estimate %lf\n", tmp, clamp_ ? "true": "false", ret);
+#else
+        return clamp_ ? ret < relative_error() ? 0.: ret
+                      : std::max(0., ret);
+#endif
     }
     size_t size() const {return size_t(m());}
     bool clamp()  const {return clamp_;}
     void set_clamp(bool val) {clamp_ = val;}
+    static constexpr unsigned min_size() {
+        return std::log2(sizeof(detail::SIMDHolder));
+    }
 #if LZ_COUNTER
     ~hllbase_t() {
         std::string tmp;
@@ -1176,14 +1183,10 @@ inline double intersection_size(HllType &first, HllType &other) noexcept {
     return intersection_size((const HllType &)first, (const HllType &)other);
 }
 
-template<typename HllType>
-inline double jaccard_index(const HllType &h1, const HllType &h2) {
-    return h1.jaccard_index(h2);
-}
-template<typename HllType>
-inline double jaccard_index(HllType &h1, HllType &h2) {
-    return h1.jaccard_index(h2);
-}
+template<typename HllType> inline double jaccard_index(const HllType &h1, const HllType &h2) {return h1.jaccard_index(h2);}
+template<typename HllType> inline double jaccard_index(HllType &h1, HllType &h2) {return h1.jaccard_index(h2);}
+template<typename HllType> inline std::pair<double, bool> bjaccard_index(const HllType &h1, const HllType &h2) {return h1.bjaccard_index(h2);}
+template<typename HllType> inline std::pair<double, bool> bjaccard_index(HllType &h1, HllType &h2) {return h1.bjaccard_index(h2);}
 
 // Returns a HyperLogLog union
 template<typename HllType>
@@ -1198,8 +1201,470 @@ static inline double intersection_size(const HllType &h1, const HllType &h2) {
     return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
 }
 
-} // namespace hll
 
-#include "hll_dev.h"
+namespace dev {
+
+template<typename HashFunc=WangHash>
+class hlldub_base_t: public hllbase_t<HashFunc> {
+    // hlldub_base_t inserts each value twice (forward and reverse)
+    // and simply halves cardinality estimates.
+public:
+    template<typename... Args>
+    hlldub_base_t(Args &&...args): hll_t(std::forward<Args>(args)...) {}
+    INLINE void add(uint64_t hashval) {
+        hllbase_t<HashFunc>::add(hashval);
+#ifndef NOT_THREADSAFE
+        for(const uint32_t index(hashval & ((this->m()) - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
+            this->core_[index] < lzt;
+            __sync_bool_compare_and_swap(this->core_.data() + index, this->core_[index], lzt));
+#else
+        const uint32_t index(hashval & (this->m() - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
+        this->core_[index] = std::min(this->core_[index], lzt);
+#endif
+    }
+    double report() {
+        this->sum();
+        return this->creport();
+    }
+    double creport() const {
+        return hllbase_t<HashFunc>::creport() * 0.5;
+    }
+    bool may_contain(uint64_t hashval) const {
+        return hllbase_t<HashFunc>::may_contain(hashval) && this->core_[hashval & ((this->m()) - 1)] >= ffs(hashval >> this->p());
+    }
+
+    INLINE void addh(uint64_t element) {add(this->hf_(element));}
+};
+using hlldub_t = hlldub_base_t<>;
+
+template<typename HashFunc=WangHash>
+class dhllbase_t: public hllbase_t<HashFunc> {
+    // dhllbase_t is a bidirectional hll sketch which does not currently support set operations
+    // It is based on the idea that the properties of a hll sketch work for both leading and trailing zeros and uses them as independent samples.
+    std::vector<uint8_t, Allocator<uint8_t>> dcore_;
+    using hll_t = hllbase_t<HashFunc>;
+public:
+    template<typename... Args>
+    dhllbase_t(Args &&...args): hll_t(std::forward<Args>(args)...),
+                            dcore_(1ull << hll_t::p()) {
+    }
+    void sum() {
+        uint64_t fcounts[64]{0};
+        uint64_t rcounts[64]{0};
+        const auto &core(hll_t::core());
+        for(size_t i(0); i < core.size(); ++i) {
+            // I don't this can be unrolled and LUT'd.
+            ++fcounts[core[i]]; ++rcounts[dcore_[i]];
+        }
+        this->value_  = detail::calculate_estimate(fcounts, this->estim_, this->m(), this->np_, this->alpha());
+        this->value_ += detail::calculate_estimate(rcounts, this->estim_, this->m(), this->np_, this->alpha());
+        this->value_ *= 0.5;
+        this->is_calculated_ = 1;
+    }
+    void add(uint64_t hashval) {
+        hll_t::add(hashval);
+#ifndef NOT_THREADSAFE
+        for(const uint32_t index(hashval & ((this->m()) - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
+            dcore_[index] < lzt;
+            __sync_bool_compare_and_swap(dcore_.data() + index, dcore_[index], lzt));
+#else
+        const uint32_t index(hashval & (this->m() - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
+        dcore_[index] = std::min(dcore_[index], lzt);
+#endif
+    }
+    void addh(uint64_t element) {add(this->hf_(element));}
+    bool may_contain(uint64_t hashval) const {
+        return hll_t::may_contain(hashval) && dcore_[hashval & ((this->m()) - 1)] >= ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1));
+    }
+};
+using dhll_t = dhllbase_t<>;
+
+
+template<typename HashFunc=WangHash>
+class seedhllbase_t: public hllbase_t<HashFunc> {
+protected:
+    uint64_t seed_; // 64-bit integers are xored with this value before passing it to a hash.
+                          // This is almost free, in the content of
+    using hll_t = hllbase_t<HashFunc>;
+public:
+    template<typename... Args>
+    seedhllbase_t(uint64_t seed, Args &&...args): hll_t(std::forward<Args>(args)...), seed_(seed) {
+        if(seed_ == 0) std::fprintf(stderr,
+            "[W:%s:%d] Note: seed is set to 0. No more than one of these at a time should have this value, and this is only for the purpose of multiplying hashes."
+            " Also, if you are only using one of these at a time, don't use seedhllbase_t, just use hll_t and save yourself an xor per insertion"
+            ", not to mention a 64-bit integer in space.", __PRETTY_FUNCTION__, __LINE__);
+    }
+    seedhllbase_t(gzFile fp): hll_t() {
+        this->read(fp);
+    }
+    void addh(uint64_t element) {
+        element ^= seed_;
+        this->add(wang_hash(element));
+    }
+    uint64_t seed() const {return seed_;}
+    void write(const char *fn, bool write_gz) {
+        if(write_gz) {
+            gzFile fp = gzopen(fn, "wb");
+            if(fp == nullptr) throw std::runtime_error("Could not open file.");
+            this->write(fp);
+            gzclose(fp);
+        } else {
+            std::FILE *fp = std::fopen(fn, "wb");
+            if(fp == nullptr) throw std::runtime_error("Could not open file.");
+            this->write(fileno(fp));
+            std::fclose(fp);
+        }
+    }
+    void write(gzFile fp) const {
+        hll_t::write(fp);
+        gzwrite(fp, &seed_, sizeof(seed_));
+    }
+    void read(gzFile fp) {
+        hll_t::read(fp);
+        gzread(fp, &seed_, sizeof(seed_));
+    }
+    void write(int fn) const {
+        hll_t::write(fn);
+        ::write(fn, &seed_, sizeof(seed_));
+    }
+    void read(int fn) {
+        hll_t::read(fn);
+        ::read(fn, &seed_, sizeof(seed_));
+    }
+    void read(const char *fn) {
+        gzFile fp = gzopen(fn, "rb");
+        this->read(fp);
+        gzclose(fp);
+    }
+    template<typename T, typename Hasher=std::hash<T>>
+    INLINE void adds(const T element, const Hasher &hasher) {
+        static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");
+        add(detail::finalize(hasher(element) ^ seed_));
+    }
+
+#ifdef ENABLE_CLHASH
+    template<typename Hasher=clhasher>
+    INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
+        static_assert(std::is_same_v<std::decay_t<decltype(hasher(s, len))>, uint64_t>, "Must return 64-bit hash");
+        add(detail::finalize(hasher(s, len) ^ seed_));
+    }
+#endif
+};
+using seedhll_t = seedhllbase_t<>;
+namespace sort {
+// insertion_sort from https://github.com/orlp/pdqsort
+// Slightly modified stylistically.
+template<class Iter, class Compare>
+inline void insertion_sort(Iter begin, Iter end, Compare comp) {
+    using T = typename std::iterator_traits<Iter>::value_type;
+
+    for (Iter cur = begin + 1; cur < end; ++cur) {
+        Iter sift = cur;
+        Iter sift_1 = cur - 1;
+
+        // Compare first so we can avoid 2 moves for an element already positioned correctly.
+        if (comp(*sift, *sift_1)) {
+            T tmp = std::move(*sift);
+
+            do { *sift-- = std::move(*sift_1); }
+            while (sift != begin && comp(tmp, *--sift_1));
+
+            *sift = std::move(tmp);
+        }
+    }
+}
+template<class Iter>
+inline void insertion_sort(Iter begin, Iter end) {
+    insertion_sort(begin, end, std::less<std::decay_t<decltype(*begin)>>());
+}
+} // namespace sort
+
+template<typename SeedHllType=hll_t>
+class hlfbase_t {
+protected:
+    // Note: Consider using a shared buffer and then do a weighted average
+    // of estimates from subhlls of power of 2 sizes.
+    std::vector<SeedHllType>                      hlls_;
+    std::vector<uint64_t, Allocator<uint64_t>>   seeds_;
+    std::vector<double>                         values_;
+    mutable double                               value_;
+    bool                                 is_calculated_;
+    using HashType     = typename SeedHllType::HashType;
+    const HashType                                  hf_;
+public:
+    template<typename... Args>
+    hlfbase_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0), hf_{} {
+        auto sfs = detail::seeds_from_seed(seedseed, size);
+        assert(sfs.size());
+        hlls_.reserve(size);
+        for(const auto seed: sfs) seeds_.emplace_back(seed);
+        while(hlls_.size() < seeds_.size()) hlls_.emplace_back(std::forward<Args>(args)...);
+    }
+    hlfbase_t(const hlfbase_t &) = default;
+    hlfbase_t(hlfbase_t &&) = default;
+    uint64_t size() const {return hlls_.size();}
+    auto m() const {return hlls_[0].size();}
+    void write(const char *fn) const {
+        gzFile fp = gzopen(fn, "wb");
+        if(fp == nullptr) throw std::runtime_error("Could not open file.");
+        this->write(fp);
+        gzclose(fp);
+    }
+    void clear() {
+        value_ = is_calculated_ = 0;
+        for(auto &hll: hlls_) hll.clear();
+    }
+    void read(const char *fn) {
+        gzFile fp = gzopen(fn, "rb");
+        if(fp == nullptr) throw std::runtime_error("Could not open file.");
+        this->read(fp);
+        gzclose(fp);
+    }
+    void write(gzFile fp) const {
+        uint64_t sz = hlls_.size();
+        gzwrite(fp, &sz, sizeof(sz));
+        for(auto &seed: seeds_) gzwrite(fp, &seed, sizeof(seed));
+        for(const auto &hll: hlls_) {
+            hll.write(fp);
+        }
+        gzclose(fp);
+    }
+    void read(gzFile fp) {
+        uint64_t size;
+        gzread(fp, &size, sizeof(size));
+        seeds_.resize(size);
+        for(unsigned i(0); i < size; gzread(fp, seeds_.data() + i++, sizeof(seeds_[0])));
+        hlls_.clear();
+        while(hlls_.size() < size) hlls_.emplace_back(fp);
+        gzclose(fp);
+    }
+
+    // This only works for hlls using 64-bit integers.
+    // Looking ahead,consider templating so that the double version might be helpful.
+
+    bool may_contain(uint64_t element) const {
+        using Space = vec::SIMDTypes<uint64_t>;
+        using SType = typename Space::Type;
+        using VType = typename Space::VType;
+        unsigned k = 0;
+        if(size() >= Space::COUNT) {
+            if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                for(unsigned i(0); i < Space::COUNT;) if(!hlls_[k++].may_contain(key.arr_[i++])) return false;
+            } while(sptr < eptr);
+            return true;
+        } else { // if size() >= Space::COUNT
+            for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(hf_(element ^ seeds_[i]))) return false;
+            return true;
+        }
+    }
+    void addh(uint64_t val) {
+        using Space = vec::SIMDTypes<uint64_t>;
+        using SType = typename Space::Type;
+        using VType = typename Space::VType;
+        unsigned k = 0;
+        if(size() >= Space::COUNT) {
+            if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            const SType element = Space::set1(val);
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                for(unsigned i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
+                assert(k <= size());
+            } while(sptr < eptr);
+        } else while(k < size()) hlls_[k].add(hf_(val ^ seeds_[k])), ++k;
+    }
+    double creport() const {
+        if(is_calculated_) return value_;
+        double ret(hlls_[0].creport());
+        for(size_t i(1); i < size(); ret += hlls_[i++].creport());
+        ret /= static_cast<double>(size());
+        value_ = ret;
+        return value_ = ret;
+    }
+    hlfbase_t &operator+=(const hlfbase_t &other) {
+        if(other.size() != size()) throw std::runtime_error("Wrong number of subsketches.");
+        if(other.hlls_[0].p() != hlls_[0].p()) throw std::runtime_error("Wrong size of subsketches.");
+        for(unsigned i(0); i < size(); ++i) {
+            hlls_[i] += other.hlls_[i];
+            hlls_[i].not_ready();
+        }
+        is_calculated_ = false;
+    }
+    hlfbase_t operator+(const hlfbase_t &other) const {
+        // Could be more directly optimized.
+        hlfbase_t ret = *this;
+        ret += other;
+    }
+    double report() noexcept {
+        if(is_calculated_) return value_;
+        hlls_[0].csum();
+#if DIVIDE_EVERY_TIME
+        double ret(hlls_[0].report() / static_cast<double>(size()));
+        for(size_t i(1); i < size(); ++i) {
+            hlls_[i].csum();
+            ret += hlls_[i].report() / static_cast<double>(size());
+        }
+#else
+        double ret(hlls_[0].report());
+        for(size_t i(1); i < size(); ++i) {
+            hlls_[i].csum();
+            ret += hlls_[i].report();
+        }
+        ret /= static_cast<double>(size());
+#endif
+        return value_ = ret;
+    }
+    double med_report() noexcept {
+        if(values_.empty())
+            values_.reserve(size());
+        values_.clear();
+        for(auto &hll: hlls_) values_.emplace_back(hll.report());
+        if(size() & 1) {
+            if(size() < 32)
+                sort::insertion_sort(std::begin(values_), std::end(values_));
+            else
+                std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) + 1, std::end(values_));
+            return values_[size() >> 1];
+        }
+        if(size() < 32) {
+            sort::insertion_sort(std::begin(values_), std::end(values_));
+            return .5 * (values_[size() >> 1] + values_[(size() >> 1) - 1]);
+        }
+        std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) - 1, std::end(values_));
+        return .5 * (values_[(values_.size() >> 1) - 1] + *std::min_element(std::cbegin(values_) + (size() >> 1), std::cend(values_)));
+    }
+    // Attempt strength borrowing across hlls with different seeds
+    double chunk_report() const {
+        if((size() & (size() - 1)) == 0) {
+            std::array<uint64_t, 64> counts{0};
+            for(const auto &hll: hlls_) detail::inc_counts(counts, hll.core());
+            const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1);
+            const auto new_p = hlls_[0].p() + diff;
+            const auto new_m = (1ull << new_p);
+            return detail::calculate_estimate(counts, hlls_[0].get_estim(), new_m,
+                                              new_p, make_alpha(new_m)) / (1ull << diff);
+        } else {
+            std::fprintf(stderr, "chunk_report is currently only supported for powers of two.");
+            return creport();
+            // Could try weight averaging, but currently I just report default when size is not a power of two.
+        }
+    }
+};
+using hlf_t = hlfbase_t<>;
+template<typename HashType=WangHash>
+class chlf_t { // contiguous hyperlogfilter
+protected:
+    // Note: Consider using a shared buffer and then do a weighted average
+    // of estimates from subhlls of power of 2 sizes.
+    std::vector<uint64_t, Allocator<uint64_t>>   seeds_;
+    std::vector<double>                         values_;
+    EstimationMethod                             estim_;
+    JointEstimationMethod                       jestim_;
+    const uint32_t                                subp_;
+    const uint16_t                                  ns_; // number of subsketches
+    const uint16_t                                  np_;
+    mutable double                               value_;
+    bool                                 is_calculated_;
+    const HashType                                  hf_;
+    std::vector<uint8_t, Allocator<uint8_t>>      core_;
+public:
+    chlf_t(size_t l2ss, EstimationMethod estim,
+           JointEstimationMethod jestim, unsigned p, uint64_t seedseed=0): estim_(estim), jestim_(jestim), subp_(p - l2ss), ns_(1 << l2ss), np_(p), value_(0), is_calculated_(0), hf_{}, core_(1ull << p) {
+        auto sfs = detail::seeds_from_seed(seedseed ? seedseed: ns_ + l2ss * p + 137, ns_);
+        seeds_ = std::vector<uint64_t, Allocator<uint64_t>>(std::begin(sfs), std::end(sfs));
+        assert(sfs.size());
+    }
+    auto nbytes()    const {return core_.size();}
+    auto nsketches() const {return ns_;}
+    auto m() const {return core_.size();}
+    auto subp() const {return subp_;}
+    auto subq() const {return (sizeof(uint64_t) * CHAR_BIT) - subp_;}
+    void add(uint64_t hashval, unsigned subidx) {
+#ifndef NOT_THREADSAFE
+        // subidx << subp gets us to the subtable, hashval >> subq gets us to the slot within that table.
+        for(const uint32_t index((hashval >> subq()) + (subidx << subp())), lzt(clz(((hashval << 1)|1) << (subp() - 1)) + 1);
+            core_[index] < lzt;
+            __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
+#else
+        const uint32_t index((hashval >> subq()) + (subidx << subp())), lzt(clz(((hashval << 1)|1) << (subp() - 1)) + 1);
+        core_[index] = std::max(core_[index], lzt);
+#endif
+        
+    }
+    using Space = vec::SIMDTypes<uint64_t>;
+    using SType = typename Space::Type;
+    using VType = typename Space::VType;
+    INLINE bool may_contain(uint64_t val) const {
+        unsigned k = 0;
+        if(ns_ >= Space::COUNT) {
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            const SType element = Space::set1(val);
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                for(const auto val: key.arr_)
+                    if((clz(((val << 1)|1) << (subp() - 1)) + 1) > core_[(val >> subq()) + (k++ << subp())])
+                        return false;
+                assert(k <= ns_);
+            } while(sptr < eptr);
+        } else while(k < ns_) {
+            auto tmp = hf_(val ^ seeds_[k]);
+            if((clz(((tmp << 1)|1) << (subp() - 1)) + 1) > core_[(tmp >> subq()) + (k++ << subp())]) return false;
+        }
+        return true;
+    }
+    void addh(uint64_t val) {
+        unsigned k = 0;
+        if(ns_ >= Space::COUNT) {
+            const SType *sptr = (const SType *)&seeds_[0];
+            const SType *eptr = (const SType *)&seeds_.back();
+            const SType element = Space::set1(val);
+            VType key;
+            do {
+                key = hf_(*sptr++ ^ element);
+                key.for_each([&](const uint64_t &val) {add(val, k++);});
+                assert(k <= ns_);
+            } while(sptr < eptr);
+        } else for(;k < ns_;add(hf_(val ^ seeds_[k]), k), ++k);
+    }
+    double chunk_report() const {
+#if NON_POW2
+        if((size() & (size() - 1)) == 0) {
+#endif
+        std::array<uint64_t, 64> counts{0};
+        detail::inc_counts(counts, core_);
+        //const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1); Maybe do this instead of storing l2ns_?
+        return detail::calculate_estimate(counts, estim_, core_.size(),
+                                          np_, make_alpha(core_.size())) / ns_;
+#if NON_POW2
+        } else {
+            std::fprintf(stderr, "chunk_report is currently only supported for powers of two.");
+            return creport();
+            // Could try weight averaging, but currently I just report default when size is not a power of two.
+        }
+#endif
+    }
+    size_t size() const {return core_.size();}
+    void clear() {
+        std::fill(std::begin(core_), std::end(core_), 0);
+        is_calculated_ = 0;
+        value_         = 0;
+    }
+};
+
+} //namespace dev
+#ifdef ENABLE_HLL_DEVELOP
+using namespace dev;
+#endif
+
+} // namespace hll
 
 #endif // #ifndef HLL_H_

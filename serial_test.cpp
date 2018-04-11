@@ -11,7 +11,7 @@ int main(int argc, char *argv[]) {
     h.sum();
     std::fprintf(stderr, "h count: %lf. String: %s\n", h.report(), h.to_string().data());
     h.not_ready();
-    h.set_use_ertl(false);
+    h.set_estim(hll::ORIGINAL);
     h.write("SaveSketch.hll");
     hll_t h2("SaveSketch.hll");
     std::fprintf(stderr, "h2 count: %lf. String: %s\n", h2.report(), h2.to_string().data());

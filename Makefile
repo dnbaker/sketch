@@ -18,7 +18,9 @@ else
     UNDEFSTR=
 endif
 
-all: test
+
+EX=$(patsubst %.cpp,%,$(wildcard *test.cpp))
+all: $(EX)
 
 INCLUDES=-I`python3-config --includes` -Ipybind11/include
 SUF=`python3-config --extension-suffix`
@@ -33,25 +35,28 @@ python: _hll.cpython.so
 
 %.o: %.cpp
 	$(CXX) -c $(FLAGS) -std=c++17	$< -o $@
+
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-test: test.cpp kthread.o hll.h hll_dev.h
+%: %.cpp kthread.o hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-lztest: test.cpp kthread.o hll.h hll_dev.h
+lztest: test.cpp kthread.o hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
 
+bftest: bftest.cpp hll.h
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
 serial_test: serial_test.cpp hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
 
-dev_test: dev_test.cpp kthread.o hll.h hll_dev.h
+dev_test: dev_test.cpp kthread.o hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-dev_test_p: dev_test.cpp kthread.o hll.h hll_dev.h
+dev_test_p: dev_test.cpp kthread.o hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o -static-libstdc++ -static-libgcc $< -o $@ -lz
 
 clean:
-	rm -f test.o test hll.o kthread.o *hll*cpython*so
+	rm -f test.o test hll.o kthread.o *hll*cpython*so $(EX)
 
 mostlyclean: clean

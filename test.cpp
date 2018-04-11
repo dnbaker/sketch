@@ -41,7 +41,6 @@ void kt_helper(void *data, long index, int tid) {
  */
 
 int main(int argc, char *argv[]) {
-    const int nt(8);
     std::vector<std::uint64_t> vals;
     for(char **p(argv + 1); *p; ++p) vals.push_back(strtoull(*p, 0, 10));
     if(vals.empty()) vals.push_back(1ull<<(BITS+1));
