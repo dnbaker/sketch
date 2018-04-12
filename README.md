@@ -4,26 +4,26 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
 
 ## Contents
 1. HyperLogLog Implementation [hll.h]
-    0. `hll_t`/`hllbase_t<HashStruct>`
-    1. Estimates the cardinality of a set using log(log(cardinality)) bits.
+    1. `hll_t`/`hllbase_t<HashStruct>`
+    2. Estimates the cardinality of a set using log(log(cardinality)) bits.
 2. HyperLogFilter [hll.h]
-    0. `hlf_t`/`hlfbase_t<HashStruct>`
-    1. New data structure which provides the same quantitative accuracy as a HyperLogLog while providing more effective approximate membership query functionality than the HyperLogLog.
+    1. `hlf_t`/`hlfbase_t<HashStruct>`
+    2. New data structure which provides the same quantitative accuracy as a HyperLogLog while providing more effective approximate membership query functionality than the HyperLogLog.
 3. HyperLogFilter [hll.h]
-    0. `chlf_t`/`chlfbase_t<HashStruct>`
-    1. Identical to the `hlf_t` structure, with the exception that the memory is contiguous and each sketch cannot be used individually.
+    1. `chlf_t`/`chlfbase_t<HashStruct>`
+    2. Identical to the `hlf_t` structure, with the exception that the memory is contiguous and each sketch cannot be used individually.
 4. Bloom Filter [bf.h]
-    0. `bf_t`/`bfbase_t<HashStruct>`
-    1. Naive bloom filter
+    1. `bf_t`/`bfbase_t<HashStruct>`
+    2. Naive bloom filter
 5. Filterhll [filterhll.h]
-    0. `fhll_t`/`fhllbase_t<HashStruct>`
-    1. Simple hll/bf combination without rigorous guarantees for requiring an element be present in the bloom filter to be inserted into the HyperLogLog.
+    1. `fhll_t`/`fhllbase_t<HashStruct>`
+    2. Simple hll/bf combination without rigorous guarantees for requiring an element be present in the bloom filter to be inserted into the HyperLogLog.
 6. Naive Approximate Counting Bloom Filter [cbf.h]
-    0. `cbf_t`/`cbfbase_t<HashStruct>`
-    1. An array of bloom filters where presence in a sketch at a given index replaces the count for the approximate counting algorithm.
+    1. `cbf_t`/`cbfbase_t<HashStruct>`
+    2. An array of bloom filters where presence in a sketch at a given index replaces the count for the approximate counting algorithm.
 7. Probabilistic Counting Bloom Filter
-    0. `pcbf_t`/`pcbfbase_t<HashStruct>`
-    1. An array each of bloom filters and hyperloglogs for approximate counting. The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation.
+    1. `pcbf_t`/`pcbfbase_t<HashStruct>`
+    2. An array each of bloom filters and hyperloglogs for approximate counting. The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation.
 
 ### Test case
 To build and run the test case:
