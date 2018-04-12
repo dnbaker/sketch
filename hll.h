@@ -1202,8 +1202,6 @@ static inline double intersection_size(const HllType &h1, const HllType &h2) {
 }
 
 
-namespace dev {
-
 template<typename HashFunc=WangHash>
 class hlldub_base_t: public hllbase_t<HashFunc> {
     // hlldub_base_t inserts each value twice (forward and reverse)
@@ -1659,11 +1657,6 @@ public:
         value_         = 0;
     }
 };
-
-} //namespace dev
-#ifdef ENABLE_HLL_DEVELOP
-using namespace dev;
-#endif
 
 } // namespace hll
 

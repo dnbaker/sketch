@@ -16,7 +16,6 @@ using namespace std::chrono;
 
 using tp = std::chrono::system_clock::time_point;
 using namespace hll;
-using namespace hll::dev;
 
 static const size_t BITS = 15;
 

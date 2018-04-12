@@ -50,7 +50,7 @@ template<typename HashStruct=hll::WangHash>
 class pcbfbase_t {
 protected:
     using bf_t  = bf::bfbase_t<HashStruct>;
-    using hll_t = hll::dev::seedhllbase_t<HashStruct>;
+    using hll_t = hll::seedhllbase_t<HashStruct>;
 
     std::vector<hll_t> hlls_;
     std::vector<bf_t>   bfs_;
