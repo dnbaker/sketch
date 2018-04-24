@@ -60,6 +60,7 @@ int main(int argc, char *argv[]) {
         hll::hll_t::VType tmpv = static_cast<uint64_t>(1337);
         t.addh(tmpv);
         tmf.addh(tmpv);
+        auto mini = t.compress(4);
     }
 	return EXIT_SUCCESS;
 }
