@@ -952,7 +952,7 @@ public:
             size_t j(0);
             while(j < ratio && core_[j + b] == 0) ++j;
             if(j != ratio)
-                ret.core_[i] = std::min(ret.q() + 1, j ? clz(j): core_[b]);
+                ret.core_[i] = std::min(ret.q() + 1, j ? clz(j)+1: core_[b]);
             // Otherwise left at 0
             b += ratio;
         }
@@ -980,7 +980,7 @@ public:
     }
     hllbase_t& operator=(hllbase_t&&) = default;
     hllbase_t clone() const {
-        return hllbase_t(np_, estim_, jestim_, nthreads_);
+        return hllbase_t(np_, estim_, jestim_, nthreads_, clamp_);
     }
 
     hllbase_t &operator+=(const hllbase_t &other) {
