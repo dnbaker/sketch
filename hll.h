@@ -100,7 +100,7 @@ static const char *EST_STRS [] {
 
 namespace detail {
 template<typename T>
-inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr=1e-3); // forward declaration
+inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr=1e-2); // forward declaration
 template<typename Container>
 inline std::array<uint64_t, 64> sum_counts(const Container &con);
 }
@@ -205,7 +205,7 @@ static INLINE uint64_t finalize(uint64_t key) {
 
 template<typename CountArrType>
 inline double calculate_estimate(const CountArrType &counts,
-                                 EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-3) {
+                                 EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) {
     assert(estim <= 3 && estim >= 0);
     static_assert(std::is_same_v<std::decay_t<decltype(counts[0])>, uint64_t>, "Counts must be a container for uint64_ts.");
     switch(estim) {
@@ -535,7 +535,7 @@ inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr
 }
 
 template<typename HllType>
-double ertl_ml_estimate(const HllType& c, double relerr=1e-3) {
+double ertl_ml_estimate(const HllType& c, double relerr=1e-2) {
     return ertl_ml_estimate(detail::sum_counts(c.core()), c.p(), c.q(), relerr);
 }
 
