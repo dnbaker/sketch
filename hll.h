@@ -55,6 +55,7 @@
 
 
 namespace hll {
+using namespace std::literals;
 
 /*
  * TODO: calculate distance *directly* without copying to another sketch!
@@ -938,6 +939,25 @@ public:
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
+    hllbase_t<HashStruct> compress(size_t new_np) const {
+        // See Algorithm 3 in https://arxiv.org/abs/1702.01284
+        // This is not very optimized.
+        // I might later add support for doubling, c/o https://research.neustar.biz/2013/04/30/doubling-the-size-of-an-hll-dynamically-extra-bits/
+        if(new_np == np_) return hllbase_t(*this);
+        if(new_np > np_) throw std::runtime_error("Can't compress to a larger size. Current: "s + std::to_string(np_) + ". Requested new size: " + std::to_string(new_np));
+        hllbase_t<HashStruct> ret(new_np, get_estim(), get_jestim(), nthreads_, clamp());
+        size_t ratio = static_cast<size_t>(1) << (np_ - new_np);
+        size_t b = 0;
+        for(size_t i(0); i < (1ull << new_np); ++i) {
+            size_t j(0);
+            while(j < ratio && core_[j + b] == 0) ++j;
+            if(j != ratio)
+                ret.core_[i] = std::min(ret.q() + 1, j ? clz(j)+1: core_[b]);
+            // Otherwise left at 0
+            b += ratio;
+        }
+        return ret;
+    }
     // Reset.
     void clear() {
         // Note: this can be accelerated with SIMD.
@@ -960,7 +980,7 @@ public:
     }
     hllbase_t& operator=(hllbase_t&&) = default;
     hllbase_t clone() const {
-        return hllbase_t(np_, estim_, jestim_, nthreads_);
+        return hllbase_t(np_, estim_, jestim_, nthreads_, clamp_);
     }
 
     hllbase_t &operator+=(const hllbase_t &other) {
