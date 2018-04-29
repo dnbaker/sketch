@@ -69,6 +69,7 @@ public:
         if(shrinkpow2) for(int hllstart = hllp ? hllp: l2sz > 12 ? l2sz - 4: 8; hlls_.size() < nbfs; hlls_.emplace_back(rng_(), std::max(hllstart--, static_cast<int>(hll::hllbase_t<HashStruct>::min_size())), estim, jestim, 1, false));
         else while(hlls_.size() < nbfs) hlls_.emplace_back(rng_(), hllp ? hllp: l2sz > 12 ? l2sz - 4: 8, estim, jestim, 1, false);
     }
+    size_t size() const {return bfs_.size();}
     INLINE void addh(uint64_t val) {
         unsigned i(0);
         if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain(val)) {
@@ -87,16 +88,59 @@ public:
             if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain) return false;
         return true;
     }
+    void clear() {
+        for(auto &h: hlls_) h.clear();
+        for(auto &b: bfs_) b.clear();
+        gen_ = nbits_ = 0;
+    }
     unsigned naive_est_count(uint64_t val) const {
         unsigned i(0);
         if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain(val)) return 0;
         while(++i != bfs_.size() && bfs_[i].may_contain(val) && hlls_[i].may_contain(val));
         return 1u << (i - 1);
     }
-    // TODO: better estimate using the hlls to provide error rate estimates.
+    unsigned est_count(uint64_t val) const {
+        // TODO: better estimate using the hlls to provide error rate estimates.
+        return naive_est_count(val);
+    }
 };
 
 using pcbf_t = pcbfbase_t<hll::WangHash>;
+template<typename HashType=hll::WangHash>
+class pcbfhllbase_t {
+    using cbf_t = bf::cbfbase_t<HashType>;
+    using hll_t = hll::hllbase_t<HashType>;
+    pcbfbase_t<HashType> pcb_;
+    hll_t                   hll_;
+    unsigned          threshold_;
+public:
+#if 0
+    explicit pcbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes,
+                       uint64_t seedseedseedval, unsigned hllp=0, hll::EstimationMethod estim=hll::ERTL_MLE,
+                       hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=false):
+#endif
+    pcbfhllbase_t(unsigned filternp_, unsigned subnp_, size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval,
+                  unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool clamp=true):
+            pcb_(nbfs, l2sz, nhashes, seedseedseedval, subnp_, estim, jestim, clamp),
+            hll_(filternp_, estim, jestim, -1, clamp), threshold_{threshold}
+    {
+        if(threshold > (1u << (pcb_.size() - 1))) throw std::runtime_error("Count threshold must be countable-to");
+    }
+    void addh(uint64_t val) {
+        pcb_.addh(val); // This wastes a check. TODO: elide this.
+        if(pcb_.est_count(val) >= threshold_) hll_.addh(val);
+    }
+    void clear() {
+        hll_.clear();
+        pcb_.clear();
+    }
+    void set_threshold(unsigned threshold) {threshold_ = threshold;}
+    auto threshold() const {return threshold_;}
+    void not_ready() {hll_.not_ready();}
+    hll_t       &hll()       {return hll_;}
+    const hll_t &hll() const {return hll_;}
+};
+using pcfhll_t = pcbfhllbase_t<hll::WangHash>;
 
 } // namespace cbf
 

@@ -234,7 +234,7 @@ protected:
     uint8_t                                       np_;
     uint8_t                                       nh_;
     uint8_t                                     perh_; // Number of hashes per 64-bit hash
-    uint8_t                                    qmark_; // No idea what to do with this yet.
+    uint8_t                                    qmark_; // No idea what to do with this yet, but it's free bc of alignment.
     std::vector<uint64_t, Allocator<uint64_t>>  core_;
     std::vector<uint64_t, Allocator<uint64_t>> seeds_;
     uint64_t                                seedseed_;
