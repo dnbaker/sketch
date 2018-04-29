@@ -69,6 +69,11 @@ public:
         if(shrinkpow2) for(int hllstart = hllp ? hllp: l2sz > 12 ? l2sz - 4: 8; hlls_.size() < nbfs; hlls_.emplace_back(rng_(), std::max(hllstart--, static_cast<int>(hll::hllbase_t<HashStruct>::min_size())), estim, jestim, 1, false));
         else while(hlls_.size() < nbfs) hlls_.emplace_back(rng_(), hllp ? hllp: l2sz > 12 ? l2sz - 4: 8, estim, jestim, 1, false);
     }
+    const std::vector<bf_t>  &bfs()  const {return bfs_;}
+    const std::vector<hll_t> &hlls() const {return hlls_;}
+    void resize_bloom(unsigned newsize) {
+        for(auto &bf: bfs_) bf.resize(newsize);
+    }
     size_t size() const {return bfs_.size();}
     INLINE void addh(uint64_t val) {
         unsigned i(0);
@@ -110,19 +115,15 @@ template<typename HashType=hll::WangHash>
 class pcbfhllbase_t {
     using cbf_t = bf::cbfbase_t<HashType>;
     using hll_t = hll::hllbase_t<HashType>;
-    pcbfbase_t<HashType> pcb_;
+    pcbfbase_t<HashType>    pcb_;
     hll_t                   hll_;
     unsigned          threshold_;
+    uint64_t    seedseedseedval_;
 public:
-#if 0
-    explicit pcbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes,
-                       uint64_t seedseedseedval, unsigned hllp=0, hll::EstimationMethod estim=hll::ERTL_MLE,
-                       hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=false):
-#endif
     pcbfhllbase_t(unsigned filternp_, unsigned subnp_, size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval,
                   unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool clamp=true):
             pcb_(nbfs, l2sz, nhashes, seedseedseedval, subnp_, estim, jestim, clamp),
-            hll_(filternp_, estim, jestim, -1, clamp), threshold_{threshold}
+            hll_(filternp_, estim, jestim, -1, clamp), threshold_{threshold}, seedseedseedval_(seedseedseedval)
     {
         if(threshold > (1u << (pcb_.size() - 1))) throw std::runtime_error("Count threshold must be countable-to");
     }
@@ -134,11 +135,18 @@ public:
         hll_.clear();
         pcb_.clear();
     }
+    void resize_bloom(unsigned newsize) {
+        pcb_.resize_bloom(newsize);
+    }
     void set_threshold(unsigned threshold) {threshold_ = threshold;}
     auto threshold() const {return threshold_;}
     void not_ready() {hll_.not_ready();}
     hll_t       &hll()       {return hll_;}
     const hll_t &hll() const {return hll_;}
+    pcbfhllbase_t clone() const {
+        return pcbfhllbase_t(hll_.p(), pcb_.hlls()[0].p(), pcb_.size(), std::log2(pcb_.bfs()[0].size()),
+                             pcb_.bfs()[0].nhashes(), seedseedseedval_, threshold_, pcb_.hlls()[0].get_estim(), pcb_.hlls()[0].get_jestim(), pcb_.hlls()[0].clamp());
+    }
 };
 using pcfhll_t = pcbfhllbase_t<hll::WangHash>;
 
