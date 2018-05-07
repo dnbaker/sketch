@@ -1,44 +1,15 @@
 #ifndef CRUEL_BLOOM_H__
 #define CRUEL_BLOOM_H__
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <climits>
-#include <cinttypes>
-#include <cmath>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <random>
-#include <set>
-#include <stdexcept>
-#include <string>
-#include <thread>
-#include <vector>
-#include "sseutil.h"
-#include "unistd.h"
-#include "x86intrin.h"
-#if ZWRAP_USE_ZSTD
-#  include "zstd_zlibwrapper.h"
+#include "common.h"
+
+#if HAS_AVX_512
+#  define popcnt_fn(x) popcnt512(x.simd_)
+#elif __AVX2__
+#  define popcnt_fn(x) popcnt256(x.simd_)
+#elif __SSE2__
+#  define popcnt_fn(x) (popcount(x.arr_[0]) + popcount(x.arr_[1]))
 #else
-#  include <zlib.h>
-#endif
-
-#ifndef _VEC_H__ // In case vec.h has been used but with blaze before.
-#  define NO_SLEEF
-#  define NO_BLAZE
-#  include "vec.h" // Import vec.h, but disable blaze and sleef.
-#endif
-
-#define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__)
-
-
-#ifndef INLINE
-#  if __GNUC__ || __clang__
-#    define INLINE __attribute__((always_inline)) inline
-#  else
-#    define INLINE inline
-#  endif
+#  error("Need SSE2. TODO: make this work for non-SIMD architectures")
 #endif
 
 #ifdef INCLUDE_CLHASH_H_
@@ -56,112 +27,7 @@
 
 
 namespace bf {
-
-/*
- * TODO: calculate distance *directly* without copying to another sketch!
- */
-
-using std::uint64_t;
-using std::uint32_t;
-using std::uint16_t;
-using std::uint8_t;
-using std::size_t;
-
-template<typename T>
-static inline bool is_pow2(T val) {
-    return val && (val & (val - 1)) == 0;
-}
-
-namespace hash {
-
-
-// Thomas Wang hash
-// Original site down, available at https://naml.us/blog/tag/thomas-wang
-// This is our core 64-bit hash.
-// It has a 1-1 mapping from any one 64-bit integer to another
-// and can be inverted with irving_inv_hash.
-static INLINE uint64_t wang_hash(uint64_t key) noexcept {
-  key = (~key) + (key << 21); // key = (key << 21) - key - 1;
-  key = key ^ (key >> 24);
-  key = (key + (key << 3)) + (key << 8); // key * 265
-  key = key ^ (key >> 14);
-  key = (key + (key << 2)) + (key << 4); // key * 21
-  key = key ^ (key >> 28);
-  return key = key + (key << 31);
-}
-
-struct WangHash {
-    using Space = vec::SIMDTypes<uint64_t>;
-    using Type = typename vec::SIMDTypes<uint64_t>::Type;
-    using VType = typename vec::SIMDTypes<uint64_t>::VType;
-    auto operator()(uint64_t key) const {
-        return wang_hash(key);
-    }
-    INLINE Type operator()(Type element) const {
-        VType key = Space::add(Space::slli(element, 21), ~element); // key = (~key) + (key << 21);
-        key = Space::srli(key.simd_, 24) ^ key.simd_; //key ^ (key >> 24)
-        key = Space::add(Space::add(Space::slli(key.simd_, 3), Space::slli(key.simd_, 8)), key.simd_); // (key + (key << 3)) + (key << 8);
-        key = key.simd_ ^ Space::srli(key.simd_, 14);  // key ^ (key >> 14);
-        key = Space::add(Space::add(Space::slli(key.simd_, 2), Space::slli(key.simd_, 4)), key.simd_); // (key + (key << 2)) + (key << 4); // key * 21
-        key = key.simd_ ^ Space::srli(key.simd_, 28); // key ^ (key >> 28);
-        key = Space::add(Space::slli(key.simd_, 31), key.simd_);    // key + (key << 31);
-        return key.simd_;
-    }
-    INLINE Type &apply_inplace(Type &element) const {
-        element = Space::add(Space::slli(element, 21), ~element); // key = (~key) + (key << 21);
-        element = Space::srli(element, 24) ^ element; //element ^ (element >> 24)
-        element = Space::add(Space::add(Space::slli(element, 3), Space::slli(element, 8)), element); // (element + (element << 3)) + (element << 8);
-        element = element ^ Space::srli(element, 14);  // element ^ (element >> 14);
-        element = Space::add(Space::add(Space::slli(element, 2), Space::slli(element, 4)), element); // (element + (element << 2)) + (element << 4); // element * 21
-        element = element ^ Space::srli(element, 28); // element ^ (element >> 28);
-        element = Space::add(Space::slli(element, 31), element);    // element + (element << 31);
-        return element;
-    }
-};
-
-struct MurFinHash {
-    using Space = vec::SIMDTypes<uint64_t>;
-    using Type = typename vec::SIMDTypes<uint64_t>::Type;
-    using VType = typename vec::SIMDTypes<uint64_t>::VType;
-    INLINE uint64_t operator()(uint64_t key) const {
-        key ^= key >> 33;
-        key *= 0xff51afd7ed558ccd;
-        key ^= key >> 33;
-        key *= 0xc4ceb9fe1a85ec53;
-        key ^= key >> 33;
-        return key;
-    }
-    INLINE Type operator()(Type key) const {
-        return this->operator()(*((VType *)&key));
-    }
-    INLINE Type operator()(VType key) const {
-#if (HAS_AVX_512)
-        static const Type mul1 = Space::set1(0xff51afd7ed558ccd);
-        static const Type mul2 = Space::set1(0xc4ceb9fe1a85ec53);
-#endif
-
-#if !NDEBUG
-        auto save = key.arr_[0];
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if (HAS_AVX_512) == 0
-        key.for_each([](uint64_t &x) {x *= 0xff51afd7ed558ccd;});
-#  else
-        key = Space::mullo(key.simd_, mul1); // h *= 0xff51afd7ed558ccd;
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if (HAS_AVX_512) == 0
-        key.for_each([](uint64_t &x) {x *= 0xc4ceb9fe1a85ec53;});
-#  else
-        key = Space::mullo(key.simd_, mul2); // h *= 0xc4ceb9fe1a85ec53;
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-        assert(this->operator()(save) == key.arr_[0]);
-        return key.simd_;
-    }
-};
-
-} // namespace hash
+using namespace common;
 
 static INLINE uint64_t roundup64(size_t x) noexcept {
     --x;
@@ -220,7 +86,7 @@ using Allocator = std::allocator<ValueType, ss::Alignment::Normal>;
 
 
 
-template<typename HashStruct=hash::WangHash>
+template<typename HashStruct=WangHash>
 class bfbase_t {
 // HyperLogLog implementation.
 // To make it general, the actual point of entry is a 64-bit integer hash function.
@@ -242,9 +108,6 @@ public:
     static constexpr unsigned OFFSET = 6; // log2(CHAR_BIT * 8) == log2(64) == 6
     using HashType = HashStruct;
     const HashStruct        hf_;
-
-    using VectorSpace = vec::SIMDTypes<uint64_t>;
-    using VType       = typename vec::SIMDTypes<uint64_t>::VType;
 
     uint64_t m() const {return core_.size() << OFFSET;}
     uint64_t p() const {return np_ + OFFSET;}
@@ -298,13 +161,30 @@ public:
         set1(hv);
         for(unsigned subhind = 0; subhind < n; set1((hv >> (++subhind * shift))));
     }
+
+    unsigned intersection_count(const bfbase_t &other) const {
+        if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
+        auto &oc = other.core_;
+        Space::VType tmp, sum;
+        const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
+        tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
+        sum.simd_ = popcnt_fn(tmp);
+        for(size_t i(1); i < core_.size() / Space::COUNT; ++i) {
+            tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
+            sum += popcnt_fn(tmp);
+        }
+        return sum.sum();
+    }
+    double jaccard_index(const bfbase_t &other) const {
+        return static_cast<double>(intersection_count(other)) / static_cast<double>(m());
+    }
     INLINE void addh(uint64_t element) {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = VectorSpace::COUNT * npw;
+        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
         const auto shift = lut::nbitsperhash[p()];
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         while(nleft > npersimd) {
-            VType v(hf_(VectorSpace::set1(element) ^ (*seedptr++).simd_));
+            VType v(hf_(Space::set1(element) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {sub_set1(val, npw, shift);});
             nleft -= npersimd;
         }
@@ -328,7 +208,7 @@ public:
     }
     // Reset.
     void clear() {
-        VType v1 = VectorSpace::set1(0);
+        VType v1 = Space::set1(0);
         for(VType *p1((VType *)&core_[0]), *p2((VType *)&core_[core_.size()]); p1 < p2; *p1++ = v1);
     }
     bfbase_t(bfbase_t&&) = default;
@@ -351,8 +231,21 @@ public:
         }
         VType *els((VType *)core_.data());
         const VType *oels((const VType *)other.core_.data());
-        for(unsigned i = 0; i < (core_.size() / VectorSpace::COUNT / CHAR_BIT); ++i)
-            els[i].simd_ = VectorSpace::or_fn(els[i].simd_, oels[i].simd_);
+        unsigned i;
+        if(core_.size() / Space::COUNT >= 8) {
+            for(i = 0; i < (core_.size() / (Space::COUNT));) {
+            // Simpler version of Duff's device, except our number is always divisible by 8
+            // So we can just unroll it 8 at a time.
+#define OR_ITER els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_)
+                OR_ITER; OR_ITER; OR_ITER; OR_ITER;
+                OR_ITER; OR_ITER; OR_ITER; OR_ITER;
+                i += 8;
+#undef OR_ITER
+            }
+        } else {
+            for(i = 0; i < (core_.size() / Space::COUNT); ++i)
+                els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_);
+        }
         return *this;
     }
 
@@ -365,8 +258,18 @@ public:
         unsigned i;
         VType *els((VType *)core_.data());
         const VType *oels((const VType *)other.core_.data());
-        for(unsigned i = 0; i < (core_.size() / VectorSpace::COUNT / CHAR_BIT); ++i)
-            els[i].simd_ = VectorSpace::and_fn(els[i].simd_, oels[i].simd_);
+        if(core_.size() / Space::COUNT >= 8) {
+            for(i = 0; i < (core_.size() / (Space::COUNT));) {
+#define AND_ITER els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_)
+                AND_ITER; AND_ITER; AND_ITER; AND_ITER;
+                AND_ITER; AND_ITER; AND_ITER; AND_ITER;
+                i += 8;
+#undef AND_ITER
+            }
+        } else {
+            for(i = 0; i < (core_.size() / Space::COUNT / CHAR_BIT); ++i)
+                els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_);
+        }
         return *this;
     }
 
@@ -383,12 +286,12 @@ public:
     // Getter for is_calculated_
     bool may_contain(uint64_t val) const {
         bool ret = true;
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = VectorSpace::COUNT * npw;
+        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
         const auto shift = lut::nbitsperhash[p()];
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         const uint64_t *sptr;
         while(nleft > npersimd) {
-            VType v(hf_(VectorSpace::set1(val) ^ (*seedptr++).simd_));
+            VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {ret &= all_set(val, npw, shift);});
             if(!ret) goto f;
             nleft -= npersimd;
@@ -408,7 +311,7 @@ public:
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         ret.clear();
         ret.resize(nvals >> 6 + ((nvals & 0x63u) != 0), UINT64_C(-1));
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = VectorSpace::COUNT * npw;
+        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
         const auto shift = lut::nbitsperhash[p()];
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         VType seed, v;
@@ -416,7 +319,7 @@ public:
             seed.simd_ = (*seedptr++).simd_;
             for(unsigned  i(0); i < nvals; ++i) {
                 bool is_present = true;
-                v.simd_ = hf_(VectorSpace::set1(vals[i]) ^ seed.simd_);
+                v.simd_ = hf_(Space::set1(vals[i]) ^ seed.simd_);
                 v.for_each([&](const uint64_t &val) {
                     ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(val, npw, shift)) << (i & 63u));
                 });
@@ -519,14 +422,6 @@ public:
         bfbase_t ret(*this);
         ret += other;
         return ret;
-    }
-    double union_size(const bfbase_t &other) const {
-        throw std::runtime_error("Need to write.");
-        return 0.;
-    }
-    double jaccard_index(const bfbase_t &h2) const {
-        throw std::runtime_error("Not finished");
-        return std::max(0., 1.);
     }
     size_t size() const {return size_t(m());}
 };

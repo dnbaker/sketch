@@ -4,15 +4,12 @@
 #include "aesctr.h"
 
 namespace bf {
-#ifndef RNG_TYPE
-#define RNG_TYPE aes::AesCtr<std::uint64_t, 8>
-#endif
 
-template<typename HashStruct=hash::WangHash>
+template<typename HashStruct=WangHash, typename RngType=aes::AesCtr<std::uint64_t, 8>>
 class cbfbase_t {
 protected:
     std::vector<bfbase_t<HashStruct>> bfs_;
-    RNG_TYPE  rng_;
+    RngType  rng_;
     uint64_t  gen_;
     uint8_t nbits_;
     // TODO: this can be improved by providing a continuous chunk of memory
