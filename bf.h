@@ -1,47 +1,6 @@
 #ifndef CRUEL_BLOOM_H__
 #define CRUEL_BLOOM_H__
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <climits>
-#include <cinttypes>
-#include <cmath>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <random>
-#include <set>
-#include <stdexcept>
-#include <string>
-#include <thread>
-#include <vector>
-#include "sseutil.h"
-#include "unistd.h"
-#include "x86intrin.h"
-#include "libpopcnt/libpopcnt.h"
-#if ZWRAP_USE_ZSTD
-#  include "zstd_zlibwrapper.h"
-#else
-#  include <zlib.h>
-#endif
-
-#ifndef _VEC_H__ // In case vec.h has been used but with blaze before.
-#  define NO_SLEEF
-#  define NO_BLAZE
-#  include "vec.h" // Import vec.h, but disable blaze and sleef.
-#endif
-
-#define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__)
-
-
-#ifndef INLINE
-#  if __GNUC__ || __clang__
-#    define INLINE __attribute__((always_inline)) inline
-#  else
-#    define INLINE inline
-#  endif
-#endif
-
+#include "common.h"
 
 #if HAS_AVX_512
 #  define popcnt_fn(x) popcnt512(x.simd_)
@@ -68,110 +27,7 @@
 
 
 namespace bf {
-
-using Space = vec::SIMDTypes<uint64_t>;
-using Type  = typename vec::SIMDTypes<uint64_t>::Type;
-using VType = typename vec::SIMDTypes<uint64_t>::VType;
-
-/*
- * TODO: calculate distance *directly* without copying to another sketch!
- */
-
-using std::uint64_t;
-using std::uint32_t;
-using std::uint16_t;
-using std::uint8_t;
-using std::size_t;
-
-template<typename T>
-static inline bool is_pow2(T val) {
-    return val && (val & (val - 1)) == 0;
-}
-
-namespace hash {
-
-
-// Thomas Wang hash
-// Original site down, available at https://naml.us/blog/tag/thomas-wang
-// This is our core 64-bit hash.
-// It has a 1-1 mapping from any one 64-bit integer to another
-// and can be inverted with irving_inv_hash.
-static INLINE uint64_t wang_hash(uint64_t key) noexcept {
-  key = (~key) + (key << 21); // key = (key << 21) - key - 1;
-  key = key ^ (key >> 24);
-  key = (key + (key << 3)) + (key << 8); // key * 265
-  key = key ^ (key >> 14);
-  key = (key + (key << 2)) + (key << 4); // key * 21
-  key = key ^ (key >> 28);
-  return key = key + (key << 31);
-}
-
-struct WangHash {
-    auto operator()(uint64_t key) const {
-        return wang_hash(key);
-    }
-    INLINE Type operator()(Type element) const {
-        VType key = Space::add(Space::slli(element, 21), ~element); // key = (~key) + (key << 21);
-        key = Space::srli(key.simd_, 24) ^ key.simd_; //key ^ (key >> 24)
-        key = Space::add(Space::add(Space::slli(key.simd_, 3), Space::slli(key.simd_, 8)), key.simd_); // (key + (key << 3)) + (key << 8);
-        key = key.simd_ ^ Space::srli(key.simd_, 14);  // key ^ (key >> 14);
-        key = Space::add(Space::add(Space::slli(key.simd_, 2), Space::slli(key.simd_, 4)), key.simd_); // (key + (key << 2)) + (key << 4); // key * 21
-        key = key.simd_ ^ Space::srli(key.simd_, 28); // key ^ (key >> 28);
-        key = Space::add(Space::slli(key.simd_, 31), key.simd_);    // key + (key << 31);
-        return key.simd_;
-    }
-    INLINE Type &apply_inplace(Type &element) const {
-        element = Space::add(Space::slli(element, 21), ~element); // key = (~key) + (key << 21);
-        element = Space::srli(element, 24) ^ element; //element ^ (element >> 24)
-        element = Space::add(Space::add(Space::slli(element, 3), Space::slli(element, 8)), element); // (element + (element << 3)) + (element << 8);
-        element = element ^ Space::srli(element, 14);  // element ^ (element >> 14);
-        element = Space::add(Space::add(Space::slli(element, 2), Space::slli(element, 4)), element); // (element + (element << 2)) + (element << 4); // element * 21
-        element = element ^ Space::srli(element, 28); // element ^ (element >> 28);
-        element = Space::add(Space::slli(element, 31), element);    // element + (element << 31);
-        return element;
-    }
-};
-
-struct MurFinHash {
-    INLINE uint64_t operator()(uint64_t key) const {
-        key ^= key >> 33;
-        key *= 0xff51afd7ed558ccd;
-        key ^= key >> 33;
-        key *= 0xc4ceb9fe1a85ec53;
-        key ^= key >> 33;
-        return key;
-    }
-    INLINE Type operator()(Type key) const {
-        return this->operator()(*((VType *)&key));
-    }
-    INLINE Type operator()(VType key) const {
-#if (HAS_AVX_512)
-        static const Type mul1 = Space::set1(0xff51afd7ed558ccd);
-        static const Type mul2 = Space::set1(0xc4ceb9fe1a85ec53);
-#endif
-
-#if !NDEBUG
-        auto save = key.arr_[0];
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if (HAS_AVX_512) == 0
-        key.for_each([](uint64_t &x) {x *= 0xff51afd7ed558ccd;});
-#  else
-        key = Space::mullo(key.simd_, mul1); // h *= 0xff51afd7ed558ccd;
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if (HAS_AVX_512) == 0
-        key.for_each([](uint64_t &x) {x *= 0xc4ceb9fe1a85ec53;});
-#  else
-        key = Space::mullo(key.simd_, mul2); // h *= 0xc4ceb9fe1a85ec53;
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-        assert(this->operator()(save) == key.arr_[0]);
-        return key.simd_;
-    }
-};
-
-} // namespace hash
+using namespace common;
 
 static INLINE uint64_t roundup64(size_t x) noexcept {
     --x;
@@ -230,7 +86,7 @@ using Allocator = std::allocator<ValueType, ss::Alignment::Normal>;
 
 
 
-template<typename HashStruct=hash::WangHash>
+template<typename HashStruct=WangHash>
 class bfbase_t {
 // HyperLogLog implementation.
 // To make it general, the actual point of entry is a 64-bit integer hash function.
