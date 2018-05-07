@@ -236,9 +236,10 @@ public:
             for(i = 0; i < (core_.size() / (Space::COUNT));) {
             // Simpler version of Duff's device, except our number is always divisible by 8
             // So we can just unroll it 8 at a time.
-#define OR_ITER els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_), ++i
+#define OR_ITER els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_)
                 OR_ITER; OR_ITER; OR_ITER; OR_ITER;
                 OR_ITER; OR_ITER; OR_ITER; OR_ITER;
+                i += 8;
 #undef OR_ITER
             }
         } else {
@@ -259,9 +260,10 @@ public:
         const VType *oels((const VType *)other.core_.data());
         if(core_.size() / Space::COUNT >= 8) {
             for(i = 0; i < (core_.size() / (Space::COUNT));) {
-#define AND_ITER els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_), ++i
+#define AND_ITER els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_)
                 AND_ITER; AND_ITER; AND_ITER; AND_ITER;
                 AND_ITER; AND_ITER; AND_ITER; AND_ITER;
+                i += 8;
 #undef AND_ITER
             }
         } else {
