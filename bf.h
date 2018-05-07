@@ -18,6 +18,7 @@
 #include "sseutil.h"
 #include "unistd.h"
 #include "x86intrin.h"
+#include "libpopcnt/libpopcnt.h"
 #if ZWRAP_USE_ZSTD
 #  include "zstd_zlibwrapper.h"
 #else
@@ -41,6 +42,17 @@
 #  endif
 #endif
 
+
+#if HAS_AVX_512
+#  define popcnt_fn(x) popcnt512(x.simd_)
+#elif __AVX2__
+#  define popcnt_fn(x) popcnt256(x.simd_)
+#elif __SSE2__
+#  define popcnt_fn(x) (popcount(x.arr_[0]) + popcount(x.arr_[1]))
+#else
+#  error("Need SSE2. TODO: make this work for non-SIMD architectures")
+#endif
+
 #ifdef INCLUDE_CLHASH_H_
 #  define ENABLE_CLHASH 1
 #elif ENABLE_CLHASH
@@ -56,6 +68,10 @@
 
 
 namespace bf {
+
+using Space = vec::SIMDTypes<uint64_t>;
+using Type  = typename vec::SIMDTypes<uint64_t>::Type;
+using VType = typename vec::SIMDTypes<uint64_t>::VType;
 
 /*
  * TODO: calculate distance *directly* without copying to another sketch!
@@ -91,9 +107,6 @@ static INLINE uint64_t wang_hash(uint64_t key) noexcept {
 }
 
 struct WangHash {
-    using Space = vec::SIMDTypes<uint64_t>;
-    using Type = typename vec::SIMDTypes<uint64_t>::Type;
-    using VType = typename vec::SIMDTypes<uint64_t>::VType;
     auto operator()(uint64_t key) const {
         return wang_hash(key);
     }
@@ -120,9 +133,6 @@ struct WangHash {
 };
 
 struct MurFinHash {
-    using Space = vec::SIMDTypes<uint64_t>;
-    using Type = typename vec::SIMDTypes<uint64_t>::Type;
-    using VType = typename vec::SIMDTypes<uint64_t>::VType;
     INLINE uint64_t operator()(uint64_t key) const {
         key ^= key >> 33;
         key *= 0xff51afd7ed558ccd;
@@ -298,6 +308,23 @@ public:
         set1(hv);
         for(unsigned subhind = 0; subhind < n; set1((hv >> (++subhind * shift))));
     }
+
+    unsigned intersection_count(const bfbase_t &other) const {
+        if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
+        auto &oc = other.core_;
+        Space::VType tmp, sum;
+        const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
+        tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
+        sum.simd_ = popcnt_fn(tmp);
+        for(size_t i(1); i < core_.size() / Space::COUNT; ++i) {
+            tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
+            sum += popcnt_fn(tmp);
+        }
+        return sum.sum();
+    }
+    double jaccard_index(const bfbase_t &other) const {
+        return static_cast<double>(intersection_count(other)) / static_cast<double>(m());
+    }
     INLINE void addh(uint64_t element) {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = VectorSpace::COUNT * npw;
@@ -351,7 +378,7 @@ public:
         }
         VType *els((VType *)core_.data());
         const VType *oels((const VType *)other.core_.data());
-        for(unsigned i = 0; i < (core_.size() / VectorSpace::COUNT / CHAR_BIT); ++i)
+        for(unsigned i = 0; i < (core_.size() / VectorSpace::COUNT); ++i)
             els[i].simd_ = VectorSpace::or_fn(els[i].simd_, oels[i].simd_);
         return *this;
     }
@@ -519,14 +546,6 @@ public:
         bfbase_t ret(*this);
         ret += other;
         return ret;
-    }
-    double union_size(const bfbase_t &other) const {
-        throw std::runtime_error("Need to write.");
-        return 0.;
-    }
-    double jaccard_index(const bfbase_t &h2) const {
-        throw std::runtime_error("Not finished");
-        return std::max(0., 1.);
     }
     size_t size() const {return size_t(m());}
 };
