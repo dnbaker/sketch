@@ -169,9 +169,9 @@ inline unsigned popcount(uint64_t val) noexcept {
 }
 
 template<typename T>
-auto popcnt_fn(T val);
+INLINE auto popcnt_fn(T val);
 template<>
-auto popcnt_fn(Type val) {
+INLINE auto popcnt_fn(Type val) {
 #if HAS_AVX_512
     return popcnt512(val);
 #elif __AVX2__
@@ -183,7 +183,7 @@ auto popcnt_fn(Type val) {
 #endif
 }
 template<>
-auto popcnt_fn(VType val) {
+INLINE auto popcnt_fn(VType val) {
     return popcnt_fn(val.simd_);
 }
 

@@ -1212,8 +1212,9 @@ public:
 #ifdef ENABLE_CLHASH
     template<typename Hasher=clhasher>
     INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
+        common::MurFinHash hf;
         static_assert(std::is_same_v<std::decay_t<decltype(hasher(s, len))>, uint64_t>, "Must return 64-bit hash");
-        add(detail::finalize(hasher(s, len) ^ seed_));
+        add(hf(hasher(s, len) ^ seed_));
     }
 #endif
 };
