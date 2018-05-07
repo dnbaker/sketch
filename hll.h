@@ -30,7 +30,9 @@
 #define NO_BLAZE
 #include "vec.h" // Import vec.h, but disable blaze and sleef.
 
-#define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__)
+#ifndef HAS_AVX_512
+#  define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__)
+#endif
 
 #ifndef INLINE
 #  if __GNUC__ || __clang__
@@ -913,6 +915,9 @@ public:
     using VType       = typename vec::SIMDTypes<uint64_t>::VType;
     INLINE void addh(VType element) {
         element = hf_(element.simd_);
+        add(element);
+    }
+    INLINE void add(VType element) {
         element.for_each([&](uint64_t &val) {add(val);});
     }
     template<typename T, typename Hasher=std::hash<T>>
@@ -1169,14 +1174,8 @@ public:
         }
         const double us = union_size(h2);
         const double ret = (creport() + h2.creport() - us) / us;
-#if !NDEBUG
-        double tmp = clamp_ ? ret < relative_error() ? 0.: ret
-                            : std::max(0., ret);
-        if(tmp < 0) std::fprintf(stderr, "ZOMG WTFFFFFFFFFFFFFFFFFFFFF tmp is %lf with clamp = %s and naive estimate %lf\n", tmp, clamp_ ? "true": "false", ret);
-#else
         return clamp_ ? ret < relative_error() ? 0.: ret
                       : std::max(0., ret);
-#endif
     }
     size_t size() const {return size_t(m());}
     bool clamp()  const {return clamp_;}
