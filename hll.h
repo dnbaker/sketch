@@ -764,8 +764,6 @@ public:
         }
 #endif
     }
-    using VectorSpace = vec::SIMDTypes<uint64_t>;
-    using VType       = typename vec::SIMDTypes<uint64_t>::VType;
     INLINE void addh(VType element) {
         element = hf_(element.simd_);
         add(element);
@@ -1314,14 +1312,11 @@ public:
     // Looking ahead,consider templating so that the double version might be helpful.
 
     bool may_contain(uint64_t element) const {
-        using Space = vec::SIMDTypes<uint64_t>;
-        using SType = typename Space::Type;
-        using VType = typename Space::VType;
         unsigned k = 0;
         if(size() >= Space::COUNT) {
             if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
-            const SType *sptr = (const SType *)&seeds_[0];
-            const SType *eptr = (const SType *)&seeds_.back();
+            const Type *sptr = (const Type *)&seeds_[0];
+            const Type *eptr = (const Type *)&seeds_.back();
             VType key;
             do {
                 key = hf_(*sptr++ ^ element);
@@ -1334,15 +1329,12 @@ public:
         }
     }
     void addh(uint64_t val) {
-        using Space = vec::SIMDTypes<uint64_t>;
-        using SType = typename Space::Type;
-        using VType = typename Space::VType;
         unsigned k = 0;
         if(size() >= Space::COUNT) {
             if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
-            const SType *sptr = (const SType *)&seeds_[0];
-            const SType *eptr = (const SType *)&seeds_.back();
-            const SType element = Space::set1(val);
+            const Type *sptr = (const Type *)&seeds_[0];
+            const Type *eptr = (const Type *)&seeds_.back();
+            const Type element = Space::set1(val);
             VType key;
             do {
                 key = hf_(*sptr++ ^ element);
@@ -1469,15 +1461,12 @@ public:
 #endif
         
     }
-    using Space = vec::SIMDTypes<uint64_t>;
-    using SType = typename Space::Type;
-    using VType = typename Space::VType;
     INLINE bool may_contain(uint64_t val) const {
         unsigned k = 0;
         if(ns_ >= Space::COUNT) {
-            const SType *sptr = (const SType *)&seeds_[0];
-            const SType *eptr = (const SType *)&seeds_.back();
-            const SType element = Space::set1(val);
+            const Type *sptr = (const Type *)&seeds_[0];
+            const Type *eptr = (const Type *)&seeds_.back();
+            const Type element = Space::set1(val);
             VType key;
             do {
                 key = hf_(*sptr++ ^ element);
@@ -1495,9 +1484,9 @@ public:
     void addh(uint64_t val) {
         unsigned k = 0;
         if(ns_ >= Space::COUNT) {
-            const SType *sptr = (const SType *)&seeds_[0];
-            const SType *eptr = (const SType *)&seeds_.back();
-            const SType element = Space::set1(val);
+            const Type *sptr = (const Type *)&seeds_[0];
+            const Type *eptr = (const Type *)&seeds_.back();
+            const Type element = Space::set1(val);
             VType key;
             do {
                 key = hf_(*sptr++ ^ element);

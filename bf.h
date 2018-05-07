@@ -109,9 +109,6 @@ public:
     using HashType = HashStruct;
     const HashStruct        hf_;
 
-    using VectorSpace = vec::SIMDTypes<uint64_t>;
-    using VType       = typename vec::SIMDTypes<uint64_t>::VType;
-
     uint64_t m() const {return core_.size() << OFFSET;}
     uint64_t p() const {return np_ + OFFSET;}
     auto nhashes() const {return nh_;}
@@ -183,11 +180,11 @@ public:
     }
     INLINE void addh(uint64_t element) {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = VectorSpace::COUNT * npw;
+        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
         const auto shift = lut::nbitsperhash[p()];
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         while(nleft > npersimd) {
-            VType v(hf_(VectorSpace::set1(element) ^ (*seedptr++).simd_));
+            VType v(hf_(Space::set1(element) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {sub_set1(val, npw, shift);});
             nleft -= npersimd;
         }
@@ -211,7 +208,7 @@ public:
     }
     // Reset.
     void clear() {
-        VType v1 = VectorSpace::set1(0);
+        VType v1 = Space::set1(0);
         for(VType *p1((VType *)&core_[0]), *p2((VType *)&core_[core_.size()]); p1 < p2; *p1++ = v1);
     }
     bfbase_t(bfbase_t&&) = default;
@@ -234,8 +231,8 @@ public:
         }
         VType *els((VType *)core_.data());
         const VType *oels((const VType *)other.core_.data());
-        for(unsigned i = 0; i < (core_.size() / VectorSpace::COUNT); ++i)
-            els[i].simd_ = VectorSpace::or_fn(els[i].simd_, oels[i].simd_);
+        for(unsigned i = 0; i < (core_.size() / Space::COUNT); ++i)
+            els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_);
         return *this;
     }
 
@@ -248,8 +245,8 @@ public:
         unsigned i;
         VType *els((VType *)core_.data());
         const VType *oels((const VType *)other.core_.data());
-        for(unsigned i = 0; i < (core_.size() / VectorSpace::COUNT / CHAR_BIT); ++i)
-            els[i].simd_ = VectorSpace::and_fn(els[i].simd_, oels[i].simd_);
+        for(unsigned i = 0; i < (core_.size() / Space::COUNT / CHAR_BIT); ++i)
+            els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_);
         return *this;
     }
 
@@ -266,12 +263,12 @@ public:
     // Getter for is_calculated_
     bool may_contain(uint64_t val) const {
         bool ret = true;
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = VectorSpace::COUNT * npw;
+        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
         const auto shift = lut::nbitsperhash[p()];
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         const uint64_t *sptr;
         while(nleft > npersimd) {
-            VType v(hf_(VectorSpace::set1(val) ^ (*seedptr++).simd_));
+            VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {ret &= all_set(val, npw, shift);});
             if(!ret) goto f;
             nleft -= npersimd;
@@ -291,7 +288,7 @@ public:
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         ret.clear();
         ret.resize(nvals >> 6 + ((nvals & 0x63u) != 0), UINT64_C(-1));
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = VectorSpace::COUNT * npw;
+        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
         const auto shift = lut::nbitsperhash[p()];
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         VType seed, v;
@@ -299,7 +296,7 @@ public:
             seed.simd_ = (*seedptr++).simd_;
             for(unsigned  i(0); i < nvals; ++i) {
                 bool is_present = true;
-                v.simd_ = hf_(VectorSpace::set1(vals[i]) ^ seed.simd_);
+                v.simd_ = hf_(Space::set1(vals[i]) ^ seed.simd_);
                 v.for_each([&](const uint64_t &val) {
                     ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(val, npw, shift)) << (i & 63u));
                 });
