@@ -231,8 +231,20 @@ public:
         }
         VType *els((VType *)core_.data());
         const VType *oels((const VType *)other.core_.data());
-        for(unsigned i = 0; i < (core_.size() / Space::COUNT); ++i)
-            els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_);
+        unsigned i;
+        if(core_.size() / Space::COUNT >= 8) {
+            for(i = 0; i < (core_.size() / (Space::COUNT));) {
+            // Simpler version of Duff's device, except our number is always divisible by 8
+            // So we can just unroll it 8 at a time.
+#define OR_ITER els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_), ++i
+                OR_ITER; OR_ITER; OR_ITER; OR_ITER;
+                OR_ITER; OR_ITER; OR_ITER; OR_ITER;
+#undef OR_ITER
+            }
+        } else {
+            for(i = 0; i < (core_.size() / Space::COUNT); ++i)
+                els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_);
+        }
         return *this;
     }
 
@@ -245,8 +257,17 @@ public:
         unsigned i;
         VType *els((VType *)core_.data());
         const VType *oels((const VType *)other.core_.data());
-        for(unsigned i = 0; i < (core_.size() / Space::COUNT / CHAR_BIT); ++i)
-            els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_);
+        if(core_.size() / Space::COUNT >= 8) {
+            for(i = 0; i < (core_.size() / (Space::COUNT));) {
+#define AND_ITER els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_), ++i
+                AND_ITER; AND_ITER; AND_ITER; AND_ITER;
+                AND_ITER; AND_ITER; AND_ITER; AND_ITER;
+#undef AND_ITER
+            }
+        } else {
+            for(i = 0; i < (core_.size() / Space::COUNT / CHAR_BIT); ++i)
+                els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_);
+        }
         return *this;
     }
 

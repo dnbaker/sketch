@@ -46,7 +46,7 @@ using filterhll_t = fhllbase_t<HashType>;
 } // namespace fhll
 
 namespace cbf {
-template<typename HashStruct=hll::WangHash>
+template<typename HashStruct=hll::WangHash, typename RngType=aes::AesCtr<uint64_t, 8>>
 class pcbfbase_t {
 protected:
     using bf_t  = bf::bfbase_t<HashStruct>;
@@ -54,7 +54,7 @@ protected:
 
     std::vector<hll_t> hlls_;
     std::vector<bf_t>   bfs_;
-    RNG_TYPE            rng_;
+    RngType             rng_;
     uint64_t            gen_;
     uint8_t           nbits_;
 public:
