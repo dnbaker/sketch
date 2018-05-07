@@ -4,3 +4,6 @@
 [submodule "vec"]
 	path = vec
 	url = https://github.com/dnbaker/vec
+[submodule "libpopcnt"]
+	path = libpopcnt
+	url = https://github.com/kimwalisch/libpopcnt
