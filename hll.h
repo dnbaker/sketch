@@ -2,8 +2,6 @@
 #define HLL_H_
 #include "common.h"
 
-
-
 namespace hll {
 using namespace common;
 enum EstimationMethod: uint8_t {
