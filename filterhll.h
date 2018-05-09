@@ -48,6 +48,7 @@ using filterhll_t = fhllbase_t<HashType>;
 namespace cbf {
 template<typename HashStruct=hll::WangHash, typename RngType=aes::AesCtr<uint64_t, 8>>
 class pcbfbase_t {
+    // Probabilistic bloom filter counting.
 protected:
     using bf_t  = bf::bfbase_t<HashStruct>;
     using hll_t = hll::seedhllbase_t<HashStruct>;
@@ -59,8 +60,8 @@ protected:
     uint8_t           nbits_;
 public:
     explicit pcbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes,
-                       uint64_t seedseedseedval, unsigned hllp=0, hll::EstimationMethod estim=hll::ERTL_MLE,
-                       hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=false):
+                        uint64_t seedseedseedval, unsigned hllp=0, hll::EstimationMethod estim=hll::ERTL_MLE,
+                        hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=false):
         rng_{seedseedseedval}, gen_(rng_()), nbits_(64)
     {
         bfs_.reserve(nbfs);
@@ -113,7 +114,6 @@ public:
 using pcbf_t = pcbfbase_t<hll::WangHash>;
 template<typename HashType=hll::WangHash>
 class pcbfhllbase_t {
-    using cbf_t = bf::cbfbase_t<HashType>;
     using hll_t = hll::hllbase_t<HashType>;
     pcbfbase_t<HashType>    pcb_;
     hll_t                   hll_;
