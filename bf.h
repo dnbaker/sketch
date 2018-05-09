@@ -130,13 +130,22 @@ public:
     template<typename IndType>
     INLINE void set1(IndType ind) {
         ind &= mask();
-        core_[ind >> OFFSET] |= (1 << (ind & ((1 << OFFSET) - 1)));
+#if !NDEBUG
+        core_.at(ind >> OFFSET) |= 1ull << (ind & 63);
+#else
+        core_[ind >> OFFSET] |= 1ull << (ind & 63);
+#endif
         assert(is_set(ind));
     }
 
-    bool is_set(uint64_t ind) const {
+    template<typename IndType>
+    INLINE bool is_set(IndType ind) const {
         ind &= mask();
-        return core_[ind >> OFFSET] & (1 << (ind & ((1 << OFFSET) - 1)));
+#if !NDEBUG
+        return core_.at(ind >> OFFSET) & (1ull << (ind & 63));
+#else
+        return core_[ind >> OFFSET] & (1ull << (ind & 63));
+#endif
     }
 
     INLINE bool all_set(const uint64_t &hv, unsigned n, unsigned shift) const {
@@ -311,7 +320,11 @@ public:
     // Getter for is_calculated_
     bool may_contain(uint64_t val) const {
         bool ret = true;
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
+        unsigned nleft = nh_;
+        assert(p() < sizeof(lut::nhashesper64bitword));
+        assert(p() < sizeof(lut::nbitsperhash));
+        unsigned npw = lut::nhashesper64bitword[p()];
+        unsigned npersimd = Space::COUNT * npw;
         const auto shift = lut::nbitsperhash[p()];
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         const uint64_t *sptr;
@@ -325,6 +338,7 @@ public:
         while(nleft) {
             if((ret &= all_set(hf_(val ^ *sptr++), std::min(npw, nleft), shift)) == 0) goto f;
             nleft -= std::min(npw, nleft);
+            assert(sptr <= &seeds_[seeds_.size()]);
         }
         f:
         return ret;

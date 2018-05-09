@@ -53,7 +53,7 @@ public:
             std::fprintf(stderr, "%" PRIu64 " is not contained\n", val);
             return 0;
         }
-        while(it->may_contain(val) && it < bfs_.end()) ++it;
+        while(it < bfs_.end() && it < bfs_.end()) ++it;
         return 1u << (std::distance(bfs_.cbegin(), it) - 1);
     }
     void resize_sketches(unsigned np) {
