@@ -141,7 +141,7 @@ public:
 
     INLINE bool all_set(const uint64_t &hv, unsigned n, unsigned shift) const {
         if(!is_set(hv)) return false;
-        for(unsigned i(1); i < n; ++i)
+        for(unsigned i(1); i < n;)
             if(!is_set(hv >> (i++ * shift)))
                 return false;
         return true;
@@ -160,7 +160,7 @@ public:
 
     INLINE void sub_set1(const uint64_t &hv, unsigned n, unsigned shift) {
         set1(hv);
-        for(unsigned subhind = 1; subhind < n; set1((hv >> (++subhind * shift))));
+        for(unsigned subhind = 1; subhind < n; set1((hv >> (subhind++ * shift))));
     }
 
     uint64_t popcnt_manual() const {
