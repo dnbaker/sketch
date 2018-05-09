@@ -9,7 +9,7 @@ template<typename HashStruct=WangHash, typename RngType=aes::AesCtr<std::uint64_
 class cbfbase_t {
 protected:
     std::vector<bfbase_t<HashStruct>> bfs_;
-    RngType  rng_;
+    RngType   rng_;
     uint64_t  gen_;
     uint8_t nbits_;
     // TODO: this can be improved by providing a continuous chunk of memory
@@ -23,26 +23,37 @@ public:
     INLINE void addh(uint64_t val) {
         auto it(bfs_.begin());
         if(!it->may_contain(val)) {
+            // std::fprintf(stderr, "Item %" PRIu64 " not contained in first filter. Adding\n", val);
             it->addh(val);
             return;
         }
-        while(++it != bfs_.end() && it->may_contain(val));
-        if(it == bfs_.end()) return;
+        for(++it;it < bfs_.end() && it->may_contain(val);++it);
+        if(it == bfs_.end()) {
+            // std::fprintf(stderr, "The structure is filled.\n");
+            return;
+        }
+        assert(it->may_contain(val) == 0);
+        // Otherwise, insert at position.
         const auto dist = static_cast<unsigned>(std::distance(bfs_.begin(), it));
+        // std::fprintf(stderr, "Number of slots ahead of 0: %u\n", dist);
         if(__builtin_expect(nbits_ < dist, 0)) gen_ = rng_(), nbits_ = 64;
-        if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) it->addh(val);
+        if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) {
+            // std::fprintf(stderr, "Seeing if all random bits are equal to bitmask %" PRIx64 "\n", (UINT64_C(-1) >> (64 - dist)));
+            it->addh(val);
+        }
         gen_ >>= dist;
         nbits_ -= dist;
     }
     bool may_contain(uint64_t val) const {
-        for(const auto &bf: bfs_) if(!bf.may_contain(val)) return false;
-        return true;
+        return bfs_[0].may_contain(val);
     }
     unsigned est_count(uint64_t val) const {
         auto it(bfs_.cbegin());
-        if(!it->may_contain(val)) return 0;
-        ++it;
-        while(it != bfs_.cend() && it->may_contain(val)) ++it;
+        if(!it->may_contain(val)) {
+            std::fprintf(stderr, "%" PRIu64 " is not contained\n", val);
+            return 0;
+        }
+        while(it->may_contain(val) && it < bfs_.end()) ++it;
         return 1u << (std::distance(bfs_.cbegin(), it) - 1);
     }
     void resize_sketches(unsigned np) {
@@ -66,8 +77,8 @@ public:
     }
     std::size_t size() const {return bfs_.size();}
     std::size_t filter_size() const {return bfs_[0].size();}
-    auto cbegin() const {return bfs_.cbegin();}
-    auto cend() const {return bfs_.cend();}
+    auto begin() const {return bfs_.cbegin();}
+    auto end() const {return bfs_.cend();}
 };
 using cbf_t = cbfbase_t<>;
 

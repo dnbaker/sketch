@@ -130,50 +130,45 @@ public:
     template<typename IndType>
     INLINE void set1(IndType ind) {
         ind &= mask();
-        core_[ind >> OFFSET] |= (1 << (ind & (OFFSET - 1)));
+        core_[ind >> OFFSET] |= (1 << (ind & ((1 << OFFSET) - 1)));
         assert(is_set(ind));
     }
 
-    auto is_set(uint64_t ind) const {
+    bool is_set(uint64_t ind) const {
         ind &= mask();
-        return core_[ind >> OFFSET] & (1 << (ind & (OFFSET - 1)));
+        return core_[ind >> OFFSET] & (1 << (ind & ((1 << OFFSET) - 1)));
     }
 
     INLINE bool all_set(const uint64_t &hv, unsigned n, unsigned shift) const {
         if(!is_set(hv)) return false;
-        for(unsigned i(0); i < n; ++i)
-            if(!is_set(hv >> (++i * shift)))
+        for(unsigned i(1); i < n; ++i)
+            if(!is_set(hv >> (i++ * shift)))
                 return false;
         return true;
     }
-
+    std::string print_vals() const {
+        static const char *bin = "01";
+        std::string ret;
+        ret.reserve(64 * core_.size());
+        for(size_t i(0); i < core_.size(); ++i) {
+            uint64_t val = core_[i];
+            for(unsigned k(0); k < 64; ++k)
+                ret += bin[val&1], val>>=1;
+        }
+        return ret;
+    }
 
     INLINE void sub_set1(const uint64_t &hv, unsigned n, unsigned shift) {
         set1(hv);
-        for(unsigned subhind = 0; subhind < n; set1((hv >> (++subhind * shift))));
+        for(unsigned subhind = 1; subhind < n; set1((hv >> (++subhind * shift))));
     }
 
-    uint64_t popcnt() const { // Number of set bits
-#define REPEAT_7(x) x x x x x x x
-#define REPEAT_8(x) REPEAT_7(x) x
-#define POP_ITER sum.simd_ += popcnt_fn(Space::load(op++));
-        const Type *op(reinterpret_cast<const Type *>(core_.data()));
-        Space::VType tmp, sum;
-        sum.simd_ = popcnt_fn(Space::load(op++));
-        size_t nblocks = core_.size() / Space::COUNT;
-        if(nblocks >= 8) {
-            REPEAT_7(POP_ITER)
-            nblocks >>= 3;
-            // Handle the last 7 times after initialization
-            for(size_t i(1); i < nblocks; ++i) {
-                REPEAT_8(POP_ITER)
-            }
-        } else {
-            for(unsigned i(1); i < nblocks; ++i) POP_ITER;
-        }
-        return sum.sum();
+    uint64_t popcnt_manual() const {
+        return std::accumulate(core_.cbegin() + 1, core_.cend(), popcount(core_[0]), [](auto a, auto b) {return a + popcount(b);});
     }
-#undef POP_ITER
+    uint64_t popcnt() const { // Number of set bits
+        return ::popcnt(reinterpret_cast<const void *>(core_.data()), sizeof(core_[0]) * core_.size());
+    }
     double est_err() const {
         // Calculates estimated false positive rate as a functino of the number of set bits.
         // Does not require count of inserted elements.
@@ -183,10 +178,13 @@ public:
     unsigned intersection_count(const bfbase_t &other) const {
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
-        Space::VType tmp, sum;
+        Space::VType tmp;
+        uint64_t sum;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
-        sum.simd_ = popcnt_fn(tmp);
+        sum = popcnt_fn(tmp);
+#define REPEAT_7(x) x x x x x x x
+#define REPEAT_8(x) REPEAT_7(x) x
 #define PERFORM_ITER tmp = Space::and_fn(Space::load(op++), Space::load(tc++)); sum += popcnt_fn(tmp);
         if(core_.size() / Space::COUNT >= 8) {
             REPEAT_7(PERFORM_ITER)
@@ -200,14 +198,14 @@ public:
             tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
             sum += popcnt_fn(tmp);
         }
-        return sum.sum();
+        return sum;
     }
 
     double jaccard_index(const bfbase_t &other) const {
         return static_cast<double>(intersection_count(other)) / static_cast<double>(m());
     }
 
-    INLINE void addh(uint64_t element) {
+    INLINE void addh(const uint64_t element) {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
         const auto shift = lut::nbitsperhash[p()];
@@ -223,6 +221,7 @@ public:
             sub_set1(hf_(element ^ *sptr++), todo, shift);
             nleft -= todo;
         }
+        //std::fprintf(stderr, "Finishing with element %" PRIu64 ". New popcnt: %u\n", element, popcnt());
     }
 
     INLINE void addh(const std::string &element) {
@@ -450,6 +449,13 @@ public:
         return ret;
     }
     size_t size() const {return size_t(m());}
+    const auto &seeds() const {return seeds_;}
+    std::string seedstring() const {
+        std::string ret;
+        for(size_t i(0); i < seeds_.size() - 1; ++i) ret += std::to_string(seeds_[i]), ret += ',';
+        ret += std::to_string(seeds_.back());
+        return ret;
+    }
 };
 
 using bf_t = bfbase_t<>;
