@@ -151,4 +151,41 @@ template<typename T>
 static constexpr inline bool is_pow2(T val) {
     return val && (val & (val - 1)) == 0;
 }
+
+inline unsigned popcount(uint64_t val) noexcept {
+#ifndef NO_USE_CQF_ASM
+// From cqf https://github.com/splatlab/cqf/
+    asm("popcnt %[val], %[val]"
+            : [val] "+r" (val)
+            :
+            : "cc");
+    return val;
+#else
+    // According to GodBolt, gcc7.3 fails to inline this function call even at -Ofast.
+    //
+    //
+    return __builtin_popcountll(val);
+#endif
+}
+
+template<typename T>
+INLINE auto popcnt_fn(T val);
+template<>
+INLINE auto popcnt_fn(Type val) {
+#if HAS_AVX_512
+    return popcnt512(val);
+#elif __AVX2__
+    return popcnt256(val);
+#elif __SSE2__
+    return popcount(((const uint64_t *)&val)[0]) + popcount(((const uint64_t *)&val)[1]);
+#else
+#  error("Need SSE2. TODO: make this work for non-SIMD architectures")
+#endif
+}
+template<>
+INLINE auto popcnt_fn(VType val) {
+    return popcnt_fn(val.simd_);
+}
+
+
 } // namespace common

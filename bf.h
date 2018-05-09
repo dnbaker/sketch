@@ -2,15 +2,6 @@
 #define CRUEL_BLOOM_H__
 #include "common.h"
 
-#if HAS_AVX_512
-#  define popcnt_fn(x) popcnt512(x.simd_)
-#elif __AVX2__
-#  define popcnt_fn(x) popcnt256(x.simd_)
-#elif __SSE2__
-#  define popcnt_fn(x) (popcount(x.arr_[0]) + popcount(x.arr_[1]))
-#else
-#  error("Need SSE2. TODO: make this work for non-SIMD architectures")
-#endif
 
 #ifdef INCLUDE_CLHASH_H_
 #  define ENABLE_CLHASH 1
@@ -162,6 +153,33 @@ public:
         for(unsigned subhind = 0; subhind < n; set1((hv >> (++subhind * shift))));
     }
 
+    uint64_t popcnt() const { // Number of set bits
+#define REPEAT_7(x) x x x x x x x
+#define REPEAT_8(x) REPEAT_7(x) x
+#define POP_ITER sum.simd_ += popcnt_fn(Space::load(op++));
+        const Type *op(reinterpret_cast<const Type *>(core_.data()));
+        Space::VType tmp, sum;
+        sum.simd_ = popcnt_fn(Space::load(op++));
+        size_t nblocks = core_.size() / Space::COUNT;
+        if(nblocks >= 8) {
+            REPEAT_7(POP_ITER)
+            nblocks >>= 3;
+            // Handle the last 7 times after initialization
+            for(size_t i(1); i < nblocks; ++i) {
+                REPEAT_8(POP_ITER)
+            }
+        } else {
+            for(unsigned i(1); i < nblocks; ++i) POP_ITER;
+        }
+        return sum.sum();
+    }
+#undef POP_ITER
+    double est_err() const {
+        // Calculates estimated false positive rate as a functino of the number of set bits.
+        // Does not require count of inserted elements.
+        return std::pow(1.-static_cast<double>(popcnt()) / m(), nh_);
+    }
+
     unsigned intersection_count(const bfbase_t &other) const {
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
@@ -169,15 +187,26 @@ public:
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
         sum.simd_ = popcnt_fn(tmp);
+#define PERFORM_ITER tmp = Space::and_fn(Space::load(op++), Space::load(tc++)); sum += popcnt_fn(tmp);
+        if(core_.size() / Space::COUNT >= 8) {
+            REPEAT_7(PERFORM_ITER)
+            // Handle the last 7 times after initialization
+            for(size_t i(1); i < core_.size() / Space::COUNT / 8;++i) {
+                REPEAT_8(PERFORM_ITER)
+            }
+#undef PERFORM_ITER
+        }
         for(size_t i(1); i < core_.size() / Space::COUNT; ++i) {
             tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
             sum += popcnt_fn(tmp);
         }
         return sum.sum();
     }
+
     double jaccard_index(const bfbase_t &other) const {
         return static_cast<double>(intersection_count(other)) / static_cast<double>(m());
     }
+
     INLINE void addh(uint64_t element) {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
@@ -195,6 +224,7 @@ public:
             nleft -= todo;
         }
     }
+
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
         if constexpr(std::is_same<HashStruct, clhasher>::value) {
@@ -236,10 +266,8 @@ public:
             for(i = 0; i < (core_.size() / (Space::COUNT));) {
             // Simpler version of Duff's device, except our number is always divisible by 8
             // So we can just unroll it 8 at a time.
-#define OR_ITER els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_)
-                OR_ITER; OR_ITER; OR_ITER; OR_ITER;
-                OR_ITER; OR_ITER; OR_ITER; OR_ITER;
-                i += 8;
+#define OR_ITER els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_); ++i;
+                REPEAT_8(OR_ITER)
 #undef OR_ITER
             }
         } else {
@@ -260,14 +288,12 @@ public:
         const VType *oels((const VType *)other.core_.data());
         if(core_.size() / Space::COUNT >= 8) {
             for(i = 0; i < (core_.size() / (Space::COUNT));) {
-#define AND_ITER els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_)
-                AND_ITER; AND_ITER; AND_ITER; AND_ITER;
-                AND_ITER; AND_ITER; AND_ITER; AND_ITER;
-                i += 8;
+#define AND_ITER els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_); ++i;
+                REPEAT_8(AND_ITER)
 #undef AND_ITER
             }
         } else {
-            for(i = 0; i < (core_.size() / Space::COUNT / CHAR_BIT); ++i)
+            for(i = 0; i < (core_.size() / Space::COUNT); ++i)
                 els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_);
         }
         return *this;
@@ -449,6 +475,9 @@ static inline double intersection_size(const BloomType &h1, const BloomType &h2)
     throw std::runtime_error("NotImplementedError");
     return 0.;
 }
+
+#undef REPEAT_7
+#undef REPEAT_8
 
 } // namespace bf
 

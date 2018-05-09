@@ -2,8 +2,6 @@
 #define HLL_H_
 #include "common.h"
 
-
-
 namespace hll {
 using namespace common;
 enum EstimationMethod: uint8_t {
@@ -226,25 +224,12 @@ public:
         SIMDHolder ret;
         ret.subs[0] = _mm256_max_epu8(*(__m256i *)(&a), *(__m256i *)(&b));
         ret.subs[1] = _mm256_max_epu8(*(__m256i *)(((uint8_t *)&a) + 32), *(__m256i *)(((uint8_t *)&b) + 32));
-#if !NDEBUG
-        SIMDHolder ac(a), bc(b);
-        for(unsigned i(0); i < sizeof(ret); ++i) {
-            assert(ret.vals[i] == std::max(ac.vals[i], bc.vals[i]));
-        }
-#endif
         return ret;
     }
     static SIMDHolder eq_fn(__m512i a, __m512i b) {
         SIMDHolder ret;
         ret.subs[0] = _mm256_cmpeq_epi8(*(__m256i *)(&a), *(__m256i *)(&b));
         ret.subs[1] = _mm256_cmpeq_epi8(*(__m256i *)(((uint8_t *)&a) + 32), *(__m256i *)(((uint8_t *)&b) + 32));
-#if !NDEBUG
-        SIMDHolder tmp, ac(a), bc(b);
-        ac.val = a; bc.val = b;
-        for(unsigned i(0); i < sizeof(ret); ++i) {
-            assert(!!ret.vals[i] == !!(ac.vals[i] == bc.vals[i]));
-        }
-#endif
         return ret;
     }
 #  endif
@@ -269,15 +254,9 @@ public:
 #undef DEC_EQ
 
     SIMDHolder() {} // empty constructor
-    SIMDHolder(SType val_) {
-        val = val_;
-    }
-    operator SType &() {
-        return val;
-    }
-    operator const SType &() const {
-        return val;
-    }
+    SIMDHolder(SType val_) {val = val_;}
+    operator SType &() {return val;}
+    operator const SType &() const {return val;}
     static constexpr size_t nels  = sizeof(SType) / sizeof(uint8_t);
     static constexpr size_t nbits = sizeof(SType) / sizeof(uint8_t) * CHAR_BIT;
     using u8arr = uint8_t[nels];
@@ -319,9 +298,8 @@ struct joint_unroller {
             arrg1[ref1.vals[iternum]] += gtmask1 & 1;
             arreq[ref1.vals[iternum]] += eqmask  & 1;
             arrg2[ref2.vals[iternum]] += gtmask2 & 1;
-            gtmask1 >>= 1;
-            gtmask2 >>= 1;
-            eqmask  >>= 1; // Consider packing these into an SIMD type and shifting them as a set.
+            gtmask1 >>= 1; gtmask2 >>= 1; eqmask  >>= 1;
+            // TODO: Consider packing these into an SIMD type and shifting them as a set.
 #else
             static_assert(sizeof(MType) == sizeof(SIMDHolder), "Wrong size?");
             arrg1[ref1.vals[iternum]] += gtmask1.vals[iternum] != 0;
@@ -537,9 +515,9 @@ std::array<double, 3> ertl_joint(HllType &h1, HllType &h2) {
 
 
 #ifdef roundup64
-#undef roundu64
+#undef roundup64
 #endif
-static INLINE uint64_t roundup64(size_t x) noexcept {
+static INLINE uint64_t roundupsize(size_t x) noexcept {
     --x;
     x |= x >> 1;
     x |= x >> 2;
@@ -872,7 +850,7 @@ public:
 
     // Clears, allows reuse with different np.
     void resize(size_t new_size) {
-        new_size = roundup64(new_size);
+        if(new_size & (new_size - 1)) new_size = roundupsize(new_size);
         clear();
         core_.resize(new_size);
         np_ = (std::size_t)std::log2(new_size);
@@ -1214,8 +1192,9 @@ public:
 #ifdef ENABLE_CLHASH
     template<typename Hasher=clhasher>
     INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
+        common::MurFinHash hf;
         static_assert(std::is_same_v<std::decay_t<decltype(hasher(s, len))>, uint64_t>, "Must return 64-bit hash");
-        add(detail::finalize(hasher(s, len) ^ seed_));
+        add(hf(hasher(s, len) ^ seed_));
     }
 #endif
 };

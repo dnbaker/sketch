@@ -1,10 +1,14 @@
 #ifndef FILTER_HLL_H__
 #define FILTER_HLL_H__
+#include "common.h"
 #include "hll.h"
 #include "cbf.h"
 
 namespace fhll {
-template<typename HashType=hll::WangHash>
+
+using namespace ::common;
+
+template<typename HashType=WangHash>
 class fhllbase_t {
     using cbf_t = bf::cbfbase_t<HashType>;
     using hll_t = hll::hllbase_t<HashType>;
@@ -20,6 +24,10 @@ public:
     void addh(uint64_t val) {
         cbf_.addh(val); // This wastes one check in bf1. TODO: elide this.
         if(cbf_.est_count(val) >= threshold_) hll_.addh(val);
+    }
+    void addh(VType val) {
+        cbf_.addh(val); // This wastes one check in bf1. TODO: elide this.
+        val.for_each([&](uint64_t val){if(cbf_.est_count(val) >= threshold_) hll_.addh(val);});
     }
     void clear() {
         hll_.clear();
@@ -40,13 +48,16 @@ public:
     }
 };
 using fhll_t = fhllbase_t<>;
-template<typename HashType=hll::WangHash>
+template<typename HashType=WangHash>
 using filterhll_t = fhllbase_t<HashType>;
 
 } // namespace fhll
 
 namespace cbf {
-template<typename HashStruct=hll::WangHash, typename RngType=aes::AesCtr<uint64_t, 8>>
+
+using namespace ::common;
+
+template<typename HashStruct=WangHash, typename RngType=aes::AesCtr<uint64_t, 8>>
 class pcbfbase_t {
     // Probabilistic bloom filter counting.
 protected:
@@ -89,6 +100,9 @@ public:
         if((gen_ & (UINT64_C(-1) >> (64 - i))) == 0) bfs_[i].addh(val), hlls_[i].addh(val);
         gen_ >>= i, nbits_ -= i;
     }
+    INLINE void addh(VType val) {
+        val.for_each([&](uint64_t val) {this->addh(val);}); // Could be further accelerated with SIMD. I'm including this for interface compatibility.
+    }
     bool may_contain(uint64_t val) const {
         for(unsigned i(0); i < bfs_.size(); ++i)
             if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain) return false;
@@ -130,6 +144,10 @@ public:
     void addh(uint64_t val) {
         pcb_.addh(val); // This wastes a check. TODO: elide this.
         if(pcb_.est_count(val) >= threshold_) hll_.addh(val);
+    }
+    void addh(VType val) {
+        pcb_.addh(val); // This wastes a check. TODO: elide this.
+        val.for_each([&](uint64_t val){if(pcb_.est_count(val) >= threshold_) hll_.addh(val);});
     }
     void clear() {
         hll_.clear();
