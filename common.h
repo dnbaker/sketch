@@ -173,9 +173,9 @@ INLINE auto popcnt_fn(T val);
 template<>
 INLINE auto popcnt_fn(Type val) {
 #if HAS_AVX_512
-    return popcnt512(val);
+    return popcnt_avx512((Type *)&val, sizeof(val));
 #elif __AVX2__
-    return popcnt256(val);
+    return popcnt_avx2((Type *)&val, sizeof(val));
 #elif __SSE2__
     return popcount(((const uint64_t *)&val)[0]) + popcount(((const uint64_t *)&val)[1]);
 #else

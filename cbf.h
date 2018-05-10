@@ -20,29 +20,29 @@ public:
         bfs_.reserve(nbfs);
         while(bfs_.size() < nbfs) bfs_.emplace_back(l2sz, nhashes, rng_());
     }
-    INLINE void addh(uint64_t val) {
+    INLINE void addh(const uint64_t val) {
         auto it(bfs_.begin());
         if(!it->may_contain(val)) {
             it->addh(val);
             return;
         }
-        while(++it != bfs_.end() && it->may_contain(val));
-        if(it == bfs_.end()) return;
+        for(++it; it < bfs_.end();++it)
+            if(!it->may_contain(val))
+                break;
+        if(it == bfs_.end()) return; // Already at capacity
+        // Otherwise, probabilistically insert at position.
         const auto dist = static_cast<unsigned>(std::distance(bfs_.begin(), it));
         if(__builtin_expect(nbits_ < dist, 0)) gen_ = rng_(), nbits_ = 64;
-        if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) it->addh(val);
-        gen_ >>= dist;
-        nbits_ -= dist;
+        if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) it->addh(val); // Flip the biased coin, add if it returns 'heads'
+        gen_ >>= dist, nbits_ -= dist;
     }
     bool may_contain(uint64_t val) const {
-        for(const auto &bf: bfs_) if(!bf.may_contain(val)) return false;
-        return true;
+        return bfs_[0].may_contain(val);
     }
-    unsigned est_count(uint64_t val) const {
+    unsigned est_count(const uint64_t val) const {
         auto it(bfs_.cbegin());
         if(!it->may_contain(val)) return 0;
-        ++it;
-        while(it != bfs_.cend() && it->may_contain(val)) ++it;
+        for(++it;it < bfs_.end() && it->may_contain(val); ++it);
         return 1u << (std::distance(bfs_.cbegin(), it) - 1);
     }
     void resize_sketches(unsigned np) {
@@ -66,8 +66,8 @@ public:
     }
     std::size_t size() const {return bfs_.size();}
     std::size_t filter_size() const {return bfs_[0].size();}
-    auto cbegin() const {return bfs_.cbegin();}
-    auto cend() const {return bfs_.cend();}
+    auto begin() const {return bfs_.cbegin();}
+    auto end() const {return bfs_.cend();}
 };
 using cbf_t = cbfbase_t<>;
 
