@@ -20,40 +20,29 @@ public:
         bfs_.reserve(nbfs);
         while(bfs_.size() < nbfs) bfs_.emplace_back(l2sz, nhashes, rng_());
     }
-    INLINE void addh(uint64_t val) {
+    INLINE void addh(const uint64_t val) {
         auto it(bfs_.begin());
         if(!it->may_contain(val)) {
-            // std::fprintf(stderr, "Item %" PRIu64 " not contained in first filter. Adding\n", val);
             it->addh(val);
             return;
         }
-        for(++it;it < bfs_.end() && it->may_contain(val);++it);
-        if(it == bfs_.end()) {
-            // std::fprintf(stderr, "The structure is filled.\n");
-            return;
-        }
-        assert(it->may_contain(val) == 0);
-        // Otherwise, insert at position.
+        for(++it; it < bfs_.end();++it)
+            if(!it->may_contain(val))
+                break;
+        if(it == bfs_.end()) return; // Already at capacity
+        // Otherwise, probabilistically insert at position.
         const auto dist = static_cast<unsigned>(std::distance(bfs_.begin(), it));
-        // std::fprintf(stderr, "Number of slots ahead of 0: %u\n", dist);
         if(__builtin_expect(nbits_ < dist, 0)) gen_ = rng_(), nbits_ = 64;
-        if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) {
-            // std::fprintf(stderr, "Seeing if all random bits are equal to bitmask %" PRIx64 "\n", (UINT64_C(-1) >> (64 - dist)));
-            it->addh(val);
-        }
-        gen_ >>= dist;
-        nbits_ -= dist;
+        if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) it->addh(val); // Flip the biased coin, add if it returns 'heads'
+        gen_ >>= dist, nbits_ -= dist;
     }
     bool may_contain(uint64_t val) const {
         return bfs_[0].may_contain(val);
     }
-    unsigned est_count(uint64_t val) const {
+    unsigned est_count(const uint64_t val) const {
         auto it(bfs_.cbegin());
-        if(!it->may_contain(val)) {
-            std::fprintf(stderr, "%" PRIu64 " is not contained\n", val);
-            return 0;
-        }
-        while(it < bfs_.end() && it < bfs_.end()) ++it;
+        if(!it->may_contain(val)) return 0;
+        for(++it;it < bfs_.end() && it->may_contain(val); ++it);
         return 1u << (std::distance(bfs_.cbegin(), it) - 1);
     }
     void resize_sketches(unsigned np) {
