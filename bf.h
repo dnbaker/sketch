@@ -117,7 +117,7 @@ public:
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
         if(np_) resize(1ull << l2sz);
     }
-    explicit bfbase_t(): bfbase_t(OFFSET, 1) {}
+    explicit bfbase_t(size_t l2sz=OFFSET): bfbase_t(l2sz, 1, std::rand()) {}
     void reseed(uint64_t seedseed=0) {
         if(seedseed == 0) seedseed = seedseed_;
         std::mt19937_64 mt(seedseed);

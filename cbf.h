@@ -118,11 +118,11 @@ protected:
 public:
     void free() {
         {
-            std::vector<hll_t> tmp(0);
+            std::vector<hll_t> tmp;
             std::swap(hlls_, tmp);
         }
         {
-            std::vector<bf_t> tmp(0);
+            std::vector<bf_t> tmp;
             std::swap(bfs_, tmp);
         }
     }
