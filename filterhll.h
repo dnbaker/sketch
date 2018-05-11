@@ -44,8 +44,14 @@ public:
     const hll_t &hll() const {return hll_;}
     void free_cbf() {cbf_.free();}
     void free_hll() {hll_.free();}
+    void reseed(uint64_t seed) {
+        cbf_.reseed(seed);
+    }
+    fhllbase_t(const fhllbase_t&) = default;
     fhllbase_t clone(uint64_t seed=0) const {
-        return fhllbase_t(hll_.p(), cbf_.size(), cbf_.filter_size(), cbf_.nhashes(), seed ? seed: ((uint64_t)std::rand() << 32) | std::rand(), threshold_, hll_.get_estim(), hll_.get_jestim(), hll_.clamp());
+        auto ret = fhllbase_t(*this);
+        ret.clear();
+        ret.reseed(seed ? seed: ((uint64_t)std::rand() << 32) | std::rand());
     }
 };
 using fhll_t = fhllbase_t<>;
@@ -54,14 +60,14 @@ using fhll_t = fhllbase_t<>;
 template<typename HashType=hll::WangHash>
 class pcbfhllbase_t {
     using hll_t = hll::hllbase_t<HashType>;
-    bf::pcbfbase_t<HashType>    pcb_;
-    hll_t                   hll_;
-    unsigned          threshold_;
-    uint64_t    seedseedseedval_;
+    bf::pcbfbase_t<HashType> pcb_;
+    hll_t                    hll_;
+    unsigned           threshold_;
+    uint64_t     seedseedseedval_;
 public:
     pcbfhllbase_t(unsigned filternp_, unsigned subnp_, size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval,
-                  unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool clamp=true):
-            pcb_(nbfs, l2sz, nhashes, seedseedseedval, subnp_, estim, jestim, clamp),
+                  unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=true, bool clamp=true):
+            pcb_(nbfs, l2sz, nhashes, seedseedseedval, subnp_, estim, jestim, shrinkpow2),
             hll_(filternp_, estim, jestim, -1, clamp), threshold_{threshold}, seedseedseedval_(seedseedseedval)
     {
         if(threshold > (1u << (pcb_.size() - 1))) throw std::runtime_error("Count threshold must be countable-to");
@@ -73,6 +79,10 @@ public:
     void addh(VType val) {
         pcb_.addh(val); // This wastes a check. TODO: elide this.
         val.for_each([&](uint64_t val){if(pcb_.est_count(val) >= threshold_) hll_.addh(val);});
+    }
+    void reseed(uint64_t newseed) {
+        seedseedseedval_ = newseed;
+        pcb_.reseed(newseed);
     }
     void clear() {
         hll_.clear();
@@ -86,9 +96,15 @@ public:
     void not_ready() {hll_.not_ready();}
     hll_t       &hll()       {return hll_;}
     const hll_t &hll() const {return hll_;}
-    pcbfhllbase_t clone() const {
-        return pcbfhllbase_t(hll_.p(), pcb_.hlls()[0].p(), pcb_.size(), std::log2(pcb_.bfs()[0].size()),
-                             pcb_.bfs()[0].nhashes(), seedseedseedval_, threshold_, pcb_.hlls()[0].get_estim(), pcb_.hlls()[0].get_jestim(), pcb_.hlls()[0].clamp());
+    pcbfhllbase_t(const pcbfhllbase_t &other) = default;
+    pcbfhllbase_t clone(uint64_t seed=0) const {
+        auto ret = pcbfhllbase_t(*this);
+        ret.clear();
+        ret.reseed(seed ? seed: ((uint64_t)std::rand()<<32)|std::rand());
+        return ret;
+    }
+    void free_filters() {
+        pcb_.free();
     }
 };
 using pcfhll_t = pcbfhllbase_t<hll::WangHash>;

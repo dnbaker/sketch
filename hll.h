@@ -1149,6 +1149,7 @@ public:
         this->add(this->hf_(element));
     }
     uint64_t seed() const {return seed_;}
+    void reseed(uint64_t seed) {seed_= seed_;}
     void write(const char *fn, bool write_gz) {
         if(write_gz) {
             gzFile fp = gzopen(fn, "wb");

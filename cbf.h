@@ -23,6 +23,9 @@ public:
     }
     explicit cbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval):
         cbfbase_t(std::vector<unsigned>(nbfs, l2sz),  nhashes, seedseedseedval) {}
+    void reseed(uint64_t seed) {
+        rng_.seed(seed);
+    }
     INLINE void addh(const uint64_t val) {
         auto it(bfs_.begin());
         if(!it->may_contain(val)) {
@@ -78,12 +81,21 @@ using cbf_t = cbfbase_t<>;
 
 
 namespace detail {
-std::vector<unsigned> pcbf_hll_pgen(unsigned nsketches, unsigned l2sz, unsigned hllp=0, bool shrinkpow2=true) {
+static std::vector<unsigned> pcbf_hll_pgen(unsigned nsketches, unsigned l2sz, unsigned hllp=0, bool shrinkpow2=true) {
     std::vector<unsigned> ret; ret.reserve(nsketches);
     unsigned p = hllp ? hllp: std::max(l2sz - 4, 8u);
     std::generate_n(std::back_inserter(ret), nsketches, [&](){
         auto ret = std::max(8u, p);
         p -= shrinkpow2;
+        return ret;
+    });
+    return ret;
+}
+static std::vector<unsigned> pcbf_bf_mgen(unsigned nsketches, unsigned l2sz, bool shrinkpow2=true) {
+    std::vector<unsigned> ret; ret.reserve(nsketches);
+    std::generate_n(std::back_inserter(ret), nsketches, [&](){
+        auto ret = l2sz;
+        if(ret) l2sz -= shrinkpow2;
         return ret;
     });
     return ret;
@@ -104,6 +116,16 @@ protected:
     uint64_t            gen_;
     uint8_t           nbits_;
 public:
+    void free() {
+        {
+            std::vector<hll_t> tmp(0);
+            std::swap(hlls_, tmp);
+        }
+        {
+            std::vector<bf_t> tmp(0);
+            std::swap(bfs_, tmp);
+        }
+    }
     explicit pcbfbase_t(const std::vector<unsigned> &l2szs, const std::vector<unsigned> &hllps, unsigned nhashes,
                         uint64_t seedseedseedval, hll::EstimationMethod estim=hll::ERTL_MLE,
                         hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE):
@@ -123,6 +145,11 @@ public:
         pcbfbase_t(std::vector<unsigned>(nbfs, l2sz),
                    detail::pcbf_hll_pgen(nbfs, l2sz, hllp, shrinkpow2),
                    nhashes, seedseedseedval, estim, jestim) {}
+    void reseed(uint64_t seed) {
+        rng_.seed(seed);
+        for(auto &bf: bfs_)    bf.reseed(rng_());
+        for(auto &hll: hlls_) hll.reseed(rng_());
+    }
     const std::vector<bf_t>  &bfs()  const {return bfs_;}
     const std::vector<hll_t> &hlls() const {return hlls_;}
     void resize_bloom(unsigned newsize) {for(auto &bf: bfs_) bf.resize(newsize);}
@@ -160,7 +187,7 @@ public:
         while(i != bfs_.size() && bfs_[i].may_contain(val) && hlls_[i].may_contain(val)) ++i;
         return 1u << (i - 1);
     }
-    unsigned est_count(uint64_t val) const {return naive_est_count(val);}
+    unsigned est_count(uint64_t val) const {return naive_est_count(val);} // I plan to extend this with some more math.
 };
 
 using pcbf_t = pcbfbase_t<hll::WangHash>;

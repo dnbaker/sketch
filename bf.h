@@ -112,14 +112,15 @@ public:
 
     // Constructor
     explicit bfbase_t(size_t l2sz, unsigned nhashes, uint64_t seedval):
-        np_(l2sz - OFFSET), nh_(nhashes), seedseed_(seedval), hf_{}
+        np_(l2sz ? l2sz - OFFSET: 0), nh_(nhashes), seedseed_(seedval), hf_{}
     {
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
-        resize(1ull << l2sz);
+        if(np_) resize(1ull << l2sz);
     }
     explicit bfbase_t(): bfbase_t(OFFSET, 1) {}
-    void seed() {
-        std::mt19937_64 mt(seedseed_);
+    void reseed(uint64_t seedseed=0) {
+        if(seedseed == 0) seedseed = seedseed_;
+        std::mt19937_64 mt(seedseed);
         auto nperhash64 = lut::nhashesper64bitword[p()];
         assert(is_pow2(nperhash64));
         while(seeds_.size() * nperhash64 < nh_)
@@ -314,7 +315,7 @@ public:
         core_.resize(new_size >> OFFSET);
         clear();
         np_ = (std::size_t)std::log2(new_size) - OFFSET;
-        seed();
+        reseed();
         assert(np_ < 64); // To handle underflow
     }
     // Getter for is_calculated_
