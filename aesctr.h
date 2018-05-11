@@ -16,10 +16,12 @@
 #include <immintrin.h>
 
 #ifndef TYPES_TEMPLATES
+#define TYPES_TEMPLATES
 namespace types {
     template<typename T>
     struct is_integral: std::false_type {
     };
+    template<>struct is_integral<bool>: std::true_type {};
     template<>struct is_integral<unsigned char>: std::true_type {};
     template<>struct is_integral<signed char>: std::true_type {};
     template<>struct is_integral<unsigned short>: std::true_type {};
