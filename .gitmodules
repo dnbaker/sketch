@@ -7,3 +7,6 @@
 [submodule "libpopcnt"]
 	path = libpopcnt
 	url = https://github.com/kimwalisch/libpopcnt
+[submodule "aesctr"]
+	path = aesctr
+	url = https://github.com/dnbaker/aesctr

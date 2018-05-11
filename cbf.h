@@ -1,7 +1,7 @@
 #ifndef COUNTING_CRUEL_BLOOM__
 #define COUNTING_CRUEL_BLOOM__
 #include "bf.h"
-#include "aesctr.h"
+#include "aesctr/aesctr.h"
 
 namespace bf {
 
