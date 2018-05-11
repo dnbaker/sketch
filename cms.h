@@ -6,6 +6,7 @@
  * 
  *
 */
+namespace sketch {
 namespace cms {
 using namespace common;
 
@@ -19,3 +20,4 @@ class cmsbase_t {
 using cms_t = cmsbase_t<uint64_t, WangHash>;
 
 } // namespace cms
+} // namespace sketch

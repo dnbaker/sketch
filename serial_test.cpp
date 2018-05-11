@@ -2,6 +2,7 @@
 #define HLL_HEADER_ONLY
 #endif
 #include "hll.h"
+using namespace sketch;
 using namespace hll;
 
 int main(int argc, char *argv[]) {

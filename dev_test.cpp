@@ -15,7 +15,8 @@
 using namespace std::chrono;
 
 using tp = std::chrono::system_clock::time_point;
-using namespace hll;
+using namespace sketch;
+using namespace sketch::hll;
 
 static const size_t BITS = 15;
 

@@ -2,8 +2,7 @@
 #define _HLL_UTIL_H__
 #include <limits>
 
-namespace hll {
-namespace detail {
+namespace sketch { namespace hll { namespace detail {
 
 // Based off https://github.com/oertl/hyperloglog-sketch-estimation-paper/blob/master/c%2B%2B/cardinality_estimation.hpp
 template<typename FloatType>
@@ -37,8 +36,8 @@ static constexpr FloatType gen_tau(FloatType x) {
     return z / 3.;
 }
 
-} // detail
+} /* detail */ } /* hll */ } /* sketch */
 
-} // hll
+
 
 #endif // #ifndef _HLL_UTIL_H__

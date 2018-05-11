@@ -1,7 +1,7 @@
 #include "bf.h"
 #include "cbf.h"
 #include <unordered_set>
-using namespace bf;
+using namespace sketch::bf;
 
 int main(int argc, char *argv[]) {
     bf_t bf(25, 1, 137);

@@ -4,9 +4,10 @@
 #include "hll.h"
 #include "cbf.h"
 
+namespace sketch {
 namespace fhll {
 
-using namespace ::common;
+using namespace common;
 
 template<typename HashType=WangHash>
 class fhllbase_t {
@@ -48,88 +49,12 @@ public:
     }
 };
 using fhll_t = fhllbase_t<>;
-template<typename HashType=WangHash>
-using filterhll_t = fhllbase_t<HashType>;
 
-} // namespace fhll
 
-namespace cbf {
-
-using namespace ::common;
-
-template<typename HashStruct=WangHash, typename RngType=aes::AesCtr<uint64_t, 8>>
-class pcbfbase_t {
-    // Probabilistic bloom filter counting.
-protected:
-    using bf_t  = bf::bfbase_t<HashStruct>;
-    using hll_t = hll::seedhllbase_t<HashStruct>;
-
-    std::vector<hll_t> hlls_;
-    std::vector<bf_t>   bfs_;
-    RngType             rng_;
-    uint64_t            gen_;
-    uint8_t           nbits_;
-public:
-    explicit pcbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes,
-                        uint64_t seedseedseedval, unsigned hllp=0, hll::EstimationMethod estim=hll::ERTL_MLE,
-                        hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=false):
-        rng_{seedseedseedval}, gen_(rng_()), nbits_(64)
-    {
-        bfs_.reserve(nbfs);
-        hlls_.reserve(nbfs);
-        while(bfs_.size() < nbfs) bfs_.emplace_back(l2sz, nhashes, rng_());
-        if(shrinkpow2) for(int hllstart = hllp ? hllp: l2sz > 12 ? l2sz - 4: 8; hlls_.size() < nbfs; hlls_.emplace_back(rng_(), std::max(hllstart--, static_cast<int>(hll::hllbase_t<HashStruct>::min_size())), estim, jestim, 1, false));
-        else while(hlls_.size() < nbfs) hlls_.emplace_back(rng_(), hllp ? hllp: l2sz > 12 ? l2sz - 4: 8, estim, jestim, 1, false);
-    }
-    const std::vector<bf_t>  &bfs()  const {return bfs_;}
-    const std::vector<hll_t> &hlls() const {return hlls_;}
-    void resize_bloom(unsigned newsize) {
-        for(auto &bf: bfs_) bf.resize(newsize);
-    }
-    size_t size() const {return bfs_.size();}
-    INLINE void addh(uint64_t val) {
-        unsigned i(0);
-        if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain(val)) {
-            bfs_[i].addh(val);
-            hlls_[i].addh(val);
-            return;
-        }
-        while(++i != bfs_.size() && bfs_[i].may_contain(val) && hlls_[i].may_contain(val));
-        if(i == bfs_.size()) return;
-        if(__builtin_expect(nbits_ < i, 0)) gen_ = rng_(), nbits_ = 64;
-        if((gen_ & (UINT64_C(-1) >> (64 - i))) == 0) bfs_[i].addh(val), hlls_[i].addh(val);
-        gen_ >>= i, nbits_ -= i;
-    }
-    INLINE void addh(VType val) {
-        val.for_each([&](uint64_t val) {this->addh(val);}); // Could be further accelerated with SIMD. I'm including this for interface compatibility.
-    }
-    bool may_contain(uint64_t val) const {
-        for(unsigned i(0); i < bfs_.size(); ++i)
-            if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain) return false;
-        return true;
-    }
-    void clear() {
-        for(auto &h: hlls_) h.clear();
-        for(auto &b: bfs_) b.clear();
-        gen_ = nbits_ = 0;
-    }
-    unsigned naive_est_count(uint64_t val) const {
-        unsigned i(0);
-        if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain(val)) return 0;
-        while(++i != bfs_.size() && bfs_[i].may_contain(val) && hlls_[i].may_contain(val));
-        return 1u << (i - 1);
-    }
-    unsigned est_count(uint64_t val) const {
-        // TODO: better estimate using the hlls to provide error rate estimates.
-        return naive_est_count(val);
-    }
-};
-
-using pcbf_t = pcbfbase_t<hll::WangHash>;
 template<typename HashType=hll::WangHash>
 class pcbfhllbase_t {
     using hll_t = hll::hllbase_t<HashType>;
-    pcbfbase_t<HashType>    pcb_;
+    bf::pcbfbase_t<HashType>    pcb_;
     hll_t                   hll_;
     unsigned          threshold_;
     uint64_t    seedseedseedval_;
@@ -168,6 +93,7 @@ public:
 };
 using pcfhll_t = pcbfhllbase_t<hll::WangHash>;
 
-} // namespace cbf
+} // namespace fhll
+} // namespace sketch
 
 #endif // #ifndef FILTER_HLL_H__

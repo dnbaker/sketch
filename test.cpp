@@ -14,6 +14,7 @@ using tp = std::chrono::system_clock::time_point;
 
 static const size_t BITS = 24;
 
+using namespace sketch;
 
 bool test_qty(size_t lim) {
     hll::hll_t t(BITS);
@@ -34,6 +35,7 @@ void kt_helper(void *data, long index, int tid) {
     for(std::uint64_t i(index * todo), e(std::min(((kt_data *)data)->n_, (index + 1) * todo)); i < e; hll.addh(i++));
 }
 
+//using hll = namespace sketch::hll;
 
 /*
  * If no arguments are provided, runs test with 1 << 22 elements.

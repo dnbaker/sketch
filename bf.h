@@ -16,7 +16,7 @@
 #endif
 
 
-
+namespace sketch {
 namespace bf {
 using namespace common;
 
@@ -500,5 +500,6 @@ static inline double intersection_size(const BloomType &h1, const BloomType &h2)
 #undef REPEAT_8
 
 } // namespace bf
+} // namespace sketch
 
 #endif // #ifndef CRUEL_BLOOM_H__

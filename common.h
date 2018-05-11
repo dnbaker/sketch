@@ -58,6 +58,11 @@
 #  endif
 #endif
 
+#ifndef FOREVER
+#define FOREVER for(;;)
+#endif
+
+namespace sketch {
 namespace common {
 using namespace std::literals;
 
@@ -189,3 +194,4 @@ INLINE auto popcnt_fn(VType val) {
 
 
 } // namespace common
+} // namespace sketch

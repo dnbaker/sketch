@@ -1,8 +1,8 @@
 #include "filterhll.h"
 
+using namespace sketch;
 using namespace fhll;
 using namespace bf;
-using namespace cbf;
 
 int main() {
     fhll_t h(20, 8, 18, 1, 1337, 20);
