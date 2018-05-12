@@ -1,6 +1,7 @@
 #ifndef COUNTING_CRUEL_BLOOM__
 #define COUNTING_CRUEL_BLOOM__
 #include "bf.h"
+#include "hll.h"
 #include "aesctr/aesctr.h"
 
 namespace sketch {
@@ -142,7 +143,7 @@ public:
     explicit pcbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes,
                         uint64_t seedseedseedval, unsigned hllp=0, hll::EstimationMethod estim=hll::ERTL_MLE,
                         hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=true):
-        pcbfbase_t(std::vector<unsigned>(nbfs, l2sz),
+        pcbfbase_t(detail::pcbf_bf_mgen(nbfs, l2sz, shrinkpow2),
                    detail::pcbf_hll_pgen(nbfs, l2sz, hllp, shrinkpow2),
                    nhashes, seedseedseedval, estim, jestim) {}
     void reseed(uint64_t seed) {
