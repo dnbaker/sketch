@@ -75,16 +75,6 @@ using Space = vec::SIMDTypes<uint64_t>;
 using Type  = typename vec::SIMDTypes<uint64_t>::Type;
 using VType = typename vec::SIMDTypes<uint64_t>::VType;
 
-static INLINE uint64_t finalize(uint64_t key) {
-    // Murmur3 finalizer
-    key ^= key >> 33;
-    key *= 0xff51afd7ed558ccd;
-    key ^= key >> 33;
-    key *= 0xc4ceb9fe1a85ec53;
-    key ^= key >> 33;
-    return key;
-}
-
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
 // This is our core 64-bit hash.
@@ -151,6 +141,10 @@ struct MurFinHash {
         return key.simd_;
     }
 };
+static INLINE uint64_t finalize(uint64_t key) {
+    return MurFinHash()(key);
+}
+
 
 template<typename T>
 static constexpr inline bool is_pow2(T val) {
