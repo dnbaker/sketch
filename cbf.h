@@ -7,6 +7,29 @@
 namespace sketch {
 namespace bf {
 
+namespace detail {
+// Utilities for generically selecting sketch parameters.
+static std::vector<unsigned> pcbf_hll_pgen(unsigned nsketches, unsigned l2sz, unsigned hllp=0, bool shrinkpow2=true) {
+    std::vector<unsigned> ret; ret.reserve(nsketches);
+    unsigned p = hllp ? hllp: std::max(l2sz - 4, 8u);
+    std::generate_n(std::back_inserter(ret), nsketches, [&](){
+        auto ret = std::max(8u, p);
+        p -= shrinkpow2;
+        return ret;
+    });
+    return ret;
+}
+static std::vector<unsigned> pcbf_bf_mgen(unsigned nsketches, unsigned l2sz, bool shrinkpow2=true) {
+    std::vector<unsigned> ret; ret.reserve(nsketches);
+    std::generate_n(std::back_inserter(ret), nsketches, [&](){
+        auto ret = l2sz;
+        if(ret) l2sz -= shrinkpow2;
+        return ret;
+    });
+    return ret;
+}
+} // namespace detail
+
 template<typename HashStruct=WangHash, typename RngType=aes::AesCtr<std::uint64_t, 8>>
 class cbfbase_t {
 protected:
@@ -22,8 +45,8 @@ public:
         bfs_.reserve(l2szs.size());
         std::generate_n(std::back_inserter(bfs_), l2szs.size(), [&]{return bfbase_t<HashStruct>(l2szs[bfs_.size()], nhashes, rng_());});
     }
-    explicit cbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval):
-        cbfbase_t(std::vector<unsigned>(nbfs, l2sz),  nhashes, seedseedseedval) {}
+    explicit cbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval, bool shrinkpow2=true):
+        cbfbase_t(detail::pcbf_bf_mgen(nbfs, l2sz, shrinkpow2),  nhashes, seedseedseedval) {}
     void reseed(uint64_t seed) {
         rng_.seed(seed);
     }
@@ -81,27 +104,6 @@ public:
 using cbf_t = cbfbase_t<>;
 
 
-namespace detail {
-static std::vector<unsigned> pcbf_hll_pgen(unsigned nsketches, unsigned l2sz, unsigned hllp=0, bool shrinkpow2=true) {
-    std::vector<unsigned> ret; ret.reserve(nsketches);
-    unsigned p = hllp ? hllp: std::max(l2sz - 4, 8u);
-    std::generate_n(std::back_inserter(ret), nsketches, [&](){
-        auto ret = std::max(8u, p);
-        p -= shrinkpow2;
-        return ret;
-    });
-    return ret;
-}
-static std::vector<unsigned> pcbf_bf_mgen(unsigned nsketches, unsigned l2sz, bool shrinkpow2=true) {
-    std::vector<unsigned> ret; ret.reserve(nsketches);
-    std::generate_n(std::back_inserter(ret), nsketches, [&](){
-        auto ret = l2sz;
-        if(ret) l2sz -= shrinkpow2;
-        return ret;
-    });
-    return ret;
-}
-} // namespace detail
 
 template<typename HashStruct=WangHash, typename RngType=aes::AesCtr<uint64_t, 8>>
 class pcbfbase_t {
