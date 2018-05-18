@@ -50,23 +50,25 @@ public:
     void reseed(uint64_t seed) {
         rng_.seed(seed);
     }
-    INLINE void addh(const uint64_t val) {
+    INLINE unsigned addh(const uint64_t val) {
         auto it(bfs_.begin());
         if(!it->may_contain(val)) {
             it->addh(val);
-            return;
+            return 1u;
         }
         FOREVER {
             ++it;
-            if(it == bfs_.end())     return;
+            if(it == bfs_.end()) return 1u << bfs_.size();
             if(!it->may_contain(val)) break;
         }
-        if(it == bfs_.end()) return; // Already at capacity
         // Otherwise, probabilistically insert at position.
         const auto dist = static_cast<unsigned>(std::distance(bfs_.begin(), it));
-        if(__builtin_expect(nbits_ < dist, 0)) gen_ = rng_(), nbits_ = 64;
-        if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) it->addh(val); // Flip the biased coin, add if it returns 'heads'
-        gen_ >>= dist, nbits_ -= dist;
+        if(it != bfs_.end()) {
+            if(__builtin_expect(nbits_ < dist, 0)) gen_ = rng_(), nbits_ = 64;
+            if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) it->addh(val); // Flip the biased coin, add if it returns 'heads'
+            gen_ >>= dist, nbits_ -= dist;
+        } // Else already at capacity
+        return 1u << (std::distance(bfs_.begin(), it) - 1);
     }
     bool may_contain(uint64_t val) const {
         return bfs_[0].may_contain(val);
