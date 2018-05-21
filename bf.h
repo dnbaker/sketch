@@ -112,8 +112,11 @@ public:
 
     // Constructor
     explicit bfbase_t(size_t l2sz, unsigned nhashes, uint64_t seedval):
-        np_(l2sz ? l2sz - OFFSET: 0), nh_(nhashes), seedseed_(seedval), hf_{}
+        np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), seedseed_(seedval), hf_{}
     {
+#if !NDEBUG
+        std::fprintf(stderr, "Initializing bloom filter with l2sz %zu, nhashes %u, seedval %" PRIu64 ". np is now %u\n", l2sz, nhashes, seedval, unsigned(np_));
+#endif
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
         if(np_) resize(1ull << l2sz);
     }
@@ -121,6 +124,9 @@ public:
     void reseed(uint64_t seedseed=0) {
         if(seedseed == 0) seedseed = seedseed_;
         std::mt19937_64 mt(seedseed);
+#if !NDEBUG
+        if(__builtin_expect(p() == 0, 0)) throw std::runtime_error(std::string("p is ") + std::to_string(p()));
+#endif
         auto nperhash64 = lut::nhashesper64bitword[p()];
         assert(is_pow2(nperhash64));
         while(seeds_.size() * nperhash64 < nh_)
@@ -247,8 +253,10 @@ public:
     }
     // Reset.
     void clear() {
-        VType v1 = Space::set1(0);
-        for(VType *p1((VType *)&core_[0]), *p2((VType *)&core_[core_.size()]); p1 < p2; *p1++ = v1);
+        if(core_.size() > Space::COUNT) {
+            VType v1 = Space::set1(0);
+            for(VType *p1((VType *)&core_[0]), *p2((VType *)&core_[core_.size()]); p1 < p2; *p1++ = v1);
+        } else std::fill(core_.begin(), core_.end(), static_cast<uint64_t>(0));
     }
     bfbase_t(bfbase_t&&) = default;
     bfbase_t(const bfbase_t &other) = default;

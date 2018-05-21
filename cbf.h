@@ -22,7 +22,7 @@ static std::vector<unsigned> pcbf_hll_pgen(unsigned nsketches, unsigned l2sz, un
 static std::vector<unsigned> pcbf_bf_mgen(unsigned nsketches, unsigned l2sz, bool shrinkpow2=true) {
     std::vector<unsigned> ret; ret.reserve(nsketches);
     std::generate_n(std::back_inserter(ret), nsketches, [&](){
-        auto ret = l2sz;
+        auto ret = std::max(l2sz, 10u);
         if(ret) l2sz -= shrinkpow2;
         return ret;
     });
@@ -86,7 +86,7 @@ public:
         bfs_.reserve(nbfs);
         auto nhashes = bfs_.at(0).nhashes();
         auto np = bfs_[0].p();
-        for(auto &bf: bfs_) bf.clear();
+        clear();
         while(bfs_.size() < nbfs) bfs_.emplace_back(np, nhashes, rng_());
     }
     void clear() {

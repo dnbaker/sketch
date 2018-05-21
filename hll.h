@@ -834,16 +834,21 @@ public:
     // Reset.
     void clear() {
         // Note: this can be accelerated with SIMD.
-        std::fill(std::begin(core_), std::end(core_), 0u);
+        if(__builtin_expect(core_.size() < sizeof(VType), 0)) {
+            std::fill(std::begin(core_), std::end(core_), 0u);
+        } else {
+            VType v = Space::set1(0);
+            for(Type *ptr = (Type *)core_.data(), *end = (Type *)&core_[core_.size()];
+                ptr < end; Space::store(ptr++, v.simd_));
+        }
         value_ = is_calculated_ = 0;
     }
     hllbase_t(hllbase_t&&) = default;
     hllbase_t(const hllbase_t &other) = default;
     hllbase_t& operator=(const hllbase_t &other) {
         // Explicitly define to make sure we don't do unnecessary reallocation.
-        if(core_.size() != other.core_.size())
-            core_.resize(other.core_.size());
-        std::memcpy(core_.data(), other.core_.data(), core_.size());
+        if(core_.size() != other.core_.size()) core_.resize(other.core_.size());
+        std::memcpy(core_.data(), other.core_.data(), core_.size()); // TODO: consider SIMD copy
         np_ = other.np_;
         value_ = other.value_;
         is_calculated_ = other.is_calculated_;
