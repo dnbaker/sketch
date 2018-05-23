@@ -27,6 +27,7 @@
 #  include <zlib.h>
 #endif
 #include "libpopcnt/libpopcnt.h"
+#include "logutil.h"
 
 #ifndef _VEC_H__
 #  define NO_SLEEF

@@ -115,10 +115,14 @@ public:
         np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), seedseed_(seedval), hf_{}
     {
 #if !NDEBUG
-        std::fprintf(stderr, "Initializing bloom filter with l2sz %zu, nhashes %u, seedval %" PRIu64 ". np is now %u\n", l2sz, nhashes, seedval, unsigned(np_));
+        std::fprintf(stderr, "Initializing bloom filter with l2sz %zu, nhashes %u, seedval %" PRIu64 ". np is now %u. About to resize to %llu\n", l2sz, nhashes, seedval, unsigned(np_), 1ull << p());
 #endif
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
-        if(np_) resize(1ull << l2sz);
+        if(np_ > 40u) throw std::runtime_error("Attempting to make a table that's too large."s + std::to_string(np_));
+        if(np_) resize(1ull << p());
+#if !NDEBUG
+        else std::fprintf(stderr, "np is small. (%u). offset %i. \n", unsigned(np_), int(l2sz) - OFFSET);
+#endif
     }
     explicit bfbase_t(size_t l2sz=OFFSET): bfbase_t(l2sz, 1, std::rand()) {}
     void reseed(uint64_t seedseed=0) {
@@ -128,7 +132,7 @@ public:
         if(__builtin_expect(p() == 0, 0)) throw std::runtime_error(std::string("p is ") + std::to_string(p()));
 #endif
         auto nperhash64 = lut::nhashesper64bitword[p()];
-        assert(is_pow2(nperhash64));
+        assert(is_pow2(nperhash64) || !std::fprintf(stderr, "nperhash64 %u(accessed by p = %u)\n", nperhash64, unsigned(p())));
         while(seeds_.size() * nperhash64 < nh_)
             if(auto val = mt(); std::find(seeds_.cbegin(), seeds_.cend(), val) == seeds_.cend())
                 seeds_.emplace_back(val);
@@ -155,12 +159,27 @@ public:
 #endif
     }
 
+    template<typename IndType>
+    INLINE bool is_set_and_set1(IndType ind) {
+        ind &= mask();
+        const auto val = (1ull << (ind & 63));
+        uint64_t &ref = core_[ind >> OFFSET];
+        const auto ret = ref & val;
+        ref |= val;
+        return ret;
+    }
+
     INLINE bool all_set(const uint64_t &hv, unsigned n, unsigned shift) const {
         if(!is_set(hv)) return false;
         for(unsigned i(1); i < n;)
             if(!is_set(hv >> (i++ * shift)))
                 return false;
         return true;
+    }
+    INLINE bool all_set_and_set1(const uint64_t &hv, unsigned n, unsigned shift) {
+        auto ret = is_set_and_set1(hv);
+        for(unsigned i(1); i < n; ret &= is_set_and_set1(hv >> (i++ * shift)));
+        return ret;
     }
     std::string print_vals() const {
         static const char *bin = "01";
@@ -318,11 +337,18 @@ public:
 
     // Clears, allows reuse with different np.
     void resize(size_t new_size) {
+#if !NDEBUG
+        std::fprintf(stderr, "new_size = %zu, %zx\n", new_size, new_size);
+#endif
         new_size = roundup64(new_size);
         clear();
+#if !NDEBUG
+        std::fprintf(stderr, "resizing new size to %zu\n", size_t(new_size >> OFFSET));
+#endif
         core_.resize(new_size >> OFFSET);
         clear();
         np_ = (std::size_t)std::log2(new_size) - OFFSET;
+        std::fprintf(stderr, "new np_ is %zu\n", size_t(np_));
         reseed();
         assert(np_ < 64); // To handle underflow
     }
@@ -352,12 +378,38 @@ public:
         f:
         return ret;
     }
+    bool may_contain_and_addh(uint64_t val) {
+        bool ret = true;
+        unsigned nleft = nh_;
+        assert(p() < sizeof(lut::nhashesper64bitword));
+        assert(p() < sizeof(lut::nbitsperhash));
+        unsigned npw = lut::nhashesper64bitword[p()];
+        unsigned npersimd = Space::COUNT * npw;
+        const auto shift = lut::nbitsperhash[p()];
+        const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
+        const uint64_t *sptr;
+        while(nleft > npersimd) {
+            VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
+            v.for_each([&](const uint64_t &val) {ret &= all_set_and_set1(val, npw, shift);});
+            nleft -= npersimd;
+        }
+        sptr = reinterpret_cast<const uint64_t *>(seedptr);
+        while(nleft) {
+            ret &= all_set_and_set1(hf_(val ^ *sptr++), std::min(npw, nleft), shift);
+            nleft -= std::min(npw, nleft);
+            assert(sptr <= &seeds_[seeds_.size()]);
+        }
+        return ret;
+    }
     void may_contain(const std::vector<uint64_t> vals, std::vector<uint64_t> &ret) const {
         return may_contain(vals.data(), vals.size(), ret);
     }
     void may_contain(const uint64_t *vals, size_t nvals, std::vector<uint64_t> &ret) const {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         ret.clear();
+#if !NDEBUG
+        std::fprintf(stderr, "nvals: %zu. nvals. Resize size: %zu\n", nvals, nvals >> 6 + ((nvals & 0x63u) != 0));
+#endif
         ret.resize(nvals >> 6 + ((nvals & 0x63u) != 0), UINT64_C(-1));
         unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
         const auto shift = lut::nbitsperhash[p()];
