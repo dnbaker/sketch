@@ -644,16 +644,6 @@ constexpr double make_alpha(size_t m) {
     }
 }
 
-template<typename ValueType>
-#if HAS_AVX_512
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX512>;
-#elif __AVX2__
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX>;
-#elif __SSE2__
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::SSE>;
-#else
-using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
-#endif
 
 // TODO: add a compact, 6-bit version
 // For now, I think that it's preferable for thread safety,
