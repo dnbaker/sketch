@@ -21,11 +21,11 @@ struct Increment {
             if(con[0] < maxval) {
                 for(const auto el: ref) {
 #if !NDEBUG
-                    // std::fprintf(stderr, "incrementing el %u to count %u\n", unsigned(el), unsigned(con[el]) + 1);
+                    std::fprintf(stderr, "incrementing el %u to count %u\n", unsigned(el), unsigned(con[el]) + 1);
 #endif
                     con[el] = con[el] + 1;
 #if !NDEBUG
-                    // std::fprintf(stderr, "incremented el %u to count %u\n", unsigned(el), unsigned(con[el]));
+                    std::fprintf(stderr, "incremented el %u to count %u\n", unsigned(el), unsigned(con[el]));
 #endif
                 }
             }
@@ -33,6 +33,9 @@ struct Increment {
     template<typename... Args>
     Increment(Args &&... args) {}
     uint64_t est_count(uint64_t val) const {
+#if !NDEBUG
+        std::fprintf(stderr, "Estimating count for val with Increment: %" PRIu64 "\n", val);
+#endif
         return val;
     }
 };
@@ -125,20 +128,25 @@ public:
 #endif
         return subtbl_sz_ * subtbl + (hash & mask_);
     }
-    void addh(uint64_t val) {this->addh_conservative(val);}
-    void addh_conservative(uint64_t val) {this->add_conservative(hasher_(val));}
-    void addh_liberal(uint64_t val) {this->add_liberal(hasher_(val));}
-    void add_conservative(uint64_t val) {
+    void addh(uint64_t val) {
+#if !NDEBUG
+        std::fprintf(stderr, "calling on value %" PRIu64 "\n", val);
+#endif
+        this->addh_conservative(val);
+    }
+    void addh_conservative(uint64_t val) {this->add_conservative(val);}
+    void addh_liberal(uint64_t val) {this->add_liberal(val);}
+    void add_conservative(const uint64_t val) {
         std::vector<uint64_t> indices, best_indices;
         indices.reserve(nhashes_);
         unsigned nhdone = 0;
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         Space::VType vb = Space::set1(val), tmp;
-        while(nhashes_ - nhdone >= Space::COUNT) {
+        while((int)nhashes_ - (int)nhdone >= (ssize_t)Space::COUNT) {
             tmp = hasher_(Space::xor_fn(vb.simd_, Space::load(sptr++)));
             tmp.for_each([&](uint64_t &subval){
 #if !NDEBUG
-                std::fprintf(stderr, "Hash is %" PRIu64 " with index %" PRIu64 " value = %u\n", subval, index(subval, nhdone), unsigned(data_[index(subval, nhdone)]));
+                std::fprintf(stderr, "Value is %" PRIu64 ", Hash is %" PRIu64 " with index %" PRIu64 " value = %u\n", val, subval, index(subval, nhdone), unsigned(data_[index(subval, nhdone)]));
 #endif
                 indices.push_back(index(subval, nhdone++));
             });
@@ -146,9 +154,10 @@ public:
         while(nhdone < nhashes_) {
 #if !NDEBUG
             uint64_t ind = index(hasher_(val ^ seeds_[nhdone]), nhdone);
-            std::fprintf(stderr, "index: %" PRIu64 ", which has value %u\n", ind, unsigned(data_[ind]));
+            std::fprintf(stderr, "hashed value %" PRIu64 ". index: %" PRIu64 ", which has value %u\n", hasher_(val ^ seeds_[nhdone]), ind, unsigned(data_[ind]));
+            std::fprintf(stderr, "val: %" PRIu64 ". val ^ seed: %llx" PRIu64 ". nhdone: %u\n", val, (unsigned long long)(val ^ seeds_[nhdone]), nhdone);
 #endif
-            indices.push_back(index(hasher_(val ^ seeds_[nhdone]), nhdone));
+            indices.push_back(ind);
             ++nhdone;
         }
         best_indices.push_back(indices[0]);
@@ -164,6 +173,9 @@ public:
             }
         }
         updater_(best_indices, data_, max_tbl_val_);
+        for(const auto ind: best_indices) {
+            std::fprintf(stderr, "Value at each index: %zu, %zu\n", size_t(ind), size_t(data_[ind]));
+        }
     }
     void add_liberal(uint64_t val) {
         unsigned nhdone = 0;
@@ -184,7 +196,7 @@ public:
     }
     uint64_t est_count(uint64_t val) {
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
-        uint64_t count = 0, nhdone = 0, ind;
+        uint64_t count = std::numeric_limits<uint64_t>::max(), nhdone = 0, ind;
         static const Space::VType and_val = Space::set1(mask_), vb = Space::set1(val);
         Space::VType tmp;
         while(nhashes_ - nhdone > Space::COUNT) {
@@ -192,17 +204,19 @@ public:
             tmp.for_each([&](uint64_t &subval){
                 ind = index(subval, nhdone);
 #if !NDEBUG
-                std::fprintf(stderr, "Index is %" PRIu64 ". value at index %u is %u\n", ind, unsigned(nhdone), unsigned(data_[ind]));
+                std::fprintf(stderr, "Hashed value is %" PRIu64 ". Index is %" PRIu64 ". value at index %u is %u\n", subval, ind, unsigned(nhdone), unsigned(data_[ind]));
 #endif
                 count = std::min(count, uint64_t(data_[ind]));
+                ++nhdone;
             });
         }
         while(nhdone < nhashes_) {
-            uint64_t subval = (val ^ seeds_[nhdone]) & mask_;
+            uint64_t ind = index(hasher_(val ^ seeds_[nhdone]), nhdone);
 #if !NDEBUG
-            std::fprintf(stderr, "subval: %" PRIu64 ". With subtbl (%zu): %" PRIu64 ". Value at position: %u\n", subval, size_t(subtbl_sz_), subtbl_sz_ * nhdone + subval, unsigned(subtbl_sz_ * nhdone));
+            std::fprintf(stderr, "nhdone: %u.val: %" PRIu64 ". subval: %" PRIu64 ". With subtbl size =  (%zu). Value at position: %u\n",
+                         nhdone, val, ind, size_t(subtbl_sz_), unsigned(data_[ind]));
 #endif
-            count = std::min(count, uint64_t(data_[subtbl_sz_ * nhdone + (hasher_(val ^ seeds_[nhdone]) & mask_)]));
+            count = std::min(count, uint64_t(data_[ind]));
             ++nhdone;
         }
         return updater_.est_count(count);
