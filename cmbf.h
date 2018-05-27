@@ -83,6 +83,7 @@ struct PowerOfTwo {
                 for(const auto el: ref)
                     con[el] = val;
             }
+            gen_ >>= (val - 1);
         }
     }
     PowerOfTwo(uint64_t seed=0): rng_(seed ? seed: std::time(nullptr)), gen_(rng_()), nbits_(64) {}
