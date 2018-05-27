@@ -98,8 +98,11 @@ protected:
 public:
     static constexpr unsigned OFFSET = 6; // log2(CHAR_BIT * 8) == log2(64) == 6
     using HashType = HashStruct;
-    const HashStruct        hf_;
 
+    std::pair<size_t, size_t> est_memory_usage() const {
+        return std::make_pair(sizeof(core_) + sizeof(nh_) + sizeof(np_) + sizeof(qmark_) + sizeof(seedseed_) + sizeof(seeds_),
+                              core_.size() * sizeof(core_[0]) + seeds_.size() * sizeof(seeds_[0]));
+    }
     uint64_t m() const {return core_.size() << OFFSET;}
     uint64_t p() const {return np_ + OFFSET;}
     auto nhashes() const {return nh_;}
@@ -112,7 +115,7 @@ public:
 
     // Constructor
     explicit bfbase_t(size_t l2sz, unsigned nhashes, uint64_t seedval):
-        np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), seedseed_(seedval), hf_{}
+        np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), seedseed_(seedval)
     {
 #if !NDEBUG
         std::fprintf(stderr, "Initializing bloom filter with l2sz %zu, nhashes %u, seedval %" PRIu64 ". np is now %u. About to resize to %llu\n", l2sz, nhashes, seedval, unsigned(np_), 1ull << p());
@@ -246,14 +249,14 @@ public:
         const auto shift = lut::nbitsperhash[p()];
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         while(nleft > npersimd) {
-            VType v(hf_(Space::set1(element) ^ (*seedptr++).simd_));
+            VType v(HashStruct()(Space::set1(element) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {sub_set1(val, npw, shift);});
             nleft -= npersimd;
         }
         const uint64_t *sptr = reinterpret_cast<const uint64_t *>(seedptr);
         while(nleft) {
             const auto todo = std::min(npw, nleft);
-            sub_set1(hf_(element ^ *sptr++), todo, shift);
+            sub_set1(HashStruct()(element ^ *sptr++), todo, shift);
             nleft -= todo;
         }
         //std::fprintf(stderr, "Finishing with element %" PRIu64 ". New popcnt: %u\n", element, popcnt());
@@ -262,7 +265,7 @@ public:
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
         if constexpr(std::is_same<HashStruct, clhasher>::value) {
-            addh(hf_(element));
+            addh(HashStruct()(element));
         } else {
 #endif
             addh(std::hash<std::string>{}(element));
@@ -363,14 +366,14 @@ public:
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         const uint64_t *sptr;
         while(nleft > npersimd) {
-            VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
+            VType v(HashStruct()(Space::set1(val) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {ret &= all_set(val, npw, shift);});
             if(!ret) goto f;
             nleft -= npersimd;
         }
         sptr = reinterpret_cast<const uint64_t *>(seedptr);
         while(nleft) {
-            if((ret &= all_set(hf_(val ^ *sptr++), std::min(npw, nleft), shift)) == 0) goto f;
+            if((ret &= all_set(HashStruct()(val ^ *sptr++), std::min(npw, nleft), shift)) == 0) goto f;
             nleft -= std::min(npw, nleft);
             assert(sptr <= &seeds_[seeds_.size()]);
         }
@@ -418,7 +421,7 @@ public:
             seed.simd_ = (*seedptr++).simd_;
             for(unsigned  i(0); i < nvals; ++i) {
                 bool is_present = true;
-                v.simd_ = hf_(Space::set1(vals[i]) ^ seed.simd_);
+                v.simd_ = HashStruct()(Space::set1(vals[i]) ^ seed.simd_);
                 v.for_each([&](const uint64_t &val) {
                     ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(val, npw, shift)) << (i & 63u));
                 });
@@ -429,7 +432,7 @@ public:
         while(nleft) {
             uint64_t hv, seed = *sptr++;
             for(unsigned i(0); i < nvals; ++i) {
-                hv = hf_(vals[i] ^ seed);
+                hv = HashStruct()(vals[i] ^ seed);
                 ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(hv, std::min(npw, nleft), shift)) << (i & 63u));
             }
             nleft -= std::min(npw, nleft);

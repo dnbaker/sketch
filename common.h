@@ -76,6 +76,17 @@ using Space = vec::SIMDTypes<uint64_t>;
 using Type  = typename vec::SIMDTypes<uint64_t>::Type;
 using VType = typename vec::SIMDTypes<uint64_t>::VType;
 
+template<typename ValueType>
+#if HAS_AVX_512
+using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX512>;
+#elif __AVX2__
+using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX>;
+#elif __SSE2__
+using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::SSE>;
+#else
+using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
+#endif
+
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
 // This is our core 64-bit hash.

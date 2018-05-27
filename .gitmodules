@@ -10,3 +10,6 @@
 [submodule "aesctr"]
 	path = aesctr
 	url = https://github.com/dnbaker/aesctr
+[submodule "compact_vector"]
+	path = compact_vector
+	url = https://github.com/gmarcais/compact_vector

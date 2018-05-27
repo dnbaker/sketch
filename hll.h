@@ -644,16 +644,6 @@ constexpr double make_alpha(size_t m) {
     }
 }
 
-template<typename ValueType>
-#if HAS_AVX_512
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX512>;
-#elif __AVX2__
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX>;
-#elif __SSE2__
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::SSE>;
-#else
-using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
-#endif
 
 // TODO: add a compact, 6-bit version
 // For now, I think that it's preferable for thread safety,
@@ -683,11 +673,14 @@ protected:
     JointEstimationMethod jestim_;
 public:
     using HashType = HashStruct;
-    const HashStruct        hf_;
 #if LZ_COUNTER
     std::array<std::atomic<uint64_t>, 64> clz_counts_; // To check for bias in insertion
 #endif
 
+    std::pair<size_t, size_t> est_memory_usage() const {
+        return std::make_pair(sizeof(core_) + sizeof(value_) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(estim_) + sizeof(jestim_),
+                              core_.size() * sizeof(core_[0]));
+    }
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(static_cast<double>(m()));}
@@ -696,8 +689,7 @@ public:
         core_(static_cast<uint64_t>(1) << np),
         value_(0.), np_(np), is_calculated_(0), clamp_(clamp),
         nthreads_(nthreads > 0 ? nthreads: 1),
-        estim_(estim), jestim_(jestim),
-        hf_{}
+        estim_(estim), jestim_(jestim)
 #if LZ_COUNTER
         , clz_counts_{0}
 #endif
@@ -705,7 +697,7 @@ public:
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
     explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
-    hllbase_t(const char *path): hf_{} {read(path);}
+    hllbase_t(const char *path) {read(path);}
     hllbase_t(const std::string &path): hllbase_t(path.data()) {}
     hllbase_t(gzFile fp): hllbase_t() {this->read(fp);}
 
@@ -767,13 +759,13 @@ public:
     }
 
     INLINE void addh(uint64_t element) {
-        element = hf_(element);
+        element = HashStruct()(element);
         add(element);
     }
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
         if constexpr(std::is_same<HashStruct, clhasher>::value) {
-            add(hf_(element));
+            add(HashStruct()(element));
         } else {
 #endif
             add(std::hash<std::string>{}(element));
@@ -782,7 +774,7 @@ public:
 #endif
     }
     INLINE void addh(VType element) {
-        element = hf_(element.simd_);
+        element = HashStruct()(element.simd_);
         add(element);
     }
     INLINE void add(VType element) {
@@ -1094,15 +1086,15 @@ static inline double intersection_size(const HllType &h1, const HllType &h2) {
 }
 
 
-template<typename HashFunc=WangHash>
-class hlldub_base_t: public hllbase_t<HashFunc> {
+template<typename HashStruct=WangHash>
+class hlldub_base_t: public hllbase_t<HashStruct> {
     // hlldub_base_t inserts each value twice (forward and reverse)
     // and simply halves cardinality estimates.
 public:
     template<typename... Args>
     hlldub_base_t(Args &&...args): hll_t(std::forward<Args>(args)...) {}
     INLINE void add(uint64_t hashval) {
-        hllbase_t<HashFunc>::add(hashval);
+        hllbase_t<HashStruct>::add(hashval);
 #ifndef NOT_THREADSAFE
         for(const uint32_t index(hashval & ((this->m()) - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
             this->core_[index] < lzt;
@@ -1117,22 +1109,22 @@ public:
         return this->creport();
     }
     double creport() const {
-        return hllbase_t<HashFunc>::creport() * 0.5;
+        return hllbase_t<HashStruct>::creport() * 0.5;
     }
     bool may_contain(uint64_t hashval) const {
-        return hllbase_t<HashFunc>::may_contain(hashval) && this->core_[hashval & ((this->m()) - 1)] >= ffs(hashval >> this->p());
+        return hllbase_t<HashStruct>::may_contain(hashval) && this->core_[hashval & ((this->m()) - 1)] >= ffs(hashval >> this->p());
     }
 
-    INLINE void addh(uint64_t element) {add(this->hf_(element));}
+    INLINE void addh(uint64_t element) {add(this->HashStruct()(element));}
 };
 using hlldub_t = hlldub_base_t<>;
 
-template<typename HashFunc=WangHash>
-class dhllbase_t: public hllbase_t<HashFunc> {
+template<typename HashStruct=WangHash>
+class dhllbase_t: public hllbase_t<HashStruct> {
     // dhllbase_t is a bidirectional hll sketch which does not currently support set operations
     // It is based on the idea that the properties of a hll sketch work for both leading and trailing zeros and uses them as independent samples.
     std::vector<uint8_t, Allocator<uint8_t>> dcore_;
-    using hll_t = hllbase_t<HashFunc>;
+    using hll_t = hllbase_t<HashStruct>;
 public:
     template<typename... Args>
     dhllbase_t(Args &&...args): hll_t(std::forward<Args>(args)...),
@@ -1162,7 +1154,7 @@ public:
         dcore_[index] = std::min(dcore_[index], lzt);
 #endif
     }
-    void addh(uint64_t element) {add(this->hf_(element));}
+    void addh(uint64_t element) {add(this->HashStruct()(element));}
     bool may_contain(uint64_t hashval) const {
         return hll_t::may_contain(hashval) && dcore_[hashval & ((this->m()) - 1)] >= ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1));
     }
@@ -1170,12 +1162,12 @@ public:
 using dhll_t = dhllbase_t<>;
 
 
-template<typename HashFunc=WangHash>
-class seedhllbase_t: public hllbase_t<HashFunc> {
+template<typename HashStruct=WangHash>
+class seedhllbase_t: public hllbase_t<HashStruct> {
 protected:
     uint64_t seed_; // 64-bit integers are xored with this value before passing it to a hash.
                           // This is almost free, in the content of
-    using hll_t = hllbase_t<HashFunc>;
+    using hll_t = hllbase_t<HashStruct>;
 public:
     template<typename... Args>
     seedhllbase_t(uint64_t seed, Args &&...args): hll_t(std::forward<Args>(args)...), seed_(seed) {
@@ -1189,7 +1181,7 @@ public:
     }
     void addh(uint64_t element) {
         element ^= seed_;
-        this->add(this->hf_(element));
+        this->add(this->HashStruct()(element));
     }
     uint64_t seed() const {return seed_;}
     void reseed(uint64_t seed) {seed_= seed_;}
@@ -1283,10 +1275,9 @@ protected:
     mutable double                               value_;
     bool                                 is_calculated_;
     using HashType     = typename SeedHllType::HashType;
-    const HashType                                  hf_;
 public:
     template<typename... Args>
-    hlfbase_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0), hf_{} {
+    hlfbase_t(size_t size, uint64_t seedseed, Args &&... args): value_(0), is_calculated_(0) {
         auto sfs = detail::seeds_from_seed(seedseed, size);
         assert(sfs.size());
         hlls_.reserve(size);
@@ -1343,12 +1334,12 @@ public:
             const Type *eptr = (const Type *)&seeds_.back();
             VType key;
             do {
-                key = hf_(*sptr++ ^ element);
+                key = WangHash()(*sptr++ ^ element);
                 for(unsigned i(0); i < Space::COUNT;) if(!hlls_[k++].may_contain(key.arr_[i++])) return false;
             } while(sptr < eptr);
             return true;
         } else { // if size() >= Space::COUNT
-            for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(hf_(element ^ seeds_[i]))) return false;
+            for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(WangHash()(element ^ seeds_[i]))) return false;
             return true;
         }
     }
@@ -1361,11 +1352,11 @@ public:
             const Type element = Space::set1(val);
             VType key;
             do {
-                key = hf_(*sptr++ ^ element);
+                key = WangHash()(*sptr++ ^ element);
                 for(unsigned i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
                 assert(k <= size());
             } while(sptr < eptr);
-        } else while(k < size()) hlls_[k].add(hf_(val ^ seeds_[k])), ++k;
+        } else while(k < size()) hlls_[k].add(WangHash()(val ^ seeds_[k])), ++k;
     }
     double creport() const {
         if(is_calculated_) return value_;
@@ -1459,11 +1450,14 @@ protected:
     const uint16_t                                  np_;
     mutable double                               value_;
     bool                                 is_calculated_;
-    const HashType                                  hf_;
     std::vector<uint8_t, Allocator<uint8_t>>      core_;
 public:
     chlf_t(size_t l2ss, EstimationMethod estim,
-           JointEstimationMethod jestim, unsigned p, uint64_t seedseed=0): estim_(estim), jestim_(jestim), subp_(p - l2ss), ns_(1 << l2ss), np_(p), value_(0), is_calculated_(0), hf_{}, core_(1ull << p) {
+           JointEstimationMethod jestim, unsigned p, uint64_t seedseed=0):
+                estim_(estim), jestim_(jestim),
+                subp_(p - l2ss), ns_(1 << l2ss), np_(p),
+                value_(0), is_calculated_(0), core_(1ull << p)
+    {
         auto sfs = detail::seeds_from_seed(seedseed ? seedseed: ns_ + l2ss * p + 137, ns_);
         seeds_ = std::vector<uint64_t, Allocator<uint64_t>>(std::begin(sfs), std::end(sfs));
         assert(sfs.size());
@@ -1493,14 +1487,14 @@ public:
             const Type element = Space::set1(val);
             VType key;
             do {
-                key = hf_(*sptr++ ^ element);
+                key = WangHash()(*sptr++ ^ element);
                 for(const auto val: key.arr_)
                     if((clz(((val << 1)|1) << (subp() - 1)) + 1) > core_[(val >> subq()) + (k++ << subp())])
                         return false;
                 assert(k <= ns_);
             } while(sptr < eptr);
         } else while(k < ns_) {
-            auto tmp = hf_(val ^ seeds_[k]);
+            auto tmp = WangHash()(val ^ seeds_[k]);
             if((clz(((tmp << 1)|1) << (subp() - 1)) + 1) > core_[(tmp >> subq()) + (k++ << subp())]) return false;
         }
         return true;
@@ -1513,11 +1507,11 @@ public:
             const Type element = Space::set1(val);
             VType key;
             do {
-                key = hf_(*sptr++ ^ element);
+                key = WangHash()(*sptr++ ^ element);
                 key.for_each([&](const uint64_t &val) {add(val, k++);});
                 assert(k <= ns_);
             } while(sptr < eptr);
-        } else for(;k < ns_;add(hf_(val ^ seeds_[k]), k), ++k);
+        } else for(;k < ns_;add(WangHash()(val ^ seeds_[k]), k), ++k);
     }
     double chunk_report() const {
 #if NON_POW2
