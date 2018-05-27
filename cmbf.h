@@ -98,7 +98,7 @@ struct PowerOfTwo {
     uint64_t combine(const T1 &i, const T2 &j) {
         return uint64_t(i) + (i == j);
     }
-    PowerOfTwo(uint64_t seed=0): rng_(seed ? seed: std::time(nullptr)), gen_(rng_()), nbits_(64) {}
+    PowerOfTwo(uint64_t seed=0): rng_(seed), gen_(rng_()), nbits_(64) {}
     uint64_t est_count(uint64_t val) const {
 #if !NDEBUG
         //std::fprintf(stderr, "Getting count for item %" PRIu64 ". Result: %" PRIu64 "\n", val,
@@ -136,7 +136,7 @@ public:
                               seeds_.size() * sizeof(seeds_[0]) + data_.bytes());
     }
     cmbfbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0):
-            data_(nbits, nhashes << l2sz), updater_(seed),
+            data_(nbits, nhashes << l2sz), updater_(seed + l2sz * nbits * nhashes),
             nhashes_(nhashes), l2sz_(l2sz),
             nbits_(nbits), max_tbl_val_((1ull<<nbits) - 1),
             mask_((1ull << l2sz) - 1), subtbl_sz_(1ull << l2sz)
