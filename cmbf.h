@@ -163,7 +163,7 @@ public:
         bool ret = 1;
         Space::VType v;
         const Space::Type *seeds(reinterpret_cast<Space::Type *>(&seeds_[0]));
-        while(nhashes_ - nhdone > Space::COUNT) {
+        while(nhashes_ - nhdone >= Space::COUNT) {
             v = hash(Space::xor_fn(Space::set1(val), *seeds++));
             v.for_each([&](const uint64_t &hv) {
                 ref &= data_[(hv & mask_) + nhdone++ * subtbl_sz_];
