@@ -348,7 +348,6 @@ public:
         core_.resize(new_size >> OFFSET);
         clear();
         np_ = (std::size_t)std::log2(new_size) - OFFSET;
-        std::fprintf(stderr, "new np_ is %zu\n", size_t(np_));
         reseed();
         assert(np_ < 64); // To handle underflow
     }
