@@ -1,12 +1,30 @@
 #include "cmbf.h"
 #include <unordered_map>
+#include <getopt.h>
 
 
 using namespace sketch::cmbf;
 
 int main(int argc, char *argv[]) {
-    cmbf_exp_t thing(4, 16, 1);
-    cmbf_t thingexact(4, 16, 5);
+    int nbits = 4, l2sz = 16, nhashes = 8, c;
+    if(argc == 1) goto usage;
+    while((c = getopt(argc, argv, "n:l:b:h")) >= 0) {
+        switch(c) {
+            case 'h':
+                usage:
+                std::fprintf(stderr, "%s [flags] [niter=10000]\n"
+                                     "-n\tNumber of subtables\n"
+                                     "-l\tLog2 size of the sketch\n"
+                                     "-b\tNumber of bits per entry\n",
+                              *argv);
+                std::exit(1);
+            case 'n': nhashes = std::atoi(optarg); break;
+            case 'b': nbits = std::atoi(optarg); break;
+            case 'l': l2sz = std::atoi(optarg); break;
+        }
+    }
+    cmbf_exp_t thing(nbits, l2sz, nhashes);
+    cmbf_t thingexact(nbits, l2sz, nhashes);
     auto [x, y] = thing.est_memory_usage();
     std::fprintf(stderr, "stack space: %zu\theap space:%zu\n", x, y);
     size_t nitems = argc > 1 ? std::strtoull(argv[1], nullptr, 10): 100000;
@@ -16,9 +34,7 @@ int main(int argc, char *argv[]) {
     for(const auto el: thing.ref()) {
         assert(unsigned(el) == 0);
     }
-    auto &ref = thing.ref();
     for(const auto item: items) thing.add_conservative(item), thingexact.add_conservative(item);
-    //, std::fprintf(stderr, "Item %" PRIu64 " has count %u\n", item, unsigned(thing.est_count(item)));
     std::unordered_map<uint64_t, uint64_t> histexact, histapprox;
     for(const auto j: items) {
         //std::fprintf(stderr, "est count: %zu\n", size_t(thing.est_count(j)));

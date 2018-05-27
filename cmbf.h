@@ -55,7 +55,9 @@ struct PowerOfTwo {
         if(unsigned(ref) == 0) ref = 1;
         else {
             if(__builtin_expect(nbits_ < ref, 0)) gen_ = rng_(), nbits_ = 64;
+            const unsigned oldref = ref;
             ref += ((gen_ & (UINT64_C(-1) >> (64 - unsigned(ref)))) == 0);
+            gen_ >>= oldref, nbits_ -= oldref;
         }
     }
     template<typename T, typename Container, typename IntType>
@@ -79,6 +81,7 @@ struct PowerOfTwo {
 #if !NDEBUG
             //std::fprintf(stderr, "bitmasked gen: %u. val: %u\n", unsigned((gen_ & (UINT64_C(-1) >> (64 - val)))), unsigned(val));
 #endif
+            auto oldval = val;
             if((gen_ & (UINT64_C(-1) >> (64 - val))) == 0) {
 #if !NDEBUG
             //std::fprintf(stderr, "We incremented a second time!\n");
@@ -87,7 +90,8 @@ struct PowerOfTwo {
                 for(const auto el: ref)
                     con[el] = val;
             }
-            gen_ >>= (val - 1);
+            gen_ >>= oldval;
+            nbits_ -= oldval;
         }
     }
     template<typename T1, typename T2>
@@ -100,7 +104,7 @@ struct PowerOfTwo {
         //std::fprintf(stderr, "Getting count for item %" PRIu64 ". Result: %" PRIu64 "\n", val,
         //             val ? uint64_t(1) << (val - 1): 0);
 #endif
-        return val ? uint64_t(1) << (val - 1): 0;
+        return uint64_t(1) << (val - 1);
     }
 };
 
@@ -140,6 +144,7 @@ public:
         if(__builtin_expect(nbits < 0, 0)) throw std::runtime_error("Number of bits cannot be negative.");
         if(__builtin_expect(l2sz < 0, 0)) throw std::runtime_error("l2sz cannot be negative.");
         if(__builtin_expect(nhashes < 0, 0)) throw std::runtime_error("nhashes cannot be negative.");
+        std::fprintf(stderr, "Initialized cmbfbase_t with %zu table entries\n", size_t(nhashes << l2sz));
         std::mt19937_64 mt(seed + 4);
         while(seeds_.size() < (unsigned)nhashes) seeds_.emplace_back(mt());
         std::memset(data_.get(), 0, data_.bytes());
@@ -163,6 +168,7 @@ public:
         bool ret = 1;
         Space::VType v;
         const Space::Type *seeds(reinterpret_cast<Space::Type *>(&seeds_[0]));
+        assert(data_.size() == subtbl_sz_ * nhashes_);
         while(nhashes_ - nhdone >= Space::COUNT) {
             v = hash(Space::xor_fn(Space::set1(val), *seeds++));
             v.for_each([&](const uint64_t &hv) {
@@ -252,11 +258,14 @@ public:
         uint64_t count = std::numeric_limits<uint64_t>::max(), nhdone = 0;
         static const Space::VType and_val = Space::set1(mask_), vb = Space::set1(val);
         Space::VType tmp;
-        while(nhashes_ - nhdone > Space::COUNT) {
+        while((int)nhashes_ - (int)nhdone > (ssize_t)Space::COUNT) {
             tmp = Space::and_fn(hash(Space::xor_fn(vb.simd_, Space::load(sptr++))), and_val.simd_);
             tmp.for_each([&](uint64_t &subval){
+#if !NDEBUG
+                const auto ind  = subval + subtbl_sz_ * nhdone;
+                assert(ind < data_.size() || !std::fprintf(stderr, "index %zu is too big for nhdone %" PRIu64 ". subval %" PRIu64 " with mask %zu. subtbl size %zu\n", size_t(ind), nhdone, subval, size_t(mask_), size_t(subtbl_sz_)));
+#endif
                 count = std::min(count, uint64_t(data_[subval + subtbl_sz_ * nhdone++]));
-                ++nhdone;
             });
         }
         while(nhdone < nhashes_) {
