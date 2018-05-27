@@ -102,9 +102,9 @@ using common::VType;
 using common::Type;
 using common::Space;
 
-template<typename VectorType=compact::vector<uint64_t, uint64_t, common::Allocator<uint64_t>>,
-         typename HashStruct=common::WangHash,
-         typename UpdateStrategy=update::Increment>
+template<typename UpdateStrategy=update::Increment,
+         typename VectorType=compact::vector<uint64_t, uint64_t, common::Allocator<uint64_t>>,
+         typename HashStruct=common::WangHash>
 class cmbfbase_t {
 
 protected:
@@ -146,6 +146,52 @@ public:
     }
     void addh_conservative(uint64_t val) {this->add_conservative(val);}
     void addh_liberal(uint64_t val) {this->add_liberal(val);}
+    template<typename T>
+    T hash(T val) const {
+        return HashStruct()(val);
+    }
+    bool may_contain(uint64_t val) const {
+        unsigned nhdone = 0;
+        bool ret = 1;
+        Space::VType v;
+        const Space::Type *seeds(reinterpret_cast<Space::Type *>(&seeds_[0]));
+        while(nhashes_ - nhdone > Space::COUNT) {
+            v = hash(Space::xor_fn(Space::set1(val), *seeds++));
+            v.for_each([&](const uint64_t &hv) {
+                ref &= data_[(hv & mask_) + nhdone++ * subtbl_sz_];
+            });
+            if(!ret) return false;
+        }
+        while(nhdone < nhashes_) {
+            if(!data_[hash(val ^ seeds_[nhdone]) & mask_ + (nhdone * subtbl_sz_)]) return false;
+            ++nhdone;
+        }
+        return true;
+    }
+    uint32_t may_contain(Space::VType val) const {
+        Space::VType tmp, hv, and_val;
+        unsigned nhdone = 0, vindex = 0;
+        const Space::Type *seeds(reinterpret_cast<const Space::Type *>(seeds_.data()));
+        and_val = Space::set1(mask_);
+        uint32_t ret = static_cast<uint32_t>(-1) >> ((sizeof(ret) * CHAR_BIT) - Space::COUNT);
+        uint32_t bitmask;
+        while(nhdone < nhashes_) {
+            bitmask = static_cast<uint32_t>(-1) >> ((sizeof(ret) * CHAR_BIT) - Space::COUNT) & ~(1u << vindex);
+            hv = Space::load(seeds++);
+            val.for_each([&](uint64_t w) {
+                tmp = Space::set1(w);
+                tmp = Space::xor_fn(tmp.simd_, hv.simd_);
+                tmp = hash(tmp.simd_);
+                tmp = Space::and_fn(and_val.simd_, tmp.simd_);
+                tmp.for_each([&](const uint64_t &subw) {
+                    ret &= (~(data_[subw + nhdone * subtbl_sz_] == 0) << vindex++);
+                });
+            });
+            vindex = 0;
+            ++nhdone;
+        }
+        return ret;
+    }
     void add_conservative(const uint64_t val) {
         std::vector<uint64_t> indices, best_indices;
         indices.reserve(nhashes_);
@@ -153,13 +199,13 @@ public:
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         Space::VType vb = Space::set1(val), tmp, mask = Space::set1(mask_);
         while((int)nhashes_ - (int)nhdone >= (ssize_t)Space::COUNT) {
-            tmp = Space::and_fn(mask.simd_, HashStruct()(Space::xor_fn(vb.simd_, Space::load(sptr++))));
+            tmp = Space::and_fn(mask.simd_, hash(Space::xor_fn(vb.simd_, Space::load(sptr++))));
             tmp.for_each([&](uint64_t &subval){
                 indices.push_back(subval + nhdone++ * subtbl_sz_);
             });
         }
         while(nhdone < nhashes_) {
-            indices.push_back((HashStruct()(val ^ seeds_[nhdone]) & mask_) + nhdone * subtbl_sz_);
+            indices.push_back((hash(val ^ seeds_[nhdone]) & mask_) + nhdone * subtbl_sz_);
             ++nhdone;
         }
         best_indices.push_back(indices[0]);
@@ -180,7 +226,7 @@ public:
         unsigned nhdone = 0;
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         while(nhashes_ - nhdone > Space::COUNT) {
-            Space::VType tmp = HashStruct()(Space::xor_fn(Space::set1(val), Space::load(sptr++)));
+            Space::VType tmp = hash(Space::xor_fn(Space::set1(val), Space::load(sptr++)));
             tmp.for_each([&](uint64_t &subval){
 #if !NDEBUG
                 std::fprintf(stderr, "Querying at position %u, with value %u", nhdone * subtbl_sz_ + (subval & mask_), unsigned(data_[subtbl_sz_ * nhdone++ + (subval & mask_)]));
@@ -189,7 +235,7 @@ public:
             });
         }
         while(nhdone < nhashes_) {
-            updater_(data_[subtbl_sz_ * nhdone + (HashStruct()(val ^ seeds_[nhdone]) & mask_, max_tbl_val_)]);
+            updater_(data_[subtbl_sz_ * nhdone + (hash(val ^ seeds_[nhdone]) & mask_, max_tbl_val_)]);
             ++nhdone;
         }
     }
@@ -199,14 +245,14 @@ public:
         static const Space::VType and_val = Space::set1(mask_), vb = Space::set1(val);
         Space::VType tmp;
         while(nhashes_ - nhdone > Space::COUNT) {
-            tmp = Space::and_fn(HashStruct()(Space::xor_fn(vb.simd_, Space::load(sptr++))), and_val.simd_);
+            tmp = Space::and_fn(hash(Space::xor_fn(vb.simd_, Space::load(sptr++))), and_val.simd_);
             tmp.for_each([&](uint64_t &subval){
                 count = std::min(count, uint64_t(data_[subval + subtbl_sz_ * nhdone++]));
                 ++nhdone;
             });
         }
         while(nhdone < nhashes_) {
-            uint64_t ind = index(HashStruct()(val ^ seeds_[nhdone]), nhdone);
+            uint64_t ind = index(hash(val ^ seeds_[nhdone]), nhdone);
             count = std::min(count, uint64_t(data_[ind]));
             ++nhdone;
         }
@@ -215,6 +261,7 @@ public:
 };
 
 using cmbf_t = cmbfbase_t<>;
+using cmbf_exp_t = cmbfbase_t<update::PowerOfTwo>;
 
 } // namespace cmbf
 } // namespace sketch
