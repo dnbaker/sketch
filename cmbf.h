@@ -72,7 +72,13 @@ struct PowerOfTwo {
                 con[el] = 1;
         } else {
             if(__builtin_expect(nbits_ < val, 0)) gen_ = rng_(), nbits_ = 64;
+#if !NDEBUG
+            //std::fprintf(stderr, "bitmasked gen: %u. val: %u\n", unsigned((gen_ & (UINT64_C(-1) >> (64 - val)))), unsigned(val));
+#endif
             if((gen_ & (UINT64_C(-1) >> (64 - val))) == 0) {
+#if !NDEBUG
+            //std::fprintf(stderr, "We incremented a second time!\n");
+#endif
                 ++val;
                 for(const auto el: ref)
                     con[el] = val;
