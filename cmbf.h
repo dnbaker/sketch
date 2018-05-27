@@ -266,10 +266,23 @@ public:
         }
         return updater_.est_count(count);
     }
-    cmbfbase_t operator+(const cmbfbase_t &other) {
+    cmbfbase_t operator+(const cmbfbase_t &other) const {
         cmbfbase_t cpy = *this;
         cpy += other;
         return cpy;
+    }
+    cmbfbase_t operator&(const cmbfbase_t &other) const {
+        cmbfbase_t cpy = *this;
+        cpy &= other;
+        return cpy;
+    }
+    cmbfbase_t &operator&=(const cmbfbase_t &other) {
+        if(seeds_.size() != other.seeds_.size() || !std::equal(seeds_.cbegin(), seeds_.cend(), other.seeds_.cbegin()))
+            throw std::runtime_error("Could not add sketches together with different hash functions.");
+        for(size_t i(0), e(data_.size()); i < e; ++i) {
+            data_[i] = std::min((unsigned)data_[i], (unsigned)other.data_[i]);
+        }
+        return *this;
     }
     cmbfbase_t &operator+=(const cmbfbase_t &other) {
         if(seeds_.size() != other.seeds_.size() || !std::equal(seeds_.cbegin(), seeds_.cend(), other.seeds_.cbegin()))
