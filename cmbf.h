@@ -35,6 +35,10 @@ struct Increment {
 #endif
         return val;
     }
+    template<typename T1, typename T2>
+    uint64_t combine(const T1 &i, const T2 &j) {
+        return uint64_t(i) + uint64_t(j);
+    }
 };
 
 struct PowerOfTwo {
@@ -86,6 +90,10 @@ struct PowerOfTwo {
             gen_ >>= (val - 1);
         }
     }
+    template<typename T1, typename T2>
+    uint64_t combine(const T1 &i, const T2 &j) {
+        return uint64_t(i) + (i == j);
+    }
     PowerOfTwo(uint64_t seed=0): rng_(seed ? seed: std::time(nullptr)), gen_(rng_()), nbits_(64) {}
     uint64_t est_count(uint64_t val) const {
 #if !NDEBUG
@@ -117,7 +125,7 @@ protected:
     const uint64_t mask_;
     const uint64_t subtbl_sz_;
     std::vector<uint64_t, common::Allocator<uint64_t>> seeds_;
-    
+
 public:
     std::pair<size_t, size_t> est_memory_usage() const {
         return std::make_pair(sizeof(data_) + sizeof(updater_) + sizeof(unsigned) + sizeof(max_tbl_val_) + sizeof(mask_) + sizeof(subtbl_sz_) + sizeof(seeds_),
@@ -135,7 +143,7 @@ public:
         std::mt19937_64 mt(seed + 4);
         while(seeds_.size() < (unsigned)nhashes) seeds_.emplace_back(mt());
         std::memset(data_.get(), 0, data_.bytes());
-        std::fprintf(stderr, "%i bits for each number, %u is log2 size of each table, %i is the number of subtables\n", nbits, l2sz, nhashes);
+        std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables\n", nbits, l2sz, nhashes);
     }
     VectorType &ref() {return data_;}
     uint64_t index(uint64_t hash, unsigned subtbl) const {
@@ -257,6 +265,19 @@ public:
             ++nhdone;
         }
         return updater_.est_count(count);
+    }
+    cmbfbase_t operator+(const cmbfbase_t &other) {
+        cmbfbase_t cpy = *this;
+        cpy += other;
+        return cpy;
+    }
+    cmbfbase_t &operator+=(const cmbfbase_t &other) {
+        if(seeds_.size() != other.seeds_.size() || !std::equal(seeds_.cbegin(), seeds_.cend(), other.seeds_.cbegin()))
+            throw std::runtime_error("Could not add sketches together with different hash functions.");
+        for(size_t i(0), e(data_.size()); i < e; ++i) {
+            data_[i] = updater_.combine(data_[i], other.data_[i]);
+        }
+        return *this;
     }
 };
 
