@@ -391,13 +391,13 @@ public:
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         const uint64_t *sptr;
         while(nleft > npersimd) {
-            VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
+            VType v(HashStruct()(Space::set1(val) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {ret &= all_set_and_set1(val, npw, shift);});
             nleft -= npersimd;
         }
         sptr = reinterpret_cast<const uint64_t *>(seedptr);
         while(nleft) {
-            ret &= all_set_and_set1(hf_(val ^ *sptr++), std::min(npw, nleft), shift);
+            ret &= all_set_and_set1(HashStruct()(val ^ *sptr++), std::min(npw, nleft), shift);
             nleft -= std::min(npw, nleft);
             assert(sptr <= &seeds_[seeds_.size()]);
         }

@@ -1115,7 +1115,7 @@ public:
         return hllbase_t<HashStruct>::may_contain(hashval) && this->core_[hashval & ((this->m()) - 1)] >= ffs(hashval >> this->p());
     }
 
-    INLINE void addh(uint64_t element) {add(this->HashStruct()(element));}
+    INLINE void addh(uint64_t element) {add(HashStruct()(element));}
 };
 using hlldub_t = hlldub_base_t<>;
 
@@ -1154,7 +1154,7 @@ public:
         dcore_[index] = std::min(dcore_[index], lzt);
 #endif
     }
-    void addh(uint64_t element) {add(this->HashStruct()(element));}
+    void addh(uint64_t element) {add(HashStruct()(element));}
     bool may_contain(uint64_t hashval) const {
         return hll_t::may_contain(hashval) && dcore_[hashval & ((this->m()) - 1)] >= ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1));
     }
@@ -1181,7 +1181,7 @@ public:
     }
     void addh(uint64_t element) {
         element ^= seed_;
-        this->add(this->HashStruct()(element));
+        this->add(HashStruct()(element));
     }
     uint64_t seed() const {return seed_;}
     void reseed(uint64_t seed) {seed_= seed_;}
