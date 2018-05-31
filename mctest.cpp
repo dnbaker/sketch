@@ -11,7 +11,6 @@ int main(int argc, char *argv[]) {
     while((c = getopt(argc, argv, "n:l:b:h")) >= 0) {
         switch(c) {
             case 'h':
-                usage:
                 std::fprintf(stderr, "%s [flags] [niter=10000]\n"
                                      "-n\tNumber of subtables\n"
                                      "-l\tLog2 size of the sketch\n"

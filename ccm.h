@@ -63,11 +63,11 @@ struct CountSketch {
     template<typename T, typename Container, typename IntType, typename IntType2>
     void operator()(std::vector<T> &ref, std::vector<T> &hashes, Container &con, IntType nbits) {
         using IDX = typename detail::IndexedValue<Container>::Type;
-        IDX count = con[ref[0]], newval;
+        IDX newval;
         static constexpr size_t shift = sizeof(hashes[0]) * CHAR_BIT - 1;
         assert(ref.size() == hashes.size());
         for(size_t i(0); i < ref.size(); ++i) {
-            newval = count + detail::signarr<IntType2>[hashes[i]>>shift];
+            newval = con[ref[i]] + detail::signarr<IntType2>[hashes[i]>>shift];
             if(detail::range_check<IDX>(nbits, newval) == 0)
                 con[ref[i]] = newval;
         }
@@ -273,28 +273,30 @@ public:
             indices.push_back(hv);
             ++nhdone;
         }
-        best_indices.push_back(indices[0]);
-        best_hashes.push_back(indices[1]);
-        size_t minval = data_[indices[0]];
-        unsigned score;
-        for(size_t i(1); i < indices.size(); ++i) {
-            if((score = data_[indices[i]]) == minval) {
-                best_indices.push_back(indices[i]);
-                if constexpr(is_count_sketch())
-                    best_hashes.push_back(hashes[i]);
-            } else if(score < minval) {
-                best_indices.clear();
-                best_indices.push_back(indices[i]);
-                if constexpr(is_count_sketch()) {
-                    best_hashes.clear();
-                    best_hashes.push_back(hashes[i]);
+        if constexpr(is_count_sketch()) {
+            updater_(indices, hashes, data_, nbits_);
+        } else {
+            best_indices.push_back(indices[0]);
+            best_hashes.push_back(indices[1]);
+            size_t minval = data_[indices[0]];
+            unsigned score;
+            for(size_t i(1); i < indices.size(); ++i) {
+                if((score = data_[indices[i]]) == minval) {
+                    best_indices.push_back(indices[i]);
+                    if constexpr(is_count_sketch())
+                        best_hashes.push_back(hashes[i]);
+                } else if(score < minval) {
+                    best_indices.clear();
+                    best_indices.push_back(indices[i]);
+                    if constexpr(is_count_sketch()) {
+                        best_hashes.clear();
+                        best_hashes.push_back(hashes[i]);
+                    }
+                    minval = score;
                 }
-                minval = score;
             }
+            updater_(best_indices, data_, nbits_);
         }
-        if constexpr(is_count_sketch())
-            updater_(best_indices, best_hashes, data_, nbits_);
-        else updater_(best_indices, data_, nbits_);
     }
     void add_liberal(uint64_t val) {
         unsigned nhdone = 0;
