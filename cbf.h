@@ -23,7 +23,7 @@ static std::vector<unsigned> pcbf_bf_mgen(unsigned nsketches, unsigned l2sz, boo
     std::vector<unsigned> ret; ret.reserve(nsketches);
     std::generate_n(std::back_inserter(ret), nsketches, [&](){
         auto ret = std::max(l2sz, 10u);
-        if(ret) l2sz -= shrinkpow2;
+        if(ret) l2sz -= std::min((unsigned)shrinkpow2, l2sz);
         return ret;
     });
     return ret;
@@ -41,6 +41,12 @@ protected:
     //       and performing all operations on subfilters.
 public:
     explicit cbfbase_t(const std::vector<unsigned> &l2szs, unsigned nhashes, uint64_t seedseedseedval): rng_{seedseedseedval}, gen_(rng_()), nbits_(64) {
+#if !NDEBUG
+            std::fprintf(stderr, "Total l2szs: %s. nh: %u, seed: %" PRIu64".\n", std::accumulate(std::begin(l2szs), std::end(l2szs), std::string(""),
+                         [](std::string &a, unsigned u) -> std::string & {
+                return a += std::to_string(u) + ","s;
+            }).data(), nhashes, seedseedseedval);
+#endif
         if(l2szs.empty()) throw std::runtime_error("Need at least 1 size for hashes.");
         bfs_.reserve(l2szs.size());
         std::generate_n(std::back_inserter(bfs_), l2szs.size(), [&]{return bfbase_t<HashStruct>(l2szs[bfs_.size()], nhashes, rng_());});
@@ -52,21 +58,20 @@ public:
     }
     INLINE unsigned addh(const uint64_t val) {
         auto it(bfs_.begin());
-        if(!it->may_contain(val)) {
-            it->addh(val);
+        if(!it->may_contain_and_addh(val))
             return 1u;
-        }
         FOREVER {
             ++it;
             if(it == bfs_.end()) return 1u << bfs_.size();
-            if(!it->may_contain(val)) break;
+            if(!it->may_contain(val)) {
+                const auto dist = static_cast<unsigned>(std::distance(bfs_.begin(), it));
+                if(__builtin_expect(nbits_ < dist, 0)) gen_ = rng_(), nbits_ = 64;
+                if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) it->addh(val); // Flip the biased coin, add if it returns 'heads'
+                gen_ >>= dist, nbits_ -= dist;
+            }
         }
         // Otherwise, probabilistically insert at position.
-        const auto dist = static_cast<unsigned>(std::distance(bfs_.begin(), it));
         if(it != bfs_.end()) {
-            if(__builtin_expect(nbits_ < dist, 0)) gen_ = rng_(), nbits_ = 64;
-            if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) it->addh(val); // Flip the biased coin, add if it returns 'heads'
-            gen_ >>= dist, nbits_ -= dist;
         } // Else already at capacity
         return 1u << (std::distance(bfs_.begin(), it) - 1);
     }
