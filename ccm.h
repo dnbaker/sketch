@@ -5,8 +5,8 @@
 #include <ctime>
 
 namespace sketch {
-namespace cmbf {
 
+namespace cm {
 
 namespace update {
 
@@ -18,9 +18,6 @@ struct Increment {
     }
     template<typename T, typename Container, typename IntType>
     void operator()(std::vector<T> &ref, Container &con, IntType maxval) {
-#if !NDEBUG
-            //std::fprintf(stderr, "Max value is %u, alue at pos is %u, incrementing to %u\n", unsigned(maxval), unsigned(con[ref[0]]), unsigned(con[ref[0]]) + 1);
-#endif
             if(con[ref[0]] < maxval) {
                 for(const auto el: ref) {
                     con[el] = con[el] + 1;
@@ -30,9 +27,42 @@ struct Increment {
     template<typename... Args>
     Increment(Args &&... args) {}
     uint64_t est_count(uint64_t val) const {
-#if !NDEBUG
-        //std::fprintf(stderr, "Est count: %" PRIu64 "\n", val);
-#endif
+        return val;
+    }
+    template<typename T1, typename T2>
+    uint64_t combine(const T1 &i, const T2 &j) {
+        return uint64_t(i) + uint64_t(j);
+    }
+};
+
+namespace detail {
+    template<typename IntType> static constexpr IntType signarr{static_cast<IntType>(-1), static_cast<IntType>(1)};
+}
+
+struct CountSketch {
+    // Saturates
+    template<typename T, typename IntType, typename IntType2>
+    void operator()(T &ref, IntType maxval, IntType2 hash) {
+        if(__builtin_expect(IntType(ref) == maxval), 0) return;
+        const auto val = 1 + (hash>>63);
+        ref = ref + val > maxval ? maxval: ref + val;
+    }
+    template<typename T, typename Container, typename IntType, typename IntType2>
+    void operator()(std::vector<T> &ref, Container &con, IntType maxval, IntType2 hash) {
+        unsigned count = con[ref[0]];
+        const auto sign = detail::signarr<IntType2>[hash>>63] + 1;
+        if(count == maxval) return;
+        if(__builtin_expect(count == maxval - 1 && sign != 0, 0)) {
+            for(const auto el: ref)
+                con[el] = con[el] + 1;
+        } else {
+            for(const auto el: ref)
+                con[el] = con[el] + sign + 1;
+        }
+    }
+    template<typename... Args>
+    void Increment(Args &&... args) {}
+    uint64_t est_count(uint64_t val) const {
         return val;
     }
     template<typename T1, typename T2>
@@ -113,7 +143,7 @@ using common::Space;
 template<typename UpdateStrategy=update::Increment,
          typename VectorType=compact::vector<uint64_t, uint64_t, common::Allocator<uint64_t>>,
          typename HashStruct=common::WangHash>
-class cmbfbase_t {
+class ccmbase_t {
 
 protected:
     VectorType        data_;
@@ -131,7 +161,7 @@ public:
         return std::make_pair(sizeof(data_) + sizeof(updater_) + sizeof(unsigned) + sizeof(max_tbl_val_) + sizeof(mask_) + sizeof(subtbl_sz_) + sizeof(seeds_),
                               seeds_.size() * sizeof(seeds_[0]) + data_.bytes());
     }
-    cmbfbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0):
+    ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0):
             data_(nbits, nhashes << l2sz), updater_(seed),
             nhashes_(nhashes), l2sz_(l2sz),
             nbits_(nbits), max_tbl_val_((1ull<<nbits) - 1),
@@ -266,17 +296,17 @@ public:
         }
         return updater_.est_count(count);
     }
-    cmbfbase_t operator+(const cmbfbase_t &other) const {
-        cmbfbase_t cpy = *this;
+    ccmbase_t operator+(const ccmbase_t &other) const {
+        ccmbase_t cpy = *this;
         cpy += other;
         return cpy;
     }
-    cmbfbase_t operator&(const cmbfbase_t &other) const {
-        cmbfbase_t cpy = *this;
+    ccmbase_t operator&(const ccmbase_t &other) const {
+        ccmbase_t cpy = *this;
         cpy &= other;
         return cpy;
     }
-    cmbfbase_t &operator&=(const cmbfbase_t &other) {
+    ccmbase_t &operator&=(const ccmbase_t &other) {
         if(seeds_.size() != other.seeds_.size() || !std::equal(seeds_.cbegin(), seeds_.cend(), other.seeds_.cbegin()))
             throw std::runtime_error("Could not add sketches together with different hash functions.");
         for(size_t i(0), e(data_.size()); i < e; ++i) {
@@ -284,7 +314,7 @@ public:
         }
         return *this;
     }
-    cmbfbase_t &operator+=(const cmbfbase_t &other) {
+    ccmbase_t &operator+=(const ccmbase_t &other) {
         if(seeds_.size() != other.seeds_.size() || !std::equal(seeds_.cbegin(), seeds_.cend(), other.seeds_.cbegin()))
             throw std::runtime_error("Could not add sketches together with different hash functions.");
         for(size_t i(0), e(data_.size()); i < e; ++i) {
@@ -294,8 +324,9 @@ public:
     }
 };
 
-using cmbf_t = cmbfbase_t<>;
-using cmbf_exp_t = cmbfbase_t<update::PowerOfTwo>;
+using ccm_t = ccmbase_t<>;
+using pccm_t = ccmbase_t<update::PowerOfTwo>;
+using cs_t = ccmbase_t<update::PowerOfTwo>;
 
-} // namespace cmbf
+} // namespace cm
 } // namespace sketch

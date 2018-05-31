@@ -59,6 +59,6 @@ dev_test_p: dev_test.cpp kthread.o hll.h
 clean:
 	rm -f test.o test hll.o kthread.o *hll*cpython*so $(EX)
 
-mctest: mctest.cpp cmbf.h
+mctest: mctest.cpp ccm.h
 
 mostlyclean: clean
