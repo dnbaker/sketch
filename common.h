@@ -197,6 +197,33 @@ INLINE auto popcnt_fn(VType val) {
     return popcnt_fn(val.simd_);
 }
 
+namespace sort {
+// insertion_sort from https://github.com/orlp/pdqsort
+// Slightly modified stylistically.
+template<class Iter, class Compare>
+inline void insertion_sort(Iter begin, Iter end, Compare comp) {
+    using T = typename std::iterator_traits<Iter>::value_type;
+
+    for (Iter cur = begin + 1; cur < end; ++cur) {
+        Iter sift = cur;
+        Iter sift_1 = cur - 1;
+
+        // Compare first so we can avoid 2 moves for an element already positioned correctly.
+        if (comp(*sift, *sift_1)) {
+            T tmp = std::move(*sift);
+
+            do { *sift-- = std::move(*sift_1); }
+            while (sift != begin && comp(tmp, *--sift_1));
+
+            *sift = std::move(tmp);
+        }
+    }
+}
+template<class Iter>
+inline void insertion_sort(Iter begin, Iter end) {
+    insertion_sort(begin, end, std::less<std::decay_t<decltype(*begin)>>());
+}
+} // namespace sort
 
 } // namespace common
 } // namespace sketch
