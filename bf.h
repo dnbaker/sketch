@@ -117,9 +117,6 @@ public:
     explicit bfbase_t(size_t l2sz, unsigned nhashes, uint64_t seedval):
         np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), seedseed_(seedval)
     {
-#if !NDEBUG
-        std::fprintf(stderr, "Initializing bloom filter with l2sz %zu, nhashes %u, seedval %" PRIu64 ". np is now %u. About to resize to %llu\n", l2sz, nhashes, seedval, unsigned(np_), 1ull << p());
-#endif
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
         if(np_ > 40u) throw std::runtime_error("Attempting to make a table that's too large."s + std::to_string(np_));
         if(np_) resize(1ull << p());
@@ -217,10 +214,10 @@ public:
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
         Space::VType tmp;
-        uint64_t sum;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
-        sum = popcnt_fn(tmp);
+        auto sum = popcnt_fn(tmp);
+
 #define REPEAT_7(x) x x x x x x x
 #define REPEAT_8(x) REPEAT_7(x) x
 #define PERFORM_ITER tmp = Space::and_fn(Space::load(op++), Space::load(tc++)); sum += popcnt_fn(tmp);
@@ -232,9 +229,10 @@ public:
             }
 #undef PERFORM_ITER
         }
-        for(size_t i(1); i < core_.size() / Space::COUNT; ++i) {
+        const Type *endp = reinterpret_cast<const Type *>(&oc[oc.size()]);
+        while(op < endp) {
             tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
-            sum += popcnt_fn(tmp);
+            sum += popcnt_fn(tmp.simd_);
         }
         return sum;
     }
@@ -302,7 +300,7 @@ public:
         const VType *oels((const VType *)other.core_.data());
         unsigned i;
         if(core_.size() / Space::COUNT >= 8) {
-            for(i = 0; i < (core_.size() / (Space::COUNT));) {
+            for(i = 0; i < core_.size() / Space::COUNT;) {
             // Simpler version of Duff's device, except our number is always divisible by 8
             // So we can just unroll it 8 at a time.
 #define OR_ITER els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_); ++i;
@@ -340,14 +338,8 @@ public:
 
     // Clears, allows reuse with different np.
     void resize(size_t new_size) {
-#if !NDEBUG
-        std::fprintf(stderr, "new_size = %zu, %zx\n", new_size, new_size);
-#endif
         new_size = roundup64(new_size);
         clear();
-#if !NDEBUG
-        std::fprintf(stderr, "resizing new size to %zu\n", size_t(new_size >> OFFSET));
-#endif
         core_.resize(new_size >> OFFSET);
         clear();
         np_ = (std::size_t)std::log2(new_size) - OFFSET;
