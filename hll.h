@@ -1486,6 +1486,40 @@ public:
             } while(sptr < eptr);
         } else for(;k < ns_;add(WangHash()(val ^ seeds_[k]), k), ++k);
     }
+    double intersection_size(const chlf_t &other) const {
+        if(core_.size() != other.core_.size() || seeds_.size() != other.seeds_.size())
+            throw std::runtime_error("Incorrect sketch sizes for comparison.");
+        double sz1 = report(), sz2 = other.report();
+        chlf_t tmp = *this + other;
+        double sz3 = tmp.report();
+        return std::max(0., sz1 + sz2 - sz3);
+    }
+    double jaccard_index(const chlf_t &other) const {
+        if(core_.size() != other.core_.size() || seeds_.size() != other.seeds_.size())
+            throw std::runtime_error("Incorrect sketch sizes for comparison.");
+        double sz1 = report(), sz2 = other.report();
+        chlf_t tmp = *this + other;
+        double sz3 = tmp.report();
+        return std::max(0., sz1 + sz2 - sz3) / sz3;
+    }
+    chlf_t operator+(const chlf_t &other) const {
+        chlf_t ret = *this;
+        ret += other;
+        return ret;
+    }
+    chlf_t &operator+=(const chlf_t &other) {
+        if(core_.size() >= Space::COUNT) {
+            Type *sptr = (Type *)&core_[0], *eptr = (Type *)&core_.back(), *optr = (Type *)&other.core_[0];
+            do {
+                Space::store(sptr, detail::SIMDHolder::max_fn(*sptr, *optr)); ++sptr, ++optr;
+            } while(sptr < eptr);
+        } else {
+            for(unsigned i(0); i < core_.size(); core_[i] = std::max(core_[i], other.core_[i]), ++i);
+        }
+    }
+    double report() const {
+        return report();
+    }
     double chunk_report() const {
 #if NON_POW2
         if((size() & (size() - 1)) == 0) {
@@ -1505,7 +1539,8 @@ public:
     }
     size_t size() const {return core_.size();}
     void clear() {
-        std::fill(std::begin(core_), std::end(core_), 0);
+        Space::VType v = Space::set1(0);
+        for(VType *p((VType *)core_.data()), *e((VType *)&core_.back()); p < e; *p++ = v);
         is_calculated_ = 0;
         value_         = 0;
     }

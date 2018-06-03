@@ -9,7 +9,9 @@ namespace sketch {
 namespace cm {
 
 namespace detail {
-    template<typename IntType, typename=std::enable_if_t<std::is_signed_v<IntType>>> static constexpr IntType signarr{static_cast<IntType>(-1), static_cast<IntType>(1)};
+    template<typename IntType, typename=std::enable_if_t<std::is_signed_v<IntType>>>
+    static constexpr IntType signarr []{static_cast<IntType>(-1), static_cast<IntType>(1)};
+
     template<typename T>
     struct IndexedValue {
         using Type = typename std::decay_t<decltype(*(T(100, 10).cbegin()))>;
