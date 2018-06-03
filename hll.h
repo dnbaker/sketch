@@ -379,7 +379,7 @@ struct joint_unroller {
     }
     template<typename T, typename VectorType>
     INLINE void sum_arrays(const VectorType &c1, const VectorType &c2, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq) const {
-        assert(c1.size() == c2.size());
+        assert(c1.size() == c2.size() || !std::fprintf(stderr, "Sizes: %zu, %zu\n", c1.size(), c2.size()));
         assert((c1.size() & (SIMDHolder::nels - 1)) == 0);
         sum_arrays(reinterpret_cast<const SType *>(&c1[0]), reinterpret_cast<const SType *>(&c2[0]), reinterpret_cast<const SType *>(&*c1.cend()), arrh1, arrh2, arru, arrg1, arrg2, arreq);
     }
@@ -492,6 +492,7 @@ double ertl_ml_estimate(const HllType& c, double relerr=1e-2) {
 
 template<typename HllType>
 std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
+    assert(h1.m() == h2.m() || !std::fprintf(stderr, "sizes don't match! Size1: %zu. Size2: %zu\n", h1.size(), h2.size()));
     std::array<double, 3> ret;
     if(h1.get_jestim() != ERTL_JOINT_MLE) {
         ret[2] = h1.union_size(h2);
@@ -1409,6 +1410,7 @@ public:
     }
 };
 using hlf_t = hlfbase_t<>;
+
 template<typename HashType=WangHash>
 class chlf_t { // contiguous hyperlogfilter
 protected:

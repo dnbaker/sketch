@@ -162,6 +162,9 @@ static constexpr inline bool is_pow2(T val) {
     return val && (val & (val - 1)) == 0;
 }
 
+template<typename T>
+class TD;
+
 inline unsigned popcount(uint64_t val) noexcept {
 #ifndef NO_USE_CQF_ASM
 // From cqf https://github.com/splatlab/cqf/
@@ -183,14 +186,17 @@ INLINE auto popcnt_fn(T val);
 template<>
 INLINE auto popcnt_fn(Type val) {
 #if HAS_AVX_512
-    return popcnt_avx512((Type *)&val, sizeof(val));
+#define FUNCTION_CALL popcnt_avx256((Type *)&val, 2)
 #elif __AVX2__
-    return popcnt_avx2((Type *)&val, sizeof(val));
+// This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
+#define FUNCTION_CALL popcount(((const uint64_t *)&val)[0]) + popcount(((const uint64_t *)&val)[1]) + popcount(((const uint64_t *)&val)[2]) + popcount(((const uint64_t *)&val)[3])
 #elif __SSE2__
-    return popcount(((const uint64_t *)&val)[0]) + popcount(((const uint64_t *)&val)[1]);
+#define FUNCTION_CALL popcount(((const uint64_t *)&val)[0]) + popcount(((const uint64_t *)&val)[1])
 #else
 #  error("Need SSE2. TODO: make this work for non-SIMD architectures")
 #endif
+    return FUNCTION_CALL;
+#undef FUNCTION_CALL
 }
 template<>
 INLINE auto popcnt_fn(VType val) {
