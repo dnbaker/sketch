@@ -114,6 +114,34 @@ struct WangHash {
     }
 };
 
+namespace lut {
+static constexpr uint8_t nbitsperhash [] {
+/*
+# Auto-generated using:
+def ru(x):
+    x -= 1
+    x |= x >> 1; x |= x >> 2; x |= x >> 4; x |= x >> 8; x |= x >> 6; x |= x >> 16; x |= x >> 32
+    x += 1
+    return x
+print("    %s" % ", ".join(map(str, map(ru, range(64)))))
+*/
+    0, 1, 2, 4, 4, 8, 8, 8, 8, 16, 16, 16, 16, 16, 16, 16, 16, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64
+};
+static const uint8_t nhashesper64bitword [] {
+/*
+# Auto-generated using:
+def ru(x):
+    x -= 1
+    x |= x >> 1; x |= x >> 2; x |= x >> 4; x |= x >> 8; x |= x >> 6; x |= x >> 16; x |= x >> 32
+    x += 1
+    return x
+print("    0xFFu, %s" % ", ".join(str(64 // ru(x)) for x in range(1, 63)))
+
+*/
+    0xFFu, 64, 32, 16, 16, 8, 8, 8, 8, 4, 4, 4, 4, 4, 4, 4, 4, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+};
+} // namespace lut
+
 struct MurFinHash {
     INLINE uint64_t operator()(uint64_t key) const {
         key ^= key >> 33;

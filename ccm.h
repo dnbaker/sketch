@@ -187,24 +187,30 @@ public:
         if(__builtin_expect(nhashes < 0, 0)) throw std::runtime_error("nhashes cannot be negative.");
         std::fprintf(stderr, "Initialized cmbfbase_t with %zu table entries\n", size_t(nhashes << l2sz));
         std::mt19937_64 mt(seed + 4);
-        while(seeds_.size() < (unsigned)nhashes) seeds_.emplace_back(mt());
-        std::memset(data_.get(), 0, data_.bytes());
-        std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables\n", nbits, l2sz, nhashes);
+        auto nperhash64 = lut::nhashesper64bitword[l2sz];
+        while(seeds_.size() * nperhash64 < (unsigned)nhashes) seeds_.emplace_back(mt());
+        std::memset(data_.get(), 0, data_.bytes()); // zero array
+#if !NDEBUG
+        std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables. %zu is the number of 64-bit hashes with %u nhashesper64bitword\n", nbits, l2sz, nhashes, seeds_.size(), nperhash64);
+#endif
     }
     VectorType &ref() {return data_;}
-    uint64_t index(uint64_t hash, unsigned subtbl) const {
-        return subtbl_sz_ * subtbl + (hash & mask_);
-    }
     void addh(uint64_t val) {
         this->addh_conservative(val);
     }
     void addh_conservative(uint64_t val) {this->add_conservative(val);}
+#if ENABLE_ADD_LIBERAL
     void addh_liberal(uint64_t val) {this->add_liberal(val);}
+#endif
     template<typename T>
     T hash(T val) const {
         return HashStruct()(val);
     }
+    uint64_t subhash(uint64_t val, uint64_t seedind) const {
+        return hash(((val ^ seeds_[seedind]) & mask_) + val & mask_);
+    }
     bool may_contain(uint64_t val) const {
+        throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
         unsigned nhdone = 0;
         bool ret = 1;
         Space::VType v;
@@ -224,6 +230,7 @@ public:
         return true;
     }
     uint32_t may_contain(Space::VType val) const {
+        throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
         Space::VType tmp, hv, and_val;
         unsigned nhdone = 0, vindex = 0;
         const Space::Type *seeds(reinterpret_cast<const Space::Type *>(seeds_.data()));
@@ -253,31 +260,50 @@ public:
         if constexpr(is_count_sketch()) {
             hashes.reserve(nhashes_);
         }
-        unsigned nhdone = 0;
+        unsigned nhdone = 0, seedind = 0;
+        const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
+        const auto nbitsperhash = lut::nbitsperhash[l2sz_];
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
-        Space::VType vb = Space::set1(val), tmp, mask = Space::set1(mask_);
-        while((int)nhashes_ - (int)nhdone >= (ssize_t)Space::COUNT) {
-            
+        Space::VType vb = Space::set1(val), tmp;
+        // mask = Space::set1(mask_);
+        while((int)nhashes_ - (int)nhdone >= (ssize_t)Space::COUNT * nperhash64) {
             tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
             if constexpr(is_count_sketch()) {
-                tmp.for_each([&](uint64_t subval) {hashes.push_back(subval);});
+                // This could be improved, but I'm willing to pay a little performance penalty for Count-Sketch
+                tmp.for_each([&](uint64_t subval) {
+                    for(unsigned k(0); k < nperhash64; ++k) {
+                        hashes.push_back(subhash(val >> (k * nbitsperhash)), seedind);
+                    }
+                    ++seedind;
+                });
+                seedind -= Space::COUNT;
             }
-            tmp = Space::and_fn(mask.simd_, tmp.simd_);
-            tmp.for_each([&](uint64_t &subval){
-                indices.push_back(subval + nhdone++ * subtbl_sz_);
+            tmp.for_each([&](uint64_t &subval) {
+                for(unsigned k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
             });
+            seedind += Space::COUNT;
         }
-        while(nhdone < nhashes_) {
-            uint64_t hv = hash(val ^ seeds_[nhdone]);
-            if constexpr(is_count_sketch()) hashes.push_back(hv);
-            hv &= mask_;
-            hv += nhdone * subtbl_sz_;
-            indices.push_back(hv);
-            ++nhdone;
+        while(nhdone + nperhash64 < nhashes_) {
+            uint64_t hv = hash(val ^ seeds_[seedind]);
+            if constexpr(is_count_sketch()) {
+                for(unsigned k(0); k < nperhash64; ++k) {
+                    hashes.push_back(subhash(val >> (k * nbitsperhash)), seedind);
+                }
+            }
+            for(unsigned k(0); k < nperhash64; indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
+            ++seedind;
         }
-        if constexpr(is_count_sketch()) {
-            updater_(indices, hashes, data_, nbits_);
-        } else {
+        if(nhdone < nhashes_) {
+            uint64_t hv = hash(seeds_.back() ^ val);
+            for(unsigned k(0), nleft(nhashes_ - nhdone); k < nleft;) {
+                if constexpr(is_count_sketch()) {
+                    hashes.push_back(subhash(hv >> (k * nbitsperhash), seedind));
+                }
+                indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++);
+            }
+        }
+        if constexpr(is_count_sketch()) updater_(indices, hashes, data_, nbits_);
+        else {
             best_indices.push_back(indices[0]);
             best_hashes.push_back(indices[1]);
             size_t minval = data_[indices[0]];
@@ -300,6 +326,7 @@ public:
             updater_(best_indices, data_, nbits_);
         }
     }
+#if ENABLE_ADD_LIBERAL
     void add_liberal(uint64_t val) {
         unsigned nhdone = 0;
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
@@ -317,37 +344,50 @@ public:
             ++nhdone;
         }
     }
+#endif
     uint64_t est_count(uint64_t val) {
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         Space::VType tmp;
-        const Space::VType and_val = Space::set1(mask_), vb = Space::set1(val);
-        unsigned nhdone = 0;
+        //const Space::VType and_val = Space::set1(mask_);
+        const Space::VType vb = Space::set1(val);
+        unsigned nhdone = 0, seedind = 0, k;
+        const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
+        const auto nbitsperhash = lut::nbitsperhash[l2sz_];
         if constexpr(!is_count_sketch()) {
             uint64_t count = std::numeric_limits<uint64_t>::max();
-            while(nhashes_ - nhdone > Space::COUNT) {
-                tmp = Space::and_fn(hash(Space::xor_fn(vb.simd_, Space::load(sptr++))), and_val.simd_);
+            while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
+                tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
                 tmp.for_each([&](uint64_t &subval){
-                    count = std::min(count, uint64_t(data_[subval + subtbl_sz_ * nhdone++]));
+                    for(k = 0; k < nperhash64; ++k) {
+                        count = std::min(count, uint64_t(data_[((subval >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++]));
+                    }
                 });
+                seedind += Space::COUNT;
             }
             while(nhdone < nhashes_) {
-                uint64_t ind = index(hash(val ^ seeds_[nhdone]), nhdone);
-                count = std::min(count, uint64_t(data_[ind]));
-                ++nhdone;
+                uint64_t hv = hash(val ^ seeds_[seedind++]);
+                for(k = 0; k < std::min((unsigned)nperhash64, nhashes_ - nhdone); ++k) {
+                    count = std::min(count, uint64_t(data_[(hv >> (k * nbitsperhash)) & mask_]) + nhdone++ * subtbl_sz_);
+                }
             }
             return updater_.est_count(count);
         } else {
             std::vector<int64_t> estimates; estimates.reserve(nhashes_);
-            while(nhashes_ - nhdone > Space::COUNT) {
+            while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
                 tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-                tmp.for_each([&](uint64_t &subval){
-                    estimates.push_back(data_[(subval & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[subval >> (sizeof(uint64_t) * CHAR_BIT - 1)]);
+                tmp.for_each([&](uint64_t &subval) {
+                    for(k = 0; k < nperhash64; ++k) {
+                        estimates.push_back(data_[((subval >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[subhash(subval >> (k * nbitsperhash), seedind) >> (sizeof(uint64_t) * CHAR_BIT - 1)]);
+                    }
+                    ++seedind;
                 });
             }
             while(nhdone < nhashes_) {
-                uint64_t hv = hash(val ^ seeds_[nhdone]);
-                estimates.push_back(data_[hv & mask_ + subtbl_sz_ * nhdone++] + detail::signarr<int64_t>[hv >> (sizeof(uint64_t) * CHAR_BIT - 1)]);
-                ++nhdone;
+                uint64_t hv = hash(val ^ seeds_[seedind]);
+                for(unsigned k(0); k < std::min((unsigned)nperhash64, nhashes_ - nhdone); ++k) {
+                    estimates.push_back(data_[((hv >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[subhash(hv >> (k * nbitsperhash), seedind) >> (sizeof(uint64_t) * CHAR_BIT - 1)]);
+                }
+                ++seedind;
             }
             sort::insertion_sort(std::begin(estimates), std::end(estimates));
             return std::max(static_cast<int64_t>(0),
