@@ -24,8 +24,8 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
 7. Probabilistic Counting Bloom Filter
     1. `pcbf_t`/`pcbfbase_t<HashStruct>`
     2. An array each of bloom filters and hyperloglogs for approximate counting. The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation.
-8. Count-Min Sketch
-    1. ccm.h (`ccmbase_t<UpdatePolicy=Increment>/ccm_t`  (use `pccm_t` for Approximate Counting or `ccmbase_t<CountSketch>/cs_t`)
+8. Count-Min and Count Sketches
+    1. ccm.h (`ccmbase_t<UpdatePolicy=Increment>/ccm_t`  (use `pccm_t` for Approximate Counting or `ccmbase_t<CountSketch>/cs_t`).
 
 ### Test case
 To build and run the test case:
