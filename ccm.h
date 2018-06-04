@@ -283,22 +283,14 @@ public:
         }
         while(nhdone + nperhash64 < nhashes_) {
             uint64_t hv = hash(val ^ seeds_[seedind]);
+            const unsigned left = std::min((unsigned)nperhash64, nhashes_ - nhdone);
             if constexpr(is_count_sketch()) {
-                for(unsigned k = nperhash64; k;) {
+                for(unsigned k = nperhash64, l = left; l--;) {
                     hashes.push_back(val >> (--k * nbitsperhash));
                 }
             }
-            for(unsigned k(0); k < nperhash64; indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
+            for(unsigned k(0); k < left; indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
             ++seedind;
-        }
-        if(nhdone < nhashes_) {
-            uint64_t hv = hash(seeds_.back() ^ val);
-            for(unsigned k(0), nleft(nhashes_ - nhdone); k < nleft;) {
-                if constexpr(is_count_sketch()) {
-                    hashes.push_back(hv >> ((nperhash64 - k) * nbitsperhash));
-                }
-                indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++);
-            }
         }
         if constexpr(is_count_sketch()) updater_(indices, hashes, data_, nbits_);
         else {
