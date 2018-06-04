@@ -59,17 +59,15 @@ struct CountSketch {
     // Saturates
     template<typename T, typename IntType, typename IntType2>
     void operator()(T &ref, IntType maxval, IntType2 hash) {
-        static constexpr size_t shift = sizeof(hash) * CHAR_BIT - 1;
-        ref = (int64_t)ref + detail::signarr<IntType2>[hash>>shift];
+        ref = (int64_t)ref + detail::signarr<IntType2>[hash&1];
     }
     template<typename T, typename Container, typename IntType, typename IntType2>
     void operator()(std::vector<T> &ref, std::vector<T> &hashes, Container &con, IntType nbits) {
         using IDX = typename detail::IndexedValue<Container>::Type;
         IDX newval;
-        static constexpr size_t shift = sizeof(hashes[0]) * CHAR_BIT - 1;
         assert(ref.size() == hashes.size());
         for(size_t i(0); i < ref.size(); ++i) {
-            newval = con[ref[i]] + detail::signarr<IntType2>[hashes[i]>>shift];
+            newval = con[ref[i]] + detail::signarr<IntType2>[hashes[i]&1];
             if(detail::range_check<IDX>(nbits, newval) == 0)
                 con[ref[i]] = newval;
         }
@@ -271,8 +269,8 @@ public:
             if constexpr(is_count_sketch()) {
                 // This could be improved, but I'm willing to pay a little performance penalty for Count-Sketch
                 tmp.for_each([&](uint64_t subval) {
-                    for(unsigned k(0); k < nperhash64; ++k) {
-                        hashes.push_back(subhash(val >> (k * nbitsperhash)), seedind);
+                    for(unsigned k = nperhash64; k;) {
+                        hashes.push_back((val >> (--k * nbitsperhash)));
                     }
                     ++seedind;
                 });
@@ -286,8 +284,8 @@ public:
         while(nhdone + nperhash64 < nhashes_) {
             uint64_t hv = hash(val ^ seeds_[seedind]);
             if constexpr(is_count_sketch()) {
-                for(unsigned k(0); k < nperhash64; ++k) {
-                    hashes.push_back(subhash(val >> (k * nbitsperhash)), seedind);
+                for(unsigned k = nperhash64; k;) {
+                    hashes.push_back(val >> (--k * nbitsperhash));
                 }
             }
             for(unsigned k(0); k < nperhash64; indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
@@ -297,7 +295,7 @@ public:
             uint64_t hv = hash(seeds_.back() ^ val);
             for(unsigned k(0), nleft(nhashes_ - nhdone); k < nleft;) {
                 if constexpr(is_count_sketch()) {
-                    hashes.push_back(subhash(hv >> (k * nbitsperhash), seedind));
+                    hashes.push_back(hv >> ((nperhash64 - k) * nbitsperhash));
                 }
                 indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++);
             }
@@ -377,7 +375,7 @@ public:
                 tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
                 tmp.for_each([&](uint64_t &subval) {
                     for(k = 0; k < nperhash64; ++k) {
-                        estimates.push_back(data_[((subval >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[subhash(subval >> (k * nbitsperhash), seedind) >> (sizeof(uint64_t) * CHAR_BIT - 1)]);
+                        estimates.push_back(data_[((subval >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[(subval >> ((nperhash64 - k - 1) * nbitsperhash)) & 1]);
                     }
                     ++seedind;
                 });
@@ -385,7 +383,7 @@ public:
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind]);
                 for(unsigned k(0); k < std::min((unsigned)nperhash64, nhashes_ - nhdone); ++k) {
-                    estimates.push_back(data_[((hv >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[subhash(hv >> (k * nbitsperhash), seedind) >> (sizeof(uint64_t) * CHAR_BIT - 1)]);
+                    estimates.push_back(data_[((hv >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[(hv >> ((nperhash64 - k - 1) * nbitsperhash)) & 1]);
                 }
                 ++seedind;
             }
