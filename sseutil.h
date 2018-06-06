@@ -172,7 +172,7 @@ inline void *detail::allocate_aligned_memory(size_t align, size_t size)
 #else
     void *ret;
     int rc(posix_memalign(&ret, align, size));
-    if(__builtin_expect(rc, 0)) throw std::bad_alloc();
+    if(__builtin_expect(rc != 0, 0)) throw std::bad_alloc();
     return ret;
 #endif
 }

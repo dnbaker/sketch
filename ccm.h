@@ -260,7 +260,7 @@ public:
         }
         unsigned nhdone = 0, seedind = 0;
         const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
-        const auto nbitsperhash = lut::nbitsperhash[l2sz_];
+        const auto nbitsperhash = l2sz_;
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         Space::VType vb = Space::set1(val), tmp;
         // mask = Space::set1(mask_);
@@ -342,7 +342,7 @@ public:
         const Space::VType vb = Space::set1(val);
         unsigned nhdone = 0, seedind = 0, k;
         const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
-        const auto nbitsperhash = lut::nbitsperhash[l2sz_];
+        const auto nbitsperhash = l2sz_;
         if constexpr(!is_count_sketch()) {
             uint64_t count = std::numeric_limits<uint64_t>::max();
             while(nhashes_ - nhdone > Space::COUNT * nperhash64) {

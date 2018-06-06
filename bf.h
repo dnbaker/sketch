@@ -217,7 +217,7 @@ public:
     INLINE void addh(const uint64_t element) {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
-        const auto shift = lut::nbitsperhash[p()];
+        const auto shift = p();
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         while(nleft > npersimd) {
             VType v(HashStruct()(Space::set1(element) ^ (*seedptr++).simd_));
@@ -324,10 +324,9 @@ public:
         bool ret = true;
         unsigned nleft = nh_;
         assert(p() < sizeof(lut::nhashesper64bitword));
-        assert(p() < sizeof(lut::nbitsperhash));
         unsigned npw = lut::nhashesper64bitword[p()];
         unsigned npersimd = Space::COUNT * npw;
-        const auto shift = lut::nbitsperhash[p()];
+        const auto shift = p();
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         const uint64_t *sptr;
         while(nleft > npersimd) {
@@ -349,10 +348,9 @@ public:
         bool ret = true;
         unsigned nleft = nh_;
         assert(p() < sizeof(lut::nhashesper64bitword));
-        assert(p() < sizeof(lut::nbitsperhash));
         unsigned npw = lut::nhashesper64bitword[p()];
         unsigned npersimd = Space::COUNT * npw;
-        const auto shift = lut::nbitsperhash[p()];
+        const auto shift = p();
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         const uint64_t *sptr;
         while(nleft > npersimd) {
@@ -379,7 +377,7 @@ public:
 #endif
         ret.resize(nvals >> 6 + ((nvals & 0x63u) != 0), UINT64_C(-1));
         unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
-        const auto shift = lut::nbitsperhash[p()];
+        const auto shift = p();
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         VType seed, v;
         while(nleft > npersimd) {
