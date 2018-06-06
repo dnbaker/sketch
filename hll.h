@@ -712,6 +712,48 @@ public:
     void csum() {
         if(!is_calculated_) sum();
     }
+    void load_binary(const char *fn, bool use_gz=true, int chunk_size_in_bytes=8) {
+#define EXECUTE_LOAD(name, fp_type, getc_fn, open_fn, close_fn) do { \
+            fp_type fp = open_fn(fn, "rb");\
+            if(fp == nullptr) throw std::runtime_error("Could not open file at "s + fn);\
+            if(chunk_size_in_bytes > sizeof(uint64_t)) throw std::runtime_error("Chunks of > 8 bytes each not yet supported.");\
+            if(chunk_size_in_bytes > 4) {\
+                const uint64_t mask = (uint64_t(1) << (chunk_size_in_bytes * CHAR_BIT)) - 1;\
+                uint64_t val = 0;\
+                for(unsigned i(0); i < chunk_size_in_bytes; ++i) {\
+                    int c; \
+                    if((c = getc_fn(fp)) < 0) { \
+                        std::fprintf(stderr, "[W:%s:%s:%d] File smaller than chunk size.", __FILE__, __PRETTY_FUNCTION__, __LINE__);\
+                        goto name##end;\
+                    } \
+                    val = (val << 1) | c;\
+                } \
+                this->addh(val);\
+                for(int c; (c = getc_fn(fp)) >= 0; val = ((val << CHAR_BIT) | c) & mask, this->addh(val));\
+            } else {\
+                const uint32_t mask = (uint64_t(1) << (chunk_size_in_bytes * CHAR_BIT)) - 1;\
+                uint32_t val;\
+                for(unsigned i(0); i < chunk_size_in_bytes; ++i) {\
+                    int c; \
+                    if((c = getc_fn(fp)) < 0) { \
+                        std::fprintf(stderr, "[W:%s:%s:%d] File smaller than chunk size.", __FILE__, __PRETTY_FUNCTION__, __LINE__);\
+                        goto name##end;\
+                    } \
+                    val = (val << 1) | c;\
+                } \
+                this->addh(val);\
+                for(int c; (c = getc_fn(fp)) >= 0; val = ((val << CHAR_BIT) | c) & mask, this->addh(val));\
+            }\
+            name##end:\
+            close_fn(fp); \
+        } while(0)
+        if(use_gz) {
+            EXECUTE_LOAD(gz, gzFile, gzgetc, gzopen, gzclose);
+        } else {
+            EXECUTE_LOAD(fp, std::FILE *, getc_unlocked, fopen, fclose);
+        }
+#undef EXECUTE_LOAD
+    }
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const {
@@ -1548,12 +1590,6 @@ public:
         value_         = 0;
     }
 };
-
-namespace nlp {
-
-
-
-} // namespace nlp
 
 } // namespace hll
 } // namespace sketch
