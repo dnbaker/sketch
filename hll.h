@@ -1585,7 +1585,7 @@ public:
     size_t size() const {return core_.size();}
     void clear() {
         Space::VType v = Space::set1(0);
-        for(VType *p(reinterpret_cast<Type *>(core_.data())), *e(reinterpret_cast<VType *>(&core_.back())); p < e; *p++ = v);
+        for(VType *p(reinterpret_cast<VType *>(core_.data())), *e(reinterpret_cast<VType *>(&core_.back())); p < e; *p++ = v);
         is_calculated_ = 0;
         value_         = 0;
     }
