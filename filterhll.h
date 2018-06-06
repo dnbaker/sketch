@@ -51,7 +51,7 @@ public:
     fhllbase_t clone(uint64_t seed=0) const {
         auto ret = fhllbase_t(*this);
         ret.clear();
-        ret.reseed(seed ? seed: ((uint64_t)std::rand() << 32) | std::rand());
+        ret.reseed(seed ? seed: (uint64_t(std::rand()) << 32) | std::rand());
     }
 };
 using fhll_t = fhllbase_t<>;
@@ -100,7 +100,7 @@ public:
     pcbfhllbase_t clone(uint64_t seed=0) const {
         auto ret = pcbfhllbase_t(*this);
         ret.clear();
-        ret.reseed(seed ? seed: ((uint64_t)std::rand()<<32)|std::rand());
+        ret.reseed(seed ? seed: (uint64_t(std::rand())<<32)|std::rand());
         return ret;
     }
     void free_filters() {

@@ -248,7 +248,7 @@ public:
     void clear() {
         if(core_.size() > Space::COUNT) {
             VType v1 = Space::set1(0);
-            for(VType *p1((VType *)&core_[0]), *p2((VType *)&core_[core_.size()]); p1 < p2; *p1++ = v1);
+            for(VType *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
         } else std::fill(core_.begin(), core_.end(), static_cast<uint64_t>(0));
     }
     bfbase_t(bfbase_t&&) = default;
@@ -269,8 +269,8 @@ public:
             sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
             throw std::runtime_error(buf);
         }
-        VType *els((VType *)core_.data());
-        const VType *oels((const VType *)other.core_.data());
+        VType *els(reinterpret_cast<VType *>(core_.data()));
+        const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
         unsigned i;
         if(core_.size() / Space::COUNT >= 8) {
             for(i = 0; i < core_.size() / Space::COUNT;) {
@@ -294,8 +294,8 @@ public:
             throw std::runtime_error(buf);
         }
         unsigned i;
-        VType *els((VType *)core_.data());
-        const VType *oels((const VType *)other.core_.data());
+        VType *els(reinterpret_cast<VType *>(core_.data()));
+        const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
         if(core_.size() / Space::COUNT >= 8) {
             for(i = 0; i < (core_.size() / (Space::COUNT));) {
 #define AND_ITER els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_); ++i;
@@ -315,7 +315,7 @@ public:
         clear();
         core_.resize(new_size >> OFFSET);
         clear();
-        np_ = (std::size_t)std::log2(new_size) - OFFSET;
+        np_ = std::size_t(std::log2(new_size)) - OFFSET;
         reseed();
         assert(np_ < 64); // To handle underflow
     }
@@ -506,7 +506,7 @@ using bf_t = bfbase_t<>;
 template<typename BloomType>
 inline double intersection_size(BloomType &first, BloomType &other) noexcept {
     first.csum(), other.csum();
-    return intersection_size((const BloomType &)first, (const BloomType &)other);
+    return intersection_size(static_cast<const BloomType &>(first), static_cast<const BloomType &>(other));
 }
 
 template<typename BloomType>

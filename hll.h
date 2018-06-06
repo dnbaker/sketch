@@ -187,9 +187,9 @@ inline double calculate_estimate(const CountArrType &counts,
                 if(counts[0]) {
 #if !NDEBUG
                     std::fprintf(stderr, "[W:%s:%d] Small value correction. Original estimate %lf. New estimate %lf.\n",
-                                 __PRETTY_FUNCTION__, __LINE__, value, m * std::log((double)m / counts[0]));
+                                 __PRETTY_FUNCTION__, __LINE__, value, m * std::log(static_cast<double>(m) / counts[0]));
 #endif
-                    value = m * std::log((double)(m) / counts[0]);
+                    value = m * std::log(static_cast<double>(m) / counts[0]);
                 }
             } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
                 // Reuse sum variable to hold correction.
@@ -204,7 +204,7 @@ inline double calculate_estimate(const CountArrType &counts,
         }
         case ERTL_IMPROVED: {
             static const double divinv = 1. / (2.L*std::log(2.L));
-            double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p + 1]))/(double)m);
+            double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p + 1]))/static_cast<double>(m));
             for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
             z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
             return m * divinv * m / z;
@@ -415,10 +415,11 @@ inline void inc_counts(T &counts, const Container &con) {
 
 template<typename CoreType>
 void parsum_helper(void *data_, long index, int tid) {
-    parsum_data_t<CoreType> &data(*(parsum_data_t<CoreType> *)data_);
+    parsum_data_t<CoreType> &data(*reinterpret_cast<parsum_data_t<CoreType> *>(data_));
     uint64_t local_counts[64]{0};
-    SIMDHolder tmp, *p((SIMDHolder *)&data.core_[index * data.pb_]),
-                    *pend((SIMDHolder *)&data.core_[std::min(data.l_, (index+1) * data.pb_)]);
+    SIMDHolder tmp;
+    const SIMDHolder *p(reinterpret_cast<const SIMDHolder *>(&data.core_[index * data.pb_])),
+                     *pend(reinterpret_cast<const SIMDHolder *>(&data.core_[std::min(data.l_, (index+1) * data.pb_)]));
     do {
         tmp = *p++;
         tmp.inc_counts(local_counts);
@@ -441,7 +442,7 @@ inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr
     for(kMin=0; c[kMin]==0; ++kMin);
     int kMinPrime = std::max(1, kMin);
     for(kMax=q+1; kMax && c[kMax]==0; --kMax);
-    int kMaxPrime = std::min((int)q, kMax);
+    int kMaxPrime = std::min(static_cast<int>(q), kMax);
     double z = 0.;
     for(int k = kMaxPrime; k >= kMinPrime; z = 0.5*z + c[k--]);
     z = ldexp(z, -kMinPrime);
@@ -459,7 +460,7 @@ inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr
     while(deltaX > x*relerr) {
         int kappaMinus1;
         frexp(x, &kappaMinus1);
-        double xPrime = ldexp(x, -std::max((int)kMaxPrime+1, kappaMinus1+2));
+        double xPrime = ldexp(x, -std::max(static_cast<int>(kMaxPrime+1), kappaMinus1+2));
         double xPrime2 = xPrime*xPrime;
         double h = xPrime - xPrime2/3 + (xPrime2*xPrime2)*(1./45. - xPrime2/472.5);
         for(int k = kappaMinus1; k >= kMaxPrime; --k) {
@@ -831,7 +832,7 @@ public:
             std::fill(std::begin(core_), std::end(core_), 0u);
         } else {
             VType v = Space::set1(0);
-            for(Type *ptr = (Type *)core_.data(), *end = (Type *)&core_[core_.size()];
+            for(Type *ptr = reinterpret_cast<Type *>(core_.data()), *end = reinterpret_cast<Type *>(&core_[core_.size()]);
                 ptr < end; Space::store(ptr++, v.simd_));
         }
         value_ = is_calculated_ = 0;
@@ -890,14 +891,14 @@ public:
         if(new_size & (new_size - 1)) new_size = roundupsize(new_size);
         clear();
         core_.resize(new_size);
-        np_ = (std::size_t)std::log2(new_size);
+        np_ = std::log2(new_size);
     }
     EstimationMethod get_estim()       const {return  estim_;}
     JointEstimationMethod get_jestim() const {return jestim_;}
     void set_estim(EstimationMethod val)       {estim_  = val;}
     void set_jestim(JointEstimationMethod val) {jestim_ = val;}
-    void set_jestim(uint16_t val) {jestim_ = (JointEstimationMethod)val;}
-    void set_estim(uint16_t val)  {estim_  = (EstimationMethod)val;}
+    void set_jestim(uint16_t val) {jestim_ = static_cast<JointEstimationMethod>(val);}
+    void set_estim(uint16_t val)  {estim_  = static_cast<EstimationMethod>(val);}
     // Getter for is_calculated_
     bool get_is_ready() const {return is_calculated_;}
     void not_ready() {is_calculated_ = false;}
@@ -950,13 +951,13 @@ public:
     }
     void write(const std::string &path, bool write_gz=false) const {write(path.data(), write_gz);}
     void read(gzFile fp) {
-#define CR(fp, dst, len) do {if((uint64_t)gzread(fp, dst, len) != len) throw std::runtime_error("Error reading from file.");} while(0)
+#define CR(fp, dst, len) do {if(static_cast<uint64_t>(gzread(fp, dst, len)) != len) throw std::runtime_error("Error reading from file.");} while(0)
         uint32_t bf[5];
         CR(fp, bf, sizeof(bf));
         is_calculated_ = bf[0];
         clamp_  = bf[1];
-        estim_  = (EstimationMethod)bf[2];
-        jestim_ = (JointEstimationMethod)bf[3];
+        estim_  = static_cast<EstimationMethod>(bf[2]);
+        jestim_ = static_cast<JointEstimationMethod>(bf[3]);
         nthreads_ = bf[4];
         CR(fp, &np_, sizeof(np_));
         CR(fp, &value_, sizeof(value_));
@@ -985,8 +986,8 @@ public:
         ::read(fileno, bf, sizeof(bf));
         is_calculated_ = bf[0];
         clamp_         = bf[1];
-        estim_         = (EstimationMethod)bf[2];
-        jestim_        = (JointEstimationMethod)bf[3];
+        estim_         = static_cast<EstimationMethod>(bf[2]);
+        jestim_        = static_cast<JointEstimationMethod>(bf[3]);
         nthreads_      = bf[4];
         ::read(fileno, &np_, sizeof(np_));
         ::read(fileno, &value_, sizeof(value_));
@@ -1065,7 +1066,7 @@ using hll_t = hllbase_t<>;
 template<typename HllType>
 inline double intersection_size(HllType &first, HllType &other) noexcept {
     first.csum(), other.csum();
-    return intersection_size((const HllType &)first, (const HllType &)other);
+    return intersection_size(static_cast<const HllType &>(first), static_cast<const HllType &>(other));
 }
 
 template<typename HllType> inline double jaccard_index(const HllType &h1, const HllType &h2) {return h1.jaccard_index(h2);}
@@ -1304,8 +1305,8 @@ public:
         unsigned k = 0;
         if(size() >= Space::COUNT) {
             if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
-            const Type *sptr = (const Type *)&seeds_[0];
-            const Type *eptr = (const Type *)&seeds_.back();
+            const Type *sptr = reinterpret_cast<const Type *>(&seeds_[0]);
+            const Type *eptr = reinterpret_cast<const Type *>(&seeds_[seeds_.size()]);
             VType key;
             do {
                 key = WangHash()(*sptr++ ^ element);
@@ -1321,8 +1322,8 @@ public:
         unsigned k = 0;
         if(size() >= Space::COUNT) {
             if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
-            const Type *sptr = (const Type *)&seeds_[0];
-            const Type *eptr = (const Type *)&seeds_.back();
+            const Type *sptr = reinterpret_cast<const Type *>(&seeds_[0]);
+            const Type *eptr = reinterpret_cast<const Type *>(&seeds_[seeds_.size()]);
             const Type element = Space::set1(val);
             VType key;
             do {
@@ -1397,7 +1398,7 @@ public:
         if((size() & (size() - 1)) == 0) {
             std::array<uint64_t, 64> counts{0};
             for(const auto &hll: hlls_) detail::inc_counts(counts, hll.core());
-            const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1);
+            const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz(uint32_t(size())) - 1);
             const auto new_p = hlls_[0].p() + diff;
             const auto new_m = (1ull << new_p);
             return detail::calculate_estimate(counts, hlls_[0].get_estim(), new_m,
@@ -1457,8 +1458,8 @@ public:
     INLINE bool may_contain(uint64_t val) const {
         unsigned k = 0;
         if(ns_ >= Space::COUNT) {
-            const Type *sptr = (const Type *)&seeds_[0];
-            const Type *eptr = (const Type *)&seeds_.back();
+            const Type *sptr = reinterpret_cast<const Type *>(&seeds_[0]);
+            const Type *eptr = reinterpret_cast<const Type *>(&seeds_[seeds_.size()]);
             const Type element = Space::set1(val);
             VType key;
             do {
@@ -1477,8 +1478,8 @@ public:
     void addh(uint64_t val) {
         unsigned k = 0;
         if(ns_ >= Space::COUNT) {
-            const Type *sptr = (const Type *)&seeds_[0];
-            const Type *eptr = (const Type *)&seeds_.back();
+            const Type *sptr = reinterpret_cast<const Type *>(&seeds_[0]);
+            const Type *eptr = reinterpret_cast<const Type *>(&seeds_[seeds_.size()]);
             const Type element = Space::set1(val);
             VType key;
             do {
@@ -1511,7 +1512,7 @@ public:
     }
     chlf_t &operator+=(const chlf_t &other) {
         if(core_.size() >= Space::COUNT) {
-            Type *sptr = (Type *)&core_[0], *eptr = (Type *)&core_.back(), *optr = (Type *)&other.core_[0];
+            Type *sptr = reinterpret_cast<Type *>(&core_[0]), *eptr = reinterpret_cast<Type *>(&core_.back()), *optr = reinterpret_cast<Type *>(&other.core_[0]);
             do {
                 Space::store(sptr, detail::SIMDHolder::max_fn(*sptr, *optr)); ++sptr, ++optr;
             } while(sptr < eptr);
@@ -1542,11 +1543,17 @@ public:
     size_t size() const {return core_.size();}
     void clear() {
         Space::VType v = Space::set1(0);
-        for(VType *p((VType *)core_.data()), *e((VType *)&core_.back()); p < e; *p++ = v);
+        for(VType *p(reinterpret_cast<Type *>(core_.data())), *e(reinterpret_cast<VType *>(&core_.back())); p < e; *p++ = v);
         is_calculated_ = 0;
         value_         = 0;
     }
 };
+
+namespace nlp {
+
+
+
+} // namespace nlp
 
 } // namespace hll
 } // namespace sketch

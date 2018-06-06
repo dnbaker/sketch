@@ -59,7 +59,7 @@ struct CountSketch {
     // Saturates
     template<typename T, typename IntType, typename IntType2>
     void operator()(T &ref, IntType maxval, IntType2 hash) {
-        ref = (int64_t)ref + detail::signarr<IntType2>[hash&1];
+        ref = int64_t(ref) + detail::signarr<IntType2>[hash&1];
     }
     template<typename T, typename Container, typename IntType, typename IntType2>
     void operator()(std::vector<T> &ref, std::vector<T> &hashes, Container &con, IntType nbits) {
@@ -186,7 +186,7 @@ public:
         std::fprintf(stderr, "Initialized cmbfbase_t with %zu table entries\n", size_t(nhashes << l2sz));
         std::mt19937_64 mt(seed + 4);
         auto nperhash64 = lut::nhashesper64bitword[l2sz];
-        while(seeds_.size() * nperhash64 < (unsigned)nhashes) seeds_.emplace_back(mt());
+        while(seeds_.size() * nperhash64 < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
         std::memset(data_.get(), 0, data_.bytes()); // zero array
 #if !NDEBUG
         std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables. %zu is the number of 64-bit hashes with %u nhashesper64bitword\n", nbits, l2sz, nhashes, seeds_.size(), nperhash64);
@@ -264,7 +264,7 @@ public:
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         Space::VType vb = Space::set1(val), tmp;
         // mask = Space::set1(mask_);
-        while((int)nhashes_ - (int)nhdone >= (ssize_t)Space::COUNT * nperhash64) {
+        while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
             tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
             if constexpr(is_count_sketch()) {
                 // This could be improved, but I'm willing to pay a little performance penalty for Count-Sketch
@@ -283,7 +283,7 @@ public:
         }
         while(nhdone + nperhash64 < nhashes_) {
             uint64_t hv = hash(val ^ seeds_[seedind]);
-            const unsigned left = std::min((unsigned)nperhash64, nhashes_ - nhdone);
+            const unsigned left = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone);
             if constexpr(is_count_sketch()) {
                 for(unsigned k = nperhash64, l = left; l--;) {
                     hashes.push_back(val >> (--k * nbitsperhash));
@@ -356,7 +356,7 @@ public:
             }
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind++]);
-                for(k = 0; k < std::min((unsigned)nperhash64, nhashes_ - nhdone); ++k) {
+                for(k = 0; k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); ++k) {
                     count = std::min(count, uint64_t(data_[(hv >> (k * nbitsperhash)) & mask_]) + nhdone++ * subtbl_sz_);
                 }
             }
@@ -374,7 +374,7 @@ public:
             }
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind]);
-                for(unsigned k(0); k < std::min((unsigned)nperhash64, nhashes_ - nhdone); ++k) {
+                for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); ++k) {
                     estimates.push_back(data_[((hv >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[(hv >> ((nperhash64 - k - 1) * nbitsperhash)) & 1]);
                 }
                 ++seedind;
@@ -399,7 +399,7 @@ public:
         if(seeds_.size() != other.seeds_.size() || !std::equal(seeds_.cbegin(), seeds_.cend(), other.seeds_.cbegin()))
             throw std::runtime_error("Could not add sketches together with different hash functions.");
         for(size_t i(0), e(data_.size()); i < e; ++i) {
-            data_[i] = std::min((unsigned)data_[i], (unsigned)other.data_[i]);
+            data_[i] = std::min(static_cast<unsigned>(data_[i]), static_cast<unsigned>(other.data_[i]));
         }
         return *this;
     }

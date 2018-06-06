@@ -87,7 +87,7 @@ public:
 #else
         void *ret;
         int rc(posix_memalign(&ret, static_cast<size_type>(Align), n * sizeof(T)));
-        return rc ? nullptr: (pointer)ret;
+        return rc ? nullptr: static_cast<pointer>(ret);
 #endif
     }
 
@@ -172,8 +172,8 @@ inline void *detail::allocate_aligned_memory(size_t align, size_t size)
 #else
     void *ret;
     int rc(posix_memalign(&ret, align, size));
-    if(rc) throw std::bad_alloc();
-    return (void *)((!rc) * (std::uint64_t)ret); // This is kind of bad, but it works and removes a branch.
+    if(__builtin_expect(rc, 0)) throw std::bad_alloc();
+    return ret;
 #endif
 }
 

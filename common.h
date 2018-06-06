@@ -152,7 +152,7 @@ struct MurFinHash {
         return key;
     }
     INLINE Type operator()(Type key) const {
-        return this->operator()(*((VType *)&key));
+        return this->operator()(*(reinterpret_cast<VType *>(&key)));
     }
     INLINE Type operator()(VType key) const {
 #if (HAS_AVX_512)
@@ -213,11 +213,13 @@ template<typename T>
 INLINE auto popcnt_fn(T val);
 template<>
 INLINE auto popcnt_fn(Type val) {
+
+#define VAL_AS_ARR(ind) reinterpret_cast<const uint64_t *>(&val)[ind]
 #if HAS_AVX_512
 #define FUNCTION_CALL popcnt_avx256((Type *)&val, 2)
 #elif __AVX2__
 // This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
-#define FUNCTION_CALL popcount(((const uint64_t *)&val)[0]) + popcount(((const uint64_t *)&val)[1]) + popcount(((const uint64_t *)&val)[2]) + popcount(((const uint64_t *)&val)[3])
+#define FUNCTION_CALL popcount(VAL_AS_ARR(0)) + popcount(VAL_AS_ARR(1)) + popcount(VAL_AS_ARR(2)) + popcount(VAL_AS_ARR(3))
 #elif __SSE2__
 #define FUNCTION_CALL popcount(((const uint64_t *)&val)[0]) + popcount(((const uint64_t *)&val)[1])
 #else
@@ -225,6 +227,7 @@ INLINE auto popcnt_fn(Type val) {
 #endif
     return FUNCTION_CALL;
 #undef FUNCTION_CALL
+#undef VAL_AS_ARR
 }
 template<>
 INLINE auto popcnt_fn(VType val) {

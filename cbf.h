@@ -23,7 +23,7 @@ static std::vector<unsigned> pcbf_bf_mgen(unsigned nsketches, unsigned l2sz, boo
     std::vector<unsigned> ret; ret.reserve(nsketches);
     std::generate_n(std::back_inserter(ret), nsketches, [&](){
         auto ret = std::max(l2sz, 10u);
-        if(ret) l2sz -= std::min((unsigned)shrinkpow2, l2sz);
+        if(ret) l2sz -= std::min(unsigned(shrinkpow2), l2sz);
         return ret;
     });
     return ret;
