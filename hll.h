@@ -924,7 +924,7 @@ public:
 #endif
         } else {
 #endif
-            uint64_t *els(reinterpret_cast<__m128i *>(core_.data()));
+            uint64_t *els(reinterpret_cast<uint64_t *>(core_.data()));
             const uint64_t *oels(reinterpret_cast<const uint64_t *>(other.core_.data()));
             while(els < oels) *els = std::max(*els, *oels), ++els, ++oels;
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
