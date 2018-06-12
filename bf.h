@@ -175,7 +175,12 @@ public:
         return std::accumulate(core_.cbegin() + 1, core_.cend(), popcount(core_[0]), [](auto a, auto b) {return a + popcount(b);});
     }
     uint64_t popcnt() const { // Number of set bits
-        return ::popcnt(reinterpret_cast<const void *>(core_.data()), sizeof(core_[0]) * core_.size());
+        Space::VType tmp;
+        const Type *op(reinterpret_cast<const Type *>(data()));
+        const Type *ep(reinterpret_cast<const Type *>(&core_[core_.size()]));
+        uint64_t sum;
+        for(sum = popcnt_fn(*op++); op < ep; sum += popcnt_fn(*op++));
+        return sum;
     }
     double est_err() const {
         // Calculates estimated false positive rate as a functino of the number of set bits.
