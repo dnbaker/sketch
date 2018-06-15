@@ -217,6 +217,34 @@ public:
 
     double jaccard_index(const bfbase_t &other) const {
         return static_cast<double>(intersection_count(other)) / static_cast<double>(m());
+        if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
+        auto &oc = other.core_;
+        const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
+        Space::VType l1 = *op++, l2 = *tc++;
+        Space::VType tmp = Space::and_fn(l1.simd_, l2.simd_);
+        auto sumshared = popcnt_fn(tmp);
+        tmp = Space::or_fn(l1.simd_, l2.simd_);
+        auto sumu = popcnt_fn(tmp);
+
+#define PERFORM_ITER \
+        l1 = *op++; l2 = *op++; \
+        tmp = Space::and_fn(l1.simd_, l2.simd_); \
+        sumshared += popcnt_fn(tmp); \
+        tmp = Space::or_fn(l1.simd_, l2.simd_); \
+        sumu += popcnt_fn(tmp);
+        if(core_.size() / Space::COUNT >= 8) {
+            REPEAT_7(PERFORM_ITER)
+            // Handle the last 7 times after initialization
+            for(size_t i(1); i < core_.size() / Space::COUNT / 8;++i) {
+                REPEAT_8(PERFORM_ITER)
+            }
+        }
+        const Type *endp = reinterpret_cast<const Type *>(&oc[oc.size()]);
+        while(op < endp) {
+            PERFORM_ITER
+        }
+#undef PERFORM_ITER
+        return static_cast<double>(sumshared) / sumu;
     }
 
     INLINE void addh(const uint64_t element) {
