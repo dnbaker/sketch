@@ -61,6 +61,9 @@
 #ifndef FOREVER
 #define FOREVER for(;;)
 #endif
+#ifndef ASSERT_INT_T
+#define ASSERT_INT_T(T) typename=::std::enable_if_t<::std::is_integral_v<(T)>>
+#endif
 
 namespace sketch {
 namespace common {
