@@ -27,7 +27,7 @@
 #  include <zlib.h>
 #endif
 #include "libpopcnt/libpopcnt.h"
-
+#include "compact_vector/include/compact_vector.hpp"
 #ifndef _VEC_H__
 #  define NO_SLEEF
 #  define NO_BLAZE
@@ -59,10 +59,16 @@
 #endif
 
 #ifndef FOREVER
-#define FOREVER for(;;)
+#  define FOREVER for(;;)
 #endif
 #ifndef ASSERT_INT_T
-#define ASSERT_INT_T(T) typename=::std::enable_if_t<::std::is_integral_v<(T)>>
+#  define ASSERT_INT_T(T) typename=::std::enable_if_t<::std::is_integral_v<(T)>>
+#endif
+
+#if __has_cpp_attribute(no_unique_address)
+#  define NO_ADDRESS [[no_unique_address]]
+#else
+#  define NO_ADDRESS
 #endif
 
 namespace sketch {
@@ -87,6 +93,12 @@ using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX>;
 using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::SSE>;
 #else
 using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
+#endif
+
+#ifdef NOT_THREADSAFE
+using DefaultCompactVectorType = ::compact::ts_vector<uint32_t, 0, uint32_t, Allocator<uint32_t>>;
+#else
+using DefaultCompactVectorType = ::compact::vector<uint32_t, 0, uint32_t, Allocator<uint32_t>>;
 #endif
 
 // Thomas Wang hash

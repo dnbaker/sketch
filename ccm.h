@@ -1,6 +1,5 @@
 #pragma once
 #include "common.h"
-#include "compact_vector/include/compact_vector.hpp"
 #include "aesctr/aesctr.h"
 #include <ctime>
 
@@ -150,7 +149,7 @@ struct PowerOfTwo {
 using namespace common;
 
 template<typename UpdateStrategy=update::Increment,
-         typename VectorType=compact::vector<uint32_t, uint64_t, common::Allocator<uint64_t>>,
+         typename VectorType=DefaultCompactVectorType>,
          typename HashStruct=common::WangHash>
 class ccmbase_t {
     static_assert(!std::is_same_v<UpdateStrategy, update::CountSketch> || std::is_signed_v<typename detail::IndexedValue<VectorType>::Type>,

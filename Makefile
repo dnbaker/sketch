@@ -48,7 +48,7 @@ lztest: test.cpp kthread.o hll.h
 bftest: bftest.cpp hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
 serial_test: serial_test.cpp hll.h
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread -DNOT_THREADSAFE $< -o $@ -lz
 
 dev_test: dev_test.cpp kthread.o hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz

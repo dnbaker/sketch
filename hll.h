@@ -794,7 +794,8 @@ public:
             core_[index] < lzt;
             __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
 #else
-        const uint32_t index(hashval >> q()), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
+        const uint32_t index(hashval >> q());
+        const uint8_t lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
         core_[index] = std::max(core_[index], lzt);
 #endif
 #if LZ_COUNTER
@@ -1200,7 +1201,8 @@ public:
             dcore_[index] < lzt;
             __sync_bool_compare_and_swap(dcore_.data() + index, dcore_[index], lzt));
 #else
-        const uint32_t index(hashval & (this->m() - 1)), lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
+        const uint32_t index(hashval & (this->m() - 1));
+        const uint8_t lzt(ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1)));
         dcore_[index] = std::min(dcore_[index], lzt);
 #endif
     }
@@ -1498,7 +1500,8 @@ public:
             core_[index] < lzt;
             __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
 #else
-        const uint32_t index((hashval >> subq()) + (subidx << subp())), lzt(clz(((hashval << 1)|1) << (subp() - 1)) + 1);
+        const uint32_t index((hashval >> subq()) + (subidx << subp()));
+        const uint8_t lzt(clz(((hashval << 1)|1) << (subp() - 1)) + 1);
         core_[index] = std::max(core_[index], lzt);
 #endif
         
