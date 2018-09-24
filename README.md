@@ -37,6 +37,7 @@ make test && ./test
 To use:
 
 ```c++
+using namespace sketch;
 hll::hll_t hll(20); // Use 2**20 bytes for this structure
 // Add hashed values for each element to the structure.
 for(uint64_t i(0); i < 10000000ull; ++i) hll.addh(i);

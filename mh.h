@@ -1,4 +1,5 @@
 #pragma once
+#include <mutex>
 #include "hll.h" // For common.h and clz functions
 #include "aesctr/aesctr.h"
 
@@ -9,7 +10,8 @@
  *                  HyperMinHash
  */
 
-namespace sketch::minhash {
+namespace sketch {
+namespace minhash {
 using namespace common;
 using namespace hll;
 
@@ -76,74 +78,108 @@ class RangeMinHash: public AbstractMinHash<T, SizeType> {
         val = hf_(val);
         if(auto it = minimizers_.find(val); it != minimizers_.end())
             return;
-        else 
+        else
             minimizers_.insert(it, val), minimizers_.erase(minimizers_.begin());
     }
     SET_SKETCH(minimizers_)
 };
 
-template<typename T, typename Hasher=WangHash, typename SizeType=uint32_t, typename VectorType=std::vector<uint64_t, Allocator<uint64_t>>>
+template<typename T=uint64_t, typename Hasher=WangHash, typename SizeType=uint32_t,
+         typename VectorType=std::vector<T, Allocator<T>>>
 class HyperMinHash {
     // VectorType must support assignment and other similar operations.
     std::vector<uint8_t, Allocator<uint8_t>> core_; // HyperLogLog core
     VectorType mcore_;                              // Minimizers core
     uint32_t p_, q_, r_;
-    static constexpr uint64_t seeds [] __attribute__ ((aligned (16))) = {0x611890f6d10bf441, 0x430c0277b68144b5};
+    uint64_t seeds_ [2] __attribute__ ((aligned (16)));
+#ifndef NOT_THREADSAFE
+    std::mutex mutex_;
+#endif
+    static constexpr size_t DEFAULT_SEED = 0xC001D00D55555555uLL;
+    static_assert(std::is_same_v<std::decay_t<decltype(mcore_[0])>, T>, "Vector must derefernce to T.");
 public:
+    auto &core() {return core_;}
+    uint64_t mask() {
+        return uint64_t(1) << r_ - 1;
+    }
+    const auto &core() const {return core_;}
     template<typename... Args>
-    HyperMinHash(unsigned p, unsigned q, unsigned r, Args &&...args):
-        core_(1ull << p), p_(p), q_(q), r_(r), VectorType(std::forward<Args>(args)...) {
+    HyperMinHash(unsigned p, unsigned q=0, unsigned r=64, Args &&...args):
+        core_(1ull << p),
+        mcore_(std::forward<Args>(args)...),
+        p_(p), q_(q ? q: 64 - p), r_(r),
+        seeds_{0xB0BAF377C001D00DuLL, 0x430c0277b68144b5}
+    {
+        mcore_.resize(core_.size());
 #if !NDEBUG
         print_params();
 #endif
     }
+    uint64_t max_mhval() const {
+        return (uint64_t(1) << q_) - 1;
+    }
+    double estimate_hll_portion(double relerr=1e-2) const {
+        return hll::detail::ertl_ml_estimate(detail::sum_counts(*this), p(), q(), relerr);
+    }
+    double report(double relerr=1e-2) const {
+        auto csum = detail::sum_counts(*this);
+        double est = hll::detail::ertl_ml_estimate(csum, p(), q(), relerr);
+        if(est < static_cast<double>(core_.size() << 10)) return est;
+        double rsum = 0.;
+        for(size_t i(0); i < csum.size(); ++i) {
+            rsum += std::ldexp(1., -csum[i]) * (1. + (static_cast<double>(mcore_[i]) / (max_mhval())));
+        }
+        return rsum ? static_cast<double>(core_.size() * core_.size()) / rsum: std::numeric_limits<double>::infinity();
+    }
     auto p() const {return p_;}
     auto q() const {return q_;}
     auto r() const {return r_;}
+    void set_seeds(uint64_t seed1, uint64_t seed2) {
+        seeds_[0] = seed1; seeds_[1] = seed2;
+    }
     int print_params(std::FILE *fp=stderr) const {
         return std::fprintf(fp, "p: %u. q: %u. r: %u.\n", p(), q(), r());
     }
-    INLINE void add(uint64_t hashval) {
-#ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval >> q()), lzt(clz(((hashval << 1)|1) << (p_ - 1)) + 1);
-            core_[index] < lzt;
-            __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
-#else
-        const uint32_t index(hashval >> q()), lzt(clz(((hashval << 1)|1) << (p_ - 1)) + 1);
-        core_[index] = std::max(core_[index], lzt);
-#endif
-#if LZ_COUNTER
-        ++clz_counts_[clz(((hashval << 1)|1) << (np_ - 1)) + 1];
-#endif
-    }
+    const __m128 &seeds_as_sse() const {return *reinterpret_cast<const __m128 *>(seeds_);}
 
     INLINE void addh(uint64_t element) {
-        const __m128 i = _mm_set1_epi64x(element);
-        add(Hasher()(i));
+        __m128 i = _mm_set1_epi64x(element);
+        i ^= seeds_as_sse();
+        i = Hasher()(i);
+        add(i);
     }
-    INLINE void addh(VType element) {
+    template<typename ET>
+    INLINE void addh(ET element) {
         element.for_each([&](auto &el) {this->addh(element);});
     }
-#if sizeof(VType) > sizeof(__m128i)
-    INLINE void add(VType element) {
-        for(__m128i *p = (__m128i *)&element, *e = (__m128i *)(&element + 1);p < e; add(*p++));
-    }
-#endif
+    //INLINE void add(VType element) {
+    //    for(__m128i *p = (__m128i *)&element, *e = (__m128i *)(&element + 1);p < e; add(*p++));
+    //}
     INLINE void add(__m128i hashval) {
         uint64_t arr[2];
         static_assert(sizeof(hashval) == sizeof(arr), "Size sanity check");
         std::memcpy(&arr[0], &hashval, sizeof(hashval));
         const uint32_t index(arr[0] >> q());
         const uint8_t lzt(clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
+#ifndef NOT_THREADSAFE
+        // This won't be optimal, but it's a patch to make it work.
+        if(core_[index] <= lzt) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if(core_[index] < lzt) {
+                core_[index] = lzt;
+                mcore_[index] = arr[1];
+            } else mcore_[index] = std::min(mcore_[index], arr[1]);
+        }
+#else
         if(core_[index] < lzt) {
             core_[index] = lzt;
             mcore_[index] = arr[1];
-        } else if(core_[index] == lzt) {
-            if(mcore_[index] < arr[1])
-                mcore_[index] = arr[1];
-        }
+        } else if(core_[index] == lzt) mcore_[index] = std::min(arr[1], (uint64_t)mcore_[index]);
+#endif
     }
     // TODO: jaccard index support
 };
 
-}
+} // namespace minhash
+namespace mh = minhash;
+} // namespace sketch
