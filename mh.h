@@ -152,6 +152,22 @@ public:
     INLINE void addh(ET element) {
         element.for_each([&](auto &el) {this->addh(element);});
     }
+    HyperMinHash &operator+=(const HyperMinHash &o) {
+        for(size_t i(0); i < core_.size(); ++i) {
+            if(core_[i] < o.core_[i]) {
+                core_[i] = o.core_[i];
+                mcore_[i] = o.mcore_[i];
+            } else if(core_[i] == o.core_[i]) {
+                using std::min;
+                mcore_[i] = min(mcore_[i], o.mcore_[i]);
+            }
+        }
+        return *this;
+    }
+    HyperMinHash(const HyperMinHash &) = delete;
+    HyperMinHash &operator=(const HyperMinHash &) = delete;
+    HyperMinHash(HyperMinHash &&) = default;
+    HyperMinHash &operator=(HyperMinHash &&) = default;
     //INLINE void add(VType element) {
     //    for(__m128i *p = (__m128i *)&element, *e = (__m128i *)(&element + 1);p < e; add(*p++));
     //}
