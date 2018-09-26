@@ -95,7 +95,7 @@ class RangeMinHash: public AbstractMinHash<T, SizeType> {
     }
     template<typename Container>
     Container to_container() const {
-        return Container(minimizers_.begin(), minimizers_.end());
+        return Container(std::rbegin(minimizers_), std::rend(minimizers_.end()));
     }
     void clear() {
         TreeType tmp;

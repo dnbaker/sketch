@@ -18,9 +18,8 @@ namespace detail {
     template<typename T>
     static constexpr int range_check(unsigned nbits, T val) {
         if constexpr(std::is_signed_v<T>) {
-            if(val < -(1ull << (nbits - 1)))
-                return -1;
-            return val > (1ull << (nbits - 1)) - 1;
+            return val < -(1ull << (nbits - 1)) ? -1
+                                                : (val > (1ull << (nbits - 1)) - 1);
         } else {
             return val >= (1ull << nbits);
         }
@@ -346,10 +345,8 @@ public:
             uint64_t count = std::numeric_limits<uint64_t>::max();
             while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
                 tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-                tmp.for_each([&](uint64_t &subval){
-                    for(k = 0; k < nperhash64; ++k) {
-                        count = std::min(count, uint64_t(data_[((subval >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++]));
-                    }
+                tmp.for_each([&](const uint64_t subval){
+                    for(k = 0; k < nperhash64; count = std::min(count, uint64_t(data_[((subval >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++])));
                 });
                 seedind += Space::COUNT;
             }
@@ -361,7 +358,8 @@ public:
             }
             return updater_.est_count(count);
         } else {
-            std::vector<int64_t> estimates; estimates.reserve(nhashes_);
+            std::vector<int64_t> estimates;
+            estimates.reserve(nhashes_);
             while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
                 tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
                 tmp.for_each([&](uint64_t &subval) {
