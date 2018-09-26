@@ -149,7 +149,7 @@ struct PowerOfTwo {
 using namespace common;
 
 template<typename UpdateStrategy=update::Increment,
-         typename VectorType=DefaultCompactVectorType>,
+         typename VectorType=DefaultCompactVectorType,
          typename HashStruct=common::WangHash>
 class ccmbase_t {
     static_assert(!std::is_same_v<UpdateStrategy, update::CountSketch> || std::is_signed_v<typename detail::IndexedValue<VectorType>::Type>,
@@ -414,8 +414,9 @@ public:
 
 using ccm_t = ccmbase_t<>;
 using pccm_t = ccmbase_t<update::PowerOfTwo>;
-using cvector_i32 = compact::vector<int32_t, uint64_t, Allocator<uint64_t>>;
-using cvector_i64 = compact::vector<int64_t, uint64_t, Allocator<uint64_t>>;
+
+using cvector_i32 = compact::vector<int32_t, 0, uint64_t, Allocator<uint64_t>>;
+using cvector_i64 = compact::vector<int64_t, 0, uint64_t, Allocator<uint64_t>>;
 using cs_t = ccmbase_t<update::Increment, cvector_i32>;
 using cs64_t = ccmbase_t<update::Increment, cvector_i64>;
 // Note that cs_t needs to have a signed integer.

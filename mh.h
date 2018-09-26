@@ -61,12 +61,24 @@ public:
     SET_SKETCH(hashes_)
 };
 
-template<typename T, typename Hasher=common::WangHash, typename SizeType=uint32_t>
+/*
+The sketch is the set of minimizers.
+
+*/
+template<typename T,
+         typename Hasher=common::WangHash,
+         typename SizeType=uint32_t,
+         bool force_non_int=false,
+         typename=std::enable_if_t<
+            force_non_int || std::is_arithmetic_v<T>
+         >
+        >
 class RangeMinHash: public AbstractMinHash<T, SizeType> {
     NO_ADDRESS Hasher hf_;
+    using TreeType = std::set<T, std::greater<T>>;
     // Consider using a memory pool for locality.
-    // These minimizers are not
-    std::set<T> minimizers_;
+    // These minimizers are in the form of a set; for other uses, I would instead use a vector form.
+    TreeType minimizers_; // using std::greater<T> so that we can erase from begin()
 
     RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher()):
         AbstractMinHash<T, SizeType>(sketch_size), hf_(std::move(hf))
@@ -81,6 +93,15 @@ class RangeMinHash: public AbstractMinHash<T, SizeType> {
         else
             minimizers_.insert(it, val), minimizers_.erase(minimizers_.begin());
     }
+    template<typename Container>
+    Container to_container() const {
+        return Container(minimizers_.begin(), minimizers_.end());
+    }
+    void clear() {
+        TreeType tmp;
+        std::swap(tmp, minimizers_);
+    }
+    size_t size() const {return minimizers_.size();}
     SET_SKETCH(minimizers_)
 };
 
@@ -95,11 +116,10 @@ class HyperMinHash {
 #ifndef NOT_THREADSAFE
     std::mutex mutex_;
 #endif
-    static constexpr size_t DEFAULT_SEED = 0xC001D00D55555555uLL;
     static_assert(std::is_same_v<std::decay_t<decltype(mcore_[0])>, T>, "Vector must derefernce to T.");
 public:
     auto &core() {return core_;}
-    uint64_t mask() {
+    uint64_t mask() const {
         return uint64_t(1) << r_ - 1;
     }
     const auto &core() const {return core_;}
@@ -168,10 +188,9 @@ public:
     HyperMinHash &operator=(const HyperMinHash &) = delete;
     HyperMinHash(HyperMinHash &&) = default;
     HyperMinHash &operator=(HyperMinHash &&) = default;
-    //INLINE void add(VType element) {
-    //    for(__m128i *p = (__m128i *)&element, *e = (__m128i *)(&element + 1);p < e; add(*p++));
-    //}
     INLINE void add(__m128i hashval) {
+    // TODO: Consider looking for a way to use the leading zero count to store the rest of a key
+    // Not sure this is valid for the purposes of an independent hash.
         uint64_t arr[2];
         static_assert(sizeof(hashval) == sizeof(arr), "Size sanity check");
         std::memcpy(&arr[0], &hashval, sizeof(hashval));
