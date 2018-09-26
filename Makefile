@@ -25,6 +25,7 @@ all: $(EX)
 INCLUDES=-I`python3-config --includes` -Ipybind11/include
 SUF=`python3-config --extension-suffix`
 OBJS=$(patsubst %.cpp,%$(SUF),$(wildcard *.cpp))
+HEADERS=$(wildcard *.h)
 
 python: _hll.cpython.so
 	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`python3-config --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
@@ -39,13 +40,13 @@ python: _hll.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-%: %.cpp kthread.o hll.h
+%: %.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-lztest: test.cpp kthread.o hll.h
+lztest: test.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
 
-bftest: bftest.cpp hll.h
+bftest: bftest.cpp $(HEADERS)
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
 serial_test: serial_test.cpp hll.h
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread -DNOT_THREADSAFE $< -o $@ -lz

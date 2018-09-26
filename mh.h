@@ -142,13 +142,12 @@ public:
         return hll::detail::ertl_ml_estimate(detail::sum_counts(*this), p(), q(), relerr);
     }
     double report(double relerr=1e-2) const {
-        auto csum = detail::sum_counts(*this);
-        double est = hll::detail::ertl_ml_estimate(csum, p(), q(), relerr);
-        if(est < static_cast<double>(core_.size() << 10)) return est;
+        const auto csum = detail::sum_counts(*this);
+        if(double est = hll::detail::ertl_ml_estimate(csum, p(), q(), relerr);est < static_cast<double>(core_.size() << 10))
+            return est;
         double rsum = 0.;
-        for(size_t i(0); i < csum.size(); ++i) {
+        for(size_t i(0); i < csum.size(); ++i)
             rsum += std::ldexp(1., -csum[i]) * (1. + (static_cast<double>(mcore_[i]) / (max_mhval())));
-        }
         return rsum ? static_cast<double>(core_.size() * core_.size()) / rsum: std::numeric_limits<double>::infinity();
     }
     auto p() const {return p_;}
@@ -183,6 +182,11 @@ public:
             }
         }
         return *this;
+    }
+    HyperMinHash(const HyperMinHash &a, const HyperMinHash &b): HyperMinHash(a.p(), a.q(), a.r())
+    {
+        *this += a;
+        *this += b;
     }
     HyperMinHash(const HyperMinHash &) = delete;
     HyperMinHash &operator=(const HyperMinHash &) = delete;
