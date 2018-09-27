@@ -101,6 +101,8 @@ using DefaultCompactVectorType = ::compact::ts_vector<uint32_t, 0, uint32_t, All
 using DefaultCompactVectorType = ::compact::vector<uint32_t, 0, uint32_t, Allocator<uint32_t>>;
 #endif
 
+
+
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
 // This is our core 64-bit hash.
@@ -127,6 +129,18 @@ struct WangHash {
         key = Space::add(Space::slli(key.simd_, 31), key.simd_);    // key + (key << 31);
         return key.simd_;
     }
+#if VECTOR_WIDTH > 16
+    INLINE auto operator()(__m128i key) const {
+        key = _mm_add_epi64(~key, _mm_slli_epi64(key, 21)); // key = (key << 21) - key - 1;
+        key ^= _mm_srli_epi64(key, 24);
+        key = _mm_add_epi64(key, _mm_add_epi64(_mm_slli_epi64(key, 3), _mm_slli_epi64(key, 8)));
+        key ^= _mm_srli_epi64(key, 14);
+        key = _mm_add_epi64(_mm_add_epi64(key, _mm_slli_epi64(key, 2)), _mm_slli_epi64(key, 4));
+        key ^= _mm_srli_epi64(key, 28);
+        key = _mm_add_epi64(_mm_slli_epi64(key, 31), key);
+        return key;
+    }
+#endif
 };
 
 namespace lut {
@@ -144,9 +158,9 @@ print("    0xFFu, %s" % ", ".join(str(64 // x) for x in range(1, 63)))
 struct MurFinHash {
     INLINE uint64_t operator()(uint64_t key) const {
         key ^= key >> 33;
-        key *= 0xff51afd7ed558ccd;
+        key *= UINT64_C(0xff51afd7ed558ccd);
         key ^= key >> 33;
-        key *= 0xc4ceb9fe1a85ec53;
+        key *= UINT64_C(0xc4ceb9fe1a85ec53);
         key ^= key >> 33;
         return key;
     }
@@ -155,29 +169,36 @@ struct MurFinHash {
     }
     INLINE Type operator()(VType key) const {
 #if (HAS_AVX_512)
-        static const Type mul1 = Space::set1(0xff51afd7ed558ccd);
-        static const Type mul2 = Space::set1(0xc4ceb9fe1a85ec53);
+        static const Type mul1 = Space::set1(0xff51afd7ed558ccduLL);
+        static const Type mul2 = Space::set1(0xc4ceb9fe1a85ec53uLL);
 #endif
 
-#if !NDEBUG
-        auto save = key.arr_[0];
-#endif
         key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
 #if (HAS_AVX_512) == 0
-        key.for_each([](uint64_t &x) {x *= 0xff51afd7ed558ccd;});
+        key.for_each([](uint64_t &x) {x *= UINT64_C(0xff51afd7ed558ccd);});
 #  else
         key = Space::mullo(key.simd_, mul1); // h *= 0xff51afd7ed558ccd;
 #endif
         key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
 #if (HAS_AVX_512) == 0
-        key.for_each([](uint64_t &x) {x *= 0xc4ceb9fe1a85ec53;});
+        key.for_each([](uint64_t &x) {x *= UINT64_C(0xc4ceb9fe1a85ec53);});
 #  else
         key = Space::mullo(key.simd_, mul2); // h *= 0xc4ceb9fe1a85ec53;
 #endif
         key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-        assert(this->operator()(save) == key.arr_[0]);
         return key.simd_;
     }
+#if VECTOR_WIDTH > 16
+    INLINE auto operator()(__m128i key) const {
+        using namespace vec;
+        key ^= _mm_srli_epi64(key, 33);
+        key = _mm_mul_epi64x(key, UINT64_C(0xff51afd7ed558ccd));
+        key ^= _mm_srli_epi64(key,  33);
+        key = _mm_mul_epi64x(key, UINT64_C(0xc4ceb9fe1a85ec53));
+        key ^= _mm_srli_epi64(key,  33);
+        return key;
+    }
+#endif
 };
 static INLINE uint64_t finalize(uint64_t key) {
     return MurFinHash()(key);

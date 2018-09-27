@@ -68,7 +68,7 @@ The sketch is the set of minimizers.
 template<typename T,
          typename Hasher=common::WangHash,
          typename SizeType=uint32_t,
-         bool force_non_int=false,
+         bool force_non_int=false, // In case you're absolutely sure you want to use a non-integral value
          typename=std::enable_if_t<
             force_non_int || std::is_arithmetic_v<T>
          >
@@ -88,10 +88,17 @@ class RangeMinHash: public AbstractMinHash<T, SizeType> {
     void addh(T val) {
         // Not vectorized, can be improved.
         val = hf_(val);
-        if(auto it = minimizers_.find(val); it != minimizers_.end())
-            return;
-        else
+        if(auto it = minimizers_.find(val); it == minimizers_.end())
             minimizers_.insert(it, val), minimizers_.erase(minimizers_.begin());
+    }
+    template<typename T2, typename=std::enable_if_t<types::is_simd_v<T>>>
+    INLINE void addh(T2 val) {
+        val = hf_(val);
+        if constexpr(sizeof(T2) == VECTOR_WIDTH) {
+            reinterpret_cast<vec::UType<T> *>(&val)->for_each([&](T sv) {addh(sv);});
+        } else {
+            for(T *ptr(reinterpret_cast<T *>(&val)); ptr < reinterpret_cast<T *>(&val + 1); addh(*ptr++));
+        }
     }
     template<typename Container>
     Container to_container() const {
@@ -101,6 +108,7 @@ class RangeMinHash: public AbstractMinHash<T, SizeType> {
         TreeType tmp;
         std::swap(tmp, minimizers_);
     }
+    std::vector<T> mh2vec() const {return to_container<std::vector<T>>();}
     size_t size() const {return minimizers_.size();}
     SET_SKETCH(minimizers_)
 };
@@ -159,10 +167,10 @@ public:
     int print_params(std::FILE *fp=stderr) const {
         return std::fprintf(fp, "p: %u. q: %u. r: %u.\n", p(), q(), r());
     }
-    const __m128 &seeds_as_sse() const {return *reinterpret_cast<const __m128 *>(seeds_);}
+    const __m128i &seeds_as_sse() const {return *reinterpret_cast<const __m128i *>(seeds_);}
 
     INLINE void addh(uint64_t element) {
-        __m128 i = _mm_set1_epi64x(element);
+        __m128i i = _mm_set1_epi64x(element);
         i ^= seeds_as_sse();
         i = Hasher()(i);
         add(i);
