@@ -1405,6 +1405,15 @@ public:
         hlfbase_t ret = *this;
         ret += other;
     }
+    double jaccard_index(const hlfbase_t &other) const {
+        double est = chunk_report();
+        est += other.chunk_report();
+        hlfbase_t tmp = *this + other;
+        double uest = tmp.chunk_report();
+        double olap = est - uest;
+        olap /= uest;
+        return olap;
+    }
     double report() noexcept {
         if(is_calculated_) return value_;
         hlls_[0].csum();
@@ -1445,7 +1454,7 @@ public:
     }
     // Attempt strength borrowing across hlls with different seeds
     double chunk_report() const {
-        if((size() & (size() - 1)) == 0) {
+        if(__builtin_expect((size() & (size() - 1)) == 0, 1)) {
             std::array<uint64_t, 64> counts{0};
             for(const auto &hll: hlls_) detail::inc_counts(counts, hll.core());
             const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz(uint32_t(size())) - 1);
