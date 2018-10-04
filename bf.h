@@ -227,7 +227,7 @@ public:
         auto sumu = popcnt_fn(tmp);
 
 #define PERFORM_ITER \
-        l1 = *op++; l2 = *op++; \
+        l1 = *op++; l2 = *tc++; \
         tmp = Space::and_fn(l1.simd_, l2.simd_); \
         sumshared += popcnt_fn(tmp); \
         tmp = Space::or_fn(l1.simd_, l2.simd_); \
