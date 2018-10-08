@@ -18,8 +18,8 @@ namespace detail {
     template<typename T>
     static constexpr int range_check(unsigned nbits, T val) {
         if constexpr(std::is_signed_v<T>) {
-            return val < -(1ull << (nbits - 1)) ? -1
-                                                : (val > (1ull << (nbits - 1)) - 1);
+            const int64_t v = val;
+            return v < -int64_t(1ull << (nbits - 1)) ? -1: val > int64_t((1ull << (nbits - 1)) - 1);
         } else {
             return val >= (1ull << nbits);
         }
@@ -31,11 +31,11 @@ namespace update {
 struct Increment {
     // Saturates
     template<typename T, typename IntType>
-    void operator()(T &ref, IntType maxval) {
+    void operator()(T &ref, IntType maxval) const {
         ref += (ref < maxval);
     }
     template<typename T, typename Container, typename IntType>
-    void operator()(std::vector<T> &ref, Container &con, IntType nbits) {
+    void operator()(std::vector<T> &ref, Container &con, IntType nbits) const {
             unsigned count = con[ref[0]];
             if(detail::range_check<typename detail::IndexedValue<Container>::Type>(nbits, ++count) == 0)
                 for(const auto el: ref)
@@ -43,11 +43,11 @@ struct Increment {
     }
     template<typename... Args>
     Increment(Args &&... args) {}
-    uint64_t est_count(uint64_t val) const {
+    static uint64_t est_count(uint64_t val) {
         return val;
     }
     template<typename T1, typename T2>
-    uint64_t combine(const T1 &i, const T2 &j) {
+    static uint64_t combine(const T1 &i, const T2 &j) {
         return uint64_t(i) + uint64_t(j);
     }
 };
@@ -56,29 +56,41 @@ struct Increment {
 struct CountSketch {
     // Saturates
     template<typename T, typename IntType, typename IntType2>
-    void operator()(T &ref, IntType maxval, IntType2 hash) {
+    void operator()(T &ref, IntType maxval, IntType2 hash) const {
         ref = int64_t(ref) + detail::signarr<IntType2>[hash&1];
     }
-    template<typename T, typename Container, typename IntType, typename IntType2>
-    void operator()(std::vector<T> &ref, std::vector<T> &hashes, Container &con, IntType nbits) {
+    template<typename T, typename Container, typename IntType>
+    ssize_t operator()(std::vector<T> &ref, std::vector<T> &hashes, Container &con, IntType nbits) const {
         using IDX = typename detail::IndexedValue<Container>::Type;
         IDX newval;
+        std::vector<IDX> s;
         assert(ref.size() == hashes.size());
         for(size_t i(0); i < ref.size(); ++i) {
-            newval = con[ref[i]] + detail::signarr<IntType2>[hashes[i]&1];
+#if !NDEBUG
+            auto inc = detail::signarr<::std::int64_t>[hashes[i]&1];
+            assert(inc == 1 || inc == -1);
+            newval = con[ref[i]] + inc;
+            std::fprintf(stderr, "oldval: %d. newval: %d\n", int(con[ref[i]]), int(newval));
+#else
+            newval = con[ref[i]] + detail::signarr<::std::int64_t>[hashes[i]&1];
+#endif
             if(detail::range_check<IDX>(nbits, newval) == 0)
                 con[ref[i]] = newval;
         }
+        common::sort::insertion_sort(s.begin(), s.end());
+        return s.size() & 1 ? ssize_t(s[s.size()>>1]): ssize_t((s[s.size() >> 1] + s[(s.size() >> 1) - 1]) * 0.5);
     }
     template<typename... Args>
-    void Increment(Args &&... args) {}
+    static void Increment(Args &&... args) {}
     uint64_t est_count(uint64_t val) const {
         return val;
     }
     template<typename T1, typename T2>
-    uint64_t combine(const T1 &i, const T2 &j) {
+    static uint64_t combine(const T1 &i, const T2 &j) {
         return uint64_t(i) + uint64_t(j);
     }
+    template<typename... Args>
+    CountSketch(Args &&... args) {}
 };
 
 struct PowerOfTwo {
@@ -173,10 +185,12 @@ public:
                               seeds_.size() * sizeof(seeds_[0]) + data_.bytes());
     }
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0):
-            data_(nbits, nhashes << l2sz), updater_(seed + l2sz * nbits * nhashes),
+            data_(nbits, nhashes << l2sz),
+            updater_(seed + l2sz * nbits * nhashes),
             nhashes_(nhashes), l2sz_(l2sz),
             nbits_(nbits),
-            mask_((1ull << l2sz) - 1), subtbl_sz_(1ull << l2sz)
+            mask_((1ull << l2sz) - 1),
+            subtbl_sz_(1ull << l2sz)
     {
         if(__builtin_expect(nbits < 0, 0)) throw std::runtime_error("Number of bits cannot be negative.");
         if(__builtin_expect(l2sz < 0, 0)) throw std::runtime_error("l2sz cannot be negative.");
@@ -191,13 +205,7 @@ public:
 #endif
     }
     VectorType &ref() {return data_;}
-    void addh(uint64_t val) {
-        this->addh_conservative(val);
-    }
-    void addh_conservative(uint64_t val) {this->add_conservative(val);}
-#if ENABLE_ADD_LIBERAL
-    void addh_liberal(uint64_t val) {this->add_liberal(val);}
-#endif
+    auto addh(uint64_t val) {return add(val);}
     template<typename T>
     T hash(T val) const {
         return HashStruct()(val);
@@ -244,13 +252,14 @@ public:
                 tmp.for_each([&](const uint64_t &subw) {
                     ret &= (~(data_[subw + nhdone * subtbl_sz_] == 0) << vindex++);
                 });
+                if(!ret) return ret;
             });
             vindex = 0;
             ++nhdone;
         }
         return ret;
     }
-    void add_conservative(const uint64_t val) {
+    ssize_t add(const uint64_t val) {
         std::vector<uint64_t> indices, best_indices, hashes, best_hashes;
         indices.reserve(nhashes_);
         if constexpr(is_count_sketch()) {
@@ -261,15 +270,14 @@ public:
         const auto nbitsperhash = l2sz_;
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         Space::VType vb = Space::set1(val), tmp;
+        ssize_t ret;
         // mask = Space::set1(mask_);
         while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
             tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
             if constexpr(is_count_sketch()) {
                 // This could be improved, but I'm willing to pay a little performance penalty for Count-Sketch
                 tmp.for_each([&](uint64_t subval) {
-                    for(unsigned k = nperhash64; k;) {
-                        hashes.push_back((val >> (--k * nbitsperhash)));
-                    }
+                    for(unsigned k = nperhash64; k;hashes.push_back((val >> (--k * nbitsperhash))));
                     ++seedind;
                 });
                 seedind -= Space::COUNT;
@@ -290,7 +298,8 @@ public:
             for(unsigned k(0); k < left; indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
             ++seedind;
         }
-        if constexpr(is_count_sketch()) updater_(indices, hashes, data_, nbits_);
+        //void operator()(std::vector<T> &ref, std::vector<T> &hashes, Container &con, IntType nbits) const {
+        if constexpr(is_count_sketch()) ret = updater_.operator()(indices, hashes, data_, nbits_);
         else {
             best_indices.push_back(indices[0]);
             best_hashes.push_back(indices[1]);
@@ -312,27 +321,10 @@ public:
                 }
             }
             updater_(best_indices, data_, nbits_);
+            ret = minval;
         }
+        return ret;
     }
-#if ENABLE_ADD_LIBERAL
-    void add_liberal(uint64_t val) {
-        unsigned nhdone = 0;
-        const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
-        while(nhashes_ - nhdone > Space::COUNT) {
-            Space::VType tmp = hash(Space::xor_fn(Space::set1(val), Space::load(sptr++)));
-            tmp.for_each([&](uint64_t &subval){
-#if !NDEBUG
-                std::fprintf(stderr, "Querying at position %u, with value %u", nhdone * subtbl_sz_ + (subval & mask_), unsigned(data_[subtbl_sz_ * nhdone + (subval & mask_)]));
-#endif
-                updater_(data_[subtbl_sz_ * nhdone++ + (subval & mask_)], nbits_);
-            });
-        }
-        while(nhdone < nhashes_) {
-            updater_(data_[subtbl_sz_ * nhdone + (hash(val ^ seeds_[nhdone]) & mask_, nbits_)]);
-            ++nhdone;
-        }
-    }
-#endif
     uint64_t est_count(uint64_t val) {
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         Space::VType tmp;
@@ -357,7 +349,7 @@ public:
                 }
             }
             return updater_.est_count(count);
-        } else {
+        } else { // Is not a count sketch.
             std::vector<int64_t> estimates;
             estimates.reserve(nhashes_);
             while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
@@ -409,14 +401,31 @@ public:
         return *this;
     }
 };
+template<typename VectorType=DefaultCompactVectorType,
+         typename HashStruct=common::WangHash>
+class cmmbase_t: protected ccmbase_t<update::Increment, VectorType, HashStruct> {
+    uint64_t stream_size_;
+    using BaseType = ccmbase_t<update::Increment, VectorType, HashStruct>;
+    cmmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0): BaseType(nbits, l2sz, nhashes, seed), stream_size_(0) {}
+    void add(uint64_t val) {this->addh(val);}
+    void addh(uint64_t val) {
+        ++stream_size_;
+        BaseType::addh(val);
+    }
+    uint64_t est_count(uint64_t val) const {
+        std::fprintf(stderr, "Warning: %s is not yet finished. Returning CountMin sketch estimate\n", __PRETTY_FUNCTION__);
+        return BaseType::est_count(val); // TODO: this (This is just
+    }
+};
 
 using ccm_t = ccmbase_t<>;
+using cmm_t = cmmbase_t<>;
 using pccm_t = ccmbase_t<update::PowerOfTwo>;
 
-using cvector_i32 = compact::vector<int32_t, 0, uint64_t, Allocator<uint64_t>>;
-using cvector_i64 = compact::vector<int64_t, 0, uint64_t, Allocator<uint64_t>>;
-using cs_t = ccmbase_t<update::Increment, cvector_i32>;
-using cs64_t = ccmbase_t<update::Increment, cvector_i64>;
+using cvector_i32 = compact::vector<int32_t, 0, int64_t, Allocator<int64_t>>;
+using cvector_i64 = compact::vector<int64_t, 0, int64_t, Allocator<int64_t>>;
+using cs_t = ccmbase_t<update::CountSketch, cvector_i32>;
+using cs64_t = ccmbase_t<update::CountSketch, cvector_i64>;
 // Note that cs_t needs to have a signed integer.
 
 } // namespace cm

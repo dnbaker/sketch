@@ -176,7 +176,7 @@ template<typename CountArrType>
 inline double calculate_estimate(const CountArrType &counts,
                                  EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) {
     assert(estim <= 3 && estim >= 0);
-    static_assert(std::is_same_v<std::decay_t<decltype(counts[0])>, uint64_t>, "Counts must be a container for uint64_ts.");
+    static_assert(std::is_same<std::decay_t<decltype(counts[0])>, uint64_t>::value, "Counts must be a container for uint64_ts.");
     switch(estim) {
         case ORIGINAL: {
             assert(estim != ERTL_MLE);
@@ -303,7 +303,7 @@ public:
     u8arr vals;
     template<typename T>
     void inc_counts(T &arr) const {
-        static_assert(std::is_same_v<std::decay_t<decltype(arr[0])>, uint64_t>, "Must container 64-bit integers.");
+        static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
         unroller<T, 0, nels> ur;
         ur(*this, arr);
     }
@@ -364,7 +364,7 @@ struct joint_unroller {
         auto g2 = SIMDHolder(SIMDHolder::gt_fn(ref2.val, ref1.val));
         auto eq = SIMDHolder(SIMDHolder::eq_fn(ref1.val, ref2.val));
 #endif
-        static_assert(std::is_same_v<MType, std::decay_t<decltype(g1)>>, "g1 should be the same time as MType");
+        static_assert(std::is_same<MType, std::decay_t<decltype(g1)>>::value, "g1 should be the same time as MType");
         ju(ref1, ref2, u, arrh1, arrh2, arru, arrg1, arrg2, arreq, g1, g2, eq);
     }
     template<typename T>
@@ -387,7 +387,7 @@ struct joint_unroller {
 
 template<typename T>
 inline void inc_counts(T &counts, const SIMDHolder *p, const SIMDHolder *pend) {
-    static_assert(std::is_same_v<std::decay_t<decltype(counts[0])>, uint64_t>, "Counts must contain 64-bit integers.");
+    static_assert(std::is_same<std::decay_t<decltype(counts[0])>, uint64_t>::value, "Counts must contain 64-bit integers.");
     SIMDHolder tmp;
     do {
         tmp = *p++;
@@ -404,12 +404,12 @@ static inline std::array<uint64_t, 64> sum_counts(const SIMDHolder *p, const SIM
 
 template<typename Container>
 inline std::array<uint64_t, 64> sum_counts(const Container &con) {
-    static_assert(std::is_same_v<std::decay_t<decltype(con[0])>, uint8_t>, "Container must contain 8-bit unsigned integers.");
+    static_assert(std::is_same<std::decay_t<decltype(con[0])>, uint8_t>::value, "Container must contain 8-bit unsigned integers.");
     return sum_counts(reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
 }
 template<typename T, typename Container>
 inline void inc_counts(T &counts, const Container &con) {
-    static_assert(std::is_same_v<std::decay_t<decltype(con[0])>, uint8_t>, "Container must contain 8-bit unsigned integers.");
+    static_assert(std::is_same<std::decay_t<decltype(con[0])>, uint8_t>::value, "Container must contain 8-bit unsigned integers.");
     return inc_counts(counts, reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
 }
 
@@ -827,13 +827,13 @@ public:
     }
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) {
-        static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");
+        static_assert(std::is_same<std::decay_t<decltype(hasher(element))>, uint64_t>::value, "Must return 64-bit hash");
         add(hasher(element));
     }
 #ifdef ENABLE_CLHASH
     template<typename Hasher=clhasher>
     INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
-        static_assert(std::is_same_v<std::decay_t<decltype(hasher(s, len))>, uint64_t>, "Must return 64-bit hash");
+        static_assert(std::is_same<std::decay_t<decltype(hasher(s, len))>, uint64_t>::value, "Must return 64-bit hash");
         add(hasher(s, len));
     }
 #endif
@@ -1274,7 +1274,7 @@ public:
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) {
         MurFinHash mfh;
-        static_assert(std::is_same_v<std::decay_t<decltype(hasher(element))>, uint64_t>, "Must return 64-bit hash");
+        static_assert(std::is_same<std::decay_t<decltype(hasher(element))>, uint64_t>::value, "Must return 64-bit hash");
         add(mfh(hasher(element) ^ seed_));
     }
 
@@ -1282,7 +1282,7 @@ public:
     template<typename Hasher=clhasher>
     INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
         common::MurFinHash hf;
-        static_assert(std::is_same_v<std::decay_t<decltype(hasher(s, len))>, uint64_t>, "Must return 64-bit hash");
+        static_assert(std::is_same<std::decay_t<decltype(hasher(s, len))>, uint64_t>::value, "Must return 64-bit hash");
         add(hf(hasher(s, len) ^ seed_));
     }
 #endif
