@@ -70,15 +70,18 @@ struct CountSketch {
             auto inc = detail::signarr<::std::int64_t>[hashes[i]&1];
             assert(inc == 1 || inc == -1);
             newval = con[ref[i]] + inc;
-            std::fprintf(stderr, "oldval: %d. newval: %d\n", int(con[ref[i]]), int(newval));
 #else
             newval = con[ref[i]] + detail::signarr<::std::int64_t>[hashes[i]&1];
 #endif
+            s.push_back(newval);
             if(detail::range_check<IDX>(nbits, newval) == 0)
                 con[ref[i]] = newval;
         }
-        common::sort::insertion_sort(s.begin(), s.end());
-        return s.size() & 1 ? ssize_t(s[s.size()>>1]): ssize_t((s[s.size() >> 1] + s[(s.size() >> 1) - 1]) * 0.5);
+        if(s.size()) {
+            common::sort::insertion_sort(s.begin(), s.end());
+            return s.size() & 1 ? ssize_t(s[s.size()>>1]): ssize_t((s[s.size() >> 1] + s[(s.size() >> 1) - 1]) * 0.5);
+        }
+        return 0;
     }
     template<typename... Args>
     static void Increment(Args &&... args) {}
@@ -94,7 +97,7 @@ struct CountSketch {
 };
 
 struct PowerOfTwo {
-    aes::AesCtr<uint64_t, 8> rng_;
+    aes::AesCtr<uint64_t, 4> rng_;
     uint64_t  gen_;
     uint8_t nbits_;
     // Also saturates
@@ -103,9 +106,9 @@ struct PowerOfTwo {
 #if !NDEBUG
         std::fprintf(stderr, "maxval: %zu. ref: %zu\n", size_t(maxval), size_t(ref));
 #endif
-        if(ref >= maxval) return;
         if(unsigned(ref) == 0) ref = 1;
         else {
+            if(ref >= maxval) return;
             if(__builtin_expect(nbits_ < ref, 0)) gen_ = rng_(), nbits_ = 64;
             const unsigned oldref = ref;
             ref += ((gen_ & (UINT64_C(-1) >> (64 - unsigned(ref)))) == 0);
@@ -159,6 +162,21 @@ struct PowerOfTwo {
 
 using namespace common;
 
+//template<typename Container>
+//void zero_memory(Container &c, size_t newsz) {
+//    throw std::runtime_error("NotImplemented. (This should always be overridden.)");
+//}
+template<typename T, typename AllocatorType=typename T::allocator>
+static inline void zero_memory(std::vector<T, AllocatorType> &v, size_t newsz) {
+    std::memset(v.data(), 0, v.size() * sizeof(v[0]));
+    v.resize(newsz);
+    std::fprintf(stderr, "New size of container: %zu\n", newsz);
+}
+template<typename T1, unsigned int BITS, typename T2, typename Allocator>
+static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz) {
+   std::memset(v.get(), 0, v.bytes()); // zero array
+}
+
 template<typename UpdateStrategy=update::Increment,
          typename VectorType=DefaultCompactVectorType,
          typename HashStruct=common::WangHash>
@@ -199,7 +217,7 @@ public:
         std::mt19937_64 mt(seed + 4);
         auto nperhash64 = lut::nhashesper64bitword[l2sz];
         while(seeds_.size() * nperhash64 < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
-        std::memset(data_.get(), 0, data_.bytes()); // zero array
+        zero_memory(data_, nhashes << l2sz);
 #if !NDEBUG
         std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables. %zu is the number of 64-bit hashes with %u nhashesper64bitword\n", nbits, l2sz, nhashes, seeds_.size(), nperhash64);
 #endif
@@ -277,7 +295,7 @@ public:
             if constexpr(is_count_sketch()) {
                 // This could be improved, but I'm willing to pay a little performance penalty for Count-Sketch
                 tmp.for_each([&](uint64_t subval) {
-                    for(unsigned k = nperhash64; k;hashes.push_back((val >> (--k * nbitsperhash))));
+                    for(unsigned k = nperhash64; k;hashes.push_back((val >> (--k * nbitsperhash) & mask_)));
                     ++seedind;
                 });
                 seedind -= Space::COUNT;
@@ -298,12 +316,11 @@ public:
             for(unsigned k(0); k < left; indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
             ++seedind;
         }
-        //void operator()(std::vector<T> &ref, std::vector<T> &hashes, Container &con, IntType nbits) const {
         if constexpr(is_count_sketch()) ret = updater_.operator()(indices, hashes, data_, nbits_);
         else {
             best_indices.push_back(indices[0]);
             best_hashes.push_back(indices[1]);
-            size_t minval = data_[indices[0]];
+            ssize_t minval = data_[indices[0]];
             unsigned score;
             for(size_t i(1); i < indices.size(); ++i) {
                 if((score = data_[indices[i]]) == minval) {
@@ -424,7 +441,7 @@ using pccm_t = ccmbase_t<update::PowerOfTwo>;
 
 using cvector_i32 = compact::vector<int32_t, 0, int64_t, Allocator<int64_t>>;
 using cvector_i64 = compact::vector<int64_t, 0, int64_t, Allocator<int64_t>>;
-using cs_t = ccmbase_t<update::CountSketch, cvector_i32>;
+using cs_t = ccmbase_t<update::CountSketch, std::vector<int16_t, Allocator<int16_t>>>;
 using cs64_t = ccmbase_t<update::CountSketch, cvector_i64>;
 // Note that cs_t needs to have a signed integer.
 

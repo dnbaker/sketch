@@ -33,6 +33,39 @@ class AbstractMinHash {
     }
 };
 
+
+template<typename Container1, typename Container2>
+std::uint64_t intersection_size(const Container1 &c1, const Container2 &c2) {
+    // These containers must be sorted.
+    std::uint64_t ret = 0;
+    auto it1 = c1.begin();
+    auto it2 = c2.end();
+    const auto e1 = c1.end();
+    const auto e2 = c2.end();
+    start:
+#if HAVE_SPACESHIP_OPERATOR
+    switch(*it1 <=> *it2) {
+        case -1: if(++it1 == e1) goto end; break;
+        case 0: ++ret; if(++it1 == e1 || ++it2 == e2) goto end; break;
+        case 1:               if(++it2 == e2) goto end; break;
+        default: __builtin_unreachable();
+    }
+#else
+    if(*it1 < *it2) {
+        if(++it1 == e1) goto end;
+    } else if(*it1 > *it2) {
+        if(++it2 == e2) goto end;
+    } else {
+        ++ret;
+        if(++it1 == e1 || ++it2 == e2) goto end;
+    }
+#endif
+    goto start;
+    end:
+    return ret;
+}
+
+
 template<typename T, typename Hasher=common::WangHash, typename SizeType=uint32_t>
 class KMinHash: public AbstractMinHash<T, SizeType> {
     std::vector<uint64_t, common::Allocator<uint64_t>> seeds_;
