@@ -166,6 +166,10 @@ using namespace common;
 //void zero_memory(Container &c, size_t newsz) {
 //    throw std::runtime_error("NotImplemented. (This should always be overridden.)");
 //}
+
+namespace detail {
+// Overloads for setting memory to 0 for either compact vectors
+// or std::vectors
 template<typename T, typename AllocatorType=typename T::allocator>
 static inline void zero_memory(std::vector<T, AllocatorType> &v, size_t newsz) {
     std::memset(v.data(), 0, v.size() * sizeof(v[0]));
@@ -176,6 +180,7 @@ template<typename T1, unsigned int BITS, typename T2, typename Allocator>
 static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz) {
    std::memset(v.get(), 0, v.bytes()); // zero array
 }
+} // namespace detail
 
 template<typename UpdateStrategy=update::Increment,
          typename VectorType=DefaultCompactVectorType,
@@ -202,6 +207,9 @@ public:
         return std::make_pair(sizeof(data_) + sizeof(updater_) + sizeof(unsigned) + sizeof(mask_) + sizeof(subtbl_sz_) + sizeof(seeds_),
                               seeds_.size() * sizeof(seeds_[0]) + data_.bytes());
     }
+    void clear() {
+        detail::zero_memory(data_, std::log2(subtbl_sz_));
+    }
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0):
             data_(nbits, nhashes << l2sz),
             updater_(seed + l2sz * nbits * nhashes),
@@ -217,7 +225,7 @@ public:
         std::mt19937_64 mt(seed + 4);
         auto nperhash64 = lut::nhashesper64bitword[l2sz];
         while(seeds_.size() * nperhash64 < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
-        zero_memory(data_, nhashes << l2sz);
+        clear();
 #if !NDEBUG
         std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables. %zu is the number of 64-bit hashes with %u nhashesper64bitword\n", nbits, l2sz, nhashes, seeds_.size(), nperhash64);
 #endif
