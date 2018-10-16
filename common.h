@@ -282,5 +282,11 @@ inline void insertion_sort(Iter begin, Iter end) {
 }
 } // namespace sort
 
+class NotImplementedError: public std::runtime_error {
+public:
+    template<typename... Args>
+    NotImplementedError(Args &&...args): std::runtime_error(std::forward<Args>(args)...) {}
+};
+
 } // namespace common
 } // namespace sketch

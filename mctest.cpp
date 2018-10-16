@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
     }
     pccm_t thing(nbits, l2sz, nhashes);
     ccm_t thingexact(nbits, l2sz, nhashes);
-    sketch::cm::cs_t thingcs(nbits, l2sz, nhashes);
+    CountSketch thingcs(l2sz, nhashes);
     auto [x, y] = thing.est_memory_usage();
     std::fprintf(stderr, "stack space: %zu\theap space:%zu\n", x, y);
     size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 100000;
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
         assert(unsigned(el) == 0);
     }
     for(const auto item: items) thing.addh(item), thingexact.addh(item), thingcs.addh(item);
-    std::unordered_map<uint64_t, uint64_t> histexact, histapprox, histcs;
+    std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs;
     size_t missing = 0;
     size_t tot = 0;
     for(const auto j: items) {
@@ -48,12 +48,12 @@ int main(int argc, char *argv[]) {
     }
     std::fprintf(stderr, "Missing %zu/%zu\n", missing, tot);
     for(const auto &pair: histexact) {
-        std::fprintf(stderr, "Exact %" PRIu64 "\t%" PRIu64 "\n", pair.first, pair.second);
+        std::fprintf(stderr, "Exact %" PRIi64 "\t%" PRIu64 "\n", pair.first, pair.second);
     }
     for(const auto &pair: histapprox) {
-        std::fprintf(stderr, "Approx %" PRIu64 "\t%" PRIu64 "\n", pair.first, pair.second);
+        std::fprintf(stderr, "Approx %" PRIi64 "\t%" PRIu64 "\n", pair.first, pair.second);
     }
     for(const auto &pair: histcs) {
-        std::fprintf(stderr, "Count sketch %" PRIu64 "\t%" PRIu64 "\n", pair.first, pair.second);
+        std::fprintf(stderr, "Count sketch %" PRIi64 "\t%" PRIu64 "\n", pair.first, pair.second);
     }
 }

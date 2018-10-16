@@ -426,19 +426,69 @@ public:
         return *this;
     }
 };
+template<typename HashStruct=common::WangHash, typename CounterType=int32_t, typename=std::enable_if_t<std::is_signed_v<CounterType>>>
+class CountSketch {
+    // Basic, will not be ultimately performant
+    std::vector<CounterType, Allocator<CounterType>> core_;
+    uint64_t np_;
+    uint64_t mask_;
+    uint32_t nh_;
+    uint64_t nph_;
+    std::vector<CounterType, Allocator<CounterType>> seeds_;
+public:
+    CountSketch(unsigned np, unsigned nh=1, unsigned seedseed=137): core_(uint64_t(1) << np), np_(np), mask_(core_.size() - 1), nh_(nh), nph_(64 / (np + 1)), seeds_((nh_ + (nph_ - 1)) / nph_ - 1)  {
+        aes::AesCtr<uint64_t> gen(np + nh + seedseed);
+        for(auto &el: seeds_) el = gen();
+    }
+    void addh(uint64_t val) {
+        uint64_t v = HashStruct()(val);
+        unsigned added = 0;
+        for(unsigned k = nph_; k-- && added++ < nh_; v >>= (np_ + 1))
+            add(v);
+        for(auto it = seeds_.begin();;) {
+            v = HashStruct()(*it++ ^ val);
+            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
+                add(v);
+                if(++added == nh_) return;
+            }
+        }
+    }
+    INLINE void add(uint64_t hv) {
+        core_[hv & mask_] += (hv >> np_) & 1 ? 1 : -1;
+    }
+    auto est_count(uint64_t val) const {
+        std::vector<uint64_t> vals; vals.reserve(nh_);
+        uint64_t v = HashStruct()(val);
+        unsigned added = 0;
+        for(unsigned k = nph_; k-- && added++ < nh_; v >>= (np_ + 1))
+            vals.push_back(core_[(v>>1) & mask_] * (v&1?1:-1));
+        for(auto it = seeds_.begin();;) {
+            v = HashStruct()(*it++ ^ val);
+            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
+                vals.push_back(core_[(v>>1) & mask_] * (v&1?1:-1));
+                if(++added == nh_) goto end;
+            }
+        }
+        end:
+        sort::insertion_sort(vals.begin(), vals.end());
+        return vals.size() & 1 ? vals[vals.size() >> 1]: CounterType((vals[vals.size() >> 1] + vals[(vals.size() >> 1) - 1]) >> 1);
+    }
+};
+
 template<typename VectorType=DefaultCompactVectorType,
          typename HashStruct=common::WangHash>
 class cmmbase_t: protected ccmbase_t<update::Increment, VectorType, HashStruct> {
     uint64_t stream_size_;
     using BaseType = ccmbase_t<update::Increment, VectorType, HashStruct>;
-    cmmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0): BaseType(nbits, l2sz, nhashes, seed), stream_size_(0) {}
+    cmmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0): BaseType(nbits, l2sz, nhashes, seed), stream_size_(0) {
+        throw NotImplementedError("count min mean sketch not completed.");
+    }
     void add(uint64_t val) {this->addh(val);}
     void addh(uint64_t val) {
         ++stream_size_;
         BaseType::addh(val);
     }
     uint64_t est_count(uint64_t val) const {
-        std::fprintf(stderr, "Warning: %s is not yet finished. Returning CountMin sketch estimate\n", __PRETTY_FUNCTION__);
         return BaseType::est_count(val); // TODO: this (This is just
     }
 };
