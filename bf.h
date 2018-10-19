@@ -215,18 +215,39 @@ public:
         return sum;
     }
 
-    double jaccard_index(const bfbase_t &other) const {
+    double setbit_jaccard_index(const bfbase_t &other) const {
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         Space::VType l1 = *op++, l2 = *tc++;
-        Space::VType sum1(0), sum2(0), sumu(0), tmp;
+        Space::VType tmp;
+        uint64_t sum1(0), sum2(0), sumu(0);
 
 #define PERFORM_ITER \
         l1 = *op++; l2 = *tc++; \
         sum1 += popcnt_fn(l1.simd_); sum2 += popcnt_fn(l2.simd_);\
         tmp = Space::or_fn(l1.simd_, l2.simd_); \
         sumu += popcnt_fn(tmp);
+        if(core_.size() / Space::COUNT >= 8) {
+            REPEAT_7(PERFORM_ITER)
+            // Handle the last 7 times after initialization
+            for(size_t i(1); i < core_.size() / Space::COUNT / 8;++i) {
+                REPEAT_8(PERFORM_ITER)
+            }
+        }
+        for(const Type *endp = reinterpret_cast<const Type *>(&oc[oc.size()]); op < endp;) {
+            PERFORM_ITER
+        }
+        return static_cast<double>(sum1 + sum2 - sumu) / sumu;
+    }
+    double jaccard_index(const bfbase_t &other) const {
+        if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
+        auto &oc = other.core_;
+        const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
+        Space::VType l1 = *op++, l2 = *tc++;
+        Space::VType tmp;
+        uint64_t sum1(0), sum2(0), sumu(0);
+
         if(core_.size() / Space::COUNT >= 8) {
             REPEAT_7(PERFORM_ITER)
             // Handle the last 7 times after initialization
@@ -241,8 +262,13 @@ public:
 #undef PERFORM_ITER
         double set1_est = -std::log(1 - static_cast<double>(sum1) / m()) * m() / nh_;
         double set2_est = -std::log(1 - static_cast<double>(sum2) / m()) * other.m() / nh_;
-        const auto ret = set1_est + set2_est - std::log(1 - static_cast<double>(sumu) / m()) * m() / nh_;
-        return ret;
+        double union_est = -std::log(1 - static_cast<double>(sumu) / m()) * m() / nh_;
+        double olap = set1_est + set2_est - union_est;
+#if !NDEBUG
+        double ji = olap / union_est;
+        std::fprintf(stderr, "set est 1: %lf. set est 2: %lf. Union est: %lf. Olap est: %lf. JI est: %lf\n", set1_est, set2_est, union_est, olap, ji);
+#endif
+        return olap / union_est;
     }
 
     INLINE void addh(const uint64_t element) {
