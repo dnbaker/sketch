@@ -47,8 +47,9 @@ struct Increment {
         return val;
     }
     template<typename T1, typename T2>
-    static uint64_t combine(const T1 &i, const T2 &j) {
-        return uint64_t(i) + uint64_t(j);
+    static auto combine(const T1 &i, const T2 &j) {
+        using RetType = std::common_type_t<T1, T2>;
+        return RetType(i) + RetType(j);
     }
 };
 
@@ -90,14 +91,16 @@ struct CountSketch {
     }
     template<typename T1, typename T2>
     static uint64_t combine(const T1 &i, const T2 &j) {
-        return uint64_t(i) + uint64_t(j);
+        using RetType = std::common_type_t<T1, T2>;
+        std::fprintf(stderr, "[%s:%d:%s] I'm not sure this is actually right; this is essentially a placeholder.\n", __FILE__, __LINE__, __PRETTY_FUNCTION__);
+        return RetType(i) + RetType(j);
     }
     template<typename... Args>
     CountSketch(Args &&... args) {}
 };
 
 struct PowerOfTwo {
-    aes::AesCtr<uint64_t, 4> rng_;
+    aes::AesCtr<uint64_t, 8> rng_;
     uint64_t  gen_;
     uint8_t nbits_;
     // Also saturates
@@ -145,15 +148,13 @@ struct PowerOfTwo {
         }
     }
     template<typename T1, typename T2>
-    uint64_t combine(const T1 &i, const T2 &j) {
-        return uint64_t(i) + (i == j);
+    static auto combine(const T1 &i, const T2 &j) {
+        using RetType = std::common_type_t<T1, T2>;
+        RetType i_(i), j_(j);
+        return std::max(i_, j_) + (i == j);
     }
     PowerOfTwo(uint64_t seed=0): rng_(seed), gen_(rng_()), nbits_(64) {}
-    uint64_t est_count(uint64_t val) const {
-#if !NDEBUG
-        //std::fprintf(stderr, "Getting count for item %" PRIu64 ". Result: %" PRIu64 "\n", val,
-        //             val ? uint64_t(1) << (val - 1): 0);
-#endif
+    static uint64_t est_count(uint64_t val) {
         return uint64_t(1) << (val - 1);
     }
 };
@@ -204,7 +205,7 @@ public:
         return std::is_same_v<UpdateStrategy, update::CountSketch>;
     }
     std::pair<size_t, size_t> est_memory_usage() const {
-        return std::make_pair(sizeof(data_) + sizeof(updater_) + sizeof(unsigned) + sizeof(mask_) + sizeof(subtbl_sz_) + sizeof(seeds_),
+        return std::make_pair(sizeof(*this),
                               seeds_.size() * sizeof(seeds_[0]) + data_.bytes());
     }
     void clear() {
@@ -228,6 +229,7 @@ public:
         clear();
 #if !NDEBUG
         std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables. %zu is the number of 64-bit hashes with %u nhashesper64bitword\n", nbits, l2sz, nhashes, seeds_.size(), nperhash64);
+        std::fprintf(stderr, "Size of updater: %zu\n", sizeof(updater_));
 #endif
     }
     VectorType &ref() {return data_;}
@@ -248,7 +250,7 @@ public:
         assert(data_.size() == subtbl_sz_ * nhashes_);
         while(nhashes_ - nhdone >= Space::COUNT) {
             v = hash(Space::xor_fn(Space::set1(val), *seeds++));
-            v.for_each([&](const uint64_t &hv) {
+            v.for_each([&](const uint64_t hv) {
                 ref &= data_[(hv & mask_) + nhdone++ * subtbl_sz_];
             });
             if(!ret) return false;
@@ -428,7 +430,12 @@ public:
 };
 template<typename HashStruct=common::WangHash, typename CounterType=int32_t, typename=std::enable_if_t<std::is_signed_v<CounterType>>>
 class CountSketch {
-    // Basic, will not be ultimately performant
+    /*
+     * Commentary: because of chance, one can end up with a negative number as an estimate.
+     * Either the item collided with another item which was quite large and it was outweighed
+     * or it and others in the bucket were not heavy enough and by chance it did
+     * not weigh over the other items with the opposite sign and it therefore 
+    */
     std::vector<CounterType, Allocator<CounterType>> core_;
     uint64_t np_;
     uint64_t mask_;
@@ -453,25 +460,48 @@ public:
             }
         }
     }
-    INLINE void add(uint64_t hv) {
+    INLINE void add(uint64_t hv) noexcept {
         core_[hv & mask_] += (hv >> np_) & 1 ? 1 : -1;
     }
+    INLINE void addh(Space::VType hv) noexcept {
+        Space::VType tmp = HashStruct()(hv);
+        tmp.for_each([&](uint64_t v) {
+            unsigned added = 0;
+            for(unsigned k = nph_; k-- && added++ < nh_; v >>= (np_ + 1))
+                add(v);
+        });
+        auto it = seeds_.begin();
+        for(;;) {
+            tmp = HashStruct()(Space::xor_fn(Space::set1(*it++), hv));
+            tmp.for_each([&](uint64_t v) {
+                unsigned added = 0;
+                for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
+                    add(v);
+                    if(++added == nh_) return;
+                }
+            });
+        }
+    }
     auto est_count(uint64_t val) const {
-        std::vector<uint64_t> vals; vals.reserve(nh_);
+        CounterType *ptr = static_cast<CounterType *>(std::malloc(nh_ * sizeof(CounterType))), *p = ptr;
+        if(__builtin_expect(ptr == nullptr, 0)) throw std::bad_alloc();
         uint64_t v = HashStruct()(val);
         unsigned added = 0;
-        for(unsigned k = nph_; k-- && added++ < nh_; v >>= (np_ + 1))
-            vals.push_back(core_[(v>>1) & mask_] * (v&1?1:-1));
+        for(unsigned k = nph_; k-- && added++ < nh_; v >>= (np_ + 1)) {
+            *p++ = core_[(v>>1) & mask_] * (v&1?1:-1);
+        }
         for(auto it = seeds_.begin();;) {
             v = HashStruct()(*it++ ^ val);
             for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                vals.push_back(core_[(v>>1) & mask_] * (v&1?1:-1));
+                *p++ = core_[(v>>1) & mask_] * (v&1?1:-1);
                 if(++added == nh_) goto end;
             }
         }
         end:
-        sort::insertion_sort(vals.begin(), vals.end());
-        return vals.size() & 1 ? vals[vals.size() >> 1]: CounterType((vals[vals.size() >> 1] + vals[(vals.size() >> 1) - 1]) >> 1);
+        sort::insertion_sort(ptr, ptr + nh_);
+        auto ret = nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
+        std::free(ptr);
+        return ret;
     }
 };
 

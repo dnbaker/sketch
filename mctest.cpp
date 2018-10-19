@@ -6,7 +6,7 @@
 using namespace sketch::cm;
 
 int main(int argc, char *argv[]) {
-    int nbits = 4, l2sz = 16, nhashes = 8, c;
+    int nbits = 8, l2sz = 16, nhashes = 8, c;
     //if(argc == 1) goto usage;
     while((c = getopt(argc, argv, "n:l:b:h")) >= 0) {
         switch(c) {
@@ -22,11 +22,13 @@ int main(int argc, char *argv[]) {
             case 'l': l2sz = std::atoi(optarg); break;
         }
     }
-    pccm_t thing(nbits, l2sz, nhashes);
+    pccm_t thing(nbits >> 1, l2sz, nhashes);
     ccm_t thingexact(nbits, l2sz, nhashes);
     CountSketch thingcs(l2sz, nhashes);
     auto [x, y] = thing.est_memory_usage();
-    std::fprintf(stderr, "stack space: %zu\theap space:%zu\n", x, y);
+    std::fprintf(stderr, "probabilistic method stack space: %zu\theap space:%zu\n", x, y);
+    std::tie(x, y) = thingexact.est_memory_usage();
+    std::fprintf(stderr, "exact method stack space: %zu\theap space:%zu\n", x, y);
     size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 100000;
     std::vector<uint64_t> items;
     std::mt19937_64 mt;
@@ -47,13 +49,22 @@ int main(int argc, char *argv[]) {
         ++tot;
     }
     std::fprintf(stderr, "Missing %zu/%zu\n", missing, tot);
-    for(const auto &pair: histexact) {
-        std::fprintf(stderr, "Exact %" PRIi64 "\t%" PRIu64 "\n", pair.first, pair.second);
+    std::vector<int64_t> hset;
+    for(const auto &pair: histexact) hset.push_back(pair.first);
+    std::sort(hset.begin(), hset.end());
+    for(const auto k: hset) {
+        std::fprintf(stderr, "Exact %" PRIi64 "\t%" PRIu64 "\n", k, histexact[k]);
     }
-    for(const auto &pair: histapprox) {
-        std::fprintf(stderr, "Approx %" PRIi64 "\t%" PRIu64 "\n", pair.first, pair.second);
+    hset.clear();
+    for(const auto &pair: histapprox) hset.push_back(pair.first);
+    std::sort(hset.begin(), hset.end());
+    for(const auto k: hset) {
+        std::fprintf(stderr, "Approx %" PRIi64 "\t%" PRIu64 "\n", k, histapprox[k]);
     }
-    for(const auto &pair: histcs) {
-        std::fprintf(stderr, "Count sketch %" PRIi64 "\t%" PRIu64 "\n", pair.first, pair.second);
+    hset.clear();
+    for(const auto &pair: histcs) hset.push_back(pair.first);
+    std::sort(hset.begin(), hset.end());
+    for(const auto k: hset) {
+        std::fprintf(stderr, "Count sketch %" PRIi64 "\t%" PRIu64 "\n", k, histcs[k]);
     }
 }
