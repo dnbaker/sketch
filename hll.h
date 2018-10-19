@@ -906,28 +906,31 @@ public:
         }
         unsigned i;
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
-        if(p() >= sizeof(Type)) {
+        if(m() >= sizeof(Type)) {
 #if HAS_AVX_512 && __AVX512BW__
             __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
             const __m512i *oels(reinterpret_cast<const __m512i *>(other.core_.data()));
             for(i = 0; i < m() >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]); // mm512_max_epu8 is available on with AVX512BW :(
-            if(m() < 64) for(;i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
 #elif __AVX2__
             __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
             const __m256i *oels(reinterpret_cast<const __m256i *>(other.core_.data()));
-            for(i = 0; i < m() >> 5; ++i) els[i] = _mm256_max_epu8(els[i], oels[i]);
-            if(m() < 32) for(;i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
+            for(i = 0; i < m() * sizeof(uint8_t) / sizeof(__m256i); ++i) {
+                assert(reinterpret_cast<const char *>(&els[i]) < reinterpret_cast<const char *>(&core_[core_.size()]));
+                els[i] = _mm256_max_epu8(els[i], oels[i]);
+            }
 #else // __SSE2__
             __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
             const __m128i *oels(reinterpret_cast<const __m128i *>(other.core_.data()));
             for(i = 0; i < m() >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
-            if(m() < 16) for(; i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
-#endif
+#endif /* #if (HAS_AVX_512 && __AVX512BW__) || __AVX2__ || true */
+
+            if(m() < sizeof(Type)) for(;i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
         } else {
-#endif
+#endif /* #if HAS_AVX_512 || __AVX2__ || __SSE2__ */
             uint64_t *els(reinterpret_cast<uint64_t *>(core_.data()));
             const uint64_t *oels(reinterpret_cast<const uint64_t *>(other.core_.data()));
-            while(els < oels) *els = std::max(*els, *oels), ++els, ++oels;
+            while(els < reinterpret_cast<const uint64_t *>(core_.data() + core_.size()))
+                *els = std::max(*els, *oels), ++els, ++oels;
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
         }
 #endif
