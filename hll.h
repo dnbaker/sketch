@@ -177,41 +177,55 @@ inline double calculate_estimate(const CountArrType &counts,
                                  EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) {
     assert(estim <= 3 && estim >= 0);
     static_assert(std::is_same<std::decay_t<decltype(counts[0])>, uint64_t>::value, "Counts must be a container for uint64_ts.");
+#if ENABLE_COMPUTED_GOTO
+    static constexpr void *arr [] {&&ORREST, &&ERTL_IMPROVED_EST, &&ERTL_MLE_EST};
+    goto *arr[estim];
+    ORREST: {
+#else
     switch(estim) {
         case ORIGINAL: {
-            assert(estim != ERTL_MLE);
-            double sum = counts[0];
-            for(unsigned i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
-            double value(alpha * m * m / sum);
-            if(value < detail::small_range_correction_threshold(m)) {
-                if(counts[0]) {
-#if !NDEBUG
-                    std::fprintf(stderr, "[W:%s:%d] Small value correction. Original estimate %lf. New estimate %lf.\n",
-                                 __PRETTY_FUNCTION__, __LINE__, value, m * std::log(static_cast<double>(m) / counts[0]));
 #endif
-                    value = m * std::log(static_cast<double>(m) / counts[0]);
-                }
-            } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
-                // Reuse sum variable to hold correction.
-                // I do think I've seen worse accuracy with the large range correction, but I would need to rerun experiments to be sure.
-                sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
-                if(!std::isnan(sum)) value = sum;
+        assert(estim != ERTL_MLE);
+        double sum = counts[0];
+        for(unsigned i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        double value(alpha * m * m / sum);
+        if(value < detail::small_range_correction_threshold(m)) {
+            if(counts[0]) {
 #if !NDEBUG
-                else std::fprintf(stderr, "[W:%s:%d] Large range correction returned nan. Defaulting to regular calculation.\n", __PRETTY_FUNCTION__, __LINE__);
+                std::fprintf(stderr, "[W:%s:%d] Small value correction. Original estimate %lf. New estimate %lf.\n",
+                             __PRETTY_FUNCTION__, __LINE__, value, m * std::log(static_cast<double>(m) / counts[0]));
 #endif
+                value = m * std::log(static_cast<double>(m) / counts[0]);
             }
-            return value;
+        } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
+            // Reuse sum variable to hold correction.
+            // I do think I've seen worse accuracy with the large range correction, but I would need to rerun experiments to be sure.
+            sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
+            if(!std::isnan(sum)) value = sum;
+#if !NDEBUG
+            else std::fprintf(stderr, "[W:%s:%d] Large range correction returned nan. Defaulting to regular calculation.\n", __PRETTY_FUNCTION__, __LINE__);
+#endif
         }
-        case ERTL_IMPROVED: {
-            static const double divinv = 1. / (2.L*std::log(2.L));
-            double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p + 1]))/static_cast<double>(m));
-            for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
-            z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
-            return m * divinv * m / z;
-        }
-        case ERTL_MLE: return ertl_ml_estimate(counts, p, 64 - p, relerr);
+        return value;
     }
-    __builtin_unreachable();
+#if ENABLE_COMPUTED_GOTO
+    ERTL_IMPROVED_EST: {
+#else
+        case ERTL_IMPROVED: {
+#endif
+        static const double divinv = 1. / (2.L*std::log(2.L));
+        double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p + 1]))/static_cast<double>(m));
+        for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
+        z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
+        return m * divinv * m / z;
+    }
+#if ENABLE_COMPUTED_GOTO
+    ERTL_MLE_EST: return ertl_ml_estimate(counts, p, 64 - p, relerr);
+#else
+    case ERTL_MLE: return ertl_ml_estimate(counts, p, 64 - p, relerr);
+    default: __builtin_unreachable();
+    }
+#endif
 }
 
 template<typename CoreType>
@@ -329,7 +343,7 @@ struct joint_unroller {
     static_assert(sizeof(MType) == sizeof(uint64_t), "Must be 64 bits");
 #endif
     template<typename T, size_t iternum, size_t niter_left> struct ju_impl {
-        void operator()(const SIMDHolder &ref1, const SIMDHolder &ref2, const SIMDHolder &u, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq, MType gtmask1, MType gtmask2, MType eqmask) const {
+    INLINE void operator()(const SIMDHolder &ref1, const SIMDHolder &ref2, const SIMDHolder &u, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq, MType gtmask1, MType gtmask2, MType eqmask) const {
             ++arrh1[ref1.vals[iternum]];
             ++arrh2[ref2.vals[iternum]];
             ++arru[u.vals[iternum]];
@@ -511,8 +525,8 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     std::array<uint64_t, 64> c1{0}, c2{0}, cu{0}, ceq{0}, cg1{0}, cg2{0};
     detail::joint_unroller ju;
     ju.sum_arrays(h1.core(), h2.core(), c1, c2, cu, cg1, cg2, ceq);
-    const double cAX = ertl_ml_estimate(c1, h1.p(), h1.q());
-    const double cBX = ertl_ml_estimate(c2, h2.p(), h2.q());
+    const double cAX = h1.get_is_ready() ? ertl_ml_estimate(c1, h1.p(), h1.q()): h1.creport();
+    const double cBX = h2.get_is_ready() ? ertl_ml_estimate(c2, h2.p(), h2.q()): h2.creport();
     const double cABX = ertl_ml_estimate(cu, h1.p(), h1.q());
     // std::fprintf(stderr, "Made initials: %lf, %lf, %lf\n", cAX, cBX, cABX);
     std::array<uint64_t, 64> countsAXBhalf{0};
@@ -538,12 +552,6 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     double cX1 = (1.5 * cBX + 1.5*cAX - cBXAhalf - cAXBhalf);
     double cX2 = 2.*(cBXAhalf + cAXBhalf) - 3.*cABX;
     ret[2] = std::max(0., 0.5 * (cX1 + cX2));
-#if VERIFY_SIMD_JOINT
-    auto other = ertl_joint_simple<HllType>(h1, h2);
-    std::fprintf(stderr, "Made other\n");
-    std::fprintf(stderr, "other: %lf|%lf|%lf. This: %lf|%lf|%lf\n", other[0], other[1], other[2], ret[0], ret[1], ret[2]);
-    assert(ret == other);
-#endif
     return ret;
 }
 
