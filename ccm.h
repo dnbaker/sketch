@@ -288,11 +288,13 @@ public:
         return ret;
     }
     ssize_t add(const uint64_t val) {
-        std::vector<uint64_t> indices, best_indices, hashes, best_hashes;
+        std::vector<uint64_t> indices, best_indices;
         indices.reserve(nhashes_);
+#if 0
         if constexpr(is_count_sketch()) {
             hashes.reserve(nhashes_);
         }
+#endif
         unsigned nhdone = 0, seedind = 0;
         const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
         const auto nbitsperhash = l2sz_;
@@ -302,57 +304,35 @@ public:
         // mask = Space::set1(mask_);
         while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
             tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-            if constexpr(is_count_sketch()) {
-                // This could be improved, but I'm willing to pay a little performance penalty for Count-Sketch
-                tmp.for_each([&](uint64_t subval) {
-                    for(unsigned k = nperhash64; k;hashes.push_back((val >> (--k * nbitsperhash) & mask_)));
-                    ++seedind;
-                });
-                seedind -= Space::COUNT;
-            }
-            tmp.for_each([&](uint64_t &subval) {
+            tmp.for_each([&](uint64_t subval) {
                 for(unsigned k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
             });
             seedind += Space::COUNT;
         }
-        while(nhdone + nperhash64 < nhashes_) {
+        while(nhdone < nhashes_) {
             uint64_t hv = hash(val ^ seeds_[seedind]);
             const unsigned left = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone);
-            if constexpr(is_count_sketch()) {
-                for(unsigned k = nperhash64, l = left; l--;) {
-                    hashes.push_back(val >> (--k * nbitsperhash));
-                }
-            }
             for(unsigned k(0); k < left; indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
             ++seedind;
         }
-        if constexpr(is_count_sketch()) ret = updater_.operator()(indices, hashes, data_, nbits_);
-        else {
-            best_indices.push_back(indices[0]);
-            best_hashes.push_back(indices[1]);
-            ssize_t minval = data_[indices[0]];
-            unsigned score;
-            for(size_t i(1); i < indices.size(); ++i) {
-                if((score = data_[indices[i]]) == minval) {
-                    best_indices.push_back(indices[i]);
-                    if constexpr(is_count_sketch())
-                        best_hashes.push_back(hashes[i]);
-                } else if(score < minval) {
-                    best_indices.clear();
-                    best_indices.push_back(indices[i]);
-                    if constexpr(is_count_sketch()) {
-                        best_hashes.clear();
-                        best_hashes.push_back(hashes[i]);
-                    }
-                    minval = score;
-                }
+        best_indices.push_back(indices[0]);
+        ssize_t minval = data_[indices[0]];
+        unsigned score;
+        for(size_t i(1); i < indices.size(); ++i) {
+            // This will change with
+            if((score = data_[indices[i]]) == minval) {
+                best_indices.push_back(indices[i]);
+            } else if(score < minval) {
+                best_indices.clear();
+                best_indices.push_back(indices[i]);
+                minval = score;
             }
-            updater_(best_indices, data_, nbits_);
-            ret = minval;
         }
+        updater_(best_indices, data_, nbits_);
+        ret = minval;
         return ret;
     }
-    uint64_t est_count(uint64_t val) {
+    uint64_t est_count(uint64_t val) const {
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         Space::VType tmp;
         //const Space::VType and_val = Space::set1(mask_);
@@ -360,46 +340,46 @@ public:
         unsigned nhdone = 0, seedind = 0, k;
         const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
         const auto nbitsperhash = l2sz_;
-        if constexpr(!is_count_sketch()) {
-            uint64_t count = std::numeric_limits<uint64_t>::max();
-            while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
-                tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-                tmp.for_each([&](const uint64_t subval){
-                    for(k = 0; k < nperhash64; count = std::min(count, uint64_t(data_[((subval >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++])));
-                });
-                seedind += Space::COUNT;
+        uint64_t count = std::numeric_limits<uint64_t>::max();
+        while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
+            tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
+            tmp.for_each([&](const uint64_t subval){
+                for(k = 0; k < nperhash64; count = std::min(count, uint64_t(data_[((subval >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++])));
+            });
+            seedind += Space::COUNT;
+        }
+        while(nhdone < nhashes_) {
+            uint64_t hv = hash(val ^ seeds_[seedind++]);
+            for(k = 0; k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); ++k) {
+                count = std::min(count, uint64_t(data_[(hv >> (k * nbitsperhash)) & mask_]) + nhdone++ * subtbl_sz_);
             }
-            while(nhdone < nhashes_) {
-                uint64_t hv = hash(val ^ seeds_[seedind++]);
-                for(k = 0; k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); ++k) {
-                    count = std::min(count, uint64_t(data_[(hv >> (k * nbitsperhash)) & mask_]) + nhdone++ * subtbl_sz_);
-                }
-            }
-            return updater_.est_count(count);
-        } else { // Is not a count sketch.
-            std::vector<int64_t> estimates;
-            estimates.reserve(nhashes_);
-            while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
-                tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-                tmp.for_each([&](uint64_t &subval) {
-                    for(k = 0; k < nperhash64; ++k) {
-                        estimates.push_back(data_[((subval >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[(subval >> ((nperhash64 - k - 1) * nbitsperhash)) & 1]);
-                    }
-                    ++seedind;
-                });
-            }
-            while(nhdone < nhashes_) {
-                uint64_t hv = hash(val ^ seeds_[seedind]);
-                for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); ++k) {
-                    estimates.push_back(data_[((hv >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[(hv >> ((nperhash64 - k - 1) * nbitsperhash)) & 1]);
+        }
+        return updater_.est_count(count);
+#if 0
+        // Now this must be a count sketch.
+        std::vector<int64_t> estimates;
+        estimates.reserve(nhashes_);
+        while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
+            tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
+            tmp.for_each([&](uint64_t &subval) {
+                for(k = 0; k < nperhash64; ++k) {
+                    estimates.push_back(data_[((subval >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * ((subval >> ((nperhash64 - k - 1) * nbitsperhash)) & 1 ? 1: -1) );
                 }
                 ++seedind;
-            }
-            sort::insertion_sort(std::begin(estimates), std::end(estimates));
-            return std::max(static_cast<int64_t>(0),
-                            nhashes_ & 1 ? estimates[nhashes_>>1]
-                                         : (estimates[nhashes_>>1] + estimates[(nhashes_>>1) - 1]) / 2);
+            });
         }
+        while(nhdone < nhashes_) {
+            uint64_t hv = hash(val ^ seeds_[seedind]);
+            for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); ++k) {
+                estimates.push_back(data_[((hv >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[(hv >> ((nperhash64 - k - 1) * nbitsperhash)) & 1]);
+            }
+            ++seedind;
+        }
+        sort::insertion_sort(std::begin(estimates), std::end(estimates));
+        return std::max(static_cast<int64_t>(0),
+                        nhashes_ & 1 ? estimates[nhashes_>>1]
+                                     : (estimates[nhashes_>>1] + estimates[(nhashes_>>1) - 1]) / 2);
+#endif
     }
     ccmbase_t operator+(const ccmbase_t &other) const {
         ccmbase_t cpy = *this;
@@ -429,7 +409,7 @@ public:
     }
 };
 template<typename HashStruct=common::WangHash, typename CounterType=int32_t, typename=std::enable_if_t<std::is_signed_v<CounterType>>>
-class CountSketch {
+class csbase_t {
     /*
      * Commentary: because of chance, one can end up with a negative number as an estimate.
      * Either the item collided with another item which was quite large and it was outweighed
@@ -437,71 +417,94 @@ class CountSketch {
      * not weigh over the other items with the opposite sign and it therefore 
     */
     std::vector<CounterType, Allocator<CounterType>> core_;
-    uint64_t np_;
-    uint64_t mask_;
+    uint32_t np_;
     uint32_t nh_;
-    uint64_t nph_;
+    uint32_t nph_;
+    uint64_t mask_;
     std::vector<CounterType, Allocator<CounterType>> seeds_;
 public:
-    CountSketch(unsigned np, unsigned nh=1, unsigned seedseed=137): core_(uint64_t(1) << np), np_(np), mask_(core_.size() - 1), nh_(nh), nph_(64 / (np + 1)), seeds_((nh_ + (nph_ - 1)) / nph_ - 1)  {
+    csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137):
+        core_(uint64_t(nh) << np), np_(np), nh_(nh), nph_(64 / (np + 1)), 
+        mask_((1ull << np_) - 1), 
+        seeds_((nh_ + (nph_ - 1)) / nph_ - 1)
+    {
         aes::AesCtr<uint64_t> gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
+        while(seeds_.size() < sizeof(Space::Type) / sizeof(uint64_t)) seeds_.emplace_back(gen()); // To make sure that simd addh is always accessing owned memory.
     }
     void addh(uint64_t val) {
         uint64_t v = HashStruct()(val);
-        unsigned added = 0;
-        for(unsigned k = nph_; k-- && added++ < nh_; v >>= (np_ + 1))
-            add(v);
+        unsigned added;
+        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), add(v, added++));
+        if(added == nh_) return;
         for(auto it = seeds_.begin();;) {
             v = HashStruct()(*it++ ^ val);
             for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                add(v);
-                if(++added == nh_) return;
+                add(v, added++);
+                if(added == nh_) return; // this could be optimized by pre-scanning, I think.
             }
         }
     }
-    INLINE void add(uint64_t hv) noexcept {
-        core_[hv & mask_] += (hv >> np_) & 1 ? 1 : -1;
+    INLINE void add(uint64_t hv, unsigned subidx) noexcept {
+        at_pos(hv, subidx) += (hv >> np_) & 1 ? 1 : -1;
+    }
+    INLINE auto &at_pos(uint64_t hv, unsigned subidx) {
+        assert((hv & mask_) + (subidx << np_) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, core_.size()));
+        return core_[(hv & mask_) + (subidx << np_)];
+    }
+    INLINE const auto &at_pos(uint64_t hv, unsigned subidx) const {
+        assert((hv & mask_) + (subidx << np_) < core_.size());
+        return core_[(hv & mask_) + (subidx << np_)];
     }
     INLINE void addh(Space::VType hv) noexcept {
         Space::VType tmp = HashStruct()(hv);
+        unsigned gadded = 0;
         tmp.for_each([&](uint64_t v) {
             unsigned added = 0;
-            for(unsigned k = nph_; k-- && added++ < nh_; v >>= (np_ + 1))
-                add(v);
+            for(;added < std::min(nph_, nh_);v >>= (np_ + 1)) {
+                add(v, added++);
+            }
+            gadded = added;
         });
-        auto it = seeds_.begin();
-        for(;;) {
+        for(auto it = seeds_.begin(); gadded < nh_;) {
             tmp = HashStruct()(Space::xor_fn(Space::set1(*it++), hv));
+            unsigned lastgadded = gadded;
             tmp.for_each([&](uint64_t v) {
-                unsigned added = 0;
-                for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                    add(v);
-                    if(++added == nh_) return;
-                }
+                unsigned added;
+                for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); v >>= (np_ + 1)) add(v, added++);
+                gadded = added;
             });
         }
     }
     auto est_count(uint64_t val) const {
+#if AVOID_ALLOCA
         CounterType *ptr = static_cast<CounterType *>(std::malloc(nh_ * sizeof(CounterType))), *p = ptr;
+#else
+        CounterType *ptr = static_cast<CounterType *>(__builtin_alloca(nh_ * sizeof(CounterType))), *p = ptr;
+#endif
         if(__builtin_expect(ptr == nullptr, 0)) throw std::bad_alloc();
         uint64_t v = HashStruct()(val);
         unsigned added = 0;
-        for(unsigned k = nph_; k-- && added++ < nh_; v >>= (np_ + 1)) {
-            *p++ = core_[(v>>1) & mask_] * (v&1?1:-1);
+        const uint64_t obitmask = 1ull << np_;
+        for(unsigned added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1)) {
+            *p++ = core_[(v & mask_) + (added++ << np_)] * (v & obitmask ? 1 : -1);
         }
         for(auto it = seeds_.begin();;) {
             v = HashStruct()(*it++ ^ val);
-            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                *p++ = core_[(v>>1) & mask_] * (v&1?1:-1);
-                if(++added == nh_) goto end;
+            for(unsigned k = 0; k < nph_; ++k, v >>= (np_ + 1)) {
+                *p++ = core_[(v & mask_) + (added++ << np_)] * (v & obitmask ? 1 : -1);
+                if(added == nh_) goto end;
             }
         }
         end:
         sort::insertion_sort(ptr, ptr + nh_);
+#if AVOID_ALLOCA
         auto ret = nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
-        std::free(ptr);
         return ret;
+        std::free(ptr);
+#else
+        return nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
+#endif
     }
 };
 
@@ -525,13 +528,16 @@ class cmmbase_t: protected ccmbase_t<update::Increment, VectorType, HashStruct> 
 
 using ccm_t = ccmbase_t<>;
 using cmm_t = cmmbase_t<>;
+using cs_t = csbase_t<>;
 using pccm_t = ccmbase_t<update::PowerOfTwo>;
 
+#if 0
 using cvector_i32 = compact::vector<int32_t, 0, int64_t, Allocator<int64_t>>;
 using cvector_i64 = compact::vector<int64_t, 0, int64_t, Allocator<int64_t>>;
+// Note that cs_t needs to have a signed integer.
 using cs_t = ccmbase_t<update::CountSketch, std::vector<int16_t, Allocator<int16_t>>>;
 using cs64_t = ccmbase_t<update::CountSketch, cvector_i64>;
-// Note that cs_t needs to have a signed integer.
+#endif
 
 } // namespace cm
 } // namespace sketch

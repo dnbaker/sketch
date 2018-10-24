@@ -43,6 +43,9 @@ python: _hll.cpython.so
 %: %.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
+mctest: mctest.cpp kthread.o $(HEADERS)
+	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o -O1 $< -o $@ -lz
+
 %_d: %.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	-std=c++17 -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 

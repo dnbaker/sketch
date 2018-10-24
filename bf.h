@@ -76,7 +76,7 @@ public:
         return std::make_pair(sizeof(core_) + sizeof(nh_) + sizeof(np_) + sizeof(qmark_) + sizeof(seedseed_) + sizeof(seeds_),
                               core_.size() * sizeof(core_[0]) + seeds_.size() * sizeof(seeds_[0]));
     }
-    uint64_t m() const {return core_.size() << OFFSET;}
+    uint64_t m() const {return p() << OFFSET;}
     uint64_t p() const {return np_ + OFFSET;}
     auto nhashes() const {return nh_;}
     uint64_t mask() const {
