@@ -1,4 +1,5 @@
 #include "ccm.h"
+#include "mh.h"
 #include <unordered_map>
 #include <getopt.h>
 
@@ -25,6 +26,7 @@ int main(int argc, char *argv[]) {
     pccm_t thing(nbits >> 1, l2sz, nhashes);
     ccm_t thingexact(nbits, l2sz, nhashes);
     CountSketch thingcs(l2sz, nhashes);
+    sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
     auto [x, y] = thing.est_memory_usage();
     std::fprintf(stderr, "probabilistic method stack space: %zu\theap space:%zu\n", x, y);
     std::tie(x, y) = thingexact.est_memory_usage();
