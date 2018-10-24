@@ -166,7 +166,7 @@ public:
     template<typename C2>
     double jaccard_index(const C2 &o) const {
         double is = intersection_size(o);
-        return is / (minimizers_.size() + o.size() - intersection_size(o));
+        return is / (minimizers_.size() + o.size() - is);
     }
     template<typename Container>
     Container to_container() const {
