@@ -19,6 +19,7 @@ using namespace hll;
 
 template<typename T, typename SizeType=uint32_t, typename=::std::enable_if_t<::std::is_integral_v<T>>, typename=::std::enable_if_t<::std::is_integral_v<SizeType>>>
 class AbstractMinHash {
+protected:
     SizeType ss_;
     AbstractMinHash(SizeType sketch_size): ss_(sketch_size) {}
     auto &sketch();
@@ -112,7 +113,7 @@ class RangeMinHash: public AbstractMinHash<T, SizeType> {
     // Consider using a memory pool for locality.
     // These minimizers are in the form of a set; for other uses, I would instead use a vector form.
     TreeType minimizers_; // using std::greater<T> so that we can erase from begin()
-
+public:
     RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher()):
         AbstractMinHash<T, SizeType>(sketch_size), hf_(std::move(hf))
     {
@@ -121,8 +122,11 @@ class RangeMinHash: public AbstractMinHash<T, SizeType> {
     void addh(T val) {
         // Not vectorized, can be improved.
         val = hf_(val);
-        if(auto it = minimizers_.find(val); it == minimizers_.end())
+        if(__builtin_expect(minimizers_.size() < this->ss_, 0))
+            minimizers_.insert(val);
+        else if(auto it = minimizers_.find(val); it == minimizers_.end()) {
             minimizers_.insert(it, val), minimizers_.erase(minimizers_.begin());
+        }
     }
     template<typename T2, typename=std::enable_if_t<types::is_simd_v<T>>>
     INLINE void addh(T2 val) {
@@ -132,6 +136,27 @@ class RangeMinHash: public AbstractMinHash<T, SizeType> {
         } else {
             for(T *ptr(reinterpret_cast<T *>(&val)); ptr < reinterpret_cast<T *>(&val + 1); addh(*ptr++));
         }
+    }
+    auto begin() {return minimizers_.begin();}
+    const auto begin() const {return minimizers_.begin();}
+    auto end() {return minimizers_.end();}
+    const auto end() const {return minimizers_.end();}
+    template<typename C2>
+    size_t intersection_size(const C2 &o) const {
+        auto it = this->minimizers_.begin();
+        auto oit = o.begin();
+        size_t ret = 0;
+        while(it != minimizers_.end() && oit != o.end()) {
+            if(*it == *oit) ++it, ++oit, ++ret;
+            else if(*it < *oit) ++it;
+            else ++oit;
+        }
+        return ret;
+    }
+    template<typename C2>
+    double jaccard_index(const C2 &o) const {
+        double is = intersection_size(o);
+        return is / (minimizers_.size() + o.size() - intersection_size(o));
     }
     template<typename Container>
     Container to_container() const {
