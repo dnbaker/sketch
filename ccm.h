@@ -476,7 +476,7 @@ public:
             });
         }
     }
-    auto est_count(uint64_t val) const {
+    CounterType est_count(uint64_t val) const {
 #if AVOID_ALLOCA
         CounterType *ptr = static_cast<CounterType *>(std::malloc(nh_ * sizeof(CounterType))), *p = ptr;
 #else
@@ -499,7 +499,7 @@ public:
         end:
         sort::insertion_sort(ptr, ptr + nh_);
 #if AVOID_ALLOCA
-        auto ret = nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
+        CounterType ret = nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
         return ret;
         std::free(ptr);
 #else

@@ -1,5 +1,6 @@
 #pragma once
 #include <mutex>
+//#include <queue>
 #include "hll.h" // For common.h and clz functions
 #include "aesctr/aesctr.h"
 
@@ -19,6 +20,7 @@ using namespace hll;
 
 template<typename T, typename SizeType=uint32_t, typename=::std::enable_if_t<::std::is_integral_v<T>>, typename=::std::enable_if_t<::std::is_integral_v<SizeType>>>
 class AbstractMinHash {
+protected:
     SizeType ss_;
     AbstractMinHash(SizeType sketch_size): ss_(sketch_size) {}
     auto &sketch();
@@ -88,6 +90,7 @@ public:
     size_t nhashes_per_seed() const {return sizeof(uint64_t) / sizeof(T);}
     size_t nhashes_per_vector() const {return sizeof(uint64_t) / sizeof(Space::Type);}
     void addh(T val) {
+        throw std::runtime_error("NotImplemented.");
         // Hash stuff.
         // Then use a vectorized minimization comparison instruction
     }
@@ -108,29 +111,32 @@ template<typename T,
         >
 class RangeMinHash: public AbstractMinHash<T, SizeType> {
     NO_ADDRESS Hasher hf_;
-    using TreeType = std::set<T, std::greater<T>>;
-    // Consider using a memory pool for locality.
-    // These minimizers are in the form of a set; for other uses, I would instead use a vector form.
-    TreeType minimizers_; // using std::greater<T> so that we can erase from begin()
+    ///using HeapType = std::priority_queue<T, std::vector<T, Allocator<T>>>;
+    using HeapType = std::set<T, std::greater<T>>;
+    HeapType minimizers_; // using std::greater<T> so that we can erase from begin()
 
+public:
     RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher()):
         AbstractMinHash<T, SizeType>(sketch_size), hf_(std::move(hf))
     {
-        throw std::runtime_error("NotImplemented.");
     }
-    void addh(T val) {
-        // Not vectorized, can be improved.
-        val = hf_(val);
+    void add(T val) {
         if(auto it = minimizers_.find(val); it == minimizers_.end())
             minimizers_.insert(it, val), minimizers_.erase(minimizers_.begin());
     }
-    template<typename T2, typename=std::enable_if_t<types::is_simd_v<T>>>
+    template<typename T2>
     INLINE void addh(T2 val) {
-        val = hf_(val);
-        if constexpr(sizeof(T2) == VECTOR_WIDTH) {
-            reinterpret_cast<vec::UType<T> *>(&val)->for_each([&](T sv) {addh(sv);});
+        if constexpr(std::is_same_v<T2, T>) {
+            val = hf_(val);
+            add(val);
         } else {
-            for(T *ptr(reinterpret_cast<T *>(&val)); ptr < reinterpret_cast<T *>(&val + 1); addh(*ptr++));
+            val = hf_(val);
+            if constexpr(sizeof(T2) == VECTOR_WIDTH) {
+                reinterpret_cast<vec::UType<T> *>(&val)->for_each([&](T sv) {add(sv);});
+            } else {
+                T *ptr = reinterpret_cast<T *>(&val);
+                for(unsigned i = 0; i < sizeof(val) / sizeof(T); add(ptr[i++]));
+            }
         }
     }
     template<typename Container>
@@ -138,7 +144,7 @@ class RangeMinHash: public AbstractMinHash<T, SizeType> {
         return Container(std::rbegin(minimizers_), std::rend(minimizers_.end()));
     }
     void clear() {
-        TreeType tmp;
+        HeapType tmp;
         std::swap(tmp, minimizers_);
     }
     std::vector<T> mh2vec() const {return to_container<std::vector<T>>();}
