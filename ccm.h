@@ -240,6 +240,14 @@ public:
     uint64_t subhash(uint64_t val, uint64_t seedind) const {
         return hash(((val ^ seeds_[seedind]) & mask_) + val & mask_);
     }
+    uint64_t mask() const {return mask_;}
+    auto np() const {return l2sz_;}
+    auto &at_pos(uint64_t hv, uint64_t seedind) {
+        return data_[(hv & mask()) + (seedind << np())];
+    }
+    const auto &at_pos(uint64_t hv, uint64_t seedind) const {
+        return data_[(hv & mask()) + (seedind << np())];
+    }
     bool may_contain(uint64_t val) const {
         throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
         unsigned nhdone = 0;
@@ -249,39 +257,46 @@ public:
         assert(data_.size() == subtbl_sz_ * nhashes_);
         while(nhashes_ - nhdone >= Space::COUNT) {
             v = hash(Space::xor_fn(Space::set1(val), *seeds++));
-            v.for_each([&](const uint64_t hv) {
-                ref &= data_[(hv & mask_) + nhdone++ * subtbl_sz_];
-            });
-            if(!ret) return false;
+            for(unsigned i = 0; i < Space::COUNT; ++i) {
+                if(at_pos(v.arr_[i], nhdone++) == 0) return false;
+                v >>= np();
+            }
         }
         while(nhdone < nhashes_) {
-            if(!data_[hash(val ^ seeds_[nhdone]) & mask_ + (nhdone * subtbl_sz_)]) return false;
-            ++nhdone;
+            if(at_pos(v, nhdone++) == 0)
+                return false;
+            v >>= np();
         }
         return true;
     }
     uint32_t may_contain(Space::VType val) const {
         throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
         Space::VType tmp, hv, and_val;
-        unsigned nhdone = 0, vindex = 0;
+        unsigned nhdone = 0;
         const Space::Type *seeds(reinterpret_cast<const Space::Type *>(seeds_.data()));
         and_val = Space::set1(mask_);
         uint32_t ret = static_cast<uint32_t>(-1) >> ((sizeof(ret) * CHAR_BIT) - Space::COUNT);
-        uint32_t bitmask;
-        while(nhdone < nhashes_) {
-            bitmask = static_cast<uint32_t>(-1) >> ((sizeof(ret) * CHAR_BIT) - Space::COUNT) & ~(1u << vindex);
+        //uint32_t bitmask;
+        while(nhdone + Space::COUNT < nhashes_) {
             hv = Space::load(seeds++);
-            val.for_each([&](uint64_t w) {
-                tmp = Space::set1(w);
+            for(unsigned i = 0; i < Space::COUNT; ++i) {
+                tmp = Space::set1(val.arr_[i]);
                 tmp = Space::xor_fn(tmp.simd_, hv.simd_);
                 tmp = hash(tmp.simd_);
-                tmp = Space::and_fn(and_val.simd_, tmp.simd_);
-                tmp.for_each([&](const uint64_t &subw) {
-                    ret &= (~(data_[subw + nhdone * subtbl_sz_] == 0) << vindex++);
-                });
-                if(!ret) return ret;
-            });
-            vindex = 0;
+                for(unsigned j = 0; j < Space::COUNT; ++i) {
+                    ret &= ~(uint32_t(data_[tmp.arr_[j] + (nhdone++ << np())] == 0) << i);
+                }
+                nhdone -= Space::COUNT;
+            }
+            nhdone += Space::COUNT;
+        }
+        while(nhdone < nhashes_) {
+            for(auto ptr(reinterpret_cast<const uint64_t *>(seeds_.data())); ptr < &seeds_[seeds_.size()]; ++ptr) {
+                tmp = Space::xor_fn(val.simd_, Space::set1(*ptr++));
+                for(unsigned j = 0; j < Space::COUNT; ++j) {
+                    ret &= ~(uint32_t(data_[tmp.arr_[j] + (nhdone << np())] == 0) << j);
+                }
+            }
             ++nhdone;
         }
         return ret;
