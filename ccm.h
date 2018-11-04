@@ -511,13 +511,10 @@ public:
         }
         end:
         sort::insertion_sort(ptr, ptr + nh_);
-        std::for_each(ptr, ptr + nh_, [&](auto &v) {
-            //std::fprintf(stderr, "Count at idx %d is %zd\n", &v - ptr, ssize_t(v));
-        });
 #if AVOID_ALLOCA
         CounterType ret = nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
-        return ret;
         std::free(ptr);
+        return ret;
 #else
         return nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
 #endif
@@ -546,14 +543,6 @@ using ccm_t = ccmbase_t<>;
 using cmm_t = cmmbase_t<>;
 using cs_t = csbase_t<>;
 using pccm_t = ccmbase_t<update::PowerOfTwo>;
-
-#if 0
-using cvector_i32 = compact::vector<int32_t, 0, int64_t, Allocator<int64_t>>;
-using cvector_i64 = compact::vector<int64_t, 0, int64_t, Allocator<int64_t>>;
-// Note that cs_t needs to have a signed integer.
-using cs_t = ccmbase_t<update::CountSketch, std::vector<int16_t, Allocator<int16_t>>>;
-using cs64_t = ccmbase_t<update::CountSketch, cvector_i64>;
-#endif
 
 } // namespace cm
 } // namespace sketch
