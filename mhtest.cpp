@@ -16,7 +16,7 @@ using namespace sketch;
 using namespace mh;
 
 int main(int argc, char *argv[]) {
-    size_t nelem = argc == 1 ? 1000: size_t(std::strtoull(argv[1], nullptr, 10));
+    size_t nelem = argc == 1 ? 10000: size_t(std::strtoull(argv[1], nullptr, 10));
     double olap_frac = argc < 3 ? 0.1: std::atof(argv[2]);
     size_t ss = argc < 4 ? 10: size_t(std::strtoull(argv[1], nullptr, 10));
     RangeMinHash<uint64_t> rm1(ss), rm2(ss);
@@ -25,12 +25,12 @@ int main(int argc, char *argv[]) {
     olap_frac = static_cast<double>(olap_n) / nelem;
     for(size_t i = 0; i < olap_n; ++i) {
         auto v = mt();
-        rm1.add(v); rm2.add(v);
+        rm1.addh(v); rm2.addh(v);
         //pc(rm1);
     }
     std::fprintf(stderr, "olap_n: %zu. nelem: %zu\n", olap_n, nelem);
-    for(size_t i = nelem - olap_n; i--;rm1.add(mt()));
-    for(size_t i = nelem - olap_n; i--;rm2.add(mt()));
+    for(size_t i = nelem - olap_n; i--;rm1.addh(mt()));
+    for(size_t i = nelem - olap_n; i--;rm2.addh(mt()));
     pc(rm1, "rm1");
     pc(rm2, "rm2");
     size_t is = intersection_size(rm1, rm2);
