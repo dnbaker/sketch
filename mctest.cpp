@@ -40,8 +40,8 @@ int main(int argc, char *argv[]) {
     }
     //for(size_t i = 0; i < 10;++i)
     for(const auto item: items) thing.addh(item), thingexact.addh(item), thingcs.addh(item);
-    for(size_t i = 10000; i--;thingcs.addh(137)) {
-        std::fprintf(stderr, "Est value for thingcs: %d\n", thingcs.est_count(137));
+    for(size_t i = 100; i--;thingcs.addh(137), thingexact.addh(137)) {
+        //std::fprintf(stderr, "Est value for thingcs: %d\n", thingcs.est_count(137));
     }
     std::fprintf(stderr, "All inserted\n");
     std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs;

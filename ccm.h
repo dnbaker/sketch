@@ -222,7 +222,6 @@ public:
         if(__builtin_expect(nbits < 0, 0)) throw std::runtime_error("Number of bits cannot be negative.");
         if(__builtin_expect(l2sz < 0, 0)) throw std::runtime_error("l2sz cannot be negative.");
         if(__builtin_expect(nhashes < 0, 0)) throw std::runtime_error("nhashes cannot be negative.");
-        std::fprintf(stderr, "Initialized cmbfbase_t with %zu table entries\n", size_t(nhashes << l2sz));
         std::mt19937_64 mt(seed + 4);
         auto nperhash64 = lut::nhashesper64bitword[l2sz];
         while(seeds_.size() * nperhash64 < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
@@ -436,23 +435,24 @@ public:
         uint64_t v = HashStruct()(val);
         unsigned added;
         for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), add(v, added++));
-        if(added == nh_) return;
-        for(auto it = seeds_.begin();;) {
+        auto it = seeds_.begin();
+        while(added < nh_) {
             v = HashStruct()(*it++ ^ val);
             for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
                 add(v, added++);
-                if(added == nh_) return; // this could be optimized by pre-scanning, I think.
+                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
             }
         }
     }
     INLINE void add(uint64_t hv, unsigned subidx) noexcept {
-        at_pos(hv, subidx) += (hv >> np_) & 1 ? 1 : -1;
+        at_pos(hv, subidx) += sign(hv);
     }
     INLINE auto &at_pos(uint64_t hv, unsigned subidx) {
-        assert((hv & mask_) + (subidx << np_) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, core_.size()));
+        assert((hv & mask_) + (subidx << np_) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
         return core_[(hv & mask_) + (subidx << np_)];
     }
-    INLINE const auto &at_pos(uint64_t hv, unsigned subidx) const {
+    INLINE int sign(uint64_t hv) const noexcept {return hv & (1ul << np_) ? 1: -1;}
+    INLINE auto at_pos(uint64_t hv, unsigned subidx) const noexcept {
         assert((hv & mask_) + (subidx << np_) < core_.size());
         return core_[(hv & mask_) + (subidx << np_)];
     }
@@ -461,17 +461,16 @@ public:
         unsigned gadded = 0;
         tmp.for_each([&](uint64_t v) {
             unsigned added = 0;
-            for(;added < std::min(nph_, nh_);v >>= (np_ + 1)) {
-                add(v, added++);
+            for(;added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1)) {
+                add(v, gadded++);
             }
-            gadded = added;
         });
         for(auto it = seeds_.begin(); gadded < nh_;) {
             tmp = HashStruct()(Space::xor_fn(Space::set1(*it++), hv));
             unsigned lastgadded = gadded;
             tmp.for_each([&](uint64_t v) {
                 unsigned added;
-                for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); v >>= (np_ + 1)) add(v, added++);
+                for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); add(v, added++), v >>= (np_ + 1));
                 gadded = added;
             });
         }
@@ -484,20 +483,22 @@ public:
 #endif
         if(__builtin_expect(ptr == nullptr, 0)) throw std::bad_alloc();
         uint64_t v = HashStruct()(val);
-        unsigned added = 0;
-        const uint64_t obitmask = 1ull << np_;
-        for(unsigned added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1)) {
-            *p++ = core_[(v & mask_) + (added++ << np_)] * (v & obitmask ? 1 : -1);
+        unsigned added;
+        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1)) {
+            *p++ = at_pos(v, added++) * sign(v);
         }
         for(auto it = seeds_.begin();;) {
             v = HashStruct()(*it++ ^ val);
             for(unsigned k = 0; k < nph_; ++k, v >>= (np_ + 1)) {
-                *p++ = core_[(v & mask_) + (added++ << np_)] * (v & obitmask ? 1 : -1);
+                *p++ = at_pos(v, added++) * sign(v);
                 if(added == nh_) goto end;
             }
         }
         end:
         sort::insertion_sort(ptr, ptr + nh_);
+        std::for_each(ptr, ptr + nh_, [&](auto &v) {
+            //std::fprintf(stderr, "Count at idx %d is %zd\n", &v - ptr, ssize_t(v));
+        });
 #if AVOID_ALLOCA
         CounterType ret = nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
         return ret;
