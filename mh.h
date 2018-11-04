@@ -14,7 +14,6 @@
 namespace sketch {
 namespace minhash {
 using namespace common;
-using namespace hll;
 
 #define SET_SKETCH(x) const auto &sketch() const {return x;} auto &sketch() {return x;}
 
@@ -36,26 +35,27 @@ protected:
 };
 
 
-template<typename Container1, typename Container2>
-std::uint64_t intersection_size(const Container1 &c1, const Container2 &c2) {
+template<typename Container, typename Cmp=typename Container::key_compare>
+std::uint64_t intersection_size(const Container &c1, const Container &c2) {
+    Cmp cmp;
     // These containers must be sorted.
     std::uint64_t ret = 0;
     auto it1 = c1.begin();
-    auto it2 = c2.end();
+    auto it2 = c2.begin();
     const auto e1 = c1.end();
     const auto e2 = c2.end();
     start:
 #if HAVE_SPACESHIP_OPERATOR
     switch(*it1 <=> *it2) {
-        case -1: if(++it1 == e1) goto end; break;
-        case 0: ++ret; if(++it1 == e1 || ++it2 == e2) goto end; break;
-        case 1:               if(++it2 == e2) goto end; break;
+        case -1: if(++it1 == e1) goto end;
+        case 0: ++ret; if(++it1 == e1 || ++it2 == e2) goto end;
+        case 1:               if(++it2 == e2) goto end;
         default: __builtin_unreachable();
     }
 #else
-    if(*it1 < *it2) {
+    if(cmp(*it1, *it2)) {
         if(++it1 == e1) goto end;
-    } else if(*it1 > *it2) {
+    } else if(cmp(*it2, *it1)) {
         if(++it2 == e2) goto end;
     } else {
         ++ret;
@@ -120,9 +120,15 @@ public:
         AbstractMinHash<T, SizeType>(sketch_size), hf_(std::move(hf))
     {
     }
+    void addh(T val) {
+        // Not vectorized, can be improved.
+        val = hf_(val);
+        add(val);
+    }
     void add(T val) {
-        if(auto it = minimizers_.find(val); it == minimizers_.end())
-            minimizers_.insert(it, val), minimizers_.erase(minimizers_.begin());
+        minimizers_.insert(val);
+        if(minimizers_.size() > this->ss_)
+            minimizers_.erase(minimizers_.begin());
     }
     template<typename T2>
     INLINE void addh(T2 val) {
@@ -131,16 +137,37 @@ public:
             add(val);
         } else {
             val = hf_(val);
-            if constexpr(sizeof(T2) == VECTOR_WIDTH) {
-                reinterpret_cast<vec::UType<T> *>(&val)->for_each([&](T sv) {add(sv);});
-            } else {
-                T *ptr = reinterpret_cast<T *>(&val);
-                for(unsigned i = 0; i < sizeof(val) / sizeof(T); add(ptr[i++]));
-            }
+            T *ptr = reinterpret_cast<T *>(&val);
+            for(unsigned i = 0; i < sizeof(val) / sizeof(T); add(ptr[i++]));
         }
+    }
+    auto begin() {return minimizers_.begin();}
+    const auto begin() const {return minimizers_.begin();}
+    auto end() {return minimizers_.end();}
+    const auto end() const {return minimizers_.end();}
+#if 0
+    template<typename C2>
+    size_t intersection_size(const C2 &o) const {
+        auto it = this->minimizers_.begin();
+        auto oit = o.begin();
+        size_t ret = 0;
+        while(it != minimizers_.end() && oit != o.end()) {
+            if(*it == *oit) ++it, ++oit, ++ret;
+            else if(*it < *oit) ++it;
+            else ++oit;
+        }
+        return ret;
+    }
+#endif
+    template<typename C2>
+    double jaccard_index(const C2 &o) const {
+        double is = intersection_size(*this, o);
+        return is / (minimizers_.size() + o.size() - is);
     }
     template<typename Container>
     Container to_container() const {
+        if(this->ss_ != size()) // If the sketch isn't full, add UINT64_MAX to the end until it is.
+            minimizers_.resize(this->ss_, std::numeric_limits<uint64_t>::max());
         return Container(std::rbegin(minimizers_), std::rend(minimizers_.end()));
     }
     void clear() {
@@ -150,6 +177,7 @@ public:
     std::vector<T> mh2vec() const {return to_container<std::vector<T>>();}
     size_t size() const {return minimizers_.size();}
     SET_SKETCH(minimizers_)
+    using key_compare = typename HeapType::key_compare;
 };
 
 template<typename T=uint64_t, typename Hasher=WangHash, typename SizeType=uint32_t,
@@ -186,10 +214,10 @@ public:
         return (uint64_t(1) << q_) - 1;
     }
     double estimate_hll_portion(double relerr=1e-2) const {
-        return hll::detail::ertl_ml_estimate(detail::sum_counts(*this), p(), q(), relerr);
+        return hll::detail::ertl_ml_estimate(hll::detail::sum_counts(*this), p(), q(), relerr);
     }
     double report(double relerr=1e-2) const {
-        const auto csum = detail::sum_counts(*this);
+        const auto csum = hll::detail::sum_counts(*this);
         if(double est = hll::detail::ertl_ml_estimate(csum, p(), q(), relerr);est < static_cast<double>(core_.size() << 10))
             return est;
         double rsum = 0.;
@@ -246,7 +274,7 @@ public:
         static_assert(sizeof(hashval) == sizeof(arr), "Size sanity check");
         std::memcpy(&arr[0], &hashval, sizeof(hashval));
         const uint32_t index(arr[0] >> q());
-        const uint8_t lzt(clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
+        const uint8_t lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
 #ifndef NOT_THREADSAFE
         // This won't be optimal, but it's a patch to make it work.
         if(core_[index] <= lzt) {
