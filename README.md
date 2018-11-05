@@ -26,6 +26,9 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
     2. An array each of bloom filters and hyperloglogs for approximate counting. The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation.
 8. Count-Min and Count Sketches
     1. ccm.h (`ccmbase_t<UpdatePolicy=Increment>/ccm_t`  (use `pccm_t` for Approximate Counting or `cs_t` for a count sketch).
+9. MinHash sketches
+    1. mh.h (`RangeMinHash` is the currently verified implementation.) We recommend you build the sketch and then convert to a linear container (e.g., a `std::vector`) using `to_container<ContainerType>()`  for faster comparisons.
+    2. A draft HyperMinHash implementation is available as well, but it has not been tested.
 
 ### Test case
 To build and run the test case:
