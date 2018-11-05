@@ -121,7 +121,6 @@ public:
     {
     }
     void addh(T val) {
-        // Not vectorized, can be improved.
         val = hf_(val);
         add(val);
     }

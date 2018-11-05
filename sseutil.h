@@ -166,12 +166,12 @@ inline void *detail::allocate_aligned_memory(size_t align, size_t size)
 {
     assert(align >= sizeof(void*));
     assert((align & (align - 1)) == 0); // Assert is power of two
-    
+
 #if USE_ALIGNED_ALLOC
     return std::aligned_alloc(size, align);
 #else
     void *ret;
-    int rc(posix_memalign(&ret, align, size));
+    const int rc(posix_memalign(&ret, align, size));
     if(__builtin_expect(rc != 0, 0)) throw std::bad_alloc();
     return ret;
 #endif

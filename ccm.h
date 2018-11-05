@@ -434,7 +434,7 @@ class CountSketch {
      * Commentary: because of chance, one can end up with a negative number as an estimate.
      * Either the item collided with another item which was quite large and it was outweighed
      * or it and others in the bucket were not heavy enough and by chance it did
-     * not weigh over the other items with the opposite sign and it therefore 
+     * not weigh over the other items with the opposite sign. Treat these as 0s.
     */
     std::vector<CounterType, Allocator<CounterType>> core_;
     uint64_t np_;

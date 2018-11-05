@@ -303,10 +303,12 @@ public:
     }
     // Reset.
     void clear() {
-        if(core_.size() > Space::COUNT) {
-            VType v1 = Space::set1(0);
-            for(VType *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
-        } else std::fill(core_.begin(), core_.end(), static_cast<uint64_t>(0));
+        if(core_.size() >= (1<<15))
+            std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
+        else if(__builtin_expect(core_.size() * sizeof(core_[0]) >= sizeof(VType), 1))
+            for(VType v1 = Space::set1(0), *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
+        else
+            std::fill(core_.begin(), core_.end(), static_cast<uint64_t>(0));
     }
     bfbase_t(bfbase_t&&) = default;
     bfbase_t(const bfbase_t &other) = default;
