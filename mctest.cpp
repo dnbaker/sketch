@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
     }
     pccm_t thing(nbits >> 1, l2sz, nhashes);
     ccm_t thingexact(nbits, l2sz, nhashes);
-    CountSketch thingcs(l2sz, nhashes);
+    cs_t thingcs(l2sz, nhashes);
     sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
     auto [x, y] = thing.est_memory_usage();
     std::fprintf(stderr, "probabilistic method stack space: %zu\theap space:%zu\n", x, y);
@@ -38,7 +38,12 @@ int main(int argc, char *argv[]) {
     for(const auto el: thing.ref()) {
         assert(unsigned(el) == 0);
     }
+    //for(size_t i = 0; i < 10;++i)
     for(const auto item: items) thing.addh(item), thingexact.addh(item), thingcs.addh(item);
+    for(size_t i = 100; i--;thingcs.addh(137), thingexact.addh(137)) {
+        std::fprintf(stderr, "Est value for thingcs: %d. thing exact: %" PRIu64 "\n", thingcs.est_count(137), thingexact.est_count(137));
+    }
+    std::fprintf(stderr, "All inserted\n");
     std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs;
     size_t missing = 0;
     size_t tot = 0;
@@ -58,6 +63,7 @@ int main(int argc, char *argv[]) {
         std::fprintf(stderr, "Exact %" PRIi64 "\t%" PRIu64 "\n", k, histexact[k]);
     }
     hset.clear();
+    std::fprintf(stderr, "Did th hset thing\n");
     for(const auto &pair: histapprox) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
     for(const auto k: hset) {
@@ -69,4 +75,5 @@ int main(int argc, char *argv[]) {
     for(const auto k: hset) {
         std::fprintf(stderr, "Count sketch %" PRIi64 "\t%" PRIu64 "\n", k, histcs[k]);
     }
+    std::fprintf(stderr, "Estimated count for 137: %d\n", thingcs.est_count(137));
 }
