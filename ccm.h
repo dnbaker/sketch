@@ -245,10 +245,10 @@ public:
     uint64_t mask() const {return mask_;}
     auto np() const {return l2sz_;}
     auto &at_pos(uint64_t hv, uint64_t seedind) {
-        return data_[(hv & mask()) + (seedind << np())];
+        return data_[(hv & mask_) + (seedind << np())];
     }
     const auto &at_pos(uint64_t hv, uint64_t seedind) const {
-        return data_[(hv & mask()) + (seedind << np())];
+        return data_[(hv & mask_) + (seedind << np())];
     }
     bool may_contain(uint64_t val) const {
         throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
@@ -448,7 +448,8 @@ public:
     {
         aes::AesCtr<uint64_t> gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
-        while(seeds_.size() < sizeof(Space::Type) / sizeof(uint64_t)) seeds_.emplace_back(gen()); // To make sure that simd addh is always accessing owned memory.
+        // Just to make sure that simd addh is always accessing owned memory.
+        while(seeds_.size() < sizeof(Space::Type) / sizeof(uint64_t)) seeds_.emplace_back(gen());
     }
     void addh(uint64_t val) {
         uint64_t v = hf_(val);
