@@ -63,32 +63,30 @@ class bfbase_t {
 protected:
     uint8_t                                       np_;
     uint8_t                                       nh_;
-    uint8_t                                     perh_; // Number of hashes per 64-bit hash
-    uint8_t                                    qmark_; // No idea what to do with this yet, but it's free bc of alignment.
+    //uint8_t                                     perh_; // Number of hashes per 64-bit hash
+    const HashStruct                              hf_;
     std::vector<uint64_t, Allocator<uint64_t>>  core_;
     std::vector<uint64_t, Allocator<uint64_t>> seeds_;
     uint64_t                                seedseed_;
+    uint64_t                                    mask_;
 public:
     static constexpr unsigned OFFSET = 6; // log2(CHAR_BIT * 8) == log2(64) == 6
     using HashType = HashStruct;
 
     std::pair<size_t, size_t> est_memory_usage() const {
-        return std::make_pair(sizeof(core_) + sizeof(nh_) + sizeof(np_) + sizeof(qmark_) + sizeof(seedseed_) + sizeof(seeds_),
+        return std::make_pair(sizeof(*this),
                               core_.size() * sizeof(core_[0]) + seeds_.size() * sizeof(seeds_[0]));
     }
     uint64_t m() const {return p() << OFFSET;}
     uint64_t p() const {return np_ + OFFSET;}
     auto nhashes() const {return nh_;}
-    uint64_t mask() const {
-        return m() - UINT64_C(1);
-    }
-    bool is_empty() const {
-        return np_ == OFFSET;
-    }
+    uint64_t mask() const {return m() - UINT64_C(1);}
+    bool is_empty() const {return np_ == OFFSET;}
 
     // Constructor
-    explicit bfbase_t(size_t l2sz, unsigned nhashes, uint64_t seedval):
-        np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), seedseed_(seedval)
+    template<typename... Args>
+    explicit bfbase_t(size_t l2sz, unsigned nhashes, uint64_t seedval, Args &&... args):
+        np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), hf_(std::forward<Args>(args)...), seedseed_(seedval)
     {
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
         if(np_ > 40u) throw std::runtime_error("Attempting to make a table that's too large."s + std::to_string(np_));
@@ -113,7 +111,7 @@ public:
 
     template<typename IndType>
     INLINE void set1(IndType ind) {
-        ind &= mask();
+        ind &= mask_;
 #if !NDEBUG
         core_.at(ind >> OFFSET) |= 1ull << (ind & 63);
 #else
@@ -124,7 +122,7 @@ public:
 
     template<typename IndType>
     INLINE bool is_set(IndType ind) const {
-        ind &= mask();
+        ind &= mask_;
 #if !NDEBUG
         return core_.at(ind >> OFFSET) & (1ull << (ind & 63));
 #else
@@ -134,7 +132,7 @@ public:
 
     template<typename IndType>
     INLINE bool is_set_and_set1(IndType ind) {
-        ind &= mask();
+        ind &= mask_;
         const auto val = (1ull << (ind & 63));
         uint64_t &ref = core_[ind >> OFFSET];
         const auto ret = ref & val;
@@ -277,14 +275,14 @@ public:
         const auto shift = p();
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         while(nleft > npersimd) {
-            VType v(HashStruct()(Space::set1(element) ^ (*seedptr++).simd_));
+            VType v(hf_(Space::set1(element) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {sub_set1(val, npw, shift);});
             nleft -= npersimd;
         }
         const uint64_t *sptr = reinterpret_cast<const uint64_t *>(seedptr);
         while(nleft) {
             const auto todo = std::min(npw, nleft);
-            sub_set1(HashStruct()(element ^ *sptr++), todo, shift);
+            sub_set1(hf_(element ^ *sptr++), todo, shift);
             nleft -= todo;
         }
         //std::fprintf(stderr, "Finishing with element %" PRIu64 ". New popcnt: %u\n", element, popcnt());
@@ -293,7 +291,7 @@ public:
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
         if constexpr(std::is_same<HashStruct, clhasher>::value) {
-            addh(HashStruct()(element));
+            addh(hf_(element));
         } else {
 #endif
             addh(std::hash<std::string>{}(element));
@@ -374,6 +372,7 @@ public:
         clear();
         np_ = std::size_t(std::log2(new_size)) - OFFSET;
         reseed();
+        mask_ = new_size - 1;
         assert(np_ < 64); // To handle underflow
     }
     // Getter for is_calculated_
@@ -387,14 +386,14 @@ public:
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         const uint64_t *sptr;
         while(nleft > npersimd) {
-            VType v(HashStruct()(Space::set1(val) ^ (*seedptr++).simd_));
+            VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {ret &= all_set(val, npw, shift);});
             if(!ret) goto f;
             nleft -= npersimd;
         }
         sptr = reinterpret_cast<const uint64_t *>(seedptr);
         while(nleft) {
-            if((ret &= all_set(HashStruct()(val ^ *sptr++), std::min(npw, nleft), shift)) == 0) goto f;
+            if((ret &= all_set(hf_(val ^ *sptr++), std::min(npw, nleft), shift)) == 0) goto f;
             nleft -= std::min(npw, nleft);
             assert(sptr <= &seeds_[seeds_.size()]);
         }
@@ -411,13 +410,13 @@ public:
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         const uint64_t *sptr;
         while(nleft > npersimd) {
-            VType v(HashStruct()(Space::set1(val) ^ (*seedptr++).simd_));
+            VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {ret &= all_set_and_set1(val, npw, shift);});
             nleft -= npersimd;
         }
         sptr = reinterpret_cast<const uint64_t *>(seedptr);
         while(nleft) {
-            ret &= all_set_and_set1(HashStruct()(val ^ *sptr++), std::min(npw, nleft), shift);
+            ret &= all_set_and_set1(hf_(val ^ *sptr++), std::min(npw, nleft), shift);
             nleft -= std::min(npw, nleft);
             assert(sptr <= &seeds_[seeds_.size()]);
         }
@@ -441,7 +440,7 @@ public:
             seed.simd_ = (*seedptr++).simd_;
             for(unsigned  i(0); i < nvals; ++i) {
                 bool is_present = true;
-                v.simd_ = HashStruct()(Space::set1(vals[i]) ^ seed.simd_);
+                v.simd_ = hf_(Space::set1(vals[i]) ^ seed.simd_);
                 v.for_each([&](const uint64_t &val) {
                     ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(val, npw, shift)) << (i & 63u));
                 });
@@ -452,7 +451,7 @@ public:
         while(nleft) {
             uint64_t hv, seed = *sptr++;
             for(unsigned i(0); i < nvals; ++i) {
-                hv = HashStruct()(vals[i] ^ seed);
+                hv = hf_(vals[i] ^ seed);
                 ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(hv, std::min(npw, nleft), shift)) << (i & 63u));
             }
             nleft -= std::min(npw, nleft);
