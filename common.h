@@ -143,6 +143,40 @@ struct WangHash {
 #endif
 };
 
+template<size_t N>
+static std::array<uint64_t, N> make_coefficients(uint64_t seedseed) {
+    std::array<uint64_t, N> ret;
+    std::mt19937_64 mt(seedseed);
+    for(auto &e: ret) e = mt();
+    return ret;
+}
+
+template<size_t k>
+class KWiseIndependentPolynomialHash {
+    const std::array<uint64_t, k> coeffs_;
+    static constexpr uint64_t mod = 9223372036854775807ull;
+public:
+    KWiseIndependentPolynomialHash(uint64_t seedseed=137): coeffs_(make_coefficients<k>(seedseed)) {
+        static_assert(k, "k must be nonzero");
+    }
+    uint64_t operator()(uint64_t val) const {
+        uint64_t ret = coeffs_[0];
+        for(size_t i = 1; i < k; ++i) {
+            ret = (ret * val + coeffs_[i]) % mod;
+        }
+        return ret;
+    }
+    VType operator()(VType val) const {
+        // Data parallel across same coefficients.
+        VType ret = Space::set1(coeffs_[0]);
+        for(size_t i = 1; i < k; ++i) {
+            VType tmp = Space::set1(coeffs_[i]);
+            tmp.for_each([&](auto &x){x %= mod;});
+        }
+        return ret;
+    }
+};
+
 namespace lut {
 static const uint8_t nhashesper64bitword [] {
 /*

@@ -464,10 +464,26 @@ public:
             }
         }
     }
+    void subh(uint64_t val) {
+        uint64_t v = hf_(val);
+        unsigned added;
+        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), add(v, added++));
+        auto it = seeds_.begin();
+        while(added < nh_) {
+            v = hf_(*it++ ^ val);
+            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
+                sub(v, added++);
+                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
+            }
+        }
+    }
     INLINE void add(uint64_t hv, unsigned subidx) noexcept {
         at_pos(hv, subidx) += sign(hv);
     }
-    INLINE auto &at_pos(uint64_t hv, unsigned subidx) {
+    INLINE void sub(uint64_t hv, unsigned subidx) noexcept {
+        at_pos(hv, subidx) -= sign(hv);
+    }
+    INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
         assert((hv & mask_) + (subidx << np_) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
         return core_[(hv & mask_) + (subidx << np_)];
     }
@@ -476,14 +492,29 @@ public:
         assert((hv & mask_) + (subidx << np_) < core_.size());
         return core_[(hv & mask_) + (subidx << np_)];
     }
+    INLINE void subh(Space::VType hv) noexcept {
+        Space::VType tmp = hf_(hv);
+        unsigned gadded = 0;
+        tmp.for_each([&](uint64_t v) {
+            for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
+                sub(v, gadded++);
+        });
+        for(auto it = seeds_.begin(); gadded < nh_;) {
+            tmp = hf_(Space::xor_fn(Space::set1(*it++), hv));
+            unsigned lastgadded = gadded;
+            tmp.for_each([&](uint64_t v) {
+                unsigned added;
+                for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); sub(v, added++), v >>= (np_ + 1));
+                gadded = added;
+            });
+        }
+    }
     INLINE void addh(Space::VType hv) noexcept {
         Space::VType tmp = hf_(hv);
         unsigned gadded = 0;
         tmp.for_each([&](uint64_t v) {
-            unsigned added = 0;
-            for(;added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1)) {
+            for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
                 add(v, gadded++);
-            }
         });
         for(auto it = seeds_.begin(); gadded < nh_;) {
             tmp = hf_(Space::xor_fn(Space::set1(*it++), hv));
