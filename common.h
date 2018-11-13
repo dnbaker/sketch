@@ -166,14 +166,14 @@ public:
         }
         return ret;
     }
-    VType operator()(VType val) const {
+    Type operator()(VType val) const {
         // Data parallel across same coefficients.
         VType ret = Space::set1(coeffs_[0]);
         for(size_t i = 1; i < k; ++i) {
-            VType tmp = Space::set1(coeffs_[i]);
-            tmp.for_each([&](auto &x){x %= mod;});
+            ret = Space::add(Space::mullo(ret.simd_, val.simd_), Space::set1(coeffs_[i]));
+            ret.for_each([&](auto &x){x %= mod;});
         }
-        return ret;
+        return ret.simd_;
     }
 };
 
