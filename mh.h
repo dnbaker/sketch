@@ -210,13 +210,19 @@ template<typename T=uint64_t, typename Hasher=WangHash>
 class HyperMinHash {
     DefaultCompactVectorType core_;
     Hasher hf_;
-    uint32_t p_, q_, r_;
+    uint32_t p_, r_;
     uint64_t seeds_ [2] __attribute__ ((aligned (sizeof(uint64_t) * 2)));
 #ifndef NOT_THREADSAFE
-    std::mutex mutex_;
+    std::mutex mutex_; // I should be able to replace most of these with atomics.
 #endif
-    static_assert(std::is_same_v<std::decay_t<decltype(mcore_[0])>, T>, "Vector must derefernce to T.");
 public:
+    enum ComparePolicy {
+        Manual = 0,
+        U8 = 1,
+        U16 = 2,
+        U32 = 3,
+        U64 = 4
+    };
     auto &core() {return core_;}
     const auto &core() const {return core_;}
     uint64_t mask() const {
@@ -230,19 +236,29 @@ public:
         p_(p), r_(r),
         seeds_{0xB0BAF377C001D00DuLL, 0x430c0277b68144b5uLL} // Fully arbitrary seeds
     {
-        zero_memory(core_, 0);
+        common::detail::zero_memory(core_, 0); // Second parameter is a dummy for interface compatibility with STL
 #if !NDEBUG
-        std::fprintf(stderr, "p: %u. q: %u\n", p, q);
+        std::fprintf(stderr, "p: %u. r: %u\n", p, r);
         print_params();
 #endif
     }
     HyperMinHash(const HyperMinHash &a): core_(a.core_), p_(a.p_), r_(a.r_) {
         seeds_as_sse() = a.seeds_as_sse();
-        std::memcpy(core_.data(), a.core_.data(), core_.bytes());
+        std::memcpy(core_.get(), a.core_.get(), core_.bytes());
     }
-    static constexpr uint32_t auto q() {return 6u;} // To hold popcount for a 64-bit integer.
+    static constexpr uint32_t q() {return 6u;} // To hold popcount for a 64-bit integer.
     auto minimizer_size() const {
         return r_ + q();
+    }
+    ComparePolicy simd_policy() const {
+        switch(minimizer_size()) {
+            case 8: return ComparePolicy::U8;
+            case 16: return ComparePolicy::U16;
+            case 32: return ComparePolicy::U32;
+            case 64: return ComparePolicy::U64;
+            default: return ComparePolicy::Manual;
+        }
+        __builtin_unreachable();
     }
     // Encoding and decoding table entries
     auto get_lzc(uint64_t entry) const {
@@ -251,17 +267,35 @@ public:
     auto get_mhr(uint64_t entry) const {
         return entry & max_mhval();
     }
+    template<typename I1, typename I2,
+             typename=std::enable_if_t<std::is_integral_v<I1> && std::is_integral_v<I1>>>
+    auto encode_register(I1 lzc, I2 min) const {
+        // We expect that min has already been masked so as to eliminate unnecessary operations
+        assert(min <= max_mhval());
+        return (uint64_t(lzc) << r_) | min;
+    }
+    std::array<uint64_t, 64> sum_counts() const {
+        if(__builtin_expect(r_ == 0, 0)) { // No remained, is a hyperloglog sketch
+            return hll::detail::sum_counts(core_);
+        }
+        std::array<uint64_t, 64> ret;
+        std::memset(&ret[0], 0, sizeof(ret));
+        for(const auto i: core_) {
+            ++ret[get_lzc(i)];
+        }
+        return ret;
+    }
     double estimate_hll_portion(double relerr=1e-2) const {
-        return hll::detail::ertl_ml_estimate(hll::detail::sum_counts(core_), p(), q(), relerr);
+        return hll::detail::ertl_ml_estimate(this->sum_counts(core_), p(), 64 - p(), relerr);
     }
     double report(double relerr=1e-2) const {
         const auto csum = hll::detail::sum_counts(core_);
-        if(double est = hll::detail::ertl_ml_estimate(csum, p(), q(), relerr);est < static_cast<double>(core_.size() << 10))
+        if(double est = hll::detail::ertl_ml_estimate(csum, p(), 64 - p(), relerr);est < static_cast<double>(core_.size() << 10))
             return est;
         const double mhinv = 1. / max_mhval();
-        double sum = csum[0] * (1 + static_cast<double>(mcore_[0]) * mhinv);
+        double sum = csum[0] * (1 + static_cast<double>((uint64_t(1) << p()) - get_mhr(core_[0])) * mhinv);
         for(int i = 1; i < static_cast<int64_t>(csum.size()); ++i)
-            sum += std::ldexp(csum[i], -i) * (1. + static_cast<double>(mcore_[1]) * mhinv);
+            sum += std::ldexp(csum[i], -i) * (1. + static_cast<double>((uint64_t(1) << p()) - get_mhr(core_[i])) * mhinv);
         return sum ? static_cast<double>(std::pow(core_.size(), 2)) / sum: std::numeric_limits<double>::infinity();
     }
     auto p() const {return p_;}
@@ -276,36 +310,28 @@ public:
         return std::fprintf(fp, "p: %u. q: %u. r: %u.\n", p(), q(), r());
     }
     const __m128i &seeds_as_sse() const {return *reinterpret_cast<const __m128i *>(seeds_);}
-    __m128i &seeds_as_sse() {return *reinterpret_cast<const __m128i *>(seeds_);}
+    __m128i &seeds_as_sse() {return *reinterpret_cast<__m128i *>(seeds_);}
 
     INLINE void addh(uint64_t element) {
-        __m128i i = _mm_set1_epi64x(element);
-        i ^= seeds_as_sse();
-        i = hf_(i);
-        add(i);
+        add(hf_(_mm_set1_epi64x(element) ^ seeds_as_sse()));
     }
     template<typename ET>
     INLINE void addh(ET element) {
-        element.for_each([&](auto &el) {this->addh(element);});
+        element.for_each([&](uint64_t el) {this->addh(el);});
     }
     HyperMinHash &operator+=(const HyperMinHash &o) {
         for(size_t i(0); i < core_.size(); ++i) {
-            if(core_[i] < o.core_[i]) {
-                core_[i] = o.core_[i];
-                mcore_[i] = o.mcore_[i];
-            } else if(core_[i] == o.core_[i]) {
-                using std::min;
-                mcore_[i] = min(mcore_[i], o.mcore_[i]);
-            }
+            if(core_[i] < o.core_[i]) core_[i] = o.core_[i];
+            // This can also be accelerated for specific minimizer sizes
         }
         return *this;
     }
-    HyperMinHash(const HyperMinHash &a, const HyperMinHash &b): HyperMinHash(a.p(), a.q(), a.r())
+    HyperMinHash(const HyperMinHash &a, const HyperMinHash &b): HyperMinHash(a)
     {
-        *this += a;
         *this += b;
     }
     HyperMinHash operator+(const HyperMinHash &a) const {
+        if(__builtin_expect(a.p() != p() || a.q() != q(), 0)) throw std::runtime_error("Could not merge sketches of differing parameter sets");
         HyperMinHash ret(*this);
         ret += a;
         return ret;
@@ -320,8 +346,9 @@ public:
         uint64_t arr[2];
         static_assert(sizeof(hashval) == sizeof(arr), "Size sanity check");
         std::memcpy(&arr[0], &hashval, sizeof(hashval));
-        const uint32_t index(reinterpret_cast<uint64_t *>(&hashval)[0] >> q());
-        const uint8_t lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
+        const uint64_t index(reinterpret_cast<uint64_t *>(&hashval)[0] >> q()),
+                         lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
+#if OLD_WAYYYYYYYYYYY
 #ifndef NOT_THREADSAFE
         // This won't be optimal, but it's a patch to make it work.
         // I bet there's a way to make this lockfree.
@@ -337,16 +364,30 @@ public:
             core_[index] = lzt;
             mcore_[index] = reinterpret_cast<uint64_t *>(&hashval)[1];
         } else if(core_[index] == lzt) mcore_[index] = std::min(reinterpret_cast<uint64_t *>(&hashval)[1], (uint64_t)mcore_[index]);
-#endif
+#endif  // NOT_THREADSAFE
+#else
+        // We also use max instead of min for "minimizers" because we can pack comparisons.
+        const uint64_t inserted_val = (reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) | (lzt << r_);
+        if(core_[index] < inserted_val) // Consider other functions for specific register sizes.
+            core_[index] = inserted_val;
+#endif // #if OLD_WAYYYYYYYYYYY
     }
     double jaccard_index(const HyperMinHash &o) const {
         size_t C = 0, N = 0;
-        for(size_t i = 0; i < core_.size(); ++i) {
-            C += (core_[i] == o.core_[i]);
-            N += (core_[i] || mcore_[i] || o.core_[i] || mcore_[i]);
+        switch(simd_policy()) {
+            U8:  [[fallthrough]] // 2-bit minimizers. TODO: write this
+            U16: [[fallthrough]] // 10-bit minimizers. TODO: write this
+            U32: [[fallthrough]] // 26-bit minimizers. TODO: write this
+            U64: [[fallthrough]] // 58-bit minimizers. TODO: write this
+            Manual:
+                for(size_t i = 0; i < core_.size(); ++i) {
+                    C += (get_lzc(core_[i]) == get_lzc(o.core_[i]));
+                    N += (core_[i] || o.core_[i]);
+                }
+            break;
         }
         const double n = this->report(), m = o.report(), ec = expected_collisions(n, m);
-        return (C - ec) / N;
+        return C > ec ? (C - ec) / N: 0.;
     }
     double expected_collisions(double n, double m, bool easy_way=true) const {
         if(easy_way) {
@@ -380,7 +421,6 @@ public:
         }
         return std::ldexp(x, p());
     }
-    // TODO: jaccard index support
 };
 
 } // namespace minhash

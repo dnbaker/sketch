@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
     double olap_frac = argc < 3 ? 0.1: std::atof(argv[2]);
     size_t ss = argc < 4 ? 10: size_t(std::strtoull(argv[3], nullptr, 10));
     RangeMinHash<uint64_t> rm1(1 << ss), rm2(1 << ss);
-    HyperMinHash<> hmh1(ss), hmh2(ss);
+    HyperMinHash<> hmh1(ss, 10), hmh2(ss, 10);
     std::mt19937_64 mt(1337);
     size_t olap_n = (olap_frac * nelem);
     double true_ji = double(olap_n ) / (nelem * 2 - olap_n);
