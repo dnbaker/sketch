@@ -1081,16 +1081,17 @@ public:
             std::array<uint64_t, 64> counts{0};
             // We can do this because we use an aligned allocator.
             const SType *p1(reinterpret_cast<const SType *>(data())), *p2(reinterpret_cast<const SType *>(other.data()));
-            for(SIMDHolder tmp;p1 < reinterpret_cast<const SType *>(&(*core().cend()));tmp.val = SIMDHolder::max_fn(*p1++, *p2++), tmp.inc_counts(counts));
+            const SType *const pe(reinterpret_cast<const SType *>(&(*core().cend())));
+            for(SIMDHolder tmp;p1 < pe;) {
+                tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
+                tmp.inc_counts(counts);
+            }
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
-    double jaccard_index(hllbase_t &h2) {
-        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
-        return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
-    }
+    // Jaccard index, but returning a bool to indicate whether it was less than expected error for the cardinality/sketch size
     std::pair<double, bool> bjaccard_index(hllbase_t &h2) {
         if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
         return const_cast<hllbase_t &>(*this).bjaccard_index(const_cast<const hllbase_t &>(h2));
@@ -1104,6 +1105,10 @@ public:
         const double us = union_size(h2);
         const double ret = std::max(0., creport() + h2.creport() - us) / us;
         return std::make_pair(ret, ret > relative_error());
+    }
+    double jaccard_index(hllbase_t &h2) {
+        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
+        return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
     }
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
