@@ -403,10 +403,10 @@ public:
         }
         std::fprintf(stderr, "Using slow way\n");
         double x = 0.;
-        for(size_t i = 0; i < size_t(1) << p(); ++i) {
-            for(size_t j = 0; j < size_t(1) << r(); ++j) {
+        for(size_t i = 1; i <= size_t(1) << p(); ++i) {
+            for(size_t j = 1; j <= size_t(1) << r(); ++j) {
                 double b1, b2;
-                const int _p= p_, _r = r_;
+                const int _p= p_, _r = r_; // Redeclaring as signed integers to avoid underflow
                 if(i != size_t(1) << q()) {
                     b1 = std::ldexp((size_t(1) << r()) + j, -_p - _r - i);
                     b2 = std::ldexp((size_t(1) << r()) + j + 1, -_p - _r - i);
