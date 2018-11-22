@@ -214,10 +214,10 @@ public:
         return (uint64_t(1) << q_) - 1;
     }
     double estimate_hll_portion(double relerr=1e-2) const {
-        return hll::detail::ertl_ml_estimate(hll::detail::sum_counts(*this), p(), q(), relerr);
+        return hll::detail::ertl_ml_estimate(hll::detail::sum_counts(this->core_), p(), q(), relerr);
     }
     double report(double relerr=1e-2) const {
-        const auto csum = hll::detail::sum_counts(*this);
+        const auto csum = hll::detail::sum_counts(this->core_);
         if(double est = hll::detail::ertl_ml_estimate(csum, p(), q(), relerr);est < static_cast<double>(core_.size() << 10))
             return est;
         double rsum = 0.;
