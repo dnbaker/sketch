@@ -7,6 +7,14 @@
 
 namespace sse {
 
+#ifndef unlikely
+#  if __GNUC__  || __clang__ || defined(BUILTIN_EXPECT_AVAILABLE)
+#    define unlikely(x) __builtin_expect((x), 0)
+#  else
+#    define unlikely(x) (x)
+#  endif
+#endif
+
 // From http://stackoverflow.com/questions/12942548/making-stdvector-allocate-aligned-memory
 // Accessed 11/7/16
 enum class Alignment : size_t
@@ -21,8 +29,18 @@ enum class Alignment : size_t
 
 
 namespace detail {
-    void* allocate_aligned_memory(size_t align, size_t size);
-    void deallocate_aligned_memory(void* ptr) noexcept;
+    static inline void* allocate_aligned_memory(size_t align, size_t size) {
+        assert(align >= sizeof(void*));
+        assert((align & (align - 1)) == 0); // Assert is power of two
+
+#if USE_ALIGNED_ALLOC
+        return std::aligned_alloc(size, align);
+#else
+        void *ret;
+        int rc(posix_memalign(&ret, align, size));
+        return unlikely(rc != 0) ? nullptr: ret;
+#endif
+    }
 }
 
 
@@ -31,14 +49,13 @@ class AlignedAllocator;
 
 
 template <Alignment Align>
-class AlignedAllocator<void, Align>
+struct AlignedAllocator<void, Align>
 {
-public:
-    typedef void*             pointer;
-    typedef const void*       const_pointer;
-    typedef void              value_type;
+    using pointer = void *;
+    using const_pointer = const void *;
+    using value_type = void;
 
-    template <class U> struct rebind { typedef AlignedAllocator<U, Align> other; };
+    template <class U> struct rebind { using other = AlignedAllocator<U, Align>; };
 };
 
 
@@ -60,42 +77,32 @@ public:
     struct rebind { typedef AlignedAllocator<U, Align> other; };
 
 public:
-    AlignedAllocator() noexcept
-    {}
-
+    AlignedAllocator() noexcept {}
     template <class U>
-    AlignedAllocator(const AlignedAllocator<U, Align>&) noexcept
-    {}
+    AlignedAllocator(const AlignedAllocator<U, Align>&) noexcept {}
 
-    size_type
-    max_size() const noexcept
-    { return (size_type(~0) - size_type(Align)) / sizeof(T); }
+    static constexpr size_type max_size() {return (size_type(~0) - size_type(Align)) / sizeof(T);}
 
-    pointer
-    address(reference x) const noexcept
-    { return std::addressof(x); }
-
-    const_pointer
-    address(const_reference x) const noexcept
-    { return std::addressof(x); }
-
-    pointer
-    allocate(size_type n, typename AlignedAllocator<void, Align>::const_pointer = 0)
-    {
-#if USE_ALIGNED_ALLOC
-        return std::aligned_alloc(n * sizeof(T), static_cast<size_type>(Align));
-#else
-        void *ret;
-        int rc(posix_memalign(&ret, static_cast<size_type>(Align), n * sizeof(T)));
-        return rc ? nullptr: static_cast<pointer>(ret);
-#endif
+    pointer address(reference x) const noexcept {
+        return std::addressof(x);
+    }
+    const_pointer address(const_reference x) const noexcept {
+        return std::addressof(x);
     }
 
-    void deallocate(pointer p, size_type) noexcept {free(p);}
+    pointer allocate(size_type n, typename AlignedAllocator<void, Align>::const_pointer = 0)
+    {
+        pointer ret(reinterpret_cast<pointer>(detail::allocate_aligned_memory(static_cast<size_type>(Align) , n * sizeof(T))));
+        if(unlikely(!ret)) throw std::bad_alloc();
+        return ret;
+    }
+
+    void deallocate(pointer p, size_type) noexcept {std::free(p);}
 
     template <class U, class ...Args>
-    void
-    construct(U* p, Args&&... args) { ::new(reinterpret_cast<void*>(p)) U(std::forward<Args>(args)...); }
+    void construct(U* p, Args&&... args) {
+        ::new(reinterpret_cast<void*>(p)) U(std::forward<Args>(args)...);
+    }
 
     void destroy(pointer p) { p->~T(); }
 };
@@ -138,13 +145,13 @@ public:
     allocate(size_type n, typename AlignedAllocator<void, Align>::const_pointer = 0)
     {
         pointer ret(reinterpret_cast<pointer>(detail::allocate_aligned_memory(static_cast<size_type>(Align) , n * sizeof(T))));
-        if(!ret) throw std::bad_alloc();
+        if(unlikely(!ret)) throw std::bad_alloc();
         return ret;
     }
 
     void
     deallocate(pointer p, size_type) noexcept
-    { return detail::deallocate_aligned_memory(p); }
+    { std::free(p); }
 
     template <class U, class ...Args>
     void
@@ -162,26 +169,7 @@ inline bool operator== (const AlignedAllocator<T,TAlign>&, const AlignedAllocato
 template <typename T, Alignment TAlign, typename U, Alignment UAlign>
 inline bool operator!= (const AlignedAllocator<T,TAlign>&, const AlignedAllocator<U, UAlign>&) noexcept
     { return TAlign != UAlign; }
-inline void *detail::allocate_aligned_memory(size_t align, size_t size)
-{
-    assert(align >= sizeof(void*));
-    assert((align & (align - 1)) == 0); // Assert is power of two
-    
-#if USE_ALIGNED_ALLOC
-    return std::aligned_alloc(size, align);
-#else
-    void *ret;
-    int rc(posix_memalign(&ret, align, size));
-    if(__builtin_expect(rc != 0, 0)) throw std::bad_alloc();
-    return ret;
-#endif
-}
 
-
-inline void detail::deallocate_aligned_memory(void *ptr) noexcept
-{
-    std::free(ptr);
-}
 
 } // namespace sse
 

@@ -563,20 +563,6 @@ std::array<double, 3> ertl_joint(HllType &h1, HllType &h2) {
 
 
 
-#ifdef roundup64
-#undef roundup64
-#endif
-static INLINE uint64_t roundupsize(size_t x) noexcept {
-    --x;
-    x |= x >> 1;
-    x |= x >> 2;
-    x |= x >> 4;
-    x |= x >> 8;
-    x |= x >> 16;
-    x |= x >> 32;
-    return ++x;
-}
-
 #define clztbl(x, arg) do {\
     switch(arg) {\
         case 0:                         x += 4; break;\
@@ -956,7 +942,7 @@ public:
 
     // Clears, allows reuse with different np.
     void resize(size_t new_size) {
-        if(new_size & (new_size - 1)) new_size = roundupsize(new_size);
+        if(new_size & (new_size - 1)) new_size = roundup(new_size);
         clear();
         core_.resize(new_size);
         np_ = std::log2(new_size);

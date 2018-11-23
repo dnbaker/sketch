@@ -20,16 +20,6 @@ namespace sketch {
 namespace bf {
 using namespace common;
 
-static INLINE uint64_t roundup64(size_t x) noexcept {
-    --x;
-    x |= x >> 1;
-    x |= x >> 2;
-    x |= x >> 4;
-    x |= x >> 8;
-    x |= x >> 16;
-    x |= x >> 32;
-    return ++x;
-}
 
 
 template<typename ValueType>
@@ -366,7 +356,7 @@ public:
 
     // Clears, allows reuse with different np.
     void resize(size_t new_size) {
-        new_size = roundup64(new_size);
+        new_size = roundup(new_size);
         clear();
         core_.resize(new_size >> OFFSET);
         clear();

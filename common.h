@@ -101,7 +101,20 @@ using DefaultCompactVectorType = ::compact::ts_vector<uint32_t, 0, uint32_t, All
 using DefaultCompactVectorType = ::compact::vector<uint32_t, 0, uint32_t, Allocator<uint32_t>>;
 #endif
 
-
+template<typename T>
+static INLINE T roundup(T x) noexcept {
+    --x;
+    x |= x >> 1;
+    x |= x >> 2;
+    x |= x >> 4;
+    if(sizeof(x) > 1)
+        x |= x >> 8;
+    if(sizeof(x) > 2)
+        x |= x >> 16;
+    if(sizeof(x) > 4)
+        x |= x >> 32;
+    return ++x;
+}
 
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
