@@ -25,6 +25,7 @@ int main(int argc, char *argv[]) {
     size_t olap_n = (olap_frac * nelem);
     double true_ji = double(olap_n ) / (nelem * 2 - olap_n);
     olap_frac = static_cast<double>(olap_n) / nelem;
+    std::fprintf(stderr, "Inserting to both\n");
     for(size_t i = 0; i < olap_n; ++i) {
         auto v = mt();
         rm1.addh(v); rm2.addh(v);
@@ -32,6 +33,7 @@ int main(int argc, char *argv[]) {
         hmh2.addh(v);
         //pc(rm1);
     }
+    hmh1.print_all();
     std::fprintf(stderr, "olap_n: %zu. nelem: %zu\n", olap_n, nelem);
     for(size_t i = nelem - olap_n; i--;) {
         auto v = mt();
@@ -41,14 +43,17 @@ int main(int argc, char *argv[]) {
         auto v = mt();
         rm2.addh(v); hmh2.addh(v);
     }
-    std::fprintf(stderr, "Cardinality estimate for %zu items: %lf. Olap: %lf\n", nelem, hmh1.report(), hmh1.jaccard_index(hmh2));
+    std::fprintf(stderr, "JI %zu items: %lf.\n", nelem, hmh1.jaccard_index(hmh2));
+    //std::fprintf(stderr, "JI %zu items with itself: %lf.\n", nelem, hmh1.jaccard_index(hmh1));
+    std::fprintf(stderr, "Cardinality estimate for %zu items: %lf.\n", nelem, hmh1.report());
     //pc(rm1, "rm1");
     //pc(rm2, "rm2");
     size_t is = intersection_size(rm1, rm2);
     double ji = rm1.jaccard_index(rm2);
-    std::fprintf(stderr, "sketch is: %zu. sketch ji: %lf. True: %lf\n", is, ji, true_ji);
+    //std::fprintf(stderr, "sketch is: %zu. sketch ji: %lf. True: %lf\n", is, ji, true_ji);
     is = intersection_size(rm1, rm1);
     ji = rm1.jaccard_index(rm1);
+    //std::fprintf(stderr, "ji: %lf\n", ji);
     auto hmh3 = hmh1 + hmh2;
     std::fprintf(stderr, "hmh3: %lf\n", hmh3.report());
 }

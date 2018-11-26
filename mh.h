@@ -236,6 +236,7 @@ public:
         p_(p), r_(r),
         seeds_{0xB0BAF377C001D00DuLL, 0x430c0277b68144b5uLL} // Fully arbitrary seeds
     {
+        std::fprintf(stderr, "Pointer for data: %p\n", static_cast<void *>(core_.get()));
         common::detail::zero_memory(core_, 0); // Second parameter is a dummy for interface compatibility with STL
 #if !NDEBUG
         std::fprintf(stderr, "p: %u. r: %u\n", p, r);
@@ -245,6 +246,11 @@ public:
     HyperMinHash(const HyperMinHash &a): core_(a.core_), p_(a.p_), r_(a.r_) {
         seeds_as_sse() = a.seeds_as_sse();
         std::memcpy(core_.get(), a.core_.get(), core_.bytes());
+    }
+    void print_all(std::FILE *fp=stderr) {
+        for(size_t i = 0; i < core_.size(); ++i) {
+            std::fprintf(stderr, "Index %zu has value %d for lzc and %d for remainder\n", i, get_lzc(core_[i]), get_mhr(core_[i]));
+        }
     }
     static constexpr uint32_t q() {return 6u;} // To hold popcount for a 64-bit integer.
     auto minimizer_size() const {
@@ -281,15 +287,16 @@ public:
         std::array<uint64_t, 64> ret;
         std::memset(&ret[0], 0, sizeof(ret));
         for(const auto i: core_) {
+            if(get_lzc(i) > 64) {std::fprintf(stderr, "Value for %d should not be %d\n", i, get_lzc(i)); std::exit(1);}
             ++ret[get_lzc(i)];
         }
         return ret;
     }
     double estimate_hll_portion(double relerr=1e-2) const {
-        return hll::detail::ertl_ml_estimate(this->sum_counts(core_), p(), 64 - p(), relerr);
+        return hll::detail::ertl_ml_estimate(this->sum_counts(), p(), 64 - p(), relerr);
     }
     double report(double relerr=1e-2) const {
-        const auto csum = hll::detail::sum_counts(core_);
+        const auto csum = this->sum_counts();
         if(double est = hll::detail::ertl_ml_estimate(csum, p(), 64 - p(), relerr);est < static_cast<double>(core_.size() << 10))
             return est;
         const double mhinv = 1. / max_mhval();
@@ -346,8 +353,10 @@ public:
         uint64_t arr[2];
         static_assert(sizeof(hashval) == sizeof(arr), "Size sanity check");
         std::memcpy(&arr[0], &hashval, sizeof(hashval));
-        const uint64_t index(reinterpret_cast<uint64_t *>(&hashval)[0] >> q()),
+        const uint64_t index(reinterpret_cast<uint64_t *>(&hashval)[0] >> (64 - p())),
                          lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
+        //std::fprintf(stderr, "Calling hash on thing. Size of core: %zu. Index: %zu\n", index, core_.size());
+        //std::fprintf(stderr, "Calling hash on %zu\n", size_t(core_[index]));
 #if OLD_WAYYYYYYYYYYY
 #ifndef NOT_THREADSAFE
         // This won't be optimal, but it's a patch to make it work.
@@ -367,26 +376,37 @@ public:
 #endif  // NOT_THREADSAFE
 #else
         // We also use max instead of min for "minimizers" because we can pack comparisons.
-        const uint64_t inserted_val = (reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) | (lzt << r_);
+        const uint64_t inserted_val = encode_register(lzt, reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval());
+        std::fprintf(stderr, "lzc: %d. oval: %zu\n", get_lzc(inserted_val), get_mhr(inserted_val));
+        //const uint64_t inserted_val = (reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) | (lzt << r_);
+        //uint64_t oind = core_[index];
+        //std::fprintf(stderr, "oind: %" PRIu64 "\n", oind);
         if(core_[index] < inserted_val) // Consider other functions for specific register sizes.
             core_[index] = inserted_val;
 #endif // #if OLD_WAYYYYYYYYYYY
+        std::fprintf(stderr, "Called hash on thing\n");
+        const uint64_t newval = core_[index];
+        assert(core_[index] >= newval);
     }
     double jaccard_index(const HyperMinHash &o) const {
         size_t C = 0, N = 0;
+        std::fprintf(stderr, "core size: %zu\n", core_.size());
         switch(simd_policy()) {
+            default:
             U8:  [[fallthrough]] // 2-bit minimizers. TODO: write this
             U16: [[fallthrough]] // 10-bit minimizers. TODO: write this
             U32: [[fallthrough]] // 26-bit minimizers. TODO: write this
             U64: [[fallthrough]] // 58-bit minimizers. TODO: write this
             Manual:
                 for(size_t i = 0; i < core_.size(); ++i) {
+                    std::fprintf(stderr, "lzcs: %u, %u\n", get_lzc(core_[i]), get_lzc(o.core_[i]));
                     C += (get_lzc(core_[i]) == get_lzc(o.core_[i]));
                     N += (core_[i] || o.core_[i]);
                 }
             break;
         }
         const double n = this->report(), m = o.report(), ec = expected_collisions(n, m);
+        std::fprintf(stderr, "C: %zu. ec: %lf\n", C, ec);
         return C > ec ? (C - ec) / N: 0.;
     }
     double expected_collisions(double n, double m, bool easy_way=true) const {
@@ -419,6 +439,7 @@ public:
                 x += prx * pry;
             }
         }
+        std::fprintf(stderr, "Successfully slow wayed\n");
         return std::ldexp(x, p());
     }
 };
