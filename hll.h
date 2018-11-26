@@ -681,6 +681,7 @@ protected:
     uint8_t             nthreads_;
     EstimationMethod       estim_;
     JointEstimationMethod jestim_;
+    HashStruct                hf_;
 public:
     using HashType = HashStruct;
 #if LZ_COUNTER
@@ -688,14 +689,17 @@ public:
 #endif
 
     std::pair<size_t, size_t> est_memory_usage() const {
-        return std::make_pair(sizeof(core_) + sizeof(value_) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(estim_) + sizeof(jestim_),
+        return std::make_pair(sizeof(*this),
                               core_.size() * sizeof(core_[0]));
     }
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(static_cast<double>(m()));}
     // Constructor
-    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE, JointEstimationMethod jestim=ERTL_JOINT_MLE, int nthreads=-1, bool clamp=false):
+    template<typename... Args>
+    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE,
+                       JointEstimationMethod jestim=ERTL_JOINT_MLE,
+                       int nthreads=-1, bool clamp=false, Args &&... args):
         core_(static_cast<uint64_t>(1) << np),
         value_(0.), np_(np), is_calculated_(0), clamp_(clamp),
         nthreads_(nthreads > 0 ? nthreads: 1),
@@ -703,13 +707,17 @@ public:
 #if LZ_COUNTER
         , clz_counts_{0}
 #endif
+        , hf_(std::forward<Args>(args)...)
     {
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
     explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
-    hllbase_t(const char *path) {read(path);}
-    hllbase_t(const std::string &path): hllbase_t(path.data()) {}
-    hllbase_t(gzFile fp): hllbase_t() {this->read(fp);}
+    template<typename... Args>
+    hllbase_t(const char *path, Args &&... args): hf_(std::forward<Args>(args)...) {read(path);}
+    template<typename... Args>
+    hllbase_t(const std::string &path, Args &&... args): hllbase_t(path.data(), std::forward<Args>(args)...) {}
+    template<typename... Args>
+    hllbase_t(gzFile fp, Args &&... args): hllbase_t(0, ERTL_MLE, ERTL_JOINT_MLE, -1, clamp, std::forward<Args>(args)...) {this->read(fp);}
 
     // Call sum to recalculate if you have changed contents.
     void sum() {
@@ -812,13 +820,13 @@ public:
     }
 
     INLINE void addh(uint64_t element) {
-        element = HashStruct()(element);
+        element = hf_(element);
         add(element);
     }
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
         if constexpr(std::is_same<HashStruct, clhasher>::value) {
-            add(HashStruct()(element));
+            add(hf_(element));
         } else {
 #endif
             add(std::hash<std::string>{}(element));
@@ -827,7 +835,7 @@ public:
 #endif
     }
     INLINE void addh(VType element) {
-        element = HashStruct()(element.simd_);
+        element = hf_(element.simd_);
         add(element);
     }
     INLINE void add(VType element) {
@@ -1174,7 +1182,7 @@ public:
         return hllbase_t<HashStruct>::may_contain(hashval) && this->core_[hashval & ((this->m()) - 1)] >= ffs(hashval >> this->p());
     }
 
-    INLINE void addh(uint64_t element) {add(HashStruct()(element));}
+    INLINE void addh(uint64_t element) {add(this->hf_(element));}
 };
 using hlldub_t = hlldub_base_t<>;
 
@@ -1214,7 +1222,7 @@ public:
         dcore_[index] = std::min(dcore_[index], lzt);
 #endif
     }
-    void addh(uint64_t element) {add(HashStruct()(element));}
+    void addh(uint64_t element) {add(this->hf_(element));}
     bool may_contain(uint64_t hashval) const {
         return hll_t::may_contain(hashval) && dcore_[hashval & ((this->m()) - 1)] >= ffs(((hashval >> 1)|UINT64_C(0x8000000000000000)) >> (this->p() - 1));
     }
@@ -1241,7 +1249,7 @@ public:
     }
     void addh(uint64_t element) {
         element ^= seed_;
-        this->add(HashStruct()(element));
+        this->add(this->hf_(element));
     }
     uint64_t seed() const {return seed_;}
     void reseed(uint64_t seed) {seed_= seed_;}

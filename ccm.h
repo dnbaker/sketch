@@ -196,6 +196,7 @@ protected:
     const unsigned nhashes_;
     const unsigned l2sz_:16;
     const unsigned nbits_:16;
+    const HashStruct hf_;
     const uint64_t mask_;
     const uint64_t subtbl_sz_;
     std::vector<uint64_t, common::Allocator<uint64_t>> seeds_;
@@ -211,11 +212,12 @@ public:
     void clear() {
         detail::zero_memory(data_, std::log2(subtbl_sz_));
     }
-    ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0):
+    template<typename... Args>
+    ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):
             data_(nbits, nhashes << l2sz),
             updater_(seed + l2sz * nbits * nhashes),
             nhashes_(nhashes), l2sz_(l2sz),
-            nbits_(nbits),
+            nbits_(nbits), hf_(std::forward<Args>(args)...),
             mask_((1ull << l2sz) - 1),
             subtbl_sz_(1ull << l2sz)
     {
@@ -235,7 +237,7 @@ public:
     auto addh(uint64_t val) {return add(val);}
     template<typename T>
     T hash(T val) const {
-        return HashStruct()(val);
+        return hf_(val);
     }
     uint64_t subhash(uint64_t val, uint64_t seedind) const {
         return hash(((val ^ seeds_[seedind]) & mask_) + val & mask_);
@@ -243,10 +245,10 @@ public:
     uint64_t mask() const {return mask_;}
     auto np() const {return l2sz_;}
     auto &at_pos(uint64_t hv, uint64_t seedind) {
-        return data_[(hv & mask()) + (seedind << np())];
+        return data_[(hv & mask_) + (seedind << np())];
     }
     const auto &at_pos(uint64_t hv, uint64_t seedind) const {
-        return data_[(hv & mask()) + (seedind << np())];
+        return data_[(hv & mask_) + (seedind << np())];
     }
     bool may_contain(uint64_t val) const {
         throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
@@ -434,27 +436,43 @@ class csbase_t {
     uint32_t np_;
     uint32_t nh_;
     uint32_t nph_;
+    const HashStruct hf_;
     uint64_t mask_;
     std::vector<CounterType, Allocator<CounterType>> seeds_;
 public:
-    csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137):
-        core_(uint64_t(nh) << np), np_(np), nh_(nh), nph_(64 / (np + 1)), 
+    template<typename...Args>
+    csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
+        core_(uint64_t(nh) << np), np_(np), nh_(nh), nph_(64 / (np + 1)), hf_(std::forward<Args>(args)...),
         mask_((1ull << np_) - 1), 
         seeds_((nh_ + (nph_ - 1)) / nph_ - 1)
     {
         aes::AesCtr<uint64_t> gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
-        while(seeds_.size() < sizeof(Space::Type) / sizeof(uint64_t)) seeds_.emplace_back(gen()); // To make sure that simd addh is always accessing owned memory.
+        // Just to make sure that simd addh is always accessing owned memory.
+        while(seeds_.size() < sizeof(Space::Type) / sizeof(uint64_t)) seeds_.emplace_back(gen());
     }
     void addh(uint64_t val) {
-        uint64_t v = HashStruct()(val);
+        uint64_t v = hf_(val);
         unsigned added;
         for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), add(v, added++));
         auto it = seeds_.begin();
         while(added < nh_) {
-            v = HashStruct()(*it++ ^ val);
+            v = hf_(*it++ ^ val);
             for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
                 add(v, added++);
+                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
+            }
+        }
+    }
+    void subh(uint64_t val) {
+        uint64_t v = hf_(val);
+        unsigned added;
+        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), add(v, added++));
+        auto it = seeds_.begin();
+        while(added < nh_) {
+            v = hf_(*it++ ^ val);
+            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
+                sub(v, added++);
                 if(added == nh_) break; // this could be optimized by pre-scanning, I think.
             }
         }
@@ -462,7 +480,10 @@ public:
     INLINE void add(uint64_t hv, unsigned subidx) noexcept {
         at_pos(hv, subidx) += sign(hv);
     }
-    INLINE auto &at_pos(uint64_t hv, unsigned subidx) {
+    INLINE void sub(uint64_t hv, unsigned subidx) noexcept {
+        at_pos(hv, subidx) -= sign(hv);
+    }
+    INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
         assert((hv & mask_) + (subidx << np_) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
         return core_[(hv & mask_) + (subidx << np_)];
     }
@@ -471,17 +492,32 @@ public:
         assert((hv & mask_) + (subidx << np_) < core_.size());
         return core_[(hv & mask_) + (subidx << np_)];
     }
-    INLINE void addh(Space::VType hv) noexcept {
-        Space::VType tmp = HashStruct()(hv);
+    INLINE void subh(Space::VType hv) noexcept {
+        Space::VType tmp = hf_(hv);
         unsigned gadded = 0;
         tmp.for_each([&](uint64_t v) {
-            unsigned added = 0;
-            for(;added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1)) {
-                add(v, gadded++);
-            }
+            for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
+                sub(v, gadded++);
         });
         for(auto it = seeds_.begin(); gadded < nh_;) {
-            tmp = HashStruct()(Space::xor_fn(Space::set1(*it++), hv));
+            tmp = hf_(Space::xor_fn(Space::set1(*it++), hv));
+            unsigned lastgadded = gadded;
+            tmp.for_each([&](uint64_t v) {
+                unsigned added;
+                for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); sub(v, added++), v >>= (np_ + 1));
+                gadded = added;
+            });
+        }
+    }
+    INLINE void addh(Space::VType hv) noexcept {
+        Space::VType tmp = hf_(hv);
+        unsigned gadded = 0;
+        tmp.for_each([&](uint64_t v) {
+            for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
+                add(v, gadded++);
+        });
+        for(auto it = seeds_.begin(); gadded < nh_;) {
+            tmp = hf_(Space::xor_fn(Space::set1(*it++), hv));
             unsigned lastgadded = gadded;
             tmp.for_each([&](uint64_t v) {
                 unsigned added;
@@ -497,13 +533,13 @@ public:
         CounterType *ptr = static_cast<CounterType *>(__builtin_alloca(nh_ * sizeof(CounterType))), *p = ptr;
 #endif
         if(__builtin_expect(ptr == nullptr, 0)) throw std::bad_alloc();
-        uint64_t v = HashStruct()(val);
+        uint64_t v = hf_(val);
         unsigned added;
         for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1)) {
             *p++ = at_pos(v, added++) * sign(v);
         }
         for(auto it = seeds_.begin();;) {
-            v = HashStruct()(*it++ ^ val);
+            v = hf_(*it++ ^ val);
             for(unsigned k = 0; k < nph_; ++k, v >>= (np_ + 1)) {
                 *p++ = at_pos(v, added++) * sign(v);
                 if(added == nh_) goto end;

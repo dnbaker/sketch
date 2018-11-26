@@ -76,4 +76,5 @@ int main(int argc, char *argv[]) {
         std::fprintf(stderr, "Count sketch %" PRIi64 "\t%" PRIu64 "\n", k, histcs[k]);
     }
     std::fprintf(stderr, "Estimated count for 137: %d\n", thingcs.est_count(137));
+    KWiseIndependentPolynomialHash<4> hf; // Just to test compilation
 }
