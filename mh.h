@@ -231,7 +231,7 @@ public:
     auto max_mhval() const {return mask();}
     template<typename... Args>
     HyperMinHash(unsigned p, unsigned r, Args &&...args):
-        core_(r, 1ull << p),
+        core_(r + q(), 1ull << p),
         hf_(std::forward<Args>(args)...),
         p_(p), r_(r),
         seeds_{0xB0BAF377C001D00DuLL, 0x430c0277b68144b5uLL} // Fully arbitrary seeds
@@ -243,13 +243,18 @@ public:
         print_params();
 #endif
     }
-    HyperMinHash(const HyperMinHash &a): core_(a.core_), p_(a.p_), r_(a.r_) {
+    void clear() {
+        std::memset(core_.get(), 0, core_.bytes());
+    }
+    HyperMinHash(const HyperMinHash &a): core_(a.r() + q(), 1ull << a.p()), hf_(a.hf_), p_(a.p_), r_(a.r_) {
         seeds_as_sse() = a.seeds_as_sse();
+        assert(a.core_.bytes() == core_.bytes());
         std::memcpy(core_.get(), a.core_.get(), core_.bytes());
     }
     void print_all(std::FILE *fp=stderr) {
         for(size_t i = 0; i < core_.size(); ++i) {
-            std::fprintf(stderr, "Index %zu has value %d for lzc and %d for remainder\n", i, get_lzc(core_[i]), get_mhr(core_[i]));
+            size_t v = core_[i];
+            std::fprintf(stderr, "Index %zu has value %d for lzc and %d for remainder, with full value = %zu\n", i, int(get_lzc(v)), int(get_mhr(v)), size_t(core_[i]));
         }
     }
     static constexpr uint32_t q() {return 6u;} // To hold popcount for a 64-bit integer.
@@ -287,7 +292,7 @@ public:
         std::array<uint64_t, 64> ret;
         std::memset(&ret[0], 0, sizeof(ret));
         for(const auto i: core_) {
-            if(get_lzc(i) > 64) {std::fprintf(stderr, "Value for %d should not be %d\n", i, get_lzc(i)); std::exit(1);}
+            if(__builtin_expect(get_lzc(i) > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}
             ++ret[get_lzc(i)];
         }
         return ret;
@@ -333,6 +338,16 @@ public:
         }
         return *this;
     }
+    HyperMinHash &operator=(const HyperMinHash &a)
+#if 0
+    {
+        core_ = DefaultCompactVectorType(q() + a.r(), 1 << a.p());
+        seeds_as_sse() = a.seeds_as_sse();
+        std::memcpy(core_.get(), a.core_.get(), core_.bytes());
+    }
+#else
+    = delete;
+#endif
     HyperMinHash(const HyperMinHash &a, const HyperMinHash &b): HyperMinHash(a)
     {
         *this += b;
@@ -344,7 +359,6 @@ public:
         return ret;
     }
     //HyperMinHash(const HyperMinHash &) = delete;
-    HyperMinHash &operator=(const HyperMinHash &) = delete;
     HyperMinHash(HyperMinHash &&) = default;
     HyperMinHash &operator=(HyperMinHash &&) = default;
     INLINE void add(__m128i hashval) {
@@ -357,49 +371,33 @@ public:
                          lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
         //std::fprintf(stderr, "Calling hash on thing. Size of core: %zu. Index: %zu\n", index, core_.size());
         //std::fprintf(stderr, "Calling hash on %zu\n", size_t(core_[index]));
-#if OLD_WAYYYYYYYYYYY
-#ifndef NOT_THREADSAFE
-        // This won't be optimal, but it's a patch to make it work.
-        // I bet there's a way to make this lockfree.
-        if(core_[index] <= lzt) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if(core_[index] < lzt) {
-                core_[index] = lzt;
-                mcore_[index] = reinterpret_cast<uint64_t *>(&hashval)[1];
-            } else mcore_[index] = std::min(mcore_[index], reinterpret_cast<uint64_t *>(&hashval)[1]);
-        }
-#else
-        if(core_[index] < lzt) {
-            core_[index] = lzt;
-            mcore_[index] = reinterpret_cast<uint64_t *>(&hashval)[1];
-        } else if(core_[index] == lzt) mcore_[index] = std::min(reinterpret_cast<uint64_t *>(&hashval)[1], (uint64_t)mcore_[index]);
-#endif  // NOT_THREADSAFE
-#else
-        // We also use max instead of min for "minimizers" because we can pack comparisons.
         const uint64_t inserted_val = encode_register(lzt, reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval());
-        std::fprintf(stderr, "lzc: %d. oval: %zu\n", get_lzc(inserted_val), get_mhr(inserted_val));
+        //std::fprintf(stderr, "lzc: %d. oval: %zu. full val: %zu\n", int(get_lzc(inserted_val)), get_mhr(inserted_val), size_t(inserted_val));
+        assert(get_lzc(inserted_val) == lzt);
+        assert((reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) == get_mhr(inserted_val));
         //const uint64_t inserted_val = (reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) | (lzt << r_);
         //uint64_t oind = core_[index];
         //std::fprintf(stderr, "oind: %" PRIu64 "\n", oind);
-        if(core_[index] < inserted_val) // Consider other functions for specific register sizes.
+        if(core_[index] < inserted_val) { // Consider other functions for specific register sizes.
             core_[index] = inserted_val;
-#endif // #if OLD_WAYYYYYYYYYYY
-        std::fprintf(stderr, "Called hash on thing\n");
-        const uint64_t newval = core_[index];
-        assert(core_[index] >= newval);
+            assert(encode_register(lzt, get_mhr(inserted_val)) == inserted_val);
+            assert(lzt == get_lzc(inserted_val));
+            //std::fprintf(stderr, "Register is now set to %zu with clz %d, which should match %d from other clz\n", size_t(core_[index]), int(get_lzc(inserted_val)), int(lzt));
+        }
+        //std::fprintf(stderr, "Register is now the same at%zu with clz %d, \n", size_t(core_[index]), int(get_lzc(core_[index])));
     }
     double jaccard_index(const HyperMinHash &o) const {
         size_t C = 0, N = 0;
         std::fprintf(stderr, "core size: %zu\n", core_.size());
-        switch(simd_policy()) {
-            default:
-            U8:  [[fallthrough]] // 2-bit minimizers. TODO: write this
-            U16: [[fallthrough]] // 10-bit minimizers. TODO: write this
-            U32: [[fallthrough]] // 26-bit minimizers. TODO: write this
-            U64: [[fallthrough]] // 58-bit minimizers. TODO: write this
+        switch(simd_policy()) { // This can be accelerated for specific sizes
+            default: [[fallthrough]];
+            U8:      [[fallthrough]]; // 2-bit minimizers. TODO: write this
+            U16:     [[fallthrough]]; // 10-bit minimizers. TODO: write this
+            U32:     [[fallthrough]]; // 26-bit minimizers. TODO: write this
+            U64:     [[fallthrough]]; // 58-bit minimizers. TODO: write this
             Manual:
                 for(size_t i = 0; i < core_.size(); ++i) {
-                    std::fprintf(stderr, "lzcs: %u, %u\n", get_lzc(core_[i]), get_lzc(o.core_[i]));
+                    //std::fprintf(stderr, "lzcs at index %zu: %u, %u\n", i, get_lzc(core_[i]), get_lzc(o.core_[i]));
                     C += (get_lzc(core_[i]) == get_lzc(o.core_[i]));
                     N += (core_[i] || o.core_[i]);
                 }
@@ -417,11 +415,15 @@ public:
             if(std::log2(n) > p() + 5) {
                 const double nm = n/m;
                 const double phi = std::ldexp(nm, -4) / std::pow(1 + nm, 2);
-                std::fprintf(stderr, "Using normal way\n");
+#if !NDEBUG
+                std::fprintf(stderr, "Using normal expected collisions method\n");
+#endif
                 return std::ldexp(0.169919487159739093975315012348, p() - r())  * phi;
             }
         }
-        std::fprintf(stderr, "Using slow way\n");
+#if !NDEBUG
+        std::fprintf(stderr, "Using slow expected collisions method\n");
+#endif
         double x = 0.;
         for(size_t i = 1; i <= size_t(1) << p(); ++i) {
             for(size_t j = 1; j <= size_t(1) << r(); ++j) {
@@ -439,7 +441,6 @@ public:
                 x += prx * pry;
             }
         }
-        std::fprintf(stderr, "Successfully slow wayed\n");
         return std::ldexp(x, p());
     }
 };
