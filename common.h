@@ -96,12 +96,25 @@ using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
 #endif
 
 #ifdef NOT_THREADSAFE
-using DefaultCompactVectorType = ::compact::ts_vector<uint32_t, 0, uint32_t, Allocator<uint32_t>>;
+using DefaultCompactVectorType = ::compact::ts_vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
 #else
-using DefaultCompactVectorType = ::compact::vector<uint32_t, 0, uint32_t, Allocator<uint32_t>>;
+using DefaultCompactVectorType = ::compact::vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
 #endif
 
-
+template<typename T>
+static INLINE T roundup(T x) noexcept {
+    --x;
+    x |= x >> 1;
+    x |= x >> 2;
+    x |= x >> 4;
+    if(sizeof(x) > 1)
+        x |= x >> 8;
+    if(sizeof(x) > 2)
+        x |= x >> 16;
+    if(sizeof(x) > 4)
+        x |= x >> 32;
+    return ++x;
+}
 
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
@@ -321,6 +334,20 @@ public:
     template<typename... Args>
     NotImplementedError(Args &&...args): std::runtime_error(std::forward<Args>(args)...) {}
 };
+namespace detail {
+// Overloads for setting memory to 0 for either compact vectors
+// or std::vectors
+template<typename T, typename AllocatorType=typename T::allocator>
+static inline void zero_memory(std::vector<T, AllocatorType> &v, size_t newsz) {
+    std::memset(v.data(), 0, v.size() * sizeof(v[0]));
+    v.resize(newsz);
+    std::fprintf(stderr, "New size of container: %zu\n", newsz);
+}
+template<typename T1, unsigned int BITS, typename T2, typename Allocator>
+static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz) {
+   std::memset(v.get(), 0, v.bytes()); // zero array
+}
+} // namespace detail
 
 } // namespace common
 } // namespace sketch

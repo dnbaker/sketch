@@ -418,12 +418,16 @@ static inline std::array<uint64_t, 64> sum_counts(const SIMDHolder *p, const SIM
 
 template<typename Container>
 inline std::array<uint64_t, 64> sum_counts(const Container &con) {
-    static_assert(std::is_same<std::decay_t<decltype(con[0])>, uint8_t>::value, "Container must contain 8-bit unsigned integers.");
+    //static_assert(std::is_same<std::decay_t<decltype(con[0])>, uint8_t>::value, "Container must contain 8-bit unsigned integers.");
     return sum_counts(reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
+}
+inline std::array<uint64_t, 64> sum_counts(const DefaultCompactVectorType &con) {
+    // TODO: add a check to make sure that it's doing it right
+    return sum_counts(reinterpret_cast<const SIMDHolder *>(con.get()), reinterpret_cast<const SIMDHolder *>(con.get() + con.bytes()));
 }
 template<typename T, typename Container>
 inline void inc_counts(T &counts, const Container &con) {
-    static_assert(std::is_same<std::decay_t<decltype(con[0])>, uint8_t>::value, "Container must contain 8-bit unsigned integers.");
+    //static_assert(std::is_same<std::decay_t<decltype(con[0])>, uint8_t>::value, "Container must contain 8-bit unsigned integers.");
     return inc_counts(counts, reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
 }
 
@@ -562,20 +566,6 @@ std::array<double, 3> ertl_joint(HllType &h1, HllType &h2) {
 }
 
 
-
-#ifdef roundup64
-#undef roundup64
-#endif
-static INLINE uint64_t roundupsize(size_t x) noexcept {
-    --x;
-    x |= x >> 1;
-    x |= x >> 2;
-    x |= x >> 4;
-    x |= x >> 8;
-    x |= x >> 16;
-    x |= x >> 32;
-    return ++x;
-}
 
 #define clztbl(x, arg) do {\
     switch(arg) {\
@@ -953,7 +943,7 @@ public:
 
     // Clears, allows reuse with different np.
     void resize(size_t new_size) {
-        if(new_size & (new_size - 1)) new_size = roundupsize(new_size);
+        if(new_size & (new_size - 1)) new_size = roundup(new_size);
         clear();
         core_.resize(new_size);
         np_ = std::log2(new_size);
@@ -1074,16 +1064,17 @@ public:
             std::array<uint64_t, 64> counts{0};
             // We can do this because we use an aligned allocator.
             const SType *p1(reinterpret_cast<const SType *>(data())), *p2(reinterpret_cast<const SType *>(other.data()));
-            for(SIMDHolder tmp;p1 < reinterpret_cast<const SType *>(&(*core().cend()));tmp.val = SIMDHolder::max_fn(*p1++, *p2++), tmp.inc_counts(counts));
+            const SType *const pe(reinterpret_cast<const SType *>(&(*core().cend())));
+            for(SIMDHolder tmp;p1 < pe;) {
+                tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
+                tmp.inc_counts(counts);
+            }
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
-    double jaccard_index(hllbase_t &h2) {
-        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
-        return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
-    }
+    // Jaccard index, but returning a bool to indicate whether it was less than expected error for the cardinality/sketch size
     std::pair<double, bool> bjaccard_index(hllbase_t &h2) {
         if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
         return const_cast<hllbase_t &>(*this).bjaccard_index(const_cast<const hllbase_t &>(h2));
@@ -1097,6 +1088,10 @@ public:
         const double us = union_size(h2);
         const double ret = std::max(0., creport() + h2.creport() - us) / us;
         return std::make_pair(ret, ret > relative_error());
+    }
+    double jaccard_index(hllbase_t &h2) {
+        if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
+        return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
     }
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
