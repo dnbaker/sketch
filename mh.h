@@ -17,6 +17,32 @@ using namespace common;
 
 #define SET_SKETCH(x) const auto &sketch() const {return x;} auto &sketch() {return x;}
 
+namespace detail {
+
+static constexpr double HMH_C = 0.169919487159739093975315012348;
+
+template<typename FType, typename=std::enable_if_t<std::is_floating_point_v<FType>>>
+inline FType beta(FType v) {
+    FType ret = -0.370393911 * v;
+    v = std::log1p(v);
+    FType poly = v * v;
+    ret += 0.070471823 * v;
+    ret += 0.17393686 * poly;
+    poly *= v;
+    ret += 0.16339839 * poly;
+    poly *= v;
+    ret -= 0.09237745 * poly;
+    poly *= v;
+    ret += 0.03738027 * poly;
+    poly *= v;
+    ret += -0.005384159 * poly;
+    poly *= v;
+    ret += 0.00042419 * poly;
+    return ret;
+}
+
+} // namespace detail
+
 template<typename T, typename SizeType=uint32_t, typename=::std::enable_if_t<::std::is_integral_v<T>>, typename=::std::enable_if_t<::std::is_integral_v<SizeType>>>
 class AbstractMinHash {
 protected:
@@ -180,91 +206,159 @@ public:
     using key_compare = typename HeapType::key_compare;
 };
 
-template<typename T=uint64_t, typename Hasher=WangHash, typename SizeType=uint32_t,
-         typename VectorType=std::vector<T, Allocator<T>>>
+template<typename T=uint64_t, typename Hasher=WangHash>
 class HyperMinHash {
-    // VectorType must support assignment and other similar operations.
-    std::vector<uint8_t, Allocator<uint8_t>> core_; // HyperLogLog core
-    VectorType mcore_;                              // Minimizers core
-    uint32_t p_, q_, r_;
-    uint64_t seeds_ [2] __attribute__ ((aligned (16)));
+    DefaultCompactVectorType core_;
+    Hasher hf_;
+    uint32_t p_, r_;
+    uint64_t seeds_ [2] __attribute__ ((aligned (sizeof(uint64_t) * 2)));
 #ifndef NOT_THREADSAFE
-    std::mutex mutex_;
+    std::mutex mutex_; // I should be able to replace most of these with atomics.
 #endif
-    static_assert(std::is_same_v<std::decay_t<decltype(mcore_[0])>, T>, "Vector must derefernce to T.");
 public:
+    enum ComparePolicy {
+        Manual = 0,
+        U8 = 1,
+        U16 = 2,
+        U32 = 3,
+        U64 = 4
+    };
     auto &core() {return core_;}
-    uint64_t mask() const {
-        return uint64_t(1) << r_ - 1;
-    }
     const auto &core() const {return core_;}
+    uint64_t mask() const {
+        return (uint64_t(1) << r_) - 1;
+    }
+    auto max_mhval() const {return mask();}
     template<typename... Args>
-    HyperMinHash(unsigned p, unsigned q=0, unsigned r=64, Args &&...args):
-        core_(1ull << p),
-        mcore_(std::forward<Args>(args)...),
-        p_(p), q_(q ? q: 64 - p), r_(r),
-        seeds_{0xB0BAF377C001D00DuLL, 0x430c0277b68144b5}
+    HyperMinHash(unsigned p, unsigned r, Args &&...args):
+        core_(r + q(), 1ull << p),
+        hf_(std::forward<Args>(args)...),
+        p_(p), r_(r),
+        seeds_{0xB0BAF377C001D00DuLL, 0x430c0277b68144b5uLL} // Fully arbitrary seeds
     {
-        mcore_.resize(core_.size());
+        std::fprintf(stderr, "Pointer for data: %p\n", static_cast<void *>(core_.get()));
+        common::detail::zero_memory(core_, 0); // Second parameter is a dummy for interface compatibility with STL
 #if !NDEBUG
+        std::fprintf(stderr, "p: %u. r: %u\n", p, r);
         print_params();
 #endif
     }
-    uint64_t max_mhval() const {
-        return (uint64_t(1) << q_) - 1;
+    void clear() {
+        std::memset(core_.get(), 0, core_.bytes());
+    }
+    HyperMinHash(const HyperMinHash &a): core_(a.r() + q(), 1ull << a.p()), hf_(a.hf_), p_(a.p_), r_(a.r_) {
+        seeds_as_sse() = a.seeds_as_sse();
+        assert(a.core_.bytes() == core_.bytes());
+        std::memcpy(core_.get(), a.core_.get(), core_.bytes());
+    }
+    void print_all(std::FILE *fp=stderr) {
+        for(size_t i = 0; i < core_.size(); ++i) {
+            size_t v = core_[i];
+            std::fprintf(stderr, "Index %zu has value %d for lzc and %d for remainder, with full value = %zu\n", i, int(get_lzc(v)), int(get_mhr(v)), size_t(core_[i]));
+        }
+    }
+    static constexpr uint32_t q() {return 6u;} // To hold popcount for a 64-bit integer.
+    auto minimizer_size() const {
+        return r_ + q();
+    }
+    ComparePolicy simd_policy() const {
+        switch(minimizer_size()) {
+            case 8: return ComparePolicy::U8;
+            case 16: return ComparePolicy::U16;
+            case 32: return ComparePolicy::U32;
+            case 64: return ComparePolicy::U64;
+            default: return ComparePolicy::Manual;
+        }
+        __builtin_unreachable();
+    }
+    // Encoding and decoding table entries
+    auto get_lzc(uint64_t entry) const {
+        return entry >> r_;
+    }
+    auto get_mhr(uint64_t entry) const {
+        return entry & max_mhval();
+    }
+    template<typename I1, typename I2,
+             typename=std::enable_if_t<std::is_integral_v<I1> && std::is_integral_v<I1>>>
+    auto encode_register(I1 lzc, I2 min) const {
+        // We expect that min has already been masked so as to eliminate unnecessary operations
+        assert(min <= max_mhval());
+        return (uint64_t(lzc) << r_) | min;
+    }
+    std::array<uint64_t, 64> sum_counts() const {
+        if(__builtin_expect(r_ == 0, 0)) { // No remained, is a hyperloglog sketch
+            return hll::detail::sum_counts(core_);
+        }
+        std::array<uint64_t, 64> ret;
+        std::memset(&ret[0], 0, sizeof(ret));
+        for(const auto i: core_) {
+            if(__builtin_expect(get_lzc(i) > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}
+            ++ret[get_lzc(i)];
+        }
+        return ret;
     }
     double estimate_hll_portion(double relerr=1e-2) const {
-        return hll::detail::ertl_ml_estimate(hll::detail::sum_counts(this->core_), p(), q(), relerr);
+        return hll::detail::ertl_ml_estimate(this->sum_counts(), p(), q(), relerr);
     }
     double report(double relerr=1e-2) const {
-        const auto csum = hll::detail::sum_counts(this->core_);
-        if(double est = hll::detail::ertl_ml_estimate(csum, p(), q(), relerr);est < static_cast<double>(core_.size() << 10))
+        const auto csum = this->sum_counts();
+        if(double est = hll::detail::ertl_ml_estimate(csum, p(), 64 - p(), relerr);est < static_cast<double>(core_.size() << 10))
             return est;
-        double rsum = 0.;
-        for(size_t i(0); i < csum.size(); ++i)
-            rsum += std::ldexp(1., -csum[i]) * (1. + (static_cast<double>(mcore_[i]) / (max_mhval())));
-        return rsum ? static_cast<double>(core_.size() * core_.size()) / rsum: std::numeric_limits<double>::infinity();
+        const double mhinv = 1. / max_mhval();
+        double sum = csum[0] * (1 + static_cast<double>((uint64_t(1) << p()) - get_mhr(core_[0])) * mhinv);
+        for(int i = 1; i < static_cast<int64_t>(csum.size()); ++i)
+            sum += std::ldexp(csum[i], -i) * (1. + static_cast<double>((uint64_t(1) << p()) - get_mhr(core_[i])) * mhinv);
+        return sum ? static_cast<double>(std::pow(core_.size(), 2)) / sum: std::numeric_limits<double>::infinity();
     }
     auto p() const {return p_;}
-    auto q() const {return q_;}
     auto r() const {return r_;}
     void set_seeds(uint64_t seed1, uint64_t seed2) {
         seeds_[0] = seed1; seeds_[1] = seed2;
+    }
+    void set_seeds(__m128i s) {
+        seeds_as_sse() = s;
     }
     int print_params(std::FILE *fp=stderr) const {
         return std::fprintf(fp, "p: %u. q: %u. r: %u.\n", p(), q(), r());
     }
     const __m128i &seeds_as_sse() const {return *reinterpret_cast<const __m128i *>(seeds_);}
+    __m128i &seeds_as_sse() {return *reinterpret_cast<__m128i *>(seeds_);}
 
     INLINE void addh(uint64_t element) {
-        __m128i i = _mm_set1_epi64x(element);
-        i ^= seeds_as_sse();
-        i = Hasher()(i);
-        add(i);
+        add(hf_(_mm_set1_epi64x(element) ^ seeds_as_sse()));
     }
     template<typename ET>
     INLINE void addh(ET element) {
-        element.for_each([&](auto &el) {this->addh(element);});
+        element.for_each([&](uint64_t el) {this->addh(el);});
     }
     HyperMinHash &operator+=(const HyperMinHash &o) {
         for(size_t i(0); i < core_.size(); ++i) {
-            if(core_[i] < o.core_[i]) {
-                core_[i] = o.core_[i];
-                mcore_[i] = o.mcore_[i];
-            } else if(core_[i] == o.core_[i]) {
-                using std::min;
-                mcore_[i] = min(mcore_[i], o.mcore_[i]);
-            }
+            if(core_[i] < o.core_[i]) core_[i] = o.core_[i];
+            // This can also be accelerated for specific minimizer sizes
         }
         return *this;
     }
-    HyperMinHash(const HyperMinHash &a, const HyperMinHash &b): HyperMinHash(a.p(), a.q(), a.r())
+    HyperMinHash &operator=(const HyperMinHash &a)
+#if 0
     {
-        *this += a;
+        core_ = DefaultCompactVectorType(q() + a.r(), 1 << a.p());
+        seeds_as_sse() = a.seeds_as_sse();
+        std::memcpy(core_.get(), a.core_.get(), core_.bytes());
+    }
+#else
+    = delete;
+#endif
+    HyperMinHash(const HyperMinHash &a, const HyperMinHash &b): HyperMinHash(a)
+    {
         *this += b;
     }
-    HyperMinHash(const HyperMinHash &) = delete;
-    HyperMinHash &operator=(const HyperMinHash &) = delete;
+    HyperMinHash operator+(const HyperMinHash &a) const {
+        if(__builtin_expect(a.p() != p() || a.q() != q(), 0)) throw std::runtime_error("Could not merge sketches of differing parameter sets");
+        HyperMinHash ret(*this);
+        ret += a;
+        return ret;
+    }
+    //HyperMinHash(const HyperMinHash &) = delete;
     HyperMinHash(HyperMinHash &&) = default;
     HyperMinHash &operator=(HyperMinHash &&) = default;
     INLINE void add(__m128i hashval) {
@@ -273,25 +367,88 @@ public:
         uint64_t arr[2];
         static_assert(sizeof(hashval) == sizeof(arr), "Size sanity check");
         std::memcpy(&arr[0], &hashval, sizeof(hashval));
-        const uint32_t index(arr[0] >> q());
-        const uint8_t lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
-#ifndef NOT_THREADSAFE
-        // This won't be optimal, but it's a patch to make it work.
-        if(core_[index] <= lzt) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if(core_[index] < lzt) {
-                core_[index] = lzt;
-                mcore_[index] = arr[1];
-            } else mcore_[index] = std::min(mcore_[index], arr[1]);
+        const uint64_t index(reinterpret_cast<uint64_t *>(&hashval)[0] >> (64 - p())),
+                         lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
+        //std::fprintf(stderr, "Calling hash on thing. Size of core: %zu. Index: %zu\n", index, core_.size());
+        //std::fprintf(stderr, "Calling hash on %zu\n", size_t(core_[index]));
+        const uint64_t inserted_val = encode_register(lzt, reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval());
+        //std::fprintf(stderr, "lzc: %d. oval: %zu. full val: %zu\n", int(get_lzc(inserted_val)), get_mhr(inserted_val), size_t(inserted_val));
+        assert(get_lzc(inserted_val) == lzt);
+        assert((reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) == get_mhr(inserted_val));
+        //const uint64_t inserted_val = (reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) | (lzt << r_);
+        //uint64_t oind = core_[index];
+        //std::fprintf(stderr, "oind: %" PRIu64 "\n", oind);
+        if(core_[index] < inserted_val) { // Consider other functions for specific register sizes.
+            core_[index] = inserted_val;
+            assert(encode_register(lzt, get_mhr(inserted_val)) == inserted_val);
+            assert(lzt == get_lzc(inserted_val));
+            //std::fprintf(stderr, "Register is now set to %zu with clz %d, which should match %d from other clz\n", size_t(core_[index]), int(get_lzc(inserted_val)), int(lzt));
+        }
+        //std::fprintf(stderr, "Register is now the same at%zu with clz %d, \n", size_t(core_[index]), int(get_lzc(core_[index])));
+    }
+    double jaccard_index(const HyperMinHash &o) const {
+        size_t C = 0, N = 0;
+        std::fprintf(stderr, "core size: %zu\n", core_.size());
+#if EXPERIMENTAL_SIMD_CMP
+        switch(simd_policy()) { // This can be accelerated for specific sizes
+            default: [[fallthrough]];
+            U8:      [[fallthrough]]; // 2-bit minimizers. TODO: write this
+            U16:     [[fallthrough]]; // 10-bit minimizers. TODO: write this
+            U32:     [[fallthrough]]; // 26-bit minimizers. TODO: write this
+            U64:     [[fallthrough]]; // 58-bit minimizers. TODO: write this
+            Manual:
+                for(size_t i = 0; i < core_.size(); ++i) {
+                    C += (get_lzc(core_[i]) == get_lzc(o.core_[i]));
+                    N += (core_[i] || o.core_[i]);
+                }
+            break;
         }
 #else
-        if(core_[index] < lzt) {
-            core_[index] = lzt;
-            mcore_[index] = arr[1];
-        } else if(core_[index] == lzt) mcore_[index] = std::min(arr[1], (uint64_t)mcore_[index]);
+       for(size_t i = 0; i < core_.size(); ++i) {
+           C += (get_lzc(core_[i]) == get_lzc(o.core_[i]));
+           N += (core_[i] || o.core_[i]);
+       }
 #endif
+        const double n = this->report(), m = o.report(), ec = expected_collisions(n, m);
+        std::fprintf(stderr, "C: %zu. ec: %lf\n", C, ec);
+        return C > ec ? (C - ec) / N: 0.;
     }
-    // TODO: jaccard index support
+    double expected_collisions(double n, double m, bool easy_way=true) const {
+        if(easy_way) {
+            if(n < m) std::swap(n, m);
+            if(std::log2(n) > ((1 << q()) + r()))
+                throw std::range_error("Too high to calculate");
+            if(std::log2(n) > p() + 5) {
+                const double nm = n/m;
+                const double phi = std::ldexp(nm, -4) / std::pow(1 + nm, 2);
+#if !NDEBUG
+                std::fprintf(stderr, "Using normal expected collisions method\n");
+#endif
+                return std::ldexp(0.169919487159739093975315012348, p() - r())  * phi;
+            }
+        }
+#if !NDEBUG
+        std::fprintf(stderr, "Using slow expected collisions method\n");
+#endif
+        double x = 0.;
+        for(size_t i = 1; i <= size_t(1) << p(); ++i) {
+            for(size_t j = 1; j <= size_t(1) << r(); ++j) {
+                double b1, b2;
+                const int _p= p_, _r = r_; // Redeclaring as signed integers to avoid underflow
+                if(i != size_t(1) << q()) {
+                    b1 = std::ldexp((size_t(1) << r()) + j, -_p - _r - i);
+                    b2 = std::ldexp((size_t(1) << r()) + j + 1, -_p - _r - i);
+                } else {
+                    b1 = std::ldexp(j, -p_ - _r - i - 1);
+                    b2 = std::ldexp(j + 1, -p_ - _r - i - 1);
+                }
+                const double prx = std::pow(1.-b2, n) - std::pow(1.-b1, n);
+                const double pry = std::pow(1.-b2, m) - std::pow(1.-b1, m);
+                x += prx * pry;
+            }
+        }
+        return std::ldexp(x, p());
+    }
 };
 
 } // namespace minhash

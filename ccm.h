@@ -163,26 +163,6 @@ struct PowerOfTwo {
 
 using namespace common;
 
-//template<typename Container>
-//void zero_memory(Container &c, size_t newsz) {
-//    throw std::runtime_error("NotImplemented. (This should always be overridden.)");
-//}
-
-namespace detail {
-// Overloads for setting memory to 0 for either compact vectors
-// or std::vectors
-template<typename T, typename AllocatorType=typename T::allocator>
-static inline void zero_memory(std::vector<T, AllocatorType> &v, size_t newsz) {
-    std::memset(v.data(), 0, v.size() * sizeof(v[0]));
-    v.resize(newsz);
-    std::fprintf(stderr, "New size of container: %zu\n", newsz);
-}
-template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz) {
-   std::memset(v.get(), 0, v.bytes()); // zero array
-}
-} // namespace detail
-
 template<typename UpdateStrategy=update::Increment,
          typename VectorType=DefaultCompactVectorType,
          typename HashStruct=common::WangHash>
@@ -210,7 +190,7 @@ public:
                               seeds_.size() * sizeof(seeds_[0]) + data_.bytes());
     }
     void clear() {
-        detail::zero_memory(data_, std::log2(subtbl_sz_));
+        common::detail::zero_memory(data_, std::log2(subtbl_sz_));
     }
     template<typename... Args>
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):
@@ -240,7 +220,7 @@ public:
         return hf_(val);
     }
     uint64_t subhash(uint64_t val, uint64_t seedind) const {
-        return hash(((val ^ seeds_[seedind]) & mask_) + val & mask_);
+        return hash(((val ^ seeds_[seedind]) & mask_) + (val & mask_));
     }
     uint64_t mask() const {return mask_;}
     auto np() const {return l2sz_;}
