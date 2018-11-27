@@ -45,8 +45,8 @@ void kt_helper(void *data, long index, int tid) {
  */
 
 int main(int argc, char *argv[]) {
-    mh::HyperMinHash<> mh(10), mh2(12);
-    mh::HyperMinHash<> mh3(mh.p()); mh3 += mh;
+    mh::HyperMinHash<> mh(10, 10), mh2(12, 10);
+    mh::HyperMinHash<> mh3(mh.p(), 10); mh3 += mh;
     mh.addh(uint64_t(1337));
     std::vector<std::uint64_t> vals;
     for(char **p(argv + 1); *p; ++p) vals.push_back(strtoull(*p, 0, 10));
