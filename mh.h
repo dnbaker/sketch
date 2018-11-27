@@ -389,6 +389,7 @@ public:
     double jaccard_index(const HyperMinHash &o) const {
         size_t C = 0, N = 0;
         std::fprintf(stderr, "core size: %zu\n", core_.size());
+#if EXPERIMENTAL_SIMD_CMP
         switch(simd_policy()) { // This can be accelerated for specific sizes
             default: [[fallthrough]];
             U8:      [[fallthrough]]; // 2-bit minimizers. TODO: write this
@@ -397,12 +398,17 @@ public:
             U64:     [[fallthrough]]; // 58-bit minimizers. TODO: write this
             Manual:
                 for(size_t i = 0; i < core_.size(); ++i) {
-                    //std::fprintf(stderr, "lzcs at index %zu: %u, %u\n", i, get_lzc(core_[i]), get_lzc(o.core_[i]));
                     C += (get_lzc(core_[i]) == get_lzc(o.core_[i]));
                     N += (core_[i] || o.core_[i]);
                 }
             break;
         }
+#else
+       for(size_t i = 0; i < core_.size(); ++i) {
+           C += (get_lzc(core_[i]) == get_lzc(o.core_[i]));
+           N += (core_[i] || o.core_[i]);
+       }
+#endif
         const double n = this->report(), m = o.report(), ec = expected_collisions(n, m);
         std::fprintf(stderr, "C: %zu. ec: %lf\n", C, ec);
         return C > ec ? (C - ec) / N: 0.;
