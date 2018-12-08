@@ -80,7 +80,7 @@ struct CountSketch {
         }
         if(s.size()) {
             common::sort::insertion_sort(s.begin(), s.end());
-            return s.size() & 1 ? ssize_t(s[s.size()>>1]): ssize_t((s[s.size() >> 1] + s[(s.size() >> 1) - 1]) * 0.5);
+            return (s[s.size()>>1] + s[(s.size()-1)>>1]) >> 1;
         }
         return 0;
     }
@@ -507,7 +507,7 @@ public:
         }
     }
     CounterType est_count(uint64_t val) const {
-#if AVOID_ALLOCA
+#if defined(AVOID_ALLOCA)
         CounterType *ptr = static_cast<CounterType *>(std::malloc(nh_ * sizeof(CounterType))), *p = ptr;
 #else
         CounterType *ptr = static_cast<CounterType *>(__builtin_alloca(nh_ * sizeof(CounterType))), *p = ptr;
@@ -528,12 +528,9 @@ public:
         end:
         sort::insertion_sort(ptr, ptr + nh_);
 #if AVOID_ALLOCA
-        CounterType ret = nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
         std::free(ptr);
-        return ret;
-#else
-        return nh_ & 1 ? ptr[nh_ >> 1]: CounterType((ptr[nh_ >> 1] + ptr[(nh_ >> 1) - 1]) >> 1);
 #endif
+        return (ptr[nh_>>1] + ptr[(nh_-1)>>1]) >> 1;
     }
 };
 

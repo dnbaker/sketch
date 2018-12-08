@@ -1457,7 +1457,7 @@ public:
                 sort::insertion_sort(std::begin(values_), std::end(values_));
             else
                 std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) + 1, std::end(values_));
-            return values_[size() >> 1];
+            return (values_[size() >> 1] + values_[(size() - 1)>>1] ) * 0.5;
         }
         if(size() < 32) {
             sort::insertion_sort(std::begin(values_), std::end(values_));
