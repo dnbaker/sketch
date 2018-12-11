@@ -1449,15 +1449,16 @@ public:
     }
     
     double med_report() noexcept {
-        double *values = static_cast<double *>(hlls_.size() < 100000u ? __builtin_alloca(hlls_.size() * sizeof(double)): malloc(hlls_.size() * sizeof(double))), *p = values;
+        double *values = static_cast<double *>(size() < 100000u ? __builtin_alloca(size() * sizeof(double)): std::malloc(size() * sizeof(double))), *p = values;
         for(auto it = hlls_.begin(); it != hlls_.end(); *p++ = it->report(), ++it);
         if(size() < 32) {
             sort::insertion_sort(values, values + size());
             return .5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
         }
-        std::nth_element(std::begin(values), std::begin(values) + (size() >> 1) - 1, std::end(values));
-        double ret = .5 * (values[(values.size() >> 1) - 1] + *std::min_element(std::cbegin(values) + (size() >> 1), std::cend(values)));
+        std::nth_element(values, values + (size() >> 1) - 1, values + size());
+        double ret = .5 * (values[(size() >> 1) - 1] + values[(size() >> 1)]);
         if(hlls_.size() >= 100000u) std::free(values);
+        return ret;
     }
     // Attempt strength borrowing across hlls with different seeds
     double chunk_report() const {
