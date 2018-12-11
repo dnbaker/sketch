@@ -507,7 +507,7 @@ public:
         }
     }
     CounterType est_count(uint64_t val) const {
-#if defined(AVOID_ALLOCA)
+#if AVOID_ALLOCA
         CounterType *ptr = static_cast<CounterType *>(std::malloc(nh_ * sizeof(CounterType))), *p = ptr;
 #else
         CounterType *ptr = static_cast<CounterType *>(__builtin_alloca(nh_ * sizeof(CounterType))), *p = ptr;
