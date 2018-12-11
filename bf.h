@@ -40,9 +40,9 @@ using Allocator = std::allocator<ValueType, ss::Alignment::Normal>;
 
 
 
-template<typename HashStruct=WangHash>
+template<typename HashStruct=WangHash, typename ImplType=>
 class bfbase_t {
-// HyperLogLog implementation.
+// Blocked bloom filter implementation.
 // To make it general, the actual point of entry is a 64-bit integer hash function.
 // Therefore, you have to perform a hash function to convert various types into a suitable query.
 // We could also cut our memory requirements by switching to only using 6 bits per element,
@@ -127,7 +127,7 @@ public:
         uint64_t &ref = core_[ind >> OFFSET];
         const auto ret = ref & val;
         ref |= val;
-        return ret;
+        return ret != 0;
     }
 
     INLINE bool all_set(const uint64_t &hv, unsigned n, unsigned shift) const {
@@ -164,11 +164,20 @@ public:
     }
     uint64_t popcnt() const { // Number of set bits
         Space::VType tmp;
-        const Type *op(reinterpret_cast<const Type *>(data()));
-        const Type *ep(reinterpret_cast<const Type *>(&core_[core_.size()]));
+        const Type *op(reinterpret_cast<const Type *>(data())),
+                   *ep(reinterpret_cast<const Type *>(&core_[core_.size()]));
         uint64_t sum;
         for(sum = popcnt_fn(*op++); op < ep; sum += popcnt_fn(*op++));
         return sum;
+    }
+    void halve() {
+        using vt = Space::VType;
+        if(nh_ == 1) {
+            flatten_half(core_.data(), core_.data() + core_.size());
+        } else {
+            for(size_t i = 0; i < nh_; ++i) {
+            }
+        }
     }
     double est_err() const {
         // Calculates estimated false positive rate as a functino of the number of set bits.
@@ -280,14 +289,11 @@ public:
 
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
-        if constexpr(std::is_same<HashStruct, clhasher>::value) {
+        if constexpr(std::is_same<HashStruct, clhasher>::value)
             addh(hf_(element));
-        } else {
+        else
 #endif
-            addh(std::hash<std::string>{}(element));
-#ifdef ENABLE_CLHASH
-        }
-#endif
+            addh(std::hash<std::string>{}(element)); // IE, do if not replaced.
     }
     // Reset.
     void clear() {

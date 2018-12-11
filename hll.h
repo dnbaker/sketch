@@ -1447,24 +1447,17 @@ public:
 #endif
         return value_ = ret;
     }
+    
     double med_report() noexcept {
-        if(values_.empty())
-            values_.reserve(size());
-        values_.clear();
-        for(auto &hll: hlls_) values_.emplace_back(hll.report());
-        if(size() & 1) {
-            if(size() < 32)
-                sort::insertion_sort(std::begin(values_), std::end(values_));
-            else
-                std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) + 1, std::end(values_));
-            return (values_[size() >> 1] + values_[(size() - 1)>>1] ) * 0.5;
-        }
+        double *values = static_cast<double *>(hlls_.size() < 100000u ? __builtin_alloca(hlls_.size() * sizeof(double)): malloc(hlls_.size() * sizeof(double))), *p = values;
+        for(auto it = hlls_.begin(); it != hlls_.end(); *p++ = it->report(), ++it);
         if(size() < 32) {
-            sort::insertion_sort(std::begin(values_), std::end(values_));
-            return .5 * (values_[size() >> 1] + values_[(size() >> 1) - 1]);
+            sort::insertion_sort(values, values + size());
+            return .5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
         }
-        std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) - 1, std::end(values_));
-        return .5 * (values_[(values_.size() >> 1) - 1] + *std::min_element(std::cbegin(values_) + (size() >> 1), std::cend(values_)));
+        std::nth_element(std::begin(values), std::begin(values) + (size() >> 1) - 1, std::end(values));
+        double ret = .5 * (values[(values.size() >> 1) - 1] + *std::min_element(std::cbegin(values) + (size() >> 1), std::cend(values)));
+        if(hlls_.size() >= 100000u) std::free(values);
     }
     // Attempt strength borrowing across hlls with different seeds
     double chunk_report() const {
