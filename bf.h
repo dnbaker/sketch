@@ -38,20 +38,6 @@ using Allocator = std::allocator<ValueType, ss::Alignment::Normal>;
 // considering there's an intrinsic for the atomic load/store, but there would not
 // be for bit-packed versions.
 
-
-namespace detail {
-template<typename T>
-void flatten_half(T *s, T *e) {
-    assert((e - s) == 1 || ((e - s) & (e - s - 1)) == 0); // distance must be a power of two
-    Space::VType *ps = reinterpret_cast<Space::VType *>(s);
-    Space::VType *es = reinterpret_cast<Space::VType *>(s + ((e-s)>>1));
-    for(;es < reinterpret_cast<Space::VType *>(e); +ps, ++es) {
-        ps->simd_ |= es->simd_;
-    }
-}
-}
-
-
 static constexpr size_t optimal_nhashes(size_t l2sz, size_t est_cardinality) {
     assert(l2sz <= 64u);
     l2sz  = size_t(1) << l2sz;
@@ -97,7 +83,7 @@ public:
         np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), hf_(std::forward<Args>(args)...), seedseed_(seedval)
     {
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
-        if(np_ > 40u) throw std::runtime_error("Attempting to make a table that's too large."s + std::to_string(np_));
+        if(np_ > 40u) throw std::runtime_error("Attempting to make a table that's too large. p:"s + std::to_string(np_));
         if(np_) resize(1ull << p());
 #if !NDEBUG
         else std::fprintf(stderr, "np is small. (%u). offset %i. \n", unsigned(np_), int(l2sz) - OFFSET);
@@ -189,15 +175,18 @@ public:
         return sum;
     }
     void halve() {
-        using vt = Space::VType;
-        if(nh_ == 1) {
-            detail::flatten_half(core_.data(), core_.data() + core_.size());
-        } else {
-            for(size_t i = 0; i < nh_; ++i) {
-                throw 1;
-            }
+        if(np_ < 17) {
+            for(auto it(core_.begin()), hit(it + (core_.size() >> 1)), eit = core_.end(); hit != eit; *it++ |= *hit++);
+            return;
+        }
+        Space::VType *s = reinterpret_cast<Space::VType *>(core_.data()), *hp = reinterpret_cast<Space::VType *>(core_.data() + (core_.size() >> 1));
+        const Space::VType *const end = reinterpret_cast<const Space::VType *>(&core_[core_.size()]);
+        while(hp != end) {
+            *s = Space::or_fn(s->simd_, hp->simd_);
+            ++s, ++hp;// Consider going backwards?
         }
         core_.resize(core_.size()>>1);
+        core_.shrink_to_fit();
     }
     double est_err() const {
         // Calculates estimated false positive rate as a functino of the number of set bits.
@@ -481,78 +470,6 @@ public:
         decltype(core_) tmp{};
         std::swap(core_, tmp);
     }
-#if 0
-    void write(FILE *fp) const {
-        write(fileno(fp));
-    }
-    void write(gzFile fp) const {
-#define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
-        uint32_t bf[]{is_calculated_, clamp_, estim_, jestim_, nthreads_};
-        CW(fp, bf, sizeof(bf));
-        CW(fp, &np_, sizeof(np_));
-        CW(fp, &value_, sizeof(value_));
-        CW(fp, core_.data(), core_.size() * sizeof(core_[0]));
-#undef CW
-    }
-    void write(const char *path, bool write_gz=false) const {
-        if(write_gz) {
-            gzFile fp(gzopen(path, "wb"));
-            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
-            write(fp);
-            gzclose(fp);
-        } else {
-            std::FILE *fp(std::fopen(path, "wb"));
-            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
-            write(fileno(fp));
-            std::fclose(fp);
-        }
-    }
-    void write(const std::string &path, bool write_gz=false) const {write(path.data(), write_gz);}
-    void read(gzFile fp) {
-#define CR(fp, dst, len) do {if((uint64_t)gzread(fp, dst, len) != len) throw std::runtime_error("Error reading from file.");} while(0)
-        uint32_t bf[5];
-        CR(fp, bf, sizeof(bf));
-        is_calculated_ = bf[0];
-        clamp_  = bf[1];
-        estim_  = (EstimationMethod)bf[2];
-        jestim_ = (JointEstimationMethod)bf[3];
-        nthreads_ = bf[4];
-        CR(fp, &np_, sizeof(np_));
-        CR(fp, &value_, sizeof(value_));
-        core_.resize(m());
-        CR(fp, core_.data(), core_.size());
-#undef CR
-    }
-    void read(const char *path) {
-        gzFile fp(gzopen(path, "rb"));
-        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
-        read(fp);
-        gzclose(fp);
-    }
-    void read(const std::string &path) {
-        read(path.data());
-    }
-    void write(int fileno) const {
-        uint32_t bf[]{is_calculated_, clamp_, estim_, jestim_, nthreads_};
-        ::write(fileno, bf, sizeof(bf));
-        ::write(fileno, &np_, sizeof(np_));
-        ::write(fileno, &value_, sizeof(value_));
-        ::write(fileno, core_.data(), core_.size() * sizeof(core_[0]));
-    }
-    void read(int fileno) {
-        uint32_t bf[5];
-        ::read(fileno, bf, sizeof(bf));
-        is_calculated_ = bf[0];
-        clamp_         = bf[1];
-        estim_         = (EstimationMethod)bf[2];
-        jestim_        = (JointEstimationMethod)bf[3];
-        nthreads_      = bf[4];
-        ::read(fileno, &np_, sizeof(np_));
-        ::read(fileno, &value_, sizeof(value_));
-        core_.resize(m());
-        ::read(fileno, core_.data(), core_.size());
-    }
-#endif
     bfbase_t operator+(const bfbase_t &other) const {
         if(!same_params(other))
             throw std::runtime_error("Different parameters.");
