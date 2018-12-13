@@ -39,8 +39,26 @@ using Allocator = std::allocator<ValueType, ss::Alignment::Normal>;
 // be for bit-packed versions.
 
 
+namespace detail {
+template<typename T>
+void flatten_half(T *s, T *e) {
+    assert((e - s) == 1 || ((e - s) & (e - s - 1)) == 0); // distance must be a power of two
+    Space::VType *ps = reinterpret_cast<Space::VType *>(s);
+    Space::VType *es = reinterpret_cast<Space::VType *>(s + ((e-s)>>1));
+    for(;es < reinterpret_cast<Space::VType *>(e); +ps, ++es) {
+        ps->simd_ |= es->simd_;
+    }
+}
+}
 
-template<typename HashStruct=WangHash, typename ImplType=>
+
+static constexpr size_t optimal_nhashes(size_t l2sz, size_t est_cardinality) {
+    assert(l2sz <= 64u);
+    l2sz  = size_t(1) << l2sz;
+    return std::ceil(std::log(2.) * l2sz / est_cardinality);
+}
+
+template<typename HashStruct=WangHash>
 class bfbase_t {
 // Blocked bloom filter implementation.
 // To make it general, the actual point of entry is a 64-bit integer hash function.
@@ -173,11 +191,13 @@ public:
     void halve() {
         using vt = Space::VType;
         if(nh_ == 1) {
-            flatten_half(core_.data(), core_.data() + core_.size());
+            detail::flatten_half(core_.data(), core_.data() + core_.size());
         } else {
             for(size_t i = 0; i < nh_; ++i) {
+                throw 1;
             }
         }
+        core_.resize(core_.size()>>1);
     }
     double est_err() const {
         // Calculates estimated false positive rate as a functino of the number of set bits.
