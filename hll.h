@@ -453,6 +453,17 @@ inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
 }
 template<typename T>
 inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr) {
+/*
+    Note --
+    Putting all these optimizations together finally gives the new cardinality estimation
+    algorithm presented as Algorithm 8. The algorithm requires mainly only elementary
+    operations. For very large cardinalities it makes sense to use the strong (46) instead
+    of the weak lower bound (47) as second starting point for the secant method. The
+    stronger bound is a much better approximation especially for large cardinalities, where
+    the extra logarithm evaluation is amortized by savings in the number of iteration cycles.
+   -Ertl paper.
+TODO:  Consider adding this change to the method. This could improve our performance for other
+*/
     const uint64_t m = 1ull << p;
     if (c[q+1] == m) return std::numeric_limits<double>::infinity();
 
@@ -1447,7 +1458,7 @@ public:
 #endif
         return value_ = ret;
     }
-    
+
     double med_report() noexcept {
         double *values = static_cast<double *>(size() < 100000u ? __builtin_alloca(size() * sizeof(double)): std::malloc(size() * sizeof(double))), *p = values;
         for(auto it = hlls_.begin(); it != hlls_.end(); *p++ = it->report(), ++it);
@@ -1521,7 +1532,7 @@ public:
         const uint8_t lzt(clz(((hashval << 1)|1) << (subp() - 1)) + 1);
         core_[index] = std::max(core_[index], lzt);
 #endif
-        
+
     }
     INLINE bool may_contain(uint64_t val) const {
         unsigned k = 0;

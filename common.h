@@ -132,6 +132,15 @@ struct WangHash {
           key = key + (key << 31);
           return key;
     }
+    INLINE uint32_t operator()(uint32_t key) const {
+        key += ~(key << 15);
+        key ^=  (key >> 10);
+        key +=  (key << 3);
+        key ^=  (key >> 6);
+        key += ~(key << 11);
+        key ^=  (key >> 16);
+        return key;
+    }
     INLINE Type operator()(Type element) const {
         VType key = Space::add(Space::slli(element, 21), ~element); // key = (~key) + (key << 21);
         key = Space::srli(key.simd_, 24) ^ key.simd_; //key ^ (key >> 24)
