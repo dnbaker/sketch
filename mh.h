@@ -21,7 +21,7 @@ namespace detail {
 
 static constexpr double HMH_C = 0.169919487159739093975315012348;
 
-template<typename FType, typename=std::enable_if_t<std::is_floating_point_v<FType>>>
+template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 inline FType beta(FType v) {
     FType ret = -0.370393911 * v;
     v = std::log1p(v);
@@ -43,7 +43,7 @@ inline FType beta(FType v) {
 
 } // namespace detail
 
-template<typename T, typename SizeType=uint32_t, typename=::std::enable_if_t<::std::is_integral_v<T>>, typename=::std::enable_if_t<::std::is_integral_v<SizeType>>>
+template<typename T, typename SizeType=uint32_t, typename=typename ::std::enable_if<::std::is_integral<T>::value && ::std::is_integral<SizeType>::value>>
 class AbstractMinHash {
 protected:
     SizeType ss_;
@@ -131,9 +131,9 @@ template<typename T,
          typename Hasher=common::WangHash,
          typename SizeType=uint32_t,
          bool force_non_int=false, // In case you're absolutely sure you want to use a non-integral value
-         typename=std::enable_if_t<
-            force_non_int || std::is_arithmetic_v<T>
-         >
+         typename=typename std::enable_if<
+            force_non_int || std::is_arithmetic<T>::value
+         >::type
         >
 class RangeMinHash: public AbstractMinHash<T, SizeType> {
     NO_ADDRESS Hasher hf_;
@@ -157,7 +157,7 @@ public:
     }
     template<typename T2>
     INLINE void addh(T2 val) {
-        if constexpr(std::is_same_v<T2, T>) {
+        CONST_IF(std::is_same<T2, T>::value) {
             val = hf_(val);
             add(val);
         } else {
@@ -278,7 +278,7 @@ public:
         return entry & max_mhval();
     }
     template<typename I1, typename I2,
-             typename=std::enable_if_t<std::is_integral_v<I1> && std::is_integral_v<I1>>>
+             typename=typename std::enable_if<std::is_integral<I1>::value && std::is_integral<I1>::value>::type>
     auto encode_register(I1 lzc, I2 min) const {
         // We expect that min has already been masked so as to eliminate unnecessary operations
         assert(min <= max_mhval());
@@ -301,8 +301,14 @@ public:
     }
     double report(double relerr=1e-2) const {
         const auto csum = this->sum_counts();
+#if __cplusplus >= 201703L
         if(double est = hll::detail::ertl_ml_estimate(csum, p(), 64 - p(), relerr);est < static_cast<double>(core_.size() << 10))
             return est;
+#else
+        double est = hll::detail::ertl_ml_estimate(csum, p(), 64 - p(), relerr);
+        if(est < static_cast<double>(core_.size() << 10))
+            return est;
+#endif
         const double mhinv = 1. / max_mhval();
         double sum = csum[0] * (1 + static_cast<double>((uint64_t(1) << p()) - get_mhr(core_[0])) * mhinv);
         for(int i = 1; i < static_cast<int64_t>(csum.size()); ++i)

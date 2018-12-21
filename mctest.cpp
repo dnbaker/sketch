@@ -27,7 +27,12 @@ int main(int argc, char *argv[]) {
     ccm_t thingexact(nbits, l2sz, nhashes);
     cs_t thingcs(l2sz, nhashes);
     sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
+#if __cplusplus >= 201703L
     auto [x, y] = thing.est_memory_usage();
+#else
+    auto p = thing.est_memory_usage();
+    auto x = p.first; auto y = p.second;
+#endif
     std::fprintf(stderr, "probabilistic method stack space: %zu\theap space:%zu\n", x, y);
     std::tie(x, y) = thingexact.est_memory_usage();
     std::fprintf(stderr, "exact method stack space: %zu\theap space:%zu\n", x, y);

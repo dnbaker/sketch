@@ -98,9 +98,15 @@ public:
 #endif
         auto nperhash64 = lut::nhashesper64bitword[p()];
         //assert(is_pow2(nperhash64) || !std::fprintf(stderr, "nperhash64 %u(accessed by p = %u)\n", nperhash64, unsigned(p())));
-        while(seeds_.size() * nperhash64 < nh_)
+        while(seeds_.size() * nperhash64 < nh_) {
+#if __cplusplus >= 201703L
             if(auto val = mt(); std::find(seeds_.cbegin(), seeds_.cend(), val) == seeds_.cend())
                 seeds_.emplace_back(val);
+#else
+            auto val = mt();
+            if(std::find(seeds_.cbegin(), seeds_.cend(), val) == seeds_.cend()) seeds_.emplace_back(val);
+#endif
+        }
     }
 
     template<typename IndType>
