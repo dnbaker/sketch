@@ -136,7 +136,7 @@ template<typename T,
          >
         >
 class RangeMinHash: public AbstractMinHash<T, SizeType> {
-    NO_ADDRESS Hasher hf_;
+    Hasher hf_;
     ///using HeapType = std::priority_queue<T, std::vector<T, Allocator<T>>>;
     using HeapType = std::set<T, std::greater<T>>;
     HeapType minimizers_; // using std::greater<T> so that we can erase from begin()
@@ -152,9 +152,12 @@ public:
         add(val);
     }
     void add(T val) {
-        minimizers_.insert(val);
-        if(minimizers_.size() > this->ss_)
-            minimizers_.erase(minimizers_.begin());
+        if(minimizers_.size() == this->ss_) {
+            if(val < *minimizers_.begin()) {
+                minimizers_.erase(minimizers_.begin());
+                minimizers_.insert(val);
+            }
+        } else minimizers_.insert(val);
     }
     template<typename T2>
     INLINE void addh(T2 val) {
