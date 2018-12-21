@@ -25,7 +25,10 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
     1. `pcbf_t`/`pcbfbase_t<HashStruct>`
     2. An array each of bloom filters and hyperloglogs for approximate counting. The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation.
 8. Count-Min and Count Sketches
-    1. ccm.h (`ccmbase_t<UpdatePolicy=Increment>/ccm_t`  (use `pccm_t` for Approximate Counting or `ccmbase_t<CountSketch>/cs_t`).
+    1. ccm.h (`ccmbase_t<UpdatePolicy=Increment>/ccm_t`  (use `pccm_t` for Approximate Counting or `cs_t` for a count sketch).
+9. MinHash sketches
+    1. mh.h (`RangeMinHash` is the currently verified implementation.) We recommend you build the sketch and then convert to a linear container (e.g., a `std::vector`) using `to_container<ContainerType>()`  for faster comparisons.
+    2. A draft HyperMinHash implementation is available as well, but it has not been tested.
 
 ### Test case
 To build and run the test case:
@@ -49,7 +52,7 @@ The other structures work with a similar interface. See the type constructors fo
 Simply `#include hll/<header_name>`.
 
 ### Multithreading
-By default, updates to the hyperloglog structure to occur using atomic operations, though threading should be handled by the calling code. Otherwise, the flag -DNOT_THREADSAFE should be passed. The cost of this is relatively minor, but in single-threaded situations, this could be preferred.
+By default, updates to the hyperloglog structure to occur using atomic operations, though threading should be handled by the calling code. Otherwise, the flag `-DNOT_THREADSAFE` should be passed. The cost of this is relatively minor, but in single-threaded situations, this would be preferred.
 
 ## Python bindings
 Python bindings are available via pybind11 and then imported through hll.py. hll.py calls an object's __hash__ function. To link against python2, change the "python3-" in the Makefile to "python-".

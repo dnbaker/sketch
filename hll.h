@@ -826,7 +826,7 @@ public:
     }
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
-        if constexpr(std::is_same<HashStruct, clhasher>::value) {
+        CONST_IF(std::is_same<HashStruct, clhasher>::value) {
             add(hf_(element));
         } else {
 #endif
@@ -887,14 +887,11 @@ public:
     }
     // Reset.
     void clear() {
-        // Note: this can be accelerated with SIMD.
-        if(__builtin_expect(core_.size() < sizeof(VType), 0)) {
-            std::fill(std::begin(core_), std::end(core_), 0u);
-        } else {
-            VType v = Space::set1(0);
-            for(Type *ptr = reinterpret_cast<Type *>(core_.data()), *end = reinterpret_cast<Type *>(&core_[core_.size()]);
-                ptr < end; Space::store(ptr++, v.simd_));
-        }
+        if(core_.size() > (1u << 16)) {
+            std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
+        } else if(__builtin_expect(core_.size() > Space::COUNT, 1)) {
+            for(VType v1 = Space::set1(0), *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
+        } else std::fill(core_.begin(), core_.end(), static_cast<uint8_t>(0));
         value_ = is_calculated_ = 0;
     }
     hllbase_t(hllbase_t&&) = default;

@@ -112,12 +112,12 @@ static void *kt_fp_worker(void *data)
 		action = w->action;
 		pthread_mutex_unlock(&fp->mutex);
 		if (action < 0) break;
-		for (;;) { // process jobs allocated to this worker
+		for (;;) { /* process jobs allocated to this worker */
 			i = __sync_fetch_and_add(&w->i, fp->n_threads);
 			if (i >= fp->n) break;
 			fp->func(fp->data, i, w - fp->w);
 		}
-		while ((i = kt_fp_steal_work(fp)) >= 0) // steal jobs allocated to other workers
+		while ((i = kt_fp_steal_work(fp)) >= 0) /* steal jobs allocated to other workers */
 			fp->func(fp->data, i, w - fp->w);
 	}
 	pthread_exit(0);
@@ -197,25 +197,25 @@ static void *ktp_worker(void *data)
 	ktp_worker_t *w = (ktp_worker_t*)data;
 	ktp_t *p = w->pl;
 	while (w->step < p->n_steps) {
-		// test whether we can kick off the job with this worker
+		/* test whether we can kick off the job with this worker */
 		pthread_mutex_lock(&p->mutex);
 		for (;;) {
 			int i;
-			// test whether another worker is doing the same step
+			/* test whether another worker is doing the same step */
 			for (i = 0; i < p->n_workers; ++i) {
-				if (w == &p->workers[i]) continue; // ignore itself
+				if (w == &p->workers[i]) continue; /* ignore itself */
 				if (p->workers[i].step <= w->step && p->workers[i].index < w->index)
 					break;
 			}
-			if (i == p->n_workers) break; // no workers with smaller indices are doing w->step or the previous steps
+			if (i == p->n_workers) break; /* no workers with smaller indices are doing w->step or the previous steps */
 			pthread_cond_wait(&p->cv, &p->mutex);
 		}
 		pthread_mutex_unlock(&p->mutex);
 
-		// working on w->step
-		w->data = p->func(p->shared, w->step, w->step? w->data : 0); // for the first step, input is NULL
+		/* working on w->step */
+		w->data = p->func(p->shared, w->step, w->step? w->data : 0); /* for the first step, input is NULL */
 
-		// update step and let other workers know
+		/* update step and let other workers know */
 		pthread_mutex_lock(&p->mutex);
 		w->step = w->step == p->n_steps - 1 || w->data? (w->step + 1) % p->n_steps : p->n_steps;
 		if (w->step == 0) w->index = p->index++;

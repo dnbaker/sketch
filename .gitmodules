@@ -3,13 +3,17 @@
 	url = https://github.com/pybind/pybind11
 [submodule "vec"]
 	path = vec
+    branch = master
 	url = https://github.com/dnbaker/vec
 [submodule "libpopcnt"]
 	path = libpopcnt
+    branch = master
 	url = https://github.com/kimwalisch/libpopcnt
 [submodule "aesctr"]
 	path = aesctr
+    branch = master
 	url = https://github.com/dnbaker/aesctr
 [submodule "compact_vector"]
 	path = compact_vector
+    branch = master
 	url = https://github.com/gmarcais/compact_vector

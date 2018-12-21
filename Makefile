@@ -22,6 +22,8 @@ endif
 EX=$(patsubst %.cpp,%,$(wildcard *test.cpp))
 all: $(EX)
 
+STD?=-std=c++14
+
 INCLUDES=-I`python3-config --includes` -Ipybind11/include
 SUF=`python3-config --extension-suffix`
 OBJS=$(patsubst %.cpp,%$(SUF),$(wildcard *.cpp))
@@ -31,37 +33,40 @@ python: _hll.cpython.so
 	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`python3-config --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
 %.cpython.so: %.cpp hll.o
-	$(CXX) $(UNDEFSTR) $(INCLUDES) -O3 -Wall $(FLAGS) $(INC) -shared -std=c++17 -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \
+	$(CXX) $(UNDEFSTR) $(INCLUDES) -O3 -Wall $(FLAGS) $(INC) -shared $(STD) -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \
     ln -fs $*$(SUF) $@
 
 %.o: %.cpp
-	$(CXX) -c $(FLAGS) -std=c++17	$< -o $@
+	$(CXX) -c $(FLAGS) $(STD)	$< -o $@
 
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
 %: %.cpp kthread.o $(HEADERS)
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
+
+test: test.cpp kthread.o $(HEADERS)
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
 mctest: mctest.cpp kthread.o $(HEADERS)
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o -O1 $< -o $@ -lz
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -O1 $< -o $@ -lz
 
 %_d: %.cpp kthread.o $(HEADERS)
-	$(CXX) $(FLAGS)	-std=c++17 -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
+	$(CXX) $(FLAGS)	$(STD) -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
 lztest: test.cpp kthread.o $(HEADERS)
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
 
 bftest: bftest.cpp $(HEADERS)
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread $< -o $@ -lz
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread $< -o $@ -lz
 serial_test: serial_test.cpp hll.h
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread -DNOT_THREADSAFE $< -o $@ -lz
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread -DNOT_THREADSAFE $< -o $@ -lz
 
 dev_test: dev_test.cpp kthread.o hll.h
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
 dev_test_p: dev_test.cpp kthread.o hll.h
-	$(CXX) $(FLAGS)	-std=c++17 -Wno-unused-parameter -pthread kthread.o -static-libstdc++ -static-libgcc $< -o $@ -lz
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -static-libstdc++ -static-libgcc $< -o $@ -lz
 
 clean:
 	rm -f test.o test hll.o kthread.o *hll*cpython*so $(EX)

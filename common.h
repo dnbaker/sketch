@@ -71,6 +71,12 @@
 #  define NO_ADDRESS
 #endif
 
+#if __cplusplus >= 201703L
+#define CONST_IF if constexpr
+#else
+#define CONST_IF if
+#endif
+
 namespace sketch {
 namespace common {
 using namespace std::literals;

@@ -8,7 +8,7 @@ namespace sketch {
 namespace cm {
 
 namespace detail {
-    template<typename IntType, typename=std::enable_if_t<std::is_signed_v<IntType>>>
+    template<typename IntType, typename=typename std::enable_if<std::is_signed<IntType>::value>::type>
     static constexpr IntType signarr []{static_cast<IntType>(-1), static_cast<IntType>(1)};
 
     template<typename T>
@@ -17,7 +17,7 @@ namespace detail {
     };
     template<typename T>
     static constexpr int range_check(unsigned nbits, T val) {
-        if constexpr(std::is_signed_v<T>) {
+        CONST_IF(std::is_signed<T>::value) {
             const int64_t v = val;
             return v < -int64_t(1ull << (nbits - 1)) ? -1: val > int64_t((1ull << (nbits - 1)) - 1);
         } else {
@@ -167,7 +167,7 @@ template<typename UpdateStrategy=update::Increment,
          typename VectorType=DefaultCompactVectorType,
          typename HashStruct=common::WangHash>
 class ccmbase_t {
-    static_assert(!std::is_same_v<UpdateStrategy, update::CountSketch> || std::is_signed_v<typename detail::IndexedValue<VectorType>::Type>,
+    static_assert(!std::is_same<UpdateStrategy, update::CountSketch>::value || std::is_signed<typename detail::IndexedValue<VectorType>::Type>::value,
                   "If CountSketch is used, value must be signed.");
 
 protected:
@@ -183,7 +183,7 @@ protected:
 
 public:
     static constexpr bool is_count_sketch() {
-        return std::is_same_v<UpdateStrategy, update::CountSketch>;
+        return std::is_same<UpdateStrategy, update::CountSketch>::value;
     }
     std::pair<size_t, size_t> est_memory_usage() const {
         return std::make_pair(sizeof(*this),
@@ -286,11 +286,6 @@ public:
     ssize_t add(const uint64_t val) {
         std::vector<uint64_t> indices, best_indices;
         indices.reserve(nhashes_);
-#if 0
-        if constexpr(is_count_sketch()) {
-            hashes.reserve(nhashes_);
-        }
-#endif
         unsigned nhdone = 0, seedind = 0;
         const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
         const auto nbitsperhash = l2sz_;
@@ -404,13 +399,13 @@ public:
         return *this;
     }
 };
-template<typename HashStruct=common::WangHash, typename CounterType=int32_t, typename=std::enable_if_t<std::is_signed_v<CounterType>>>
+template<typename HashStruct=common::WangHash, typename CounterType=int32_t, typename=typename std::enable_if<std::is_signed<CounterType>::value>::type>
 class csbase_t {
     /*
      * Commentary: because of chance, one can end up with a negative number as an estimate.
      * Either the item collided with another item which was quite large and it was outweighed
      * or it and others in the bucket were not heavy enough and by chance it did
-     * not weigh over the other items with the opposite sign and it therefore 
+     * not weigh over the other items with the opposite sign. Treat these as 0s.
     */
     std::vector<CounterType, Allocator<CounterType>> core_;
     uint32_t np_;

@@ -1,0 +1,29 @@
+sudo: false
+language: cpp
+compiler:
+  - gcc
+addons:
+  apt:
+    sources:
+    - ubuntu-toolchain-r-test
+    packages:
+    - g++-7
+install:
+  - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
+before_install:
+  - git submodule update --init --recursive
+script:
+  - make -f Makefile test
+  - ./test
+  - make -f Makefile bftest
+  - ./bftest
+  - make mhtest
+  - ./mhtest
+  - make mctest
+  - ./mctest
+  - make serial_test
+  - ./serial_test
+notifications:
+    slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe
+    rooms:
+      - jhu-genomics:BbHYSks7DhOolq80IYf6m9oe#meta_trees

@@ -98,9 +98,15 @@ public:
 #endif
         auto nperhash64 = lut::nhashesper64bitword[p()];
         //assert(is_pow2(nperhash64) || !std::fprintf(stderr, "nperhash64 %u(accessed by p = %u)\n", nperhash64, unsigned(p())));
-        while(seeds_.size() * nperhash64 < nh_)
+        while(seeds_.size() * nperhash64 < nh_) {
+#if __cplusplus >= 201703L
             if(auto val = mt(); std::find(seeds_.cbegin(), seeds_.cend(), val) == seeds_.cend())
                 seeds_.emplace_back(val);
+#else
+            auto val = mt();
+            if(std::find(seeds_.cbegin(), seeds_.cend(), val) == seeds_.cend()) seeds_.emplace_back(val);
+#endif
+        }
     }
 
     template<typename IndType>
@@ -298,7 +304,7 @@ public:
 
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
-        if constexpr(std::is_same<HashStruct, clhasher>::value)
+        CONST_IF(std::is_same<HashStruct, clhasher>::value)
             addh(hf_(element));
         else
 #endif
@@ -306,10 +312,12 @@ public:
     }
     // Reset.
     void clear() {
-        if(core_.size() > Space::COUNT) {
-            VType v1 = Space::set1(0);
-            for(VType *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
-        } else std::fill(core_.begin(), core_.end(), static_cast<uint64_t>(0));
+        if(core_.size() >= (1<<15))
+            std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
+        else if(__builtin_expect(core_.size() * sizeof(core_[0]) >= sizeof(VType), 1))
+            for(VType v1 = Space::set1(0), *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
+        else
+            std::fill(core_.begin(), core_.end(), static_cast<uint64_t>(0));
     }
     bfbase_t(bfbase_t&&) = default;
     bfbase_t(const bfbase_t &other) = default;
