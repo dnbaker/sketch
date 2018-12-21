@@ -13,9 +13,9 @@ install:
 before_install:
   - git submodule update --init --recursive
 script:
-  - make test
+  - make -f Makefile test
   - ./test
-  - make bftest
+  - make -f Makefile bftest
   - ./bftest
   - make mhtest
   - ./mhtest
