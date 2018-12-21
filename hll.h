@@ -453,6 +453,17 @@ inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
 }
 template<typename T>
 inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr) {
+/*
+    Note --
+    Putting all these optimizations together finally gives the new cardinality estimation
+    algorithm presented as Algorithm 8. The algorithm requires mainly only elementary
+    operations. For very large cardinalities it makes sense to use the strong (46) instead
+    of the weak lower bound (47) as second starting point for the secant method. The
+    stronger bound is a much better approximation especially for large cardinalities, where
+    the extra logarithm evaluation is amortized by savings in the number of iteration cycles.
+   -Ertl paper.
+TODO:  Consider adding this change to the method. This could improve our performance for other
+*/
     const uint64_t m = 1ull << p;
     if (c[q+1] == m) return std::numeric_limits<double>::infinity();
 
@@ -1444,24 +1455,18 @@ public:
 #endif
         return value_ = ret;
     }
+
     double med_report() noexcept {
-        if(values_.empty())
-            values_.reserve(size());
-        values_.clear();
-        for(auto &hll: hlls_) values_.emplace_back(hll.report());
-        if(size() & 1) {
-            if(size() < 32)
-                sort::insertion_sort(std::begin(values_), std::end(values_));
-            else
-                std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) + 1, std::end(values_));
-            return values_[size() >> 1];
-        }
+        double *values = static_cast<double *>(size() < 100000u ? __builtin_alloca(size() * sizeof(double)): std::malloc(size() * sizeof(double))), *p = values;
+        for(auto it = hlls_.begin(); it != hlls_.end(); *p++ = it->report(), ++it);
         if(size() < 32) {
-            sort::insertion_sort(std::begin(values_), std::end(values_));
-            return .5 * (values_[size() >> 1] + values_[(size() >> 1) - 1]);
+            sort::insertion_sort(values, values + size());
+            return .5 * (values[size() >> 1] + values[(size() >> 1) - 1]);
         }
-        std::nth_element(std::begin(values_), std::begin(values_) + (size() >> 1) - 1, std::end(values_));
-        return .5 * (values_[(values_.size() >> 1) - 1] + *std::min_element(std::cbegin(values_) + (size() >> 1), std::cend(values_)));
+        std::nth_element(values, values + (size() >> 1) - 1, values + size());
+        double ret = .5 * (values[(size() >> 1) - 1] + values[(size() >> 1)]);
+        if(hlls_.size() >= 100000u) std::free(values);
+        return ret;
     }
     // Attempt strength borrowing across hlls with different seeds
     double chunk_report() const {
