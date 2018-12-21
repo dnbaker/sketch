@@ -826,7 +826,7 @@ public:
     }
     INLINE void addh(const std::string &element) {
 #ifdef ENABLE_CLHASH
-        if constexpr(std::is_same<HashStruct, clhasher>::value) {
+        CONST_IF(std::is_same<HashStruct, clhasher>::value) {
             add(hf_(element));
         } else {
 #endif

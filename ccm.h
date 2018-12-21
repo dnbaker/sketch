@@ -286,11 +286,6 @@ public:
     ssize_t add(const uint64_t val) {
         std::vector<uint64_t> indices, best_indices;
         indices.reserve(nhashes_);
-#if 0
-        if constexpr(is_count_sketch()) {
-            hashes.reserve(nhashes_);
-        }
-#endif
         unsigned nhdone = 0, seedind = 0;
         const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
         const auto nbitsperhash = l2sz_;
