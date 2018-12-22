@@ -218,11 +218,12 @@ print("    0xFFu, %s" % ", ".join(str(64 // x) for x in range(1, 63)))
 } // namespace lut
 
 struct MurFinHash {
+    static constexpr uint64_t C1 = 0xff51afd7ed558ccduLL, C2 = 0xc4ceb9fe1a85ec53uLL;
     INLINE uint64_t operator()(uint64_t key) const {
         key ^= key >> 33;
-        key *= UINT64_C(0xff51afd7ed558ccd);
+        key *= C1;
         key ^= key >> 33;
-        key *= UINT64_C(0xc4ceb9fe1a85ec53);
+        key *= C2;
         key ^= key >> 33;
         return key;
     }
@@ -230,32 +231,25 @@ struct MurFinHash {
         return this->operator()(*(reinterpret_cast<VType *>(&key)));
     }
     INLINE Type operator()(VType key) const {
-        static constexpr uint64_t C1 = 0xff51afd7ed558ccduLL, C2 = 0xc4ceb9fe1a85ec53uLL;
 #if HAS_AVX_512
         static const Type mul1 = Space::set1(C1);
         static const Type mul2 = Space::set1(C2);
-#else
-        static const __m128i mul1 = {int64_t(C1), int64_t(C1)};
-        static const __m128i mul2 = {int64_t(C2), int64_t(C2)};
+#elif defined(__AVX2__)
+        static const __m256i mul1 = _mm256_set1_epi64x(C1);
+        static const __m256i mul2 = _mm256_set1_epi64x(C2);
 #endif
 
         key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if (HAS_AVX_512) == 0
-        __m128i *ptr = reinterpret_cast<__m128i *>(&key);
-        for(uint32_t i = 0; i < sizeof(key) / sizeof(__m128i); ++i) {
-            ptr[i] = vec::_mm_mul_epi64(ptr[i], mul1);
-        }
-#  else
+#if HAS_AVX_512
         key = Space::mullo(key.simd_, mul1); // h *= 0xff51afd7ed558ccd;
+#  else
+        key.for_each([](auto &x) {x *= C1;});
 #endif
         key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if (HAS_AVX_512) == 0
-        ptr = reinterpret_cast<__m128i *>(&key);
-        for(uint32_t i = 0; i < sizeof(key) / sizeof(__m128i); ++i) {
-            ptr[i] = vec::_mm_mul_epi64(ptr[i], mul2);
-        }
-#  else
+#if (HAS_AVX_512)
         key = Space::mullo(key.simd_, mul2); // h *= 0xc4ceb9fe1a85ec53;
+#else
+        key.for_each([](auto &x) {x *= C2;});
 #endif
         key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
         return key.simd_;
