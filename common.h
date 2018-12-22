@@ -300,7 +300,7 @@ struct plus {
 };
 template<typename T>
 struct bit_xor {
-    T operator()(T x, T y) const { return x + y;}
+    T operator()(T x, T y) const { return x ^ y;}
     VType operator()(VType x, VType y) const { return Space::xor_fn(x.simd_, y.simd_);}
 };
 }
