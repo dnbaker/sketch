@@ -230,20 +230,30 @@ struct MurFinHash {
         return this->operator()(*(reinterpret_cast<VType *>(&key)));
     }
     INLINE Type operator()(VType key) const {
-#if (HAS_AVX_512)
-        static const Type mul1 = Space::set1(0xff51afd7ed558ccduLL);
-        static const Type mul2 = Space::set1(0xc4ceb9fe1a85ec53uLL);
+        static constexpr uint64_t C1 = 0xff51afd7ed558ccduLL, C2 = 0xc4ceb9fe1a85ec53uLL;
+#if HAS_AVX_512
+        static const Type mul1 = Space::set1(C1);
+        static const Type mul2 = Space::set1(C2);
+#else
+        static const __m128i mul1 = {int64_t(C1), int64_t(C1)};
+        static const __m128i mul2 = {int64_t(C2), int64_t(C2)};
 #endif
 
         key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
 #if (HAS_AVX_512) == 0
-        key.for_each([](uint64_t &x) {x *= UINT64_C(0xff51afd7ed558ccd);});
+        __m128i *ptr = reinterpret_cast<__m128i *>(&key);
+        for(uint32_t i = 0; i < sizeof(key) / sizeof(__m128i); ++i) {
+            ptr[i] = vec::_mm_mul_epi64(ptr[i], mul1);
+        }
 #  else
         key = Space::mullo(key.simd_, mul1); // h *= 0xff51afd7ed558ccd;
 #endif
         key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
 #if (HAS_AVX_512) == 0
-        key.for_each([](uint64_t &x) {x *= UINT64_C(0xc4ceb9fe1a85ec53);});
+        ptr = reinterpret_cast<__m128i *>(&key);
+        for(uint32_t i = 0; i < sizeof(key) / sizeof(__m128i); ++i) {
+            ptr[i] = vec::_mm_mul_epi64(ptr[i], mul2);
+        }
 #  else
         key = Space::mullo(key.simd_, mul2); // h *= 0xc4ceb9fe1a85ec53;
 #endif
@@ -266,6 +276,35 @@ static INLINE uint64_t finalize(uint64_t key) {
     return MurFinHash()(key);
 }
 
+namespace op {
+
+template<typename T>
+struct multiplies {
+    T operator()(T x, T y) const { return x * y;}
+    VType operator()(VType x, VType y) const {
+#if HAS_AVX_512
+        return Space::mul(x.simd_, y.simd_);
+#else
+        __m128i *p1 = reinterpret_cast<__m128i *>(&x), *p2 = reinterpret_cast<__m128i *>(&y);
+        for(uint32_t i = 0; i < sizeof(x) / sizeof(__m128i); ++i) {
+            p1[i] = vec::_mm_mul_epi64(p1[i], p2[i]);
+        }
+        return x;
+#endif
+    }
+};
+template<typename T>
+struct plus {
+    T operator()(T x, T y) const { return x + y;}
+    VType operator()(VType x, VType y) const { return Space::add(x.simd_, y.simd_);}
+};
+template<typename T>
+struct bit_xor {
+    T operator()(T x, T y) const { return x + y;}
+    VType operator()(VType x, VType y) const { return Space::xor_fn(x.simd_, y.simd_);}
+};
+}
+
 namespace multinv {
 // From Daniel Lemire's Blog: https://github.com/lemire/Code-used-on-Daniel-Lemire-s-blog/blob/master/2017/09/18/inverse.c
 // Blog post: https://lemire.me/blog/2017/09/18/computing-the-inverse-of-odd-integers/
@@ -283,9 +322,19 @@ static constexpr uint32_t findInverse32(uint32_t x) {
 }
 
 static inline constexpr uint64_t f64(uint64_t x, uint64_t y) { return y * (2 - y * x); }
+static inline constexpr VType f64(VType x, VType y) { return Space::mul(y.simd_, Space::sub(Space::set1(2), Space::mul(y.simd_, x.simd_))); }
 static inline constexpr uint64_t findMultInverse64(uint64_t x) {
   if(!(x&1)) throw std::runtime_error("Can't get multiplicative inverse of an even number.");
   uint64_t y = (3 * x) ^ 2;
+  y = f64(x, y);
+  y = f64(x, y);
+  y = f64(x, y);
+  y = f64(x, y);
+  return y;
+}
+static inline VType findMultInverse64(VType x) {
+  x.for_each([](auto v) {if(!(v&1)) throw std::runtime_error("Can't get multiplicative inverse of an even number.");});
+  VType y = Space::xor_fn(Space::mul(Space::set1(3), x.simd_), Space::set1(2));
   y = f64(x, y);
   y = f64(x, y);
   y = f64(x, y);
@@ -296,11 +345,12 @@ static inline constexpr uint64_t findMultInverse64(uint64_t x) {
 template<typename T>
 struct Inverse64 {
     uint64_t operator()(uint64_t x) const {return x;}
-    uint64_t apply(uint64_t x) const {return this->operator()(x);}
+    template<typename T2>
+    T2 apply(T2 x) const {return this->operator()(x);}
 };
 
 template<>
-struct Inverse64<std::multiplies<uint64_t>> {
+struct Inverse64<op::multiplies<uint64_t>> {
     uint64_t operator()(uint64_t x) const {return findMultInverse64(x);}
     uint64_t apply(uint64_t x) const {return this->operator()(x);}
 };
@@ -321,18 +371,24 @@ struct InvH {
     const Operation op;
 
     InvH(uint64_t seed):
-            seed_(seed | std::is_same<Operation, std::multiplies<uint64_t>>::value),
+            seed_(seed | std::is_same<Operation, op::multiplies<uint64_t>>::value),
             inverse_(multinv::Inverse64<Operation>()(seed_)), op() {}
     // To ensure that it is actually reversible.
     uint64_t inverse(uint64_t hv) const {
-        CONST_IF(std::is_same<Operation, std::multiplies<uint64_t>>::value || std::is_same<Operation, std::plus<uint64_t>>::value)
-            hv = op(hv, inverse_);
-        else
-            hv = op(hv, seed_);
+        hv = op(hv, inverse_);
+        return hv;
+    }
+    VType inverse(VType hv) const {
+        hv = op(hv.simd_, Space::set1(inverse_));
         return hv;
     }
     uint64_t operator()(uint64_t h) const {
         h = op(h, seed_);
+        return h;
+    }
+    VType operator()(VType h) const {
+        const VType s = Space::set1(seed_);
+        h = op(h, s);
         return h;
     }
 };
@@ -346,12 +402,14 @@ struct FusedReversible {
     InvH2 op2;
     FusedReversible(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL):
         op1(seed1), op2(seed2) {}
-    uint64_t operator()(uint64_t h) const {
+    template<typename T>
+    T operator()(T h) const {
         h = op1(h);
         h = op2(h);
         return h;
     }
-    uint64_t inverse(uint64_t hv) const {
+    template<typename T>
+    T inverse(T hv) const {
         hv = op1.inverse(op2.inverse(hv));
         return hv;
     }
@@ -363,19 +421,21 @@ struct FusedReversible3 {
     InvH3 op3;
     FusedReversible3(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL):
         op1(seed1), op2(seed2), op3((seed1 * seed2 + seed2) | 1) {}
-    uint64_t operator()(uint64_t h) const {
+    template<typename T>
+    T operator()(T h) const {
         h = op3(op2(op1(h)));
         return h;
     }
-    uint64_t inverse(uint64_t hv) const {
+    template<typename T>
+    T inverse(T hv) const {
         hv = op1.inverse(op2.inverse(op3.reverse(hv)));
         return hv;
     }
 };
 
-using InvXor = InvH<std::bit_xor<uint64_t>>;
-using InvMul = InvH<std::multiplies<uint64_t>>;
-using InvAdd = InvH<std::plus<uint64_t>>;
+using InvXor = InvH<op::bit_xor<uint64_t>>;
+using InvMul = InvH<op::multiplies<uint64_t>>;
+using InvAdd = InvH<op::plus<uint64_t>>;
 
 struct XorMultiply: public FusedReversible<InvXor, InvMul > {
     XorMultiply(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1, seed2) {}
@@ -400,11 +460,13 @@ struct RecursiveReversibleHash {
             this->v_.emplace_back(m1, m2, std::forward<Args>(args)...);
         }
     }
-    uint64_t operator()(uint64_t v) const {
+    template<typename T>
+    T operator()(T v) const {
         std::for_each(v_.begin(), v_.end(), [&](const auto &hash) {v = hash(v);});
         return v;
     }
-    uint64_t inverse(uint64_t hv) const {
+    template<typename T>
+    T inverse(T hv) const {
         std::for_each(v_.rbegin(), v_.rend(), [&](const auto &hash) {hv = hash.inverse(hv);});
         return hv;
     }
