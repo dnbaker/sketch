@@ -322,7 +322,12 @@ static constexpr uint32_t findInverse32(uint32_t x) {
 }
 
 static inline constexpr uint64_t f64(uint64_t x, uint64_t y) { return y * (2 - y * x); }
-static inline constexpr VType f64(VType x, VType y) { return Space::mul(y.simd_, Space::sub(Space::set1(2), Space::mul(y.simd_, x.simd_))); }
+static inline VType f64(VType x, VType y) {
+    __m128i *p1 = reinterpret_cast<__m128i *>(&x), *p2 = reinterpret_cast<__m128i *>(&y);
+    for(auto i = 0u; i < sizeof(x) / sizeof(__m128i); ++i)
+        p1[i] = vec::_mm_mul_epi64(p2[i], _mm_sub_epi64(_mm_set1_epi64x(2), vec::_mm_mul_epi64(p1[i], p2[i])));
+    return x;
+}
 static inline constexpr uint64_t findMultInverse64(uint64_t x) {
   if(!(x&1)) throw std::runtime_error("Can't get multiplicative inverse of an even number.");
   uint64_t y = (3 * x) ^ 2;
