@@ -98,7 +98,7 @@ template<typename T, typename Hasher=common::WangHash, typename SizeType=uint32_
 class KMinHash: public AbstractMinHash<T, SizeType> {
     std::vector<uint64_t, common::Allocator<uint64_t>> seeds_;
     std::vector<T, common::Allocator<uint64_t>> hashes_;
-    NO_ADDRESS Hasher hf_;
+    Hasher hf_;
     // Uses k hash functions with seeds.
     // TODO: reuse code from hll/bf for vectorized hashing.
 public:
