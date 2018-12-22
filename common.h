@@ -230,41 +230,32 @@ struct MurFinHash {
     INLINE Type operator()(Type key) const {
         return this->operator()(*(reinterpret_cast<VType *>(&key)));
     }
-    INLINE Type operator()(VType key) const {
-#if HAS_AVX_512
-        static const Type mul1 = Space::set1(C1);
-        static const Type mul2 = Space::set1(C2);
-#elif defined(__AVX2__)
-        static const __m256i mul1 = _mm256_set1_epi64x(C1);
-        static const __m256i mul2 = _mm256_set1_epi64x(C2);
-#endif
-
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if HAS_AVX_512
-        key = Space::mullo(key.simd_, mul1); // h *= 0xff51afd7ed558ccd;
-#  else
-        key.for_each([](auto &x) {x *= C1;});
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if (HAS_AVX_512)
-        key = Space::mullo(key.simd_, mul2); // h *= 0xc4ceb9fe1a85ec53;
-#else
-        key.for_each([](auto &x) {x *= C2;});
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-        return key.simd_;
-    }
-#if VECTOR_WIDTH > 16
+#if 0
+&& VECTOR_WIDTH > 16
     INLINE auto operator()(__m128i key) const {
         using namespace vec;
         key ^= _mm_srli_epi64(key, 33);
-        key = _mm_mul_epi64x(key, UINT64_C(0xff51afd7ed558ccd));
+        key = _mm_mul_epi64x(key, C1);
         key ^= _mm_srli_epi64(key,  33);
-        key = _mm_mul_epi64x(key, UINT64_C(0xc4ceb9fe1a85ec53));
+        key = _mm_mul_epi64x(key, C2);
         key ^= _mm_srli_epi64(key,  33);
         return key;
     }
 #endif
+    INLINE Type operator()(VType key) const {
+#if 1
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+        key.for_each([](auto &x) {x *= C1;});
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+        key.for_each([](auto &x) {x *= C2;});
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+#else
+        __m128i *p = (__m128i *)&key;
+        for(unsigned i = 0; i < sizeof(key) / sizeof(*p); ++i)
+            *p = this->operator()(*p);
+#endif
+        return key.simd_;
+    }
 };
 static INLINE uint64_t finalize(uint64_t key) {
     return MurFinHash()(key);
