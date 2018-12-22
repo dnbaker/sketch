@@ -266,6 +266,164 @@ static INLINE uint64_t finalize(uint64_t key) {
     return MurFinHash()(key);
 }
 
+namespace multinv {
+// From Daniel Lemire's Blog: https://github.com/lemire/Code-used-on-Daniel-Lemire-s-blog/blob/master/2017/09/18/inverse.c
+// Blog post: https://lemire.me/blog/2017/09/18/computing-the-inverse-of-odd-integers/
+// 25 cycles (longest it would take) + 1 cycle for a multiply is at least 3x as fast as performing an IDIV
+// but it only works if the integer is odd.
+
+static inline constexpr uint32_t f32(uint32_t x, uint32_t y) { return y * (2 - y * x); }
+
+static constexpr uint32_t findInverse32(uint32_t x) {
+  uint32_t y = (3 * x) ^ 2;
+  y = f32(x, y);
+  y = f32(x, y);
+  y = f32(x, y);
+  return y;
+}
+
+static inline constexpr uint64_t f64(uint64_t x, uint64_t y) { return y * (2 - y * x); }
+static inline constexpr uint64_t findMultInverse64(uint64_t x) {
+  uint64_t y = (3 * x) ^ 2;
+  y = f64(x, y);
+  y = f64(x, y);
+  y = f64(x, y);
+  y = f64(x, y);
+  return y;
+}
+
+template<typename T>
+struct Inverse64 {
+    uint64_t operator()(uint64_t x) const {return x;}
+    uint64_t apply(uint64_t x) const {return this->operator()(x);}
+};
+
+template<>
+struct Inverse64<std::multiplies<uint64_t>> {
+    uint64_t operator()(uint64_t x) const {return findMultInverse64(x);}
+    uint64_t apply(uint64_t x) const {return this->operator()(x);}
+};
+
+template<>
+struct Inverse64<std::plus<uint64_t>> {
+    uint64_t operator()(uint64_t x) const {return std::numeric_limits<uint64_t>::max() - x + 1;}
+    uint64_t apply(uint64_t x) const {return this->operator()(x);}
+};
+
+
+
+} // multinv
+
+template<typename Operation, typename InverseOperation=Operation>
+struct InvH {
+    uint64_t seed_, inverse_;
+    const Operation op;
+
+    InvH(uint64_t seed):
+            seed_(seed + std::is_same<Operation, std::multiplies<uint64_t>>::value),
+            inverse_(multinv::Inverse64<Operation>()(seed_)), op() {
+            // To ensure that it is actually reversible.
+    }
+    uint64_t inverse(uint64_t hv) const {
+        CONST_IF(std::is_same<Operation, std::multiplies<uint64_t>>::value)
+            hv = op(hv, inverse_);
+        else CONST_IF(std::is_same<Operation, std::plus<uint64_t>>::value)
+            hv = hv - seed_;
+        else
+            hv = op(hv, seed_);
+        return hv;
+    }
+    uint64_t operator()(uint64_t h) const {
+        h = op(h, seed_);
+        h *= seed_;
+        return h;
+        //return (h * 0xe37e28c4271b5a2dULL) ^ 0xe37e28c4271b5a2dULL;
+    }
+};
+
+// Reversible, runtime-configurable hashes
+
+
+template<typename InvH1, typename InvH2>
+struct FusedReversible {
+    InvH1 op1;
+    InvH2 op2;
+    FusedReversible(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL):
+        op1(seed1), op2(seed2) {}
+    uint64_t operator()(uint64_t h) const {
+        h = op2(op1(h));
+        return h;
+    }
+    uint64_t inverse(uint64_t hv) const {
+        hv = op1.inverse(op2.inverse(hv));
+        return hv;
+    }
+};
+template<typename InvH1, typename InvH2, typename InvH3>
+struct FusedReversible3 {
+    InvH1 op1;
+    InvH2 op2;
+    InvH3 op3;
+    FusedReversible3(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL):
+        op1(seed1), op2(seed2), op3((seed1 * seed2 + seed2) | 1) {}
+    uint64_t operator()(uint64_t h) const {
+        h = op3(op2(op1(h)));
+        return h;
+    }
+    uint64_t inverse(uint64_t hv) const {
+        hv = op1.inverse(op2.inverse(op3.reverse(hv)));
+        return hv;
+    }
+};
+
+using InvXor = InvH<std::bit_xor<uint64_t>>;
+using InvMul = InvH<std::multiplies<uint64_t>>;
+using InvAdd = InvH<std::plus<uint64_t>>;
+
+struct XorMultiply: public FusedReversible<InvXor, InvMul > {
+    XorMultiply(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1, seed2) {}
+};
+struct MultiplyAdd: public FusedReversible<InvMul, InvAdd> {
+    MultiplyAdd(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvMul, InvAdd>(seed1, seed2) {}
+};
+struct MultiplyAddXor: public FusedReversible3<InvMul,InvAdd,InvXor> {
+    MultiplyAddXor(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvAdd,InvXor>(seed1, seed2) {}
+};
+
+template<typename HashType>
+struct RecursiveReversibleHash {
+    std::vector<HashType> v_;
+    template<typename... Args>
+    RecursiveReversibleHash(size_t n, uint64_t seed1=1337, Args &&... args) {
+        std::mt19937_64 mt(seed1);
+        while(this->v_.size() < n) {
+            uint64_t m1, m2 = mt();
+            do m1 = mt(); while((m1 & 1) == 0);
+            this->v_.emplace_back(m1, m2, std::forward<Args>(args)...);
+        }
+    }
+    uint64_t operator()(uint64_t v) const {
+        for(const auto &hash: v_) v = hash(v);
+        return v;
+    }
+    uint64_t inverse(uint64_t hv) const {
+        std::for_each(v_.rbegin(), v_.rend(), [&](const auto &hash) {hv = hash.inverse(hv);});
+        return hv;
+    }
+};
+
+struct XorMultiplyN: public RecursiveReversibleHash<XorMultiply> {
+    XorMultiplyN(size_t n, uint64_t seed1=0xB0BAF377D00Dc001uLL):
+        RecursiveReversibleHash<XorMultiply>(n, seed1) {}
+};
+struct MultiplyAddN: public RecursiveReversibleHash<MultiplyAdd> {
+    MultiplyAddN(size_t n, uint64_t seed1=0xB0BAF377D00Dc001uLL):
+        RecursiveReversibleHash<MultiplyAdd>(n, seed1) {}
+};
+struct MultiplyAddXorN: public RecursiveReversibleHash<MultiplyAddXor> {
+    MultiplyAddXorN(size_t n, uint64_t seed1=0xB0BAF377D00Dc001uLL):
+        RecursiveReversibleHash<MultiplyAddXor>(n, seed1) {}
+};
 
 template<typename T>
 static constexpr inline bool is_pow2(T val) {
