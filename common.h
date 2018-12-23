@@ -189,17 +189,31 @@ public:
     }
     uint64_t operator()(uint64_t val) const {
         uint64_t ret = coeffs_[0];
+        uint64_t exp = val;
         for(size_t i = 1; i < k; ++i) {
-            ret = (ret * val + coeffs_[i]) % mod;
+            ret = (ret + (exp * coeffs_[i] % mod)) % mod;
+            exp = (val * exp) % mod;
         }
         return ret;
     }
     Type operator()(VType val) const {
         // Data parallel across same coefficients.
         VType ret = Space::set1(coeffs_[0]);
+        VType exp = val;
         for(size_t i = 1; i < k; ++i) {
-            ret = Space::add(Space::mullo(ret.simd_, val.simd_), Space::set1(coeffs_[i]));
-            ret.for_each([&](auto &x){x %= mod;});
+#if HAS_AVX_512
+            auto tmp = Space::mullo(exp.simd_, Space::set1(coeffs_[i]));
+            tmp.for_each([](auto &x) {x %= mod;});
+            ret = Space::add(ret, tmp.simd_);
+            ret.for_each([](auto &x) {x %= mod;});
+            exp = Space::mullo(exp.simd_, val);
+            exp.for_each([](auto &x) {x %= mod;});
+#else
+            for(uint32_t j = 0; j < Space::COUNT; ++j) {
+                ret.arr_[j] = (ret.arr_[j] + (exp.arr_[j] * coeffs_[i] % mod)) % mod;
+                exp.arr_[j] = (exp.arr_[j] * val.arr_[j]) % mod;
+            }
+#endif
         }
         return ret.simd_;
     }
