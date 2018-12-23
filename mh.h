@@ -212,50 +212,48 @@ struct FinalCRMinHash {
     template<typename T2>
     static auto cmp(const T2 &a, const T2 &b) {return Cmp()(a, b);}
     double histogram_intersection(const FinalCRMinHash &o) const {
+#define I1D if(++i1 == lsz) break
+#define I2D if(++i2 == lsz) break
         assert(o.size() == size());
         const size_t lsz = size();
-        size_t i = 0, j = 0;
         size_t denom = 0, num = 0;
-        for(;;) {
-            if(cmp(first[i], o.first[j])) {
-                denom += second[i];
-                if(++i == lsz) break;
-            } else if(cmp(o.first[j], first[i])) {
-                denom += o.second[j];
-                if(++j == lsz) break;
+        for(size_t i1 = 0, i2 = 0;;) {
+            if(cmp(first[i1], o.first[i2])) {
+                denom += second[i1];
+                I1D;
+            } else if(cmp(o.first[i2], first[i1])) {
+                denom += o.second[i2];
+                I2D;
             } else {
-                const auto v1 = o.second[j], v2 = second[i];
+                const auto v1 = o.second[i2], v2 = second[i1];
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                if(++i == lsz) break;
-                if(++j == lsz) break;
+                I1D; I2D;
             }
         }
-        //std::fprintf(stderr, "FinalCRM num: %zu. denom: %zu\n", num, denom);
         return static_cast<double>(num) / denom;
     }
     template<typename WeightFn=weight::EqualWeight>
     double tf_idf(const FinalCRMinHash &o, const WeightFn &fn=WeightFn()) const {
         assert(o.size() == size());
         const size_t lsz = size();
-        size_t i = 0, j = 0;
         double denom = 0, num = 0;
-        for(;;) {
-            if(cmp(first[i], o.first[j])) {
-                denom += (second[i] * fn(first[i]));
-                if(++i == lsz) break;
-            } else if(cmp(o.first[j], first[i])) {
-                denom += (o.second[j] * fn(o.first[j]));
-                if(++j == lsz) break;
+        for(size_t i1 = 0, i2 = 0;;) {
+            if(cmp(first[i1], o.first[i2])) {
+                denom += second[i1] * fn(first[i1]);
+                I1D;
+            } else if(cmp(o.first[i2], first[i1])) {
+                denom += o.second[i2] * fn(o.first[i2]);
+                I2D;
             } else {
-                auto v2 = (o.second[j] * fn(o.first[j]));
-                auto v1 = (second[i] * fn(first[i]));
+                const auto v1 = second[i1] * fn(first[i1]), v2 = o.second[i2] * fn(o.first[i2]);
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                if(++i == lsz) break;
-                if(++j == lsz) break;
+                I1D; I2D;
             }
         }
+#undef I1D
+#undef I2D
         return num / denom;
     }
     FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second): first(std::move(first)), second(std::move(second)) {
@@ -320,16 +318,16 @@ public:
     double histogram_intersection(const CountingRangeMinHash &o) const {
         assert(o.size() == size());
         size_t denom = 0, num = 0;
-        auto i1 = minimizers_.rbegin(), i2 = o.minimizers_.rbegin();
-#define I1D if(++i1 == minimizers_.rend()) break
-#define I2D if(++i2 == o.minimizers_.rend()) break
+        auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
+#define I1D if(++i1 == minimizers_.end()) break
+#define I2D if(++i2 == o.minimizers_.end()) break
         for(;;) {
             if(cmp_(i1->first, i2->first)) {
-                denom += i2->second;
-                I2D;
-            } else if(cmp_(i2->first, i1->first)) {
                 denom += i1->second;
                 I1D;
+            } else if(cmp_(i2->first, i1->first)) {
+                denom += i2->second;
+                I2D;
             } else {
                 const auto v1 = i1->second, v2 = i2->second;
                 denom += std::max(v1, v2);

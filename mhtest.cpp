@@ -55,12 +55,13 @@ int main(int argc, char *argv[]) {
     for(size_t i = 0; i < nelem; ++i) {
         auto v = mt();
         crhm.addh(v);
-        z.insert(v);
-        for(size_t i = 0; i < 10; ++i)
+        for(size_t i = 0; i < 9; ++i)
             crhm2.addh(v);
-        for(size_t i = 0; i < 10; ++i)
-            crhm2.addh(v * v);
-        z.insert(v * v);
+        crhm2.addh(v * v);
     }
-    std::fprintf(stderr, "jaccard/is: %zu/%lf. hist intersect: %lf. With one's self: %lf\n", size_t(crhm.intersection_size(crhm2)), crhm.jaccard_index(crhm2), crhm.histogram_intersection(crhm2), crhm.histogram_intersection(crhm));
+    std::fprintf(stderr, "is/jaccard: %zu/%lf. hist intersect: %lf.\n", size_t(crhm.intersection_size(crhm2)), crhm.jaccard_index(crhm2), crhm.histogram_intersection(crhm2));
+    auto f1 = crhm.finalize(), f2 = crhm2.finalize();
+    assert(f1.histogram_intersection(f2) == f2.histogram_intersection(f1) && f1.histogram_intersection(f2) == crhm.histogram_intersection(crhm2));
+    assert(crhm.histogram_intersection(crhm2) ==  f1.tf_idf(f2));
+    std::fprintf(stderr, "tf-idf with equal weights: %lf\n", f1.tf_idf(f2));
 }
