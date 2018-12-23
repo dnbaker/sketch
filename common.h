@@ -218,59 +218,44 @@ print("    0xFFu, %s" % ", ".join(str(64 // x) for x in range(1, 63)))
 } // namespace lut
 
 struct MurFinHash {
+    static constexpr uint64_t C1 = 0xff51afd7ed558ccduLL, C2 = 0xc4ceb9fe1a85ec53uLL;
     INLINE uint64_t operator()(uint64_t key) const {
         key ^= key >> 33;
-        key *= UINT64_C(0xff51afd7ed558ccd);
+        key *= C1;
         key ^= key >> 33;
-        key *= UINT64_C(0xc4ceb9fe1a85ec53);
+        key *= C2;
         key ^= key >> 33;
         return key;
     }
     INLINE Type operator()(Type key) const {
         return this->operator()(*(reinterpret_cast<VType *>(&key)));
     }
-    INLINE Type operator()(VType key) const {
-        static constexpr uint64_t C1 = 0xff51afd7ed558ccduLL, C2 = 0xc4ceb9fe1a85ec53uLL;
-#if HAS_AVX_512
-        static const Type mul1 = Space::set1(C1);
-        static const Type mul2 = Space::set1(C2);
-#else
-        static const __m128i mul1 = {int64_t(C1), int64_t(C1)};
-        static const __m128i mul2 = {int64_t(C2), int64_t(C2)};
-#endif
-
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if (HAS_AVX_512) == 0
-        __m128i *ptr = reinterpret_cast<__m128i *>(&key);
-        for(uint32_t i = 0; i < sizeof(key) / sizeof(__m128i); ++i) {
-            ptr[i] = vec::_mm_mul_epi64(ptr[i], mul1);
-        }
-#  else
-        key = Space::mullo(key.simd_, mul1); // h *= 0xff51afd7ed558ccd;
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-#if (HAS_AVX_512) == 0
-        ptr = reinterpret_cast<__m128i *>(&key);
-        for(uint32_t i = 0; i < sizeof(key) / sizeof(__m128i); ++i) {
-            ptr[i] = vec::_mm_mul_epi64(ptr[i], mul2);
-        }
-#  else
-        key = Space::mullo(key.simd_, mul2); // h *= 0xc4ceb9fe1a85ec53;
-#endif
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-        return key.simd_;
-    }
-#if VECTOR_WIDTH > 16
+#if 0
+&& VECTOR_WIDTH > 16
     INLINE auto operator()(__m128i key) const {
         using namespace vec;
         key ^= _mm_srli_epi64(key, 33);
-        key = _mm_mul_epi64x(key, UINT64_C(0xff51afd7ed558ccd));
+        key = _mm_mul_epi64x(key, C1);
         key ^= _mm_srli_epi64(key,  33);
-        key = _mm_mul_epi64x(key, UINT64_C(0xc4ceb9fe1a85ec53));
+        key = _mm_mul_epi64x(key, C2);
         key ^= _mm_srli_epi64(key,  33);
         return key;
     }
 #endif
+    INLINE Type operator()(VType key) const {
+#if 1
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+        key.for_each([](auto &x) {x *= C1;});
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+        key.for_each([](auto &x) {x *= C2;});
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+#else
+        __m128i *p = (__m128i *)&key;
+        for(unsigned i = 0; i < sizeof(key) / sizeof(*p); ++i)
+            *p = this->operator()(*p);
+#endif
+        return key.simd_;
+    }
 };
 static INLINE uint64_t finalize(uint64_t key) {
     return MurFinHash()(key);
