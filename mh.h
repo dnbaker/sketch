@@ -43,11 +43,11 @@ inline FType beta(FType v) {
 
 } // namespace detail
 
-template<typename T, typename SizeType=uint32_t, typename=typename ::std::enable_if<::std::is_integral<T>::value && ::std::is_integral<SizeType>::value>>
+template<typename T, typename Cmp=std::greater<T>>
 class AbstractMinHash {
 protected:
-    SizeType ss_;
-    AbstractMinHash(SizeType sketch_size): ss_(sketch_size) {}
+    uint64_t ss_;
+    AbstractMinHash(uint64_t sketch_size): ss_(sketch_size) {}
     auto &sketch();
     const auto &sketch() const;
     auto nvals() const {return ss_;}
@@ -94,8 +94,8 @@ std::uint64_t intersection_size(const Container &c1, const Container &c2) {
 }
 
 
-template<typename T, typename Hasher=common::WangHash, typename SizeType=uint32_t>
-class KMinHash: public AbstractMinHash<T, SizeType> {
+template<typename T, typename Cmp=std::greater<T>, typename Hasher=common::WangHash>
+class KMinHash: public AbstractMinHash<T, Cmp> {
     std::vector<uint64_t, common::Allocator<uint64_t>> seeds_;
     std::vector<T, common::Allocator<uint64_t>> hashes_;
     Hasher hf_;
@@ -103,7 +103,7 @@ class KMinHash: public AbstractMinHash<T, SizeType> {
     // TODO: reuse code from hll/bf for vectorized hashing.
 public:
     KMinHash(size_t nkeys, size_t sketch_size, uint64_t seedseed=137, Hasher &&hf=Hasher()):
-        AbstractMinHash<T, SizeType>(sketch_size),
+        AbstractMinHash<T, Cmp>(sketch_size),
         hashes_(nkeys),
         hf_(std::move(hf))
     {
@@ -128,31 +128,43 @@ The sketch is the set of minimizers.
 
 */
 template<typename T,
+         typename Cmp=std::greater<T>,
          typename Hasher=common::WangHash,
-         typename SizeType=uint32_t,
          bool force_non_int=false, // In case you're absolutely sure you want to use a non-integral value
          typename=typename std::enable_if<
             force_non_int || std::is_arithmetic<T>::value
          >::type
         >
-class RangeMinHash: public AbstractMinHash<T, SizeType> {
+class RangeMinHash: public AbstractMinHash<T, Cmp> {
     Hasher hf_;
+    Cmp cmp_;
     ///using HeapType = std::priority_queue<T, std::vector<T, Allocator<T>>>;
-    using HeapType = std::set<T, std::greater<T>>;
-    HeapType minimizers_; // using std::greater<T> so that we can erase from begin()
+    std::set<T, Cmp> minimizers_; // using std::greater<T> so that we can erase from begin()
 
 public:
-    RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher()):
-        AbstractMinHash<T, SizeType>(sketch_size), hf_(std::move(hf))
+    RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()):
+        AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
     }
-    void addh(T val) {
+    INLINE void addh(T val) {
         val = hf_(val);
-        add(val);
+        this->add(val);
     }
-    void add(T val) {
+    INLINE void addh_expect(T val) {
+        val = hf_(val);
+        this->add_expect(val);
+    }
+    INLINE void add(T val) {
         if(minimizers_.size() == this->ss_) {
-            if(val < *minimizers_.begin()) {
+            if(cmp_(val, *minimizers_.begin())) {
+                minimizers_.erase(minimizers_.begin());
+                minimizers_.insert(val);
+            }
+        } else minimizers_.insert(val);
+    }
+    INLINE void add_expect(T val) {
+        if(__builtin_expect(minimizers_.size() == this->ss_, 1)) {
+            if(cmp_(val, *minimizers_.begin())) {
                 minimizers_.erase(minimizers_.begin());
                 minimizers_.insert(val);
             }
@@ -160,11 +172,11 @@ public:
     }
     template<typename T2>
     INLINE void addh(T2 val) {
+        val = hf_(val);
         CONST_IF(std::is_same<T2, T>::value) {
-            val = hf_(val);
             add(val);
         } else {
-            val = hf_(val);
+            static_assert(sizeof(val) % sizeof(T) == 0, "val must be the same size or greater than inserted element.");
             T *ptr = reinterpret_cast<T *>(&val);
             for(unsigned i = 0; i < sizeof(val) / sizeof(T); add(ptr[i++]));
         }
@@ -173,23 +185,13 @@ public:
     const auto begin() const {return minimizers_.begin();}
     auto end() {return minimizers_.end();}
     const auto end() const {return minimizers_.end();}
-#if 0
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
-        auto it = this->minimizers_.begin();
-        auto oit = o.begin();
-        size_t ret = 0;
-        while(it != minimizers_.end() && oit != o.end()) {
-            if(*it == *oit) ++it, ++oit, ++ret;
-            else if(*it < *oit) ++it;
-            else ++oit;
-        }
-        return ret;
+        return minhash::intersection_size(o, *this);
     }
-#endif
     template<typename C2>
     double jaccard_index(const C2 &o) const {
-        double is = intersection_size(*this, o);
+        double is = this->intersection_size(o);
         return is / (minimizers_.size() + o.size() - is);
     }
     template<typename Container>
@@ -199,13 +201,74 @@ public:
         return Container(std::rbegin(minimizers_), std::rend(minimizers_.end()));
     }
     void clear() {
-        HeapType tmp;
-        std::swap(tmp, minimizers_);
+        decltype(minimizers_)().swap(minimizers_);
     }
     std::vector<T> mh2vec() const {return to_container<std::vector<T>>();}
     size_t size() const {return minimizers_.size();}
     SET_SKETCH(minimizers_)
-    using key_compare = typename HeapType::key_compare;
+    using key_compare = typename decltype(minimizers_)::key_compare;
+};
+
+template<typename T,
+         typename Cmp=std::greater<T>,
+         typename Hasher=common::WangHash,
+         typename CountType=uint32_t
+        >
+class CountingRangeMinHash: AbstractMinHash<T, Cmp> {
+    struct VType {
+        T first;
+        mutable CountType second;
+        inline bool operator<(const VType &b) const {
+            return Cmp()(this->first , b.first);
+        }
+        inline bool operator>(const VType &b) const {
+            return !Cmp()(this->first , b.first);
+        }
+        inline bool operator==(const VType &b) const {
+            return this->first == b.first;
+        }
+        VType(T v, CountType c): first(v), second(c) {}
+    };
+    Hasher hf_;
+    Cmp cmp_;
+    std::set<VType> minimizers_; // using std::greater<T> so that we can erase from begin()
+public:
+    CountingRangeMinHash(size_t n, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()): AbstractMinHash<T, Cmp>(n), hf_(std::move(hf)), cmp_(std::move(cmp)) {}
+    INLINE void add(T val) {
+        if(minimizers_.size() == this->ss_) {
+            if(cmp_(val, minimizers_.begin()->first)) {
+                minimizers_.erase(minimizers_.begin());
+                minimizers_.insert(VType(val, CountType(1)));
+            } else {
+                auto it = minimizers_.find(VType(val, CountType()));
+                if(it != minimizers_.end())
+                    ++it->second;
+            }
+        } else minimizers_.insert(VType(val, CountType(1)));
+    }
+    INLINE void addh(T val) {
+        val = hf_(val);
+        this->add(val);
+    }
+    INLINE void addh_expect(T val) {
+        val = hf_(val);
+        this->add_expect(val);
+    }
+    template<typename Func>
+    void for_each(const Func &func) const {
+        for(const auto &i: minimizers_) {
+            func(i);
+        }
+    }
+    template<typename Func>
+    void for_each(const Func &func) {
+        for(auto &i: minimizers_) {
+            func(i);
+        }
+    }
+    void print() const {
+        for_each([](auto &p) {std::fprintf(stderr, "key %s with value %zu\n", std::to_string(p.first).data(), p.second);});
+    }
 };
 
 template<typename T=uint64_t, typename Hasher=WangHash>
