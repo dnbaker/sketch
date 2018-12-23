@@ -62,34 +62,23 @@ protected:
 
 
 template<typename Container, typename Cmp=typename Container::key_compare>
-std::uint64_t intersection_size(const Container &c1, const Container &c2) {
-    Cmp cmp;
+std::uint64_t intersection_size(const Container &c1, const Container &c2, const Cmp &cmp=Cmp()) {
     // These containers must be sorted.
     std::uint64_t ret = 0;
     auto it1 = c1.begin();
     auto it2 = c2.begin();
     const auto e1 = c1.end();
     const auto e2 = c2.end();
-    start:
-#if HAVE_SPACESHIP_OPERATOR
-    switch(*it1 <=> *it2) {
-        case -1: if(++it1 == e1) goto end;
-        case 0: ++ret; if(++it1 == e1 || ++it2 == e2) goto end;
-        case 1:               if(++it2 == e2) goto end;
-        default: __builtin_unreachable();
+    for(;;) {
+        if(cmp(*it1, *it2)) {
+            if(++it1 == e1) break;
+        } else if(cmp(*it2, *it1)) {
+            if(++it2 == e2) break;
+        } else {
+            ++ret;
+            if(++it1 == e1 || ++it2 == e2) break;
+        }
     }
-#else
-    if(cmp(*it1, *it2)) {
-        if(++it1 == e1) goto end;
-    } else if(cmp(*it2, *it1)) {
-        if(++it2 == e2) goto end;
-    } else {
-        ++ret;
-        if(++it1 == e1 || ++it2 == e2) goto end;
-    }
-#endif
-    goto start;
-    end:
     return ret;
 }
 
@@ -187,7 +176,7 @@ public:
     const auto end() const {return minimizers_.end();}
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
-        return minhash::intersection_size(o, *this);
+        return minhash::intersection_size(o, *this, Cmp());
     }
     template<typename C2>
     double jaccard_index(const C2 &o) const {
@@ -209,6 +198,49 @@ public:
     using key_compare = typename decltype(minimizers_)::key_compare;
 };
 
+template<typename T, typename Cmp, typename CountType>
+struct FinalCRMinHash {
+    std::vector<T> first;
+    std::vector<CountType> second;
+    size_t intersection_size(const FinalCRMinHash &o) const {
+        return minhash::intersection_size(first, o.first, Cmp());
+    }
+    double jaccard_index(const FinalCRMinHash &o) const {
+        double is = intersection_size(o);
+        return is / ((size() << 1) - is);
+    }
+    size_t countsum() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {sz += sz2;});}
+    template<typename T2>
+    static auto cmp(const T2 &a, const T2 &b) {return Cmp()(a, b);}
+    double histogram_intersection(const FinalCRMinHash &o) const {
+        assert(o.size() == size());
+        const size_t lsz = size();
+        size_t i = 0, j = 0;
+        size_t denom = 0, num = 0;
+        for(;;) {
+            if(cmp(first[i], o.first[j])) {
+                denom += second[i];
+                if(++i == lsz) break;
+            } else if(cmp(o.first[j], first[i])) {
+                denom += o.second[j];
+                if(++j == lsz) break;
+            } else {
+                const auto v1 = o.second[i], v2 = second[i];
+                denom += std::max(v1, v2);
+                num += std::min(v1, v2);
+                if(++i == lsz) break;
+                if(++j == lsz) break;
+            }
+        }
+        //std::fprintf(stderr, "FinalCRM num: %zu. denom: %zu\n", num, denom);
+        return static_cast<double>(num) / denom;
+    }
+    FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second): first(std::move(first)), second(std::move(second)) {
+        if(first.size() != second.size()) throw std::runtime_error("Illegal FinalCRMinHash: hashes and counts must have equal length.");
+    }
+    size_t size() const {return first.size();}
+};
+
 template<typename T,
          typename Cmp=std::greater<T>,
          typename Hasher=common::WangHash,
@@ -228,11 +260,16 @@ class CountingRangeMinHash: AbstractMinHash<T, Cmp> {
             return this->first == b.first;
         }
         VType(T v, CountType c): first(v), second(c) {}
+        VType(const VType &o): first(o.first), second(o.second) {}
     };
     Hasher hf_;
     Cmp cmp_;
     std::set<VType> minimizers_; // using std::greater<T> so that we can erase from begin()
 public:
+    const auto &min() const {return minimizers_;}
+    using size_type = CountType;
+    using final_type = FinalCRMinHash<T, Cmp, CountType>;
+    auto size() const {return minimizers_.size();}
     CountingRangeMinHash(size_t n, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()): AbstractMinHash<T, Cmp>(n), hf_(std::move(hf)), cmp_(std::move(cmp)) {}
     INLINE void add(T val) {
         if(minimizers_.size() == this->ss_) {
@@ -254,6 +291,42 @@ public:
         val = hf_(val);
         this->add_expect(val);
     }
+    double histogram_intersection(const CountingRangeMinHash &o) const {
+        assert(o.size() == size());
+        size_t denom = 0, num = 0;
+        auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
+#define I1D if(++i1 == minimizers_.end()) break
+#define I2D if(++i2 == o.minimizers_.end()) break
+        for(;;) {
+            if(cmp_(i1->first, i2->first)) {
+                denom += i1->second;
+                I1D;
+            } else if(cmp_(i2->first, i1->first)) {
+                denom += i2->second;
+                I2D;
+            } else {
+                const auto v1 = i1->second, v2 = i2->second;
+                denom += std::max(v1, v2);
+                num += std::min(v1, v2);
+                I1D;
+                I2D;
+            }
+        }
+#undef I1D
+#undef I2D
+        return static_cast<double>(num) / denom;
+    }
+    final_type finalize() const {
+        std::vector<T> reta; std::vector<CountType> retc;
+        reta.reserve(this->ss_); retc.reserve(this->ss_);
+        for(auto &p: minimizers_)
+            reta.push_back(p.first), retc.push_back(p.second);
+        reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<T>::max());
+        retc.insert(retc.end(), this->ss_ - retc.size(), 0);
+        for(size_t i = 0; i < size() - 1; ++i)
+            assert(Cmp()(reta[i], reta[i + 1]));
+        return final_type{std::move(reta), std::move(retc)};
+    }
     template<typename Func>
     void for_each(const Func &func) const {
         for(const auto &i: minimizers_) {
@@ -267,7 +340,16 @@ public:
         }
     }
     void print() const {
-        for_each([](auto &p) {std::fprintf(stderr, "key %s with value %zu\n", std::to_string(p.first).data(), p.second);});
+        for_each([](auto &p) {std::fprintf(stderr, "key %s with value %zu\n", std::to_string(p.first).data(), size_t(p.second));});
+    }
+    template<typename C2>
+    size_t intersection_size(const C2 &o) const {
+        return minhash::intersection_size(o, *this, Cmp());
+    }
+    template<typename C2>
+    double jaccard_index(const C2 &o) const {
+        double is = this->intersection_size(o);
+        return is / (minimizers_.size() + o.size() - is);
     }
 };
 
