@@ -83,7 +83,7 @@ public:
         np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), hf_(std::forward<Args>(args)...), seedseed_(seedval)
     {
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
-        if(np_ > 40u) throw std::runtime_error("Attempting to make a table that's too large. p:"s + std::to_string(np_));
+        if(np_ > 40u) throw std::runtime_error(std::string("Attempting to make a table that's too large. p:") + std::to_string(np_));
         if(np_) resize(1ull << p());
 #if !NDEBUG
         else std::fprintf(stderr, "np is small. (%u). offset %i. \n", unsigned(np_), int(l2sz) - OFFSET);

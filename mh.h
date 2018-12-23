@@ -118,11 +118,7 @@ The sketch is the set of minimizers.
 */
 template<typename T,
          typename Cmp=std::greater<T>,
-         typename Hasher=common::WangHash,
-         bool force_non_int=false, // In case you're absolutely sure you want to use a non-integral value
-         typename=typename std::enable_if<
-            force_non_int || std::is_arithmetic<T>::value
-         >::type
+         typename Hasher=common::WangHash
         >
 class RangeMinHash: public AbstractMinHash<T, Cmp> {
     Hasher hf_;
@@ -135,27 +131,23 @@ public:
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
     }
+    auto rbegin() const {return minimizers_.rbegin();}
+    auto rbegin() {return minimizers_.rbegin();}
+    T max_element() const {
+        return *begin();
+    }
+    T min_element() const {
+        return *rbegin();
+    }
     INLINE void addh(T val) {
         val = hf_(val);
         this->add(val);
     }
-    INLINE void addh_expect(T val) {
-        val = hf_(val);
-        this->add_expect(val);
-    }
     INLINE void add(T val) {
         if(minimizers_.size() == this->ss_) {
-            if(cmp_(val, *minimizers_.begin())) {
-                minimizers_.erase(minimizers_.begin());
+            if(cmp_(max_element(), val)) {
                 minimizers_.insert(val);
-            }
-        } else minimizers_.insert(val);
-    }
-    INLINE void add_expect(T val) {
-        if(__builtin_expect(minimizers_.size() == this->ss_, 1)) {
-            if(cmp_(val, *minimizers_.begin())) {
-                minimizers_.erase(minimizers_.begin());
-                minimizers_.insert(val);
+                if(minimizers_.size() > this->ss_) minimizers_.erase(minimizers_.begin());
             }
         } else minimizers_.insert(val);
     }
@@ -198,6 +190,13 @@ public:
     using key_compare = typename decltype(minimizers_)::key_compare;
 };
 
+namespace weight {
+struct EqualWeight {
+    template<typename T>
+    constexpr double operator()(T &x) const {return 1.;}
+};
+}
+
 template<typename T, typename Cmp, typename CountType>
 struct FinalCRMinHash {
     std::vector<T> first;
@@ -225,7 +224,7 @@ struct FinalCRMinHash {
                 denom += o.second[j];
                 if(++j == lsz) break;
             } else {
-                const auto v1 = o.second[i], v2 = second[i];
+                const auto v1 = o.second[j], v2 = second[i];
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
                 if(++i == lsz) break;
@@ -234,6 +233,30 @@ struct FinalCRMinHash {
         }
         //std::fprintf(stderr, "FinalCRM num: %zu. denom: %zu\n", num, denom);
         return static_cast<double>(num) / denom;
+    }
+    template<typename WeightFn=weight::EqualWeight>
+    double tf_idf(const FinalCRMinHash &o, const WeightFn &fn=WeightFn()) const {
+        assert(o.size() == size());
+        const size_t lsz = size();
+        size_t i = 0, j = 0;
+        double denom = 0, num = 0;
+        for(;;) {
+            if(cmp(first[i], o.first[j])) {
+                denom += (second[i] * fn(first[i]));
+                if(++i == lsz) break;
+            } else if(cmp(o.first[j], first[i])) {
+                denom += (o.second[j] * fn(o.first[j]));
+                if(++j == lsz) break;
+            } else {
+                auto v2 = (o.second[j] * fn(o.first[j]));
+                auto v1 = (second[i] * fn(first[i]));
+                denom += std::max(v1, v2);
+                num += std::min(v1, v2);
+                if(++i == lsz) break;
+                if(++j == lsz) break;
+            }
+        }
+        return num / denom;
     }
     FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second): first(std::move(first)), second(std::move(second)) {
         if(first.size() != second.size()) throw std::runtime_error("Illegal FinalCRMinHash: hashes and counts must have equal length.");
@@ -270,16 +293,23 @@ public:
     using size_type = CountType;
     using final_type = FinalCRMinHash<T, Cmp, CountType>;
     auto size() const {return minimizers_.size();}
+    auto begin() {return minimizers_.begin();}
+    auto begin() const {return minimizers_.begin();}
+    auto rbegin() {return minimizers_.rbegin();}
+    auto rbegin() const {return minimizers_.rbegin();}
+    auto end() {return minimizers_.end();}
+    auto end() const {return minimizers_.end();}
+    auto rend() {return minimizers_.rend();}
+    auto rend() const {return minimizers_.rend();}
     CountingRangeMinHash(size_t n, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()): AbstractMinHash<T, Cmp>(n), hf_(std::move(hf)), cmp_(std::move(cmp)) {}
     INLINE void add(T val) {
         if(minimizers_.size() == this->ss_) {
-            if(cmp_(val, minimizers_.begin()->first)) {
-                minimizers_.erase(minimizers_.begin());
-                minimizers_.insert(VType(val, CountType(1)));
-            } else {
-                auto it = minimizers_.find(VType(val, CountType()));
-                if(it != minimizers_.end())
-                    ++it->second;
+            if(cmp_(begin()->first, val)) {
+                auto it = minimizers_.find(VType(val, 0));
+                if(it == minimizers_.end()) {
+                    minimizers_.erase(begin());
+                    minimizers_.insert(VType(val, CountType(1)));
+                } else ++it->second;
             }
         } else minimizers_.insert(VType(val, CountType(1)));
     }
@@ -287,25 +317,43 @@ public:
         val = hf_(val);
         this->add(val);
     }
-    INLINE void addh_expect(T val) {
-        val = hf_(val);
-        this->add_expect(val);
-    }
     double histogram_intersection(const CountingRangeMinHash &o) const {
         assert(o.size() == size());
         size_t denom = 0, num = 0;
-        auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
-#define I1D if(++i1 == minimizers_.end()) break
-#define I2D if(++i2 == o.minimizers_.end()) break
+        auto i1 = minimizers_.rbegin(), i2 = o.minimizers_.rbegin();
+#define I1D if(++i1 == minimizers_.rend()) break
+#define I2D if(++i2 == o.minimizers_.rend()) break
         for(;;) {
             if(cmp_(i1->first, i2->first)) {
-                denom += i1->second;
-                I1D;
-            } else if(cmp_(i2->first, i1->first)) {
                 denom += i2->second;
                 I2D;
+            } else if(cmp_(i2->first, i1->first)) {
+                denom += i1->second;
+                I1D;
             } else {
                 const auto v1 = i1->second, v2 = i2->second;
+                denom += std::max(v1, v2);
+                num += std::min(v1, v2);
+                I1D;
+                I2D;
+            }
+        }
+        return static_cast<double>(num) / denom;
+    }
+    template<typename WeightFn=weight::EqualWeight>
+    double tf_idf(const CountingRangeMinHash &o, const WeightFn &fn) const {
+        assert(o.size() == size());
+        double denom = 0, num = 0;
+        auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
+        for(;;) {
+            if(cmp_(i1->first, i2->first)) {
+                denom += (i1->second) * fn(i1->first);
+                I1D;
+            } else if(cmp_(i2->first, i1->first)) {
+                denom += (i2->second) * fn(i2->first);
+                I2D;
+            } else {
+                const auto v1 = i1->second * fn(i1->first), v2 = i2->second * fn(i2->first);
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
                 I1D;
@@ -323,8 +371,10 @@ public:
             reta.push_back(p.first), retc.push_back(p.second);
         reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<T>::max());
         retc.insert(retc.end(), this->ss_ - retc.size(), 0);
+#if !NDEBUG
         for(size_t i = 0; i < size() - 1; ++i)
             assert(Cmp()(reta[i], reta[i + 1]));
+#endif
         return final_type{std::move(reta), std::move(retc)};
     }
     template<typename Func>
@@ -344,7 +394,7 @@ public:
     }
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
-        return minhash::intersection_size(o, *this, Cmp());
+        return minhash::intersection_size(o, *this, [&](auto &x, auto &y) {return cmp_(x.first, y.first);});
     }
     template<typename C2>
     double jaccard_index(const C2 &o) const {

@@ -79,7 +79,6 @@
 
 namespace sketch {
 namespace common {
-using namespace std::literals;
 
 using std::uint64_t;
 using std::uint32_t;
@@ -284,9 +283,9 @@ struct multiplies {
 #if HAS_AVX_512
         return Space::mul(x.simd_, y.simd_);
 #else
-        __m128i *p1 = reinterpret_cast<__m128i *>(&x), *p2 = reinterpret_cast<__m128i *>(&y);
-        for(uint32_t i = 0; i < sizeof(x) / sizeof(__m128i); ++i) {
-            p1[i] = vec::_mm_mul_epi64(p1[i], p2[i]);
+        uint64_t *p1 = reinterpret_cast<uint64_t *>(&x), *p2 = reinterpret_cast<uint64_t *>(&y);
+        for(uint32_t i = 0; i < sizeof(VType) / sizeof(uint64_t); ++i) {
+            p1[i] *= p2[i];
         }
         return x;
 #endif
@@ -336,6 +335,7 @@ static inline constexpr uint64_t findMultInverse64(uint64_t x) {
   y = f64(x, y);
   return y;
 }
+#if 0
 static inline VType findMultInverse64(VType x) {
   x.for_each([](auto v) {if(!(v&1)) throw std::runtime_error("Can't get multiplicative inverse of an even number.");});
   VType y = Space::xor_fn(Space::mul(Space::set1(3), x.simd_), Space::set1(2));
@@ -345,6 +345,7 @@ static inline VType findMultInverse64(VType x) {
   y = f64(x, y);
   return y;
 }
+#endif
 
 template<typename T>
 struct Inverse64 {
@@ -457,12 +458,8 @@ struct RecursiveReversibleHash {
     template<typename... Args>
     RecursiveReversibleHash(size_t n, uint64_t seed1=1337, Args &&... args) {
         std::mt19937_64 mt(seed1);
-        while(this->v_.size() < n) {
-            uint64_t m1, m2 = mt();
-            do m1 = mt(); while((m1 & 1) == 0);
-            //do m2 = mt(); while((m2 & 1) == 0);
-            this->v_.emplace_back(m1, m2, std::forward<Args>(args)...);
-        }
+        while(v_.size() < n)
+            v_.emplace_back(mt() | 1, mt(), std::forward<Args>(args)...);
     }
     template<typename T>
     T operator()(T v) const {

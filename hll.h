@@ -732,7 +732,7 @@ public:
     void load_binary(const char *fn, bool use_gz=true, int chunk_size_in_bytes=8) {
 #define EXECUTE_LOAD(name, fp_type, getc_fn, open_fn, close_fn) do { \
             fp_type fp = open_fn(fn, "rb");\
-            if(fp == nullptr) throw std::runtime_error("Could not open file at "s + fn);\
+            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + fn);\
             if(chunk_size_in_bytes > sizeof(uint64_t)) throw std::runtime_error("Chunks of > 8 bytes each not yet supported.");\
             if(chunk_size_in_bytes > 4) {\
                 const uint64_t mask = (uint64_t(1) << (chunk_size_in_bytes * CHAR_BIT)) - 1;\
@@ -871,7 +871,7 @@ public:
         // This is not very optimized.
         // I might later add support for doubling, c/o https://research.neustar.biz/2013/04/30/doubling-the-size-of-an-hll-dynamically-extra-bits/
         if(new_np == np_) return hllbase_t(*this);
-        if(new_np > np_) throw std::runtime_error("Can't compress to a larger size. Current: "s + std::to_string(np_) + ". Requested new size: " + std::to_string(new_np));
+        if(new_np > np_) throw std::runtime_error(std::string("Can't compress to a larger size. Current: ") + std::to_string(np_) + ". Requested new size: " + std::to_string(new_np));
         hllbase_t<HashStruct> ret(new_np, get_estim(), get_jestim(), nthreads_, clamp());
         size_t ratio = static_cast<size_t>(1) << (np_ - new_np);
         size_t b = 0;
@@ -1381,7 +1381,7 @@ public:
             const Type *eptr = reinterpret_cast<const Type *>(&seeds_[seeds_.size()]);
             VType key;
             do {
-                key = WangHash()(*sptr++ ^ element);
+                key = WangHash()(*sptr++ ^ Space::set1(element));
                 for(unsigned i(0); i < Space::COUNT;) if(!hlls_[k++].may_contain(key.arr_[i++])) return false;
             } while(sptr < eptr);
             return true;

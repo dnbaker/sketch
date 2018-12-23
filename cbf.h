@@ -44,7 +44,7 @@ public:
 #if !NDEBUG
             std::fprintf(stderr, "Total l2szs: %s. nh: %u, seed: %" PRIu64".\n", std::accumulate(std::begin(l2szs), std::end(l2szs), std::string(""),
                          [](std::string &a, unsigned u) -> std::string & {
-                return a += std::to_string(u) + ","s;
+                return a += std::to_string(u) + ',';
             }).data(), nhashes, seedseedseedval);
 #endif
         if(l2szs.empty()) throw std::runtime_error("Need at least 1 size for hashes.");
