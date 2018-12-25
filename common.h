@@ -370,21 +370,46 @@ struct Inverse64<std::plus<uint64_t>> {
 
 } // multinv
 
+template<size_t n, bool left>
+struct Rot {
+    template<typename T>
+    T constexpr operator()(T val) const {
+        static_assert(n < sizeof(T) * CHAR_BIT, "Can't shift more than the width of the type.");
+        return left ? (val << n) | (val >> (64 - n)): (val >> n) | (val << (64 - n));
+    }
+    template<typename T, typename T2>
+    T constexpr operator()(T val, const T2 &oval) const { // DO nothing
+        return this->operator()(val);
+    }
+    template<typename T>
+    using InverseOperation = Rot<64 - n, !left>;
+};
+template<size_t n> using RotL = Rot<n, true>;
+template<size_t n> using RotR = Rot<n, false>;
+
+using RotL33 = RotL<33>;
+using RotR33 = RotR<33>;
+using RotL31 = RotL<31>;
+using RotR31 = RotR<31>;
+
+
+
 template<typename Operation, typename InverseOperation=Operation>
 struct InvH {
     uint64_t seed_, inverse_;
     const Operation op;
+    const InverseOperation iop;
 
     InvH(uint64_t seed):
             seed_(seed | std::is_same<Operation, op::multiplies<uint64_t>>::value),
-            inverse_(multinv::Inverse64<Operation>()(seed_)), op() {}
+            inverse_(multinv::Inverse64<Operation>()(seed_)), op(), iop() {}
     // To ensure that it is actually reversible.
     uint64_t inverse(uint64_t hv) const {
-        hv = op(hv, inverse_);
+        hv = iop(hv, inverse_);
         return hv;
     }
     VType inverse(VType hv) const {
-        hv = op(hv.simd_, Space::set1(inverse_));
+        hv = iop(hv.simd_, Space::set1(inverse_));
         return hv;
     }
     uint64_t operator()(uint64_t h) const {
@@ -433,7 +458,7 @@ struct FusedReversible3 {
     }
     template<typename T>
     T inverse(T hv) const {
-        hv = op1.inverse(op2.inverse(op3.reverse(hv)));
+        hv = op1.inverse(op2.inverse(op3.inverse(hv)));
         return hv;
     }
 };
@@ -441,6 +466,8 @@ struct FusedReversible3 {
 using InvXor = InvH<op::bit_xor<uint64_t>>;
 using InvMul = InvH<op::multiplies<uint64_t>>;
 using InvAdd = InvH<op::plus<uint64_t>>;
+template<size_t n>
+using RotN = InvH<RotL<n>, RotR<64 - n>>;
 
 struct XorMultiply: public FusedReversible<InvXor, InvMul > {
     XorMultiply(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1, seed2) {}
@@ -450,6 +477,10 @@ struct MultiplyAdd: public FusedReversible<InvMul, InvAdd> {
 };
 struct MultiplyAddXor: public FusedReversible3<InvMul,InvAdd,InvXor> {
     MultiplyAddXor(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvAdd,InvXor>(seed1, seed2) {}
+};
+template<size_t shift>
+struct MultiplyAddXoRot: public FusedReversible3<InvMul,InvXor,RotN<shift>> {
+    MultiplyAddXoRot(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvXor, RotN<shift>>(seed1, seed2) {}
 };
 
 template<typename HashType>
@@ -485,7 +516,16 @@ struct MultiplyAddXorNVec: public RecursiveReversibleHash<MultiplyAddXor> {
     MultiplyAddXorNVec(size_t n, uint64_t seed1=0xB0BAF377D00Dc001uLL):
         RecursiveReversibleHash<MultiplyAddXor>(n, seed1) {}
 };
+template<size_t shift>
+struct MultiplyAddXoRotNVec: public RecursiveReversibleHash<MultiplyAddXoRot<shift>> {
+    MultiplyAddXoRotNVec(size_t n, uint64_t seed1=0xB0BAF377D00Dc001uLL):
+        RecursiveReversibleHash<MultiplyAddXoRot<shift>>(n, seed1) {}
+};
 
+template<size_t shift, size_t n>
+struct MultiplyAddXoRotN: MultiplyAddXoRotNVec<shift> {
+    MultiplyAddXoRotN(): MultiplyAddXoRotNVec<shift>(n) {}
+};
 template<size_t n>
 struct MultiplyAddXorN: MultiplyAddXorNVec {
     MultiplyAddXorN(): MultiplyAddXorNVec(n) {}

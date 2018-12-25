@@ -30,10 +30,12 @@ int main() {
     XorMultiplyN<2> xm;
     //XorMultiplyNVec xm2(1000);
     XorMultiplyN<20> xm2;
+    MultiplyAddXoRotN<33, 10> xm3;
     for(auto &v: vec) {
         v = gen(), h1.addh(v), h2.addh(v), h3.addh(v);
         assert(xm.inverse(xm(v)) == v);
         assert(xm2.inverse(xm2(v)) == v);
+        assert(xm3.inverse(xm3(v)) == v);
     }
     std::fprintf(stderr, "Reported sizes (20 mixes: %zu), (1000 mixes:%zu) (10000 %zu). True: %zu\n", size_t(h1.report()), size_t(h2.report()), size_t(h3.report()), vec.size());
     VType t = Space::set1(1337);

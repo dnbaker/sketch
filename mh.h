@@ -19,6 +19,33 @@ using namespace common;
 
 namespace detail {
 
+
+// From BinDash https://github.com/zhaoxiaofei/bindash
+
+static inline uint64_t univhash2(uint64_t s, uint64_t t) {
+    uint64_t x = (1009) * s + (1000*1000+3) * t;
+    return (48271 * x + 11) % ((1ULL << 31) - 1);
+}
+
+static int densifybin(std::vector<uint64_t> &hashes) {
+    uint64_t min = hashes.front(), max = min;
+    for(auto it(hashes.begin() + 1); it != hashes.end(); ++it) {
+        min = std::min(min, *it);
+        max = std::max(max, *it);
+    }
+    if (UINT64_MAX != maxval) { return 0; }  // Full sketch
+    if (UINT64_MAX == minval) { return -1; } // Empty sketch
+    for (uint64_t i = 0; i < hashes.size(); i++) {
+        // This is quadratic w.r.t. the number of hashes
+        uint64_t j = i;
+        uint64_t nattempts = 0;
+        while (UINT64_MAX == hashes[j])
+            j = univhash2(i, nattempts++) % hashes.size();
+        hashes[i] = hashes[j];
+    }
+    return 1;
+}
+
 static constexpr double HMH_C = 0.169919487159739093975315012348;
 
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>

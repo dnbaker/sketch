@@ -17,3 +17,7 @@
 	path = compact_vector
     branch = master
 	url = https://github.com/gmarcais/compact_vector
+[submodule "circularqueue"]
+	path = circularqueue
+	url = https://github.com/dnbaker/circularqueue
+    branch = master
