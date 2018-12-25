@@ -60,8 +60,12 @@ int main(int argc, char *argv[]) {
         crhm2.addh(v * v);
     }
     std::fprintf(stderr, "is/jaccard: %zu/%lf. hist intersect: %lf.\n", size_t(crhm.intersection_size(crhm2)), crhm.jaccard_index(crhm2), crhm.histogram_intersection(crhm2));
-    auto f1 = crhm.finalize(), f2 = crhm2.finalize();
+    auto f1 = crhm.finalize();
+    auto f2 = crhm2.finalize();
     assert(f1.histogram_intersection(f2) == f2.histogram_intersection(f1) && f1.histogram_intersection(f2) == crhm.histogram_intersection(crhm2));
     assert(crhm.histogram_intersection(crhm2) ==  f1.tf_idf(f2));
     std::fprintf(stderr, "tf-idf with equal weights: %lf\n", f1.tf_idf(f2));
+    std::fprintf(stderr, "est cardinality: %lf\n", f1.cardinality());
+    auto m1 = rm1.finalize(), m2 = rm2.finalize();
+    std::fprintf(stderr, "jaccard between finalized MH sketches: %lf, card %lf\n", m1.jaccard_index(m2), m1.cardinality());
 }
