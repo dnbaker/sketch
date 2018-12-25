@@ -631,7 +631,7 @@ static inline void zero_memory(std::vector<T, AllocatorType> &v, size_t newsz) {
     std::fprintf(stderr, "New size of container: %zu\n", newsz);
 }
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz) {
+static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {
    std::memset(v.get(), 0, v.bytes()); // zero array
 }
 } // namespace detail
