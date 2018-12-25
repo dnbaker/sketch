@@ -27,14 +27,14 @@ static inline uint64_t univhash2(uint64_t s, uint64_t t) {
     return (48271 * x + 11) % ((1ULL << 31) - 1);
 }
 
-static int densifybin(std::vector<uint64_t> &hashes) {
+inline int densifybin(std::vector<uint64_t> &hashes) {
     uint64_t min = hashes.front(), max = min;
     for(auto it(hashes.begin() + 1); it != hashes.end(); ++it) {
         min = std::min(min, *it);
         max = std::max(max, *it);
     }
-    if (UINT64_MAX != maxval) { return 0; }  // Full sketch
-    if (UINT64_MAX == minval) { return -1; } // Empty sketch
+    if (UINT64_MAX != max) { return 0; }  // Full sketch
+    if (UINT64_MAX == min) { return -1; } // Empty sketch
     for (uint64_t i = 0; i < hashes.size(); i++) {
         // This is quadratic w.r.t. the number of hashes
         uint64_t j = i;
@@ -562,26 +562,30 @@ public:
         std::array<uint64_t, 64> ret{0};
         using hll::detail::SIMDHolder;
         if(core_.bytes() >= sizeof(SIMDHolder)) {
-           switch(simd_policy()) {
-               case U8:
-                   for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
-                       ptr != eptr; ++ptr) {
-                       SIMDHolder tmp = SIMDHolder::max_fn(*ptr, *eptr);
-                       tmp.inc_counts(ret);
-                   }
-                   break;
-               case U8:
-                   for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
-                       ptr != eptr; ++ptr) {
-                       SIMDHolder tmp = SIMDHolder::max_fn(*ptr, *eptr);
-                       tmp.inc_counts(ret);
-                   }
-               case Manual:
-               for(const auto i: core_) {
-                   if(__builtin_expect(get_lzc(i) > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}
-                   ++ret[get_lzc(i)];
-               }
-           }
+            switch(simd_policy()) {
+                case U8:
+                    for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
+                        ptr != eptr; ++ptr) {
+                    auto tmp = *ptr;
+                    for(uint32_t i = 0; i < sizeof(tmp); ++i)
+#define TMP (reinterpret_cast<uint8_t *>(&tmp))
+                        TMP[i] >>= r_; // I bet this shift can be vectorized
+                    tmp.inc_counts(ret);
+                    break;
+#if 0
+                case U16:
+                case U32:
+                case U64:
+#endif
+                case Manual: default: goto manual;
+                }
+            }
+        } else {
+            manual:
+            for(const auto i: core_) {
+                if(__builtin_expect(get_lzc(i) > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}
+                ++ret[get_lzc(i)];
+            }
         }
         return ret;
     }
@@ -626,6 +630,8 @@ public:
         element.for_each([&](uint64_t el) {this->addh(el);});
     }
     HyperMinHash &operator+=(const HyperMinHash &o) {
+        // This needs:
+        // Vectorized maxes
         for(size_t i(0); i < core_.size(); ++i) {
             if(core_[i] < o.core_[i]) core_[i] = o.core_[i];
             // This can also be accelerated for specific minimizer sizes
