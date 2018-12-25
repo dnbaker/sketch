@@ -112,7 +112,7 @@ public:
     SET_SKETCH(hashes_)
 };
 
-template<typename T, typename Cmp> class FinalRMinHash;
+template<typename T, typename Cmp> class FinalRMinHash; // Forward definition
 /*
 The sketch is the set of minimizers.
 
@@ -459,6 +459,7 @@ class HyperMinHash {
     std::mutex mutex_; // I should be able to replace most of these with atomics.
 #endif
 public:
+    static constexpr uint32_t q() {return 6u;} // To hold popcount for a 64-bit integer.
     enum ComparePolicy {
         Manual = 0,
         U8 = 1,
@@ -480,7 +481,7 @@ public:
         seeds_{0xB0BAF377C001D00DuLL, 0x430c0277b68144b5uLL} // Fully arbitrary seeds
     {
         std::fprintf(stderr, "Pointer for data: %p\n", static_cast<void *>(core_.get()));
-        common::detail::zero_memory(core_, 0); // Second parameter is a dummy for interface compatibility with STL
+        common::detail::zero_memory(core_); // Second parameter is a dummy for interface compatibility with STL
 #if !NDEBUG
         std::fprintf(stderr, "p: %u. r: %u\n", p, r);
         print_params();
@@ -500,7 +501,6 @@ public:
             std::fprintf(stderr, "Index %zu has value %d for lzc and %d for remainder, with full value = %zu\n", i, int(get_lzc(v)), int(get_mhr(v)), size_t(core_[i]));
         }
     }
-    static constexpr uint32_t q() {return 6u;} // To hold popcount for a 64-bit integer.
     auto minimizer_size() const {
         return r_ + q();
     }
@@ -529,14 +529,32 @@ public:
         return (uint64_t(lzc) << r_) | min;
     }
     std::array<uint64_t, 64> sum_counts() const {
-        if(__builtin_expect(r_ == 0, 0)) { // No remained, is a hyperloglog sketch
-            return hll::detail::sum_counts(core_);
-        }
-        std::array<uint64_t, 64> ret;
-        std::memset(&ret[0], 0, sizeof(ret));
-        for(const auto i: core_) {
-            if(__builtin_expect(get_lzc(i) > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}
-            ++ret[get_lzc(i)];
+        // TODO: this
+        // Note: we have whip out more complicated vectorized maxes for
+        // widths of 16, 32, or 64
+        std::array<uint64_t, 64> ret{0};
+        using hll::detail::SIMDHolder;
+        if(core_.bytes() >= sizeof(SIMDHolder)) {
+           switch(simd_policy()) {
+               case U8:
+                   for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
+                       ptr != eptr; ++ptr) {
+                       SIMDHolder tmp = SIMDHolder::max_fn(*ptr, *eptr);
+                       tmp.inc_counts(ret);
+                   }
+                   break;
+               case U8:
+                   for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
+                       ptr != eptr; ++ptr) {
+                       SIMDHolder tmp = SIMDHolder::max_fn(*ptr, *eptr);
+                       tmp.inc_counts(ret);
+                   }
+               case Manual:
+               for(const auto i: core_) {
+                   if(__builtin_expect(get_lzc(i) > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}
+                   ++ret[get_lzc(i)];
+               }
+           }
         }
         return ret;
     }
