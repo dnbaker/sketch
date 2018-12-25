@@ -375,7 +375,8 @@ struct Rot {
     template<typename T>
     T constexpr operator()(T val) const {
         static_assert(n < sizeof(T) * CHAR_BIT, "Can't shift more than the width of the type.");
-        return left ? (val << n) | (val >> (64 - n)): (val >> n) | (val << (64 - n));
+        return left ? (val << n) ^ (val >> (64 - n))
+                    : (val >> n) ^ (val << (64 - n));
     }
     template<typename T, typename T2>
     T constexpr operator()(T val, const T2 &oval) const { // DO nothing
