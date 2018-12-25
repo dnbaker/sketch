@@ -112,6 +112,7 @@ public:
     SET_SKETCH(hashes_)
 };
 
+template<typename T, typename Cmp> class FinalRMinHash;
 /*
 The sketch is the set of minimizers.
 
@@ -128,6 +129,7 @@ protected:
     std::set<T, Cmp> minimizers_; // using std::greater<T> so that we can erase from begin()
 
 public:
+    using final_type = FinalRMinHash<T, Cmp>;
     RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()):
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
@@ -185,10 +187,15 @@ public:
     void clear() {
         decltype(minimizers_)().swap(minimizers_);
     }
+    final_type finalize() const {
+        std::vector<T> reta(minimizers_.begin(), minimizers_.end());
+        reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
+        return final_type{std::move(reta)};
+    }
     std::vector<T> mh2vec() const {return to_container<std::vector<T>>();}
     size_t size() const {return minimizers_.size();}
-    SET_SKETCH(minimizers_)
     using key_compare = typename decltype(minimizers_)::key_compare;
+    SET_SKETCH(minimizers_)
 };
 
 namespace weight {

@@ -66,4 +66,6 @@ int main(int argc, char *argv[]) {
     assert(crhm.histogram_intersection(crhm2) ==  f1.tf_idf(f2));
     std::fprintf(stderr, "tf-idf with equal weights: %lf\n", f1.tf_idf(f2));
     std::fprintf(stderr, "est cardinality: %lf\n", f1.cardinality());
+    auto m1 = rm1.finalize(), m2 = rm2.finalize();
+    std::fprintf(stderr, "jaccard between finalized MH sketches: %lf, card %lf\n", m1.jaccard_index(m2), m1.cardinality());
 }
