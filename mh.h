@@ -121,6 +121,7 @@ template<typename T,
          typename Hasher=common::WangHash
         >
 class RangeMinHash: public AbstractMinHash<T, Cmp> {
+protected:
     Hasher hf_;
     Cmp cmp_;
     ///using HeapType = std::priority_queue<T, std::vector<T, Allocator<T>>>;
@@ -197,31 +198,66 @@ struct EqualWeight {
 };
 }
 
-template<typename T, typename Cmp, typename CountType>
-struct FinalCRMinHash {
+template<typename T, typename Cmp>
+struct FinalRMinHash {
     std::vector<T> first;
-    std::vector<CountType> second;
-    size_t intersection_size(const FinalCRMinHash &o) const {
+    Cmp cmp;
+    size_t intersection_size(const FinalRMinHash &o) const {
         return minhash::intersection_size(first, o.first, Cmp());
     }
-    double jaccard_index(const FinalCRMinHash &o) const {
+    double jaccard_index(const FinalRMinHash &o) const {
         double is = intersection_size(o);
         return is / ((size() << 1) - is);
     }
-    size_t countsum() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {sz += sz2;});}
-    template<typename T2>
-    static auto cmp(const T2 &a, const T2 &b) {return Cmp()(a, b);}
-    double histogram_intersection(const FinalCRMinHash &o) const {
+    double cardinality() const {
+        std::vector<T> diffs;
+        for(auto i1 = first.begin(), i2 = i1; ++i2 != first.end();++i1) {
+            diffs.push_back(*i1 - *i2);
+        }
+        sort::insertion_sort(diffs.begin(), diffs.end());
+        return double(1ull << 63) / (diffs[diffs.size() >> 1] + diffs[(diffs.size() >> 1) - 1]);
+    }
 #define I1D if(++i1 == lsz) break
 #define I2D if(++i2 == lsz) break
+    template<typename WeightFn=weight::EqualWeight>
+    double tf_idf(const FinalRMinHash &o, const WeightFn &fn=WeightFn()) const {
         assert(o.size() == size());
         const size_t lsz = size();
-        size_t denom = 0, num = 0;
+        double denom = 0, num = 0;
         for(size_t i1 = 0, i2 = 0;;) {
             if(cmp(first[i1], o.first[i2])) {
-                denom += second[i1];
+                denom += fn(first[i1]);
                 I1D;
             } else if(cmp(o.first[i2], first[i1])) {
+                denom += fn(o.first[i2]);
+                I2D;
+            } else {
+                const auto v1 = fn(first[i1]), v2 = fn(o.first[i2]);
+                denom += std::max(v1, v2);
+                num += std::min(v1, v2);
+                I1D; I2D;
+            }
+        }
+        return num / denom;
+    }
+    FinalRMinHash(std::vector<T> &&first): first(std::move(first)), cmp() {}
+    size_t size() const {return first.size();}
+};
+
+
+template<typename T, typename Cmp, typename CountType>
+struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
+    std::vector<CountType> second;
+    size_t countsum() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {sz += sz2;});}
+    double histogram_intersection(const FinalCRMinHash &o) const {
+        assert(o.size() == this->size());
+        const size_t lsz = this->size();
+        size_t denom = 0, num = 0;
+        for(size_t i1 = 0, i2 = 0;;) {
+            if(this->cmp(this->first[i1], o.first[i2])) {
+                denom += second[i1];
+                I1D;
+            } else if(this->cmp(o.first[i2], this->first[i1])) {
                 denom += o.second[i2];
                 I2D;
             } else {
@@ -235,18 +271,18 @@ struct FinalCRMinHash {
     }
     template<typename WeightFn=weight::EqualWeight>
     double tf_idf(const FinalCRMinHash &o, const WeightFn &fn=WeightFn()) const {
-        assert(o.size() == size());
-        const size_t lsz = size();
+        assert(o.size() == this->size());
+        const size_t lsz = this->size();
         double denom = 0, num = 0;
         for(size_t i1 = 0, i2 = 0;;) {
-            if(cmp(first[i1], o.first[i2])) {
-                denom += second[i1] * fn(first[i1]);
+            if(this->cmp(this->first[i1], o.first[i2])) {
+                denom += second[i1] * fn(this->first[i1]);
                 I1D;
-            } else if(cmp(o.first[i2], first[i1])) {
+            } else if(this->cmp(o.first[i2], this->first[i1])) {
                 denom += o.second[i2] * fn(o.first[i2]);
                 I2D;
             } else {
-                const auto v1 = second[i1] * fn(first[i1]), v2 = o.second[i2] * fn(o.first[i2]);
+                const auto v1 = second[i1] * fn(this->first[i1]), v2 = o.second[i2] * fn(o.first[i2]);
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
                 I1D; I2D;
@@ -256,10 +292,13 @@ struct FinalCRMinHash {
 #undef I2D
         return num / denom;
     }
-    FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second): first(std::move(first)), second(std::move(second)) {
-        if(first.size() != second.size()) throw std::runtime_error("Illegal FinalCRMinHash: hashes and counts must have equal length.");
+    FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second): FinalRMinHash<T, Cmp>(std::move(first)), second(std::move(second)) {
+        if(this->first.size() != this->second.size()) {
+            char buf[512];
+            std::sprintf(buf, "Illegal FinalCRMinHash: hashes and counts must have equal length. Length one: %zu. Length two: %zu", this->first.size(), second.size());
+            throw std::runtime_error(buf);
+        }
     }
-    size_t size() const {return first.size();}
 };
 
 template<typename T,
@@ -367,8 +406,10 @@ public:
         reta.reserve(this->ss_); retc.reserve(this->ss_);
         for(auto &p: minimizers_)
             reta.push_back(p.first), retc.push_back(p.second);
-        reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<T>::max());
-        retc.insert(retc.end(), this->ss_ - retc.size(), 0);
+        assert(reta.size() == retc.size());
+        size_t nelem = this->ss_;
+        reta.insert(reta.end(), nelem, std::numeric_limits<T>::max());
+        retc.insert(retc.end(), nelem, 0);
 #if !NDEBUG
         for(size_t i = 0; i < size() - 1; ++i)
             assert(Cmp()(reta[i], reta[i + 1]));
