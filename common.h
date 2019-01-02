@@ -388,6 +388,32 @@ struct Rot {
 template<size_t n> using RotL = Rot<n, true>;
 template<size_t n> using RotR = Rot<n, false>;
 
+template<size_t n> struct ShiftXor;
+
+
+// InvShiftXor and ShiftXor are
+// Feistel ciphers.
+// For more details, visit https://naml.us/post/inverse-of-a-hash-function/
+template<size_t n>
+struct InvShiftXor {
+    uint64_t constexpr operator()(uint64_t v) const {
+        uint64_t tmp = v ^ (v >> n);
+        for(unsigned i = 0; i < 64 / n - 2; ++i)
+            tmp = v ^ (tmp >> n);
+        v = v ^ (tmp>>n)
+        return v;
+    }
+    using InverseOperation = ShiftXor<n>;
+};
+
+template<size_t n>
+struct ShiftXor {
+    uint64_t constexpr operator()(uint64_t v) const {
+        return v ^ (v >> n);
+    }
+    using InverseOperation = InvShiftXor<n>;
+};
+
 using RotL33 = RotL<33>;
 using RotR33 = RotR<33>;
 using RotL31 = RotL<31>;
