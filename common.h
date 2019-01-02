@@ -400,7 +400,7 @@ struct InvShiftXor {
         uint64_t tmp = v ^ (v >> n);
         for(unsigned i = 0; i < 64 / n - 2; ++i)
             tmp = v ^ (tmp >> n);
-        v = v ^ (tmp>>n)
+        v = v ^ (tmp>>n);
         return v;
     }
     using InverseOperation = ShiftXor<n>;

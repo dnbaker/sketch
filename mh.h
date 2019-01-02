@@ -571,21 +571,23 @@ public:
 #define TMP (reinterpret_cast<uint8_t *>(&tmp))
                         TMP[i] >>= r_; // I bet this shift can be vectorized
                     tmp.inc_counts(ret);
+                    }
                     break;
 #if 0
                 case U16:
                 case U32:
                 case U64:
 #endif
-                case Manual: default: goto manual;
-                }
+#define MANUAL_CORE \
+            for(const auto i: core_) {\
+                if(__builtin_expect(get_lzc(i) > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}\
+                ++ret[get_lzc(i)];\
+            }
+                case Manual: default: MANUAL_CORE
             }
         } else {
-            manual:
-            for(const auto i: core_) {
-                if(__builtin_expect(get_lzc(i) > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}
-                ++ret[get_lzc(i)];
-            }
+            MANUAL_CORE
+#undef MANUAL_CORE
         }
         return ret;
     }
