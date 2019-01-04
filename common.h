@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cassert>
 #include <cinttypes>
 #include <climits>
 #include <cmath>
@@ -205,7 +206,7 @@ public:
             tmp.for_each([](auto &x) {x %= mod;});
             ret = Space::add(ret, tmp.simd_);
             ret.for_each([](auto &x) {x %= mod;});
-            exp = Space::mullo(exp.simd_, val);
+            exp = Space::mullo(exp.simd_, val.simd_);
             exp.for_each([](auto &x) {x %= mod;});
 #else
             for(uint32_t j = 0; j < Space::COUNT; ++j) {
@@ -281,7 +282,7 @@ struct multiplies {
     T operator()(T x, T y) const { return x * y;}
     VType operator()(VType x, VType y) const {
 #if HAS_AVX_512
-        return Space::mul(x.simd_, y.simd_);
+        return Space::mullo(x.simd_, y.simd_);
 #else
         uint64_t *p1 = reinterpret_cast<uint64_t *>(&x), *p2 = reinterpret_cast<uint64_t *>(&y);
         for(uint32_t i = 0; i < sizeof(VType) / sizeof(uint64_t); ++i) {
@@ -323,11 +324,12 @@ static inline constexpr uint64_t f64(uint64_t x, uint64_t y) { return y * (2 - y
 static inline VType f64(VType x, VType y) {
     __m128i *p1 = reinterpret_cast<__m128i *>(&x), *p2 = reinterpret_cast<__m128i *>(&y);
     for(auto i = 0u; i < sizeof(x) / sizeof(__m128i); ++i)
-        p1[i] = vec::_mm_mul_epi64(p2[i], _mm_sub_epi64(_mm_set1_epi64x(2), vec::_mm_mul_epi64(p1[i], p2[i])));
+        p1[i] = vec::_mm_mullo_epi64(p2[i], _mm_sub_epi64(_mm_set1_epi64x(2), vec::_mm_mullo_epi64(p1[i], p2[i])));
     return x;
 }
-static inline constexpr uint64_t findMultInverse64(uint64_t x) {
-  if(!(x&1)) throw std::runtime_error("Can't get multiplicative inverse of an even number.");
+
+static inline uint64_t findMultInverse64(uint64_t x) {
+  assert(x & 1 || !std::fprintf(stderr, "Even numbers don't have unique Z mod 2^64 inverses."));
   uint64_t y = (3 * x) ^ 2;
   y = f64(x, y);
   y = f64(x, y);
@@ -335,6 +337,7 @@ static inline constexpr uint64_t findMultInverse64(uint64_t x) {
   y = f64(x, y);
   return y;
 }
+
 #if 0
 static inline VType findMultInverse64(VType x) {
   x.for_each([](auto v) {if(!(v&1)) throw std::runtime_error("Can't get multiplicative inverse of an even number.");});
@@ -597,7 +600,7 @@ INLINE auto popcnt_fn(Type val) {
 
 #define VAL_AS_ARR(ind) reinterpret_cast<const uint64_t *>(&val)[ind]
 #if HAS_AVX_512
-#define FUNCTION_CALL popcnt_avx256((Type *)&val, 2)
+#define FUNCTION_CALL popcnt_avx512(&val, 1)
 #elif __AVX2__
 // This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
 #define FUNCTION_CALL popcount(VAL_AS_ARR(0)) + popcount(VAL_AS_ARR(1)) + popcount(VAL_AS_ARR(2)) + popcount(VAL_AS_ARR(3))

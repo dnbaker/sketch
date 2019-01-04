@@ -10,7 +10,9 @@ DBG=-DNDEBUG
 else
 DBG=
 endif
-FLAGS=-O3 -funroll-loops -pipe -march=native -msse2 -mavx2 -Ivec -I. -fpic -Wall -Wextra -Wdisabled-optimization -Wno-unused-parameter -pedantic -fno-strict-aliasing # -Wsuggest-attribute=malloc
+FLAGS=-O3 -funroll-loops -pipe -march=native -msse2 -mavx2 -Ivec -I. -fpic -Wall -Wextra \
+	-Wdisabled-optimization -Wno-unused-parameter -pedantic -fno-strict-aliasing \
+	-Wno-attributes -Wno-pragmas # -Wsuggest-attribute=malloc
 
 ifeq ($(shell uname),Darwin)
     UNDEFSTR=-undefined dynamic_lookup
