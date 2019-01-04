@@ -77,7 +77,7 @@ static const char *EST_STRS [] {
 
 namespace detail {
 template<typename T>
-inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr=1e-2); // forward declaration
+static double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr=1e-2); // forward declaration
 template<typename Container>
 inline std::array<uint64_t, 64> sum_counts(const Container &con);
 }
@@ -452,7 +452,7 @@ inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
     return rset;
 }
 template<typename T>
-inline double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr) {
+static double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr) {
 /*
     Note --
     Putting all these optimizations together finally gives the new cardinality estimation
