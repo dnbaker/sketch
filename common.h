@@ -320,12 +320,6 @@ static constexpr uint32_t findInverse32(uint32_t x) {
 }
 
 static inline constexpr uint64_t f64(uint64_t x, uint64_t y) { return y * (2 - y * x); }
-static inline VType f64(VType x, VType y) {
-    __m128i *p1 = reinterpret_cast<__m128i *>(&x), *p2 = reinterpret_cast<__m128i *>(&y);
-    for(auto i = 0u; i < sizeof(x) / sizeof(__m128i); ++i)
-        p1[i] = vec::_mm_mul_epi64(p2[i], _mm_sub_epi64(_mm_set1_epi64x(2), vec::_mm_mul_epi64(p1[i], p2[i])));
-    return x;
-}
 static inline constexpr uint64_t findMultInverse64(uint64_t x) {
   if(!(x&1)) throw std::runtime_error("Can't get multiplicative inverse of an even number.");
   uint64_t y = (3 * x) ^ 2;
@@ -335,17 +329,6 @@ static inline constexpr uint64_t findMultInverse64(uint64_t x) {
   y = f64(x, y);
   return y;
 }
-#if 0
-static inline VType findMultInverse64(VType x) {
-  x.for_each([](auto v) {if(!(v&1)) throw std::runtime_error("Can't get multiplicative inverse of an even number.");});
-  VType y = Space::xor_fn(Space::mul(Space::set1(3), x.simd_), Space::set1(2));
-  y = f64(x, y);
-  y = f64(x, y);
-  y = f64(x, y);
-  y = f64(x, y);
-  return y;
-}
-#endif
 
 template<typename T>
 struct Inverse64 {
