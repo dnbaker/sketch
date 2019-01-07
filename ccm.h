@@ -19,7 +19,8 @@ namespace detail {
     static constexpr int range_check(unsigned nbits, T val) {
         CONST_IF(std::is_signed<T>::value) {
             const int64_t v = val;
-            return v < -int64_t(1ull << (nbits - 1)) ? -1: val > int64_t((1ull << (nbits - 1)) - 1);
+            return v < -int64_t(1ull << (nbits - 1)) ? -1
+				                     : v > int64_t((1ull << (nbits - 1)) - 1);
         } else {
             return val >= (1ull << nbits);
         }
