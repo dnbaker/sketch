@@ -540,12 +540,12 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     std::array<uint64_t, 64> c1{0}, c2{0}, cu{0}, ceq{0}, cg1{0}, cg2{0};
     detail::joint_unroller ju;
     ju.sum_arrays(h1.core(), h2.core(), c1, c2, cu, cg1, cg2, ceq);
-    const double cAX = h1.get_is_ready() ? ertl_ml_estimate(c1, h1.p(), h1.q()): h1.creport();
-    const double cBX = h2.get_is_ready() ? ertl_ml_estimate(c2, h2.p(), h2.q()): h2.creport();
+    const double cAX = h1.get_is_ready() ? h1.creport() : ertl_ml_estimate(c1, h1.p(), h1.q());
+    const double cBX = h2.get_is_ready() ? h2.creport() : ertl_ml_estimate(c2, h2.p(), h2.q());
     const double cABX = ertl_ml_estimate(cu, h1.p(), h1.q());
     // std::fprintf(stderr, "Made initials: %lf, %lf, %lf\n", cAX, cBX, cABX);
-    std::array<uint64_t, 64> countsAXBhalf{0};
-    std::array<uint64_t, 64> countsBXAhalf{0};
+    std::array<uint64_t, 64> countsAXBhalf;
+    std::array<uint64_t, 64> countsBXAhalf;
     countsAXBhalf[q] = h1.m();
     countsBXAhalf[q] = h1.m();
     for(unsigned _q = 0; _q < q; ++_q) {
