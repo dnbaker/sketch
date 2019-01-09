@@ -1,4 +1,4 @@
-# dnb's Sketch Data Structures
+# dnb's Sketch Data Structures [![Build Status](https://travis-ci.com/dnbaker/sketch.svg?branch=master)](https://travis-ci.com/dnbaker/sketch)
 This repository contains a set of sketch data structures from scalable, streaming applications.
 All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe using atomic operations.
 
@@ -6,29 +6,39 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
 1. HyperLogLog Implementation [hll.h]
     1. `hll_t`/`hllbase_t<HashStruct>`
     2. Estimates the cardinality of a set using log(log(cardinality)) bits.
+    3. Threadsafe unless `-DNOT_THREADSAFE` is passed.
+    4. Currently, `hll` is the only structure for which python bindings are available, but we intend to extend this in the future.
 2. HyperLogFilter [hll.h]
     1. `hlf_t`/`hlfbase_t<HashStruct>`
     2. New data structure which provides the same quantitative accuracy as a HyperLogLog while providing more effective approximate membership query functionality than the HyperLogLog.
+    3. Threadsafe unless `-DNOT_THREADSAFE` is passed.
 3. HyperLogFilter [hll.h]
     1. `chlf_t`/`chlfbase_t<HashStruct>`
     2. Identical to the `hlf_t` structure, with the exception that the memory is contiguous and each sketch cannot be used individually.
+    3. Threadsafe unless `-DNOT_THREADSAFE` is passed.
 4. Bloom Filter [bf.h]
     1. `bf_t`/`bfbase_t<HashStruct>`
     2. Naive bloom filter
+    3. Currently *not* threadsafe.
 5. Filterhll [filterhll.h]
     1. `fhll_t`/`fhllbase_t<HashStruct>`
     2. Simple hll/bf combination without rigorous guarantees for requiring an element be present in the bloom filter to be inserted into the HyperLogLog.
+    3. Currently *not* threadsafe.
 6. Naive Approximate Counting Bloom Filter [cbf.h]
     1. `cbf_t`/`cbfbase_t<HashStruct>`
     2. An array of bloom filters where presence in a sketch at a given index replaces the count for the approximate counting algorithm.
+    3. Currently *not* threadsafe.
 7. Probabilistic Counting Bloom Filter
     1. `pcbf_t`/`pcbfbase_t<HashStruct>`
     2. An array each of bloom filters and hyperloglogs for approximate counting. The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation.
+    3. Currently *not* threadsafe.
 8. Count-Min and Count Sketches
     1. ccm.h (`ccmbase_t<UpdatePolicy=Increment>/ccm_t`  (use `pccm_t` for Approximate Counting or `cs_t` for a count sketch).
+    2. The Count sketch is threadsafe if `-DNOT_THREADSAFE` is not passed or if an atomic container is used. Count-Min sketches are currently not threadsafe due to the use of minimal updates.
 9. MinHash sketches
     1. mh.h (`RangeMinHash` is the currently verified implementation.) We recommend you build the sketch and then convert to a linear container (e.g., a `std::vector`) using `to_container<ContainerType>()`  for faster comparisons.
     2. A draft HyperMinHash implementation is available as well, but it has not been tested.
+    3. No MinHash or HyperMinHash implementation is currently threadsafe.
 
 ### Test case
 To build and run the test case:
