@@ -234,7 +234,6 @@ public:
     bool may_contain(uint64_t val) const {
         throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
         unsigned nhdone = 0;
-        bool ret = 1;
         Space::VType v;
         const Space::Type *seeds(reinterpret_cast<Space::Type *>(&seeds_[0]));
         assert(data_.size() == subtbl_sz_ * nhashes_);
