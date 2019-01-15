@@ -173,7 +173,7 @@ static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 
 
 template<typename CountArrType>
-inline double calculate_estimate(const CountArrType &counts,
+static double calculate_estimate(const CountArrType &counts,
                                  EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) {
     assert(estim <= 3 && estim >= 0);
     static_assert(std::is_same<std::decay_t<decltype(counts[0])>, uint64_t>::value, "Counts must be a container for uint64_ts.");
