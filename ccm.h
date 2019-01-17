@@ -273,7 +273,7 @@ public:
             nhdone += Space::COUNT;
         }
         while(nhdone < nhashes_) {
-            for(auto ptr(reinterpret_cast<const uint64_t *>(seeds)); ptr < &seeds_[seeds_.size()]; ++ptr) {
+            for(auto ptr(reinterpret_cast<const uint64_t *>(seeds)); ptr < &seeds_[seeds_.size()];) {
                 tmp = Space::xor_fn(val.simd_, Space::set1(*ptr++));
                 for(unsigned j = 0; j < Space::COUNT; ++j) {
                     ret &= ~(uint32_t(data_[tmp.arr_[j] + (nhdone << np())] == 0) << j);
