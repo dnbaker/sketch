@@ -33,7 +33,8 @@ struct Increment {
     // Saturates
     template<typename T, typename IntType>
     void operator()(T &ref, IntType maxval) const {
-        ref += (ref < maxval);
+        ref = ref + (ref < maxval);
+        //ref += (ref < maxval);
     }
     template<typename T, typename Container, typename IntType>
     void operator()(std::vector<T> &ref, Container &con, IntType nbits) const {
@@ -101,7 +102,7 @@ struct CountSketch {
 };
 
 struct PowerOfTwo {
-    aes::AesCtr<uint64_t, 8> rng_;
+    aes::AesCtr<uint64_t, 2> rng_;
     uint64_t  gen_;
     uint8_t nbits_;
     // Also saturates
@@ -115,7 +116,7 @@ struct PowerOfTwo {
             if(ref >= maxval) return;
             if(__builtin_expect(nbits_ < ref, 0)) gen_ = rng_(), nbits_ = 64;
             const unsigned oldref = ref;
-            ref += ((gen_ & (UINT64_C(-1) >> (64 - unsigned(ref)))) == 0);
+            ref = ref + ((gen_ & (UINT64_C(-1) >> (64 - unsigned(ref)))) == 0);
             gen_ >>= oldref, nbits_ -= oldref;
         }
     }
@@ -166,7 +167,8 @@ using namespace common;
 
 template<typename UpdateStrategy=update::Increment,
          typename VectorType=DefaultCompactVectorType,
-         typename HashStruct=common::WangHash>
+         typename HashStruct=common::WangHash,
+         bool conservative_update=true>
 class ccmbase_t {
     static_assert(!std::is_same<UpdateStrategy, update::CountSketch>::value || std::is_signed<typename detail::IndexedValue<VectorType>::Type>::value,
                   "If CountSketch is used, value must be signed.");
@@ -292,35 +294,57 @@ public:
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
         Space::VType vb = Space::set1(val), tmp;
         ssize_t ret;
-        // mask = Space::set1(mask_);
-        while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
-            tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-            tmp.for_each([&](uint64_t subval) {
-                for(unsigned k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
-            });
-            seedind += Space::COUNT;
-        }
-        while(nhdone < nhashes_) {
-            uint64_t hv = hash(val ^ seeds_[seedind]);
-            const unsigned left = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone);
-            for(unsigned k(0); k < left; indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
-            ++seedind;
-        }
-        best_indices.push_back(indices[0]);
-        ssize_t minval = data_[indices[0]];
-        unsigned score;
-        for(size_t i(1); i < indices.size(); ++i) {
-            // This will change with
-            if((score = data_[indices[i]]) == minval) {
-                best_indices.push_back(indices[i]);
-            } else if(score < minval) {
-                best_indices.clear();
-                best_indices.push_back(indices[i]);
-                minval = score;
+        CONST_IF(conservative_update) {
+            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
+                tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
+                tmp.for_each([&](uint64_t subval) {
+                    for(unsigned k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
+                });
+                seedind += Space::COUNT;
+            }
+            while(nhdone < nhashes_) {
+                uint64_t hv = hash(val ^ seeds_[seedind]);
+                for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
+                ++seedind;
+            }
+            best_indices.push_back(indices[0]);
+            ssize_t minval = data_[indices[0]];
+            unsigned score;
+            for(size_t i(1); i < indices.size(); ++i) {
+                // This will change with
+                if((score = data_[indices[i]]) == minval) {
+                    best_indices.push_back(indices[i]);
+                } else if(score < minval) {
+                    best_indices.clear();
+                    best_indices.push_back(indices[i]);
+                    minval = score;
+                }
+            }
+            updater_(best_indices, data_, nbits_);
+            ret = minval;
+        } else { // not conservative update. This means we support deletions
+            ret = std::numeric_limits<decltype(ret)>::max();
+            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
+                tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
+                tmp.for_each([&](uint64_t subval) {
+                    for(unsigned k(0); k < nperhash64;) {
+                        auto ref = data_[((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
+                        updater_(ref, 1u << nbits_);
+                        ret = std::min(ret, ssize_t(ref));
+                    }
+                });
+                seedind += Space::COUNT;
+            }
+            while(nhdone < nhashes_) {
+                uint64_t hv = hash(val ^ seeds_[seedind]);
+                for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone);) {
+                    auto ref = data_[((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
+                    updater_(ref, 1u << nbits_);
+                    ret = std::min(ret, ssize_t(ref));
+                }
+                ++seedind;
             }
         }
-        updater_(best_indices, data_, nbits_);
-        ret = minval;
         return ret;
     }
     uint64_t est_count(uint64_t val) const {
