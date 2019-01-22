@@ -1069,16 +1069,15 @@ public:
     }
     double union_size(const hllbase_t &other) const {
         if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) {
-            using detail::SIMDHolder;
             assert(m() == other.m());
-            using SType = typename SIMDHolder::SType;
             std::array<uint64_t, 64> counts{0};
             // We can do this because we use an aligned allocator.
-            const SType *p1(reinterpret_cast<const SType *>(data())), *p2(reinterpret_cast<const SType *>(other.data()));
-            const SType *const pe(reinterpret_cast<const SType *>(&(*core().cend())));
-            for(SIMDHolder tmp;p1 < pe;) {
-                tmp.val = SIMDHolder::max_fn(*p1++, *p2++);
-                tmp.inc_counts(counts);
+            // We also have found that wider vectors than SSE2 don't matter
+            const __m128i *p1(reinterpret_cast<const __m128i *>(data())), *p2(reinterpret_cast<const __m128i *>(other.data()));
+            const __m128i *const pe(reinterpret_cast<const __m128i *>(&(*core().cend())));
+            for(__m128i tmp;p1 < pe;) {
+                tmp = _mm_max_epu8(*p1++, *p2++);
+                for(size_t i = 0; i < sizeof(tmp);++counts[reinterpret_cast<uint8_t *>(&tmp)[i++]]);
             }
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
@@ -1502,12 +1501,14 @@ protected:
     mutable double                               value_;
     bool                                 is_calculated_;
     std::vector<uint8_t, Allocator<uint8_t>>      core_;
+    const HashType h_;
 public:
+    template<typename... Args>
     chlf_t(size_t l2ss, EstimationMethod estim,
-           JointEstimationMethod jestim, unsigned p, uint64_t seedseed=0):
+           JointEstimationMethod jestim, unsigned p, uint64_t seedseed=0, Args &&... args):
                 estim_(estim), jestim_(jestim),
                 subp_(p - l2ss), ns_(1 << l2ss), np_(p),
-                value_(0), is_calculated_(0), core_(1ull << p)
+                value_(0), is_calculated_(0), core_(1ull << p), h_(std::forward<Args>(args)...)
     {
         auto sfs = detail::seeds_from_seed(seedseed ? seedseed: ns_ + l2ss * p + 137, ns_);
         seeds_ = std::vector<uint64_t, Allocator<uint64_t>>(std::begin(sfs), std::end(sfs));
@@ -1539,14 +1540,14 @@ public:
             const Type element = Space::set1(val);
             VType key;
             do {
-                key = WangHash()(*sptr++ ^ element);
+                key = h_(*sptr++ ^ element);
                 for(const auto val: key.arr_)
                     if((clz(((val << 1)|1) << (subp() - 1)) + 1) > core_[(val >> subq()) + (k++ << subp())])
                         return false;
                 assert(k <= ns_);
             } while(sptr < eptr);
         } else while(k < ns_) {
-            auto tmp = WangHash()(val ^ seeds_[k]);
+            auto tmp = h_(val ^ seeds_[k]);
             if((clz(((tmp << 1)|1) << (subp() - 1)) + 1) > core_[(tmp >> subq()) + (k++ << subp())]) return false;
         }
         return true;
@@ -1559,11 +1560,11 @@ public:
             const Type element = Space::set1(val);
             VType key;
             do {
-                key = WangHash()(*sptr++ ^ element);
+                key = h_(*sptr++ ^ element);
                 key.for_each([&](const uint64_t &val) {add(val, k++);});
                 assert(k <= ns_);
             } while(sptr < eptr);
-        } else for(;k < ns_;add(WangHash()(val ^ seeds_[k]), k), ++k);
+        } else for(;k < ns_;add(h_(val ^ seeds_[k]), k), ++k);
     }
     double intersection_size(const chlf_t &other) const {
         if(core_.size() != other.core_.size() || seeds_.size() != other.seeds_.size())
