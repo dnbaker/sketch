@@ -58,7 +58,7 @@ protected:
     uint8_t                                       np_;
     uint8_t                                       nh_;
     //uint8_t                                     perh_; // Number of hashes per 64-bit hash
-    const HashStruct                              hf_;
+    HashStruct                                    hf_;
     std::vector<uint64_t, Allocator<uint64_t>>  core_;
     std::vector<uint64_t, Allocator<uint64_t>> seeds_;
     uint64_t                                seedseed_;
@@ -491,6 +491,38 @@ public:
         std::string ret;
         for(size_t i(0); i < seeds_.size() - 1; ++i) ret += std::to_string(seeds_[i]), ret += ',';
         ret += std::to_string(seeds_.back());
+        return ret;
+    }
+    ssize_t write(gzFile fp) const {
+        uint8_t arr[] {np_, nh_, uint8_t(seeds_.size())};
+        ssize_t ret = gzwrite(fp, arr, sizeof(arr));
+        ret += gzwrite(fp, &hf_, sizeof(hf_));
+        ret += gzwrite(fp, &seedseed_, sizeof(seedseed_));
+        ret += gzwrite(fp, &mask_, sizeof(mask_));
+        ret += gzwrite(fp, seeds_.data(), seeds_.size() * sizeof(seeds_[0]));
+        ret += gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0]));
+        return ret;
+    }
+    ssize_t write(const char *path, int compression=6) const {
+        char buf[5];
+        std::sprintf(buf, "wb%d", compression % 10);
+        gzFile fp = gzopen(path, buf);
+        if(!fp) throw std::runtime_error(std::string("Could not open file ") + path + " for writing");
+        ssize_t ret = write(fp);
+        gzclose(fp);
+        return ret;
+    }
+    ssize_t read(gzFile fp) {
+        uint8_t arr[3] {0};
+        ssize_t ret = gzread(fp, arr, sizeof(arr));
+        np_ = arr[0];
+        nh_ = arr[1];
+        seeds_.resize(arr[2]);
+        ret += gzread(fp, &hf_, sizeof(hf_));
+        ret += gzread(fp, &seedseed_, sizeof(seedseed_));
+        ret += gzread(fp, &mask_, sizeof(mask_));
+        if(np_) resize(1ull << p());
+        ret += gzread(fp, core_.data(), core_.size() * sizeof(core_[0]));
         return ret;
     }
 };
