@@ -311,27 +311,39 @@ public:
     operator SType &() {return val;}
     operator const SType &() const {return val;}
     static constexpr size_t nels  = sizeof(SType) / sizeof(uint8_t);
+    static constexpr size_t nel16s  = sizeof(SType) / sizeof(uint16_t);
     static constexpr size_t nbits = sizeof(SType) / sizeof(uint8_t) * CHAR_BIT;
     using u8arr = uint8_t[nels];
+    using u16arr = uint16_t[nels / 2];
     SType val;
     u8arr vals;
+    u16arr val16s;
     template<typename T>
     void inc_counts(T &arr) const {
         static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
         unroller<T, 0, nels> ur;
         ur(*this, arr);
     }
-    // Worth considering: it's possible that reinterpreting it as a set of 16-bit integers
-    // and make a lookup table.
     template<typename T, size_t iternum, size_t niter_left> struct unroller {
         void operator()(const SIMDHolder &ref, T &arr) const {
             ++arr[ref.vals[iternum]];
             unroller<T, iternum+1, niter_left-1>()(ref, arr);
         }
+        void op16(const SIMDHolder &ref, T &arr) const {
+            ++arr[ref.val16s[iternum]];
+            unroller<T, iternum+1, niter_left-1>().op16(ref, arr);
+        }
     };
     template<typename T, size_t iternum> struct unroller<T, iternum, 0> {
         void operator()(const SIMDHolder &ref, T &arr) const {}
+        void op16(const SIMDHolder &ref, T &arr) const {}
     };
+    template<typename T>
+    void inc_counts16(T &arr) const {
+        static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
+        unroller<T, 0, nel16s> ur;
+        ur.op16(*this, arr);
+    }
     static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
 };
 

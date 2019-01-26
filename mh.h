@@ -563,17 +563,27 @@ public:
         using hll::detail::SIMDHolder;
         if(core_.bytes() >= sizeof(SIMDHolder)) {
             switch(simd_policy()) {
-                case U8:
+                case U8: {
                     const Space::Type mask = Space::set1(UINT64_C(0x3f3f3f3f3f3f3f3f));
                     for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
                         ptr != eptr; ++ptr) {
                         auto tmp = *ptr;
                         tmp = Space::and_fn(Space::srli(*reinterpret_cast<VType *>(&tmp), r_), mask);
-                        tmp.inc_counts(ret);
+                        tmp.inc_counts16(ret);
+                    }
+                    break;
+                }
+                case U16:
+                    {
+                        const Space::Type mask = Space::set1(UINT64_C(0x003f003f003f003f));
+                        for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
+                            ptr != eptr; ++ptr) {
+                            auto tmp = *ptr;
+                            tmp = Space::and_fn(Space::srli(*reinterpret_cast<VType *>(&tmp), r_), mask);
+                        }
                     }
                     break;
 #if 0
-                case U16:
                 case U32:
                 case U64:
 #endif
