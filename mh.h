@@ -564,13 +564,12 @@ public:
         if(core_.bytes() >= sizeof(SIMDHolder)) {
             switch(simd_policy()) {
                 case U8:
+                    const Space::Type mask = Space::set1(UINT64_C(0x3f3f3f3f3f3f3f3f));
                     for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
                         ptr != eptr; ++ptr) {
-                    auto tmp = *ptr;
-                    for(uint32_t i = 0; i < sizeof(tmp); ++i)
-#define TMP (reinterpret_cast<uint8_t *>(&tmp))
-                        TMP[i] >>= r_; // I bet this shift can be vectorized
-                    tmp.inc_counts(ret);
+                        auto tmp = *ptr;
+                        tmp = Space::and_fn(Space::srli(*reinterpret_cast<VType *>(&tmp), r_), mask);
+                        tmp.inc_counts(ret);
                     }
                     break;
 #if 0
@@ -580,8 +579,9 @@ public:
 #endif
 #define MANUAL_CORE \
             for(const auto i: core_) {\
-                if(__builtin_expect(get_lzc(i) > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}\
-                ++ret[get_lzc(i)];\
+                uint8_t lzc = get_lzc(i);\
+                if(__builtin_expect(lzc > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}\
+                ++ret[lzc];\
             }
                 case Manual: default: MANUAL_CORE
             }
