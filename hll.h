@@ -312,12 +312,18 @@ public:
     operator const SType &() const {return val;}
     static constexpr size_t nels  = sizeof(SType) / sizeof(uint8_t);
     static constexpr size_t nel16s  = sizeof(SType) / sizeof(uint16_t);
+    static constexpr size_t nel32s  = sizeof(SType) / sizeof(uint32_t);
+    static constexpr size_t nel64s  = sizeof(SType) / sizeof(uint64_t);
     static constexpr size_t nbits = sizeof(SType) / sizeof(uint8_t) * CHAR_BIT;
     using u8arr = uint8_t[nels];
     using u16arr = uint16_t[nels / 2];
+    using u32arr = uint16_t[nels / 4];
+    using u64arr = uint16_t[nels / 8];
     SType val;
     u8arr vals;
     u16arr val16s;
+    u32arr val32s;
+    u64arr val64s;
     template<typename T>
     void inc_counts(T &arr) const {
         static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
@@ -333,16 +339,38 @@ public:
             ++arr[ref.val16s[iternum]];
             unroller<T, iternum+1, niter_left-1>().op16(ref, arr);
         }
+        void op32(const SIMDHolder &ref, T &arr) const {
+            ++arr[ref.val32s[iternum]];
+            unroller<T, iternum+1, niter_left-1>().op16(ref, arr);
+        }
+        void op64(const SIMDHolder &ref, T &arr) const {
+            ++arr[ref.val64s[iternum]];
+            unroller<T, iternum+1, niter_left-1>().op16(ref, arr);
+        }
     };
     template<typename T, size_t iternum> struct unroller<T, iternum, 0> {
         void operator()(const SIMDHolder &ref, T &arr) const {}
         void op16(const SIMDHolder &ref, T &arr) const {}
+        void op32(const SIMDHolder &ref, T &arr) const {}
+        void op64(const SIMDHolder &ref, T &arr) const {}
     };
     template<typename T>
     void inc_counts16(T &arr) const {
         static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
         unroller<T, 0, nel16s> ur;
         ur.op16(*this, arr);
+    }
+    template<typename T>
+    void inc_counts32(T &arr) const {
+        static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
+        unroller<T, 0, nel32s> ur;
+        ur.op32(*this, arr);
+    }
+    template<typename T>
+    void inc_counts64(T &arr) const {
+        static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
+        unroller<T, 0, nel64s> ur;
+        ur.op64(*this, arr);
     }
     static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
 };

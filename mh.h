@@ -555,10 +555,10 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
 
 template<typename T=uint64_t, typename Hasher=WangHash>
 class HyperMinHash {
-    DefaultCompactVectorType core_;
-    Hasher hf_;
-    uint32_t p_, r_;
     uint64_t seeds_ [2] __attribute__ ((aligned (sizeof(uint64_t) * 2)));
+    DefaultCompactVectorType core_;
+    uint16_t p_, r_;
+    Hasher hf_;
 #ifndef NOT_THREADSAFE
     std::mutex mutex_; // I should be able to replace most of these with atomics.
 #endif
@@ -579,10 +579,10 @@ public:
     auto max_mhval() const {return mask();}
     template<typename... Args>
     HyperMinHash(unsigned p, unsigned r, Args &&...args):
+        seeds_{0xB0BAF377C001D00DuLL, 0x430c0277b68144b5uLL}, // Fully arbitrary seeds
         core_(r + q(), 1ull << p),
-        hf_(std::forward<Args>(args)...),
         p_(p), r_(r),
-        seeds_{0xB0BAF377C001D00DuLL, 0x430c0277b68144b5uLL} // Fully arbitrary seeds
+        hf_(std::forward<Args>(args)...)
     {
         std::fprintf(stderr, "Pointer for data: %p\n", static_cast<void *>(core_.get()));
         common::detail::zero_memory(core_); // Second parameter is a dummy for interface compatibility with STL
@@ -594,7 +594,7 @@ public:
     void clear() {
         std::memset(core_.get(), 0, core_.bytes());
     }
-    HyperMinHash(const HyperMinHash &a): core_(a.r() + q(), 1ull << a.p()), hf_(a.hf_), p_(a.p_), r_(a.r_) {
+    HyperMinHash(const HyperMinHash &a): core_(a.r() + q(), 1ull << a.p()), p_(a.p_), r_(a.r_), hf_(a.hf_) {
         seeds_as_sse() = a.seeds_as_sse();
         assert(a.core_.bytes() == core_.bytes());
         std::memcpy(core_.get(), a.core_.get(), core_.bytes());
@@ -614,9 +614,8 @@ public:
             case 16: return ComparePolicy::U16;
             case 32: return ComparePolicy::U32;
             case 64: return ComparePolicy::U64;
-            default: return ComparePolicy::Manual;
         }
-        __builtin_unreachable();
+        return ComparePolicy::Manual;
     }
     // Encoding and decoding table entries
     auto get_lzc(uint64_t entry) const {
@@ -640,43 +639,37 @@ public:
         using hll::detail::SIMDHolder;
         if(core_.bytes() >= sizeof(SIMDHolder)) {
             switch(simd_policy()) {
-                case U8: {
-                    const Space::Type mask = Space::set1(UINT64_C(0x3f3f3f3f3f3f3f3f));
-                    for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
-                        ptr != eptr; ++ptr) {
-                        auto tmp = *ptr;
-                        tmp = Space::and_fn(Space::srli(*reinterpret_cast<VType *>(&tmp), r_), mask);
-                        tmp.inc_counts(ret);
-                    }
-                    break;
-                }
-                case U16:
-                    {
-                        const Space::Type mask = Space::set1(UINT64_C(0x003f003f003f003f));
-                        for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());
-                            ptr != eptr; ++ptr) {
-                            auto tmp = *ptr;
-                            tmp = Space::and_fn(Space::srli(*reinterpret_cast<VType *>(&tmp), r_), mask);
-                            tmp.inc_counts16(ret);
-                        }
-                    }
-                    break;
-                // TODO: case U32:
-                // TODO: case U64:
 #define MANUAL_CORE \
             for(const auto i: core_) {\
                 uint8_t lzc = get_lzc(i);\
                 if(__builtin_expect(lzc > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}\
                 ++ret[lzc];\
             }
+
+#define CASE_U(cse, func, msk)\
+                case cse: {\
+                    const Space::Type mask = Space::set1(UINT64_C(msk));\
+                    for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(core_.get()), *eptr = reinterpret_cast<const SIMDHolder *>(core_.get() + core_.bytes());\
+                        ptr != eptr; ++ptr) {\
+                        auto tmp = *ptr;\
+                        tmp = Space::and_fn(Space::srli(*reinterpret_cast<VType *>(&tmp), r_), mask);\
+                        tmp.func(ret);\
+                    }\
+                    break;\
+                }
+                CASE_U(U8,  inc_counts,   0x3f3f3f3f3f3f3f3f)
+                CASE_U(U16, inc_counts16, 0x003f003f003f003f)
+                CASE_U(U32, inc_counts32, 0x0000003f0000003f)
+                CASE_U(U64, inc_counts64, 0x000000000000003f)
+#undef CASE_U
                 case Manual: default: MANUAL_CORE
             }
         } else {
             MANUAL_CORE
-#undef MANUAL_CORE
         }
         return ret;
     }
+#undef MANUAL_CORE
     double estimate_hll_portion(double relerr=1e-2) const {
         return hll::detail::ertl_ml_estimate(this->sum_counts(), p(), q(), relerr);
     }
