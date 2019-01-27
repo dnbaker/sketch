@@ -243,6 +243,9 @@ union SIMDHolder {
 public:
 
 #define DEC_MAX(fn) static constexpr decltype(&fn) max_fn = &fn
+#define DEC_MAX16(fn) static constexpr decltype(&fn) max_fn16 = &fn
+#define DEC_MAX32(fn) static constexpr decltype(&fn) max_fn32 = &fn
+#define DEC_MAX64(fn) static constexpr decltype(&fn) max_fn64 = &fn
 #define DEC_GT(fn)  static constexpr decltype(&fn) gt_fn  = &fn
 #define DEC_EQ(fn)  static constexpr decltype(&fn) eq_fn  = &fn
 
@@ -290,15 +293,33 @@ public:
     using SType = __m256i;
     using MaskType = SIMDHolder;
     DEC_MAX(_mm256_max_epu8);
+    DEC_MAX16(_mm256_max_epu16);
+    DEC_MAX32(_mm256_max_epu32);
     DEC_EQ (_mm256_cmpeq_epi8);
     DEC_GT (_mm256_cmpgt_epi8);
+    uint64_t sub64s[sizeof(__m256i) / sizeof(uint64_t)];
+    static SIMDHolder max_fn64(__m256i a, __m256i b) {
+        SIMDHolder ret;
+        for(unsigned i = 0; i < sizeof(__m256i) / sizeof(uint64_t); ++i)
+            ret.sub64s[i] = std::max(((uint64_t *)&a)[i], ((uint64_t *)&b)[i]);
+        return ret;
+    }
     //DEC_GT(_mm256_cmpgt_epu8_mask);
 #elif __SSE2__
     using SType = __m128i;
     using MaskType = SIMDHolder;
     DEC_MAX(_mm_max_epu8);
+    DEC_MAX16(_mm_max_epu16);
+    DEC_MAX32(_mm_max_epu32);
     DEC_GT(_mm_cmpgt_epi8);
     DEC_EQ(_mm_cmpeq_epi8);
+    uint64_t sub64s[sizeof(__m128i) / sizeof(uint64_t)];
+    static SIMDHolder max_fn64(__m128i a, __m128i b) {
+        SIMDHolder ret;
+        for(unsigned i = 0; i < sizeof(__m128i) / sizeof(uint64_t); ++i)
+            ret.sub64s[i] = std::max(((uint64_t *)&a)[i], ((uint64_t *)&b)[i]);
+        return ret;
+    }
 #else
 #  error("Need at least SSE2")
 #endif
@@ -550,6 +571,7 @@ TODO:  Consider adding this change to the method. This could improve our perform
         x += deltaX;
         gprev = g;
     }
+    std::fprintf(stderr, "x: %lf\n", x);
     return x*m;
 }
 

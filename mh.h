@@ -632,19 +632,14 @@ public:
         return (uint64_t(lzc) << r_) | min;
     }
     std::array<uint64_t, 64> sum_counts() const {
+        using hll::detail::SIMDHolder;
         // TODO: this
         // Note: we have whip out more complicated vectorized maxes for
         // widths of 16, 32, or 64
         std::array<uint64_t, 64> ret{0};
-        using hll::detail::SIMDHolder;
         if(core_.bytes() >= sizeof(SIMDHolder)) {
             switch(simd_policy()) {
 #define MANUAL_CORE \
-            for(const auto i: core_) {\
-                uint8_t lzc = get_lzc(i);\
-                if(__builtin_expect(lzc > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %d\n", int(i), int(get_lzc(i))); std::exit(1);}\
-                ++ret[lzc];\
-            }
 
 #define CASE_U(cse, func, msk)\
                 case cse: {\
@@ -662,10 +657,15 @@ public:
                 CASE_U(U32, inc_counts32, 0x0000003f0000003f)
                 CASE_U(U64, inc_counts64, 0x000000000000003f)
 #undef CASE_U
-                case Manual: default: MANUAL_CORE
+                case Manual: default: goto manual_core;
             }
         } else {
-            MANUAL_CORE
+            manual_core:
+            for(const auto i: core_) {
+                uint8_t lzc = get_lzc(i);
+                if(__builtin_expect(lzc > 64, 0)) {std::fprintf(stderr, "Value for %d should not be %dn", int(i), int(get_lzc(i))); std::exit(1);}\
+                ++ret[lzc];
+            }
         }
         return ret;
     }
@@ -675,28 +675,38 @@ public:
     }
     double report(double relerr=1e-2) const {
         const auto csum = this->sum_counts();
-#if __cplusplus >= 201703L
-        if(double est = hll::detail::ertl_ml_estimate(csum, p(), 64 - p(), relerr);est < static_cast<double>(core_.size() << 10))
-            return est;
-#else
-        double est = hll::detail::ertl_ml_estimate(csum, p(), 64 - p(), relerr);
-        if(est < static_cast<double>(core_.size() << 10))
-            return est;
+#if VERBOSE_AF
+        std::fprintf(stderr, "Performing estimate. Counts values: ");
+        for(const auto v: csum)
+            std::fprintf(stderr, "%zu,", v);
+        std::fprintf(stderr, "\n");
 #endif
-        const double mhinv = 1. / max_mhval();
-        double sum = csum[0] * (1 + static_cast<double>((uint64_t(1) << p()) - get_mhr(core_[0])) * mhinv);
-        for(int i = 1; i < static_cast<int64_t>(csum.size()); ++i)
-            sum += std::ldexp(csum[i], -i) * (1. + static_cast<double>((uint64_t(1) << p()) - get_mhr(core_[i])) * mhinv);
-        return sum ? static_cast<double>(std::pow(core_.size(), 2)) / sum: std::numeric_limits<double>::infinity();
+        double est = hll::detail::ertl_ml_estimate(csum, p(), 64 - p(), relerr);
+        if(est > 0. && est < static_cast<double>(core_.size() << 10)) {
+#if VERBOSE_AF
+            std::fprintf(stderr, "report ertl_ml_estimate %lf\n", est);
+#endif
+            return est;
+        }
+        const double mhinv = std::ldexp(1, -int(r_));
+        std::fprintf(stderr, "mhinv: %lf. Manual: %lf\n", mhinv, 1./(1<<r_));
+        double sum = 0.;
+        for(const auto v: core_) {
+            sum += std::ldexp(1. + std::ldexp(get_mhr(v), -int64_t(r_)), -int64_t(get_lzc(v)));
+#if VERBOSE_AF
+            std::fprintf(stderr, "sum: %lf\n", sum);
+#endif
+        }
+        if(__builtin_expect(!sum, 0)) sum = std::numeric_limits<double>::infinity();
+        else                          sum = static_cast<double>(std::pow(core_.size(), 2)) / sum;
+        return sum;
     }
     auto p() const {return p_;}
     auto r() const {return r_;}
     void set_seeds(uint64_t seed1, uint64_t seed2) {
         seeds_[0] = seed1; seeds_[1] = seed2;
     }
-    void set_seeds(__m128i s) {
-        seeds_as_sse() = s;
-    }
+    void set_seeds(__m128i s) {seeds_as_sse() = s;}
     int print_params(std::FILE *fp=stderr) const {
         return std::fprintf(fp, "p: %u. q: %u. r: %u.\n", p(), q(), r());
     }
@@ -711,11 +721,28 @@ public:
         element.for_each([&](uint64_t el) {this->addh(el);});
     }
     HyperMinHash &operator+=(const HyperMinHash &o) {
+        using hll::detail::SIMDHolder;
         // This needs:
         // Vectorized maxes
-        for(size_t i(0); i < core_.size(); ++i) {
-            if(core_[i] < o.core_[i]) core_[i] = o.core_[i];
-            // This can also be accelerated for specific minimizer sizes
+        if(core_.bytes() >= sizeof(SIMDHolder)) {
+            const SIMDHolder *optr = reinterpret_cast<const SIMDHolder *>(o.core_.get());
+            SIMDHolder *ptr = reinterpret_cast<SIMDHolder *>(core_.get()),
+                       *eptr = reinterpret_cast<SIMDHolder *>(core_.get() + core_.bytes());
+            switch(simd_policy()) {
+#define CASE_U(cse, op)\
+                case cse:\
+                    do {*ptr = SIMDHolder::op(*ptr, *optr++);} while(++ptr != eptr); break;
+                CASE_U(U8, max_fn)
+                CASE_U(U16, max_fn16)
+                CASE_U(U32, max_fn32)
+                CASE_U(U64, max_fn64)
+                default: goto manual;
+            }
+        } else {
+            manual:
+            for(size_t i(0); i < core_.size(); ++i) {
+                if(core_[i] < o.core_[i]) core_[i] = o.core_[i];
+            }
         }
         return *this;
     }

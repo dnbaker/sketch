@@ -17,12 +17,12 @@ using namespace mh;
 
 int main(int argc, char *argv[]) {
     size_t ss = argc < 2 ? 8: size_t(std::strtoull(argv[1], nullptr, 10));
-    HyperMinHash<> hmh1(ss, 10), hmh2(ss, 10);
+    HyperMinHash<> hmh1(ss, 20), hmh2(ss, 20);
     std::mt19937_64 mt(1337);
     hmh1.addh(uint64_t(13));
     hmh1.addh(uint64_t(17));
     hmh1.addh(uint64_t(21));
-    hmh1.print_all();
+    //hmh1.print_all();
     hmh1.clear();
     for(size_t i = 0; i < 10000; ++i)
         hmh2.addh(mt());
@@ -36,7 +36,6 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "Cardinality estimated (should be 30000) %lf, %lf\n", hmh1.report(), hmh2.report());
     auto hmh3 = hmh1 + hmh2;
     std::fprintf(stderr, "Cardinality estimated (should be 30000) %lf, %lf. ji: %lf\n", hmh1.report(), hmh3.report(), hmh1.jaccard_index(hmh2));
-    hmh1.print_all();
 #if 0
     size_t olap_n = (olap_frac * nelem);
     double true_ji = double(olap_n ) / (nelem * 2 - olap_n);
