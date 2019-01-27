@@ -571,6 +571,13 @@ public:
         U32 = 3,
         U64 = 4
     };
+    void swap(HyperMinHash &o) {
+        std::swap_ranges(reinterpret_cast<uint8_t *>(&core_), reinterpret_cast<uint8_t *>(&core_) + sizeof(core_), reinterpret_cast<uint8_t *>(&o.core_));
+        std::swap(p_, o.p_);
+        std::swap(r_, o.r_);
+        std::swap(hf_, o.hf_);
+        std::swap(seeds_, o.seeds_);
+    }
     auto &core() {return core_;}
     const auto &core() const {return core_;}
     uint64_t mask() const {
@@ -590,6 +597,29 @@ public:
         std::fprintf(stderr, "p: %u. r: %u\n", p, r);
         print_params();
 #endif
+    }
+private:
+    HyperMinHash() {}
+public:
+    void write(gzFile fp) const {
+        gzwrite(fp, this, sizeof(*this));
+        gzwrite(fp, core_.get(), core_.bytes());
+    }
+    void write(const char *path) const {
+        gzFile fp = gzopen(path, "wb");
+        this->write(fp);
+        gzclose(fp);
+    }
+    void read(gzFile fp) const {
+        this->clear();
+        HyperMinHash tmp;
+        gzread(fp, &tmp, sizeof(tmp));
+        r_ = tmp.r_;
+        p_ = tmp.p_;
+        core_ = DefaultCompactVectorType(tmp.r_ + tmp.q(), 1ull << tmp.p_);
+        seeds_as_sse() = tmp.seeds_as_sse();
+        gzread(fp, core_.get(), core_.bytes());
+        std::memset(&tmp, 0, sizeof(tmp));
     }
     void clear() {
         std::memset(core_.get(), 0, core_.bytes());
@@ -858,6 +888,8 @@ public:
         return std::ldexp(x, p());
     }
 };
+template<typename T, typename Hasher>
+void swap(HyperMinHash<T,Hasher> &a, HyperMinHash<T,Hasher> &b) {a.swap(b);}
 
 } // namespace minhash
 namespace mh = minhash;
