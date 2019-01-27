@@ -85,6 +85,10 @@ protected:
         for(const auto el: this->sketch()) ret.emplace_back(el);
         return ret;
     }
+public:
+    uint64_t sketch_size() const {
+        return ss_;
+    }
 };
 
 
@@ -289,8 +293,8 @@ struct FinalRMinHash {
 #endif
         return ret;
     }
-#define I1D if(++i1 == lsz) break
-#define I2D if(++i2 == lsz) break
+#define I1DF if(++i1 == lsz) break
+#define I2DF if(++i2 == lsz) break
     template<typename WeightFn=weight::EqualWeight>
     double tf_idf(const FinalRMinHash &o, const WeightFn &fn=WeightFn()) const {
         assert(o.size() == size());
@@ -299,91 +303,39 @@ struct FinalRMinHash {
         for(size_t i1 = 0, i2 = 0;;) {
             if(cmp(first[i1], o.first[i2])) {
                 denom += fn(first[i1]);
-                I1D;
+                I1DF;
             } else if(cmp(o.first[i2], first[i1])) {
                 denom += fn(o.first[i2]);
-                I2D;
+                I2DF;
             } else {
                 const auto v1 = fn(first[i1]), v2 = fn(o.first[i2]);
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                I1D; I2D;
+                I1DF; I2DF;
             }
         }
         return num / denom;
     }
     FinalRMinHash(std::vector<T> &&first): first(std::move(first)), cmp() {}
     FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)), cmp(std::move(o.cmp)) {}
-    template<typename Hasher=common::WangHash>
+    template<typename Hasher>
     FinalRMinHash(RangeMinHash<T, Cmp, Hasher> &&prefinal): FinalRMinHash(std::move(prefinal.finalize())) {
         prefinal.clear();
     }
     size_t size() const {return first.size();}
+protected:
+    FinalRMinHash() {}
 };
 
+template<typename T, typename Cmp, typename CountType> struct FinalCRMinHash; // Forward
 
-template<typename T, typename Cmp, typename CountType>
-struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
-    std::vector<CountType> second;
-    size_t countsum() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {sz += sz2;});}
-    double histogram_intersection(const FinalCRMinHash &o) const {
-        assert(o.size() == this->size());
-        const size_t lsz = this->size();
-        size_t denom = 0, num = 0;
-        for(size_t i1 = 0, i2 = 0;;) {
-            if(this->cmp(this->first[i1], o.first[i2])) {
-                denom += second[i1];
-                I1D;
-            } else if(this->cmp(o.first[i2], this->first[i1])) {
-                denom += o.second[i2];
-                I2D;
-            } else {
-                const auto v1 = o.second[i2], v2 = second[i1];
-                denom += std::max(v1, v2);
-                num += std::min(v1, v2);
-                I1D; I2D;
-            }
-        }
-        return static_cast<double>(num) / denom;
-    }
-    template<typename WeightFn=weight::EqualWeight>
-    double tf_idf(const FinalCRMinHash &o, const WeightFn &fn=WeightFn()) const {
-        assert(o.size() == this->size());
-        const size_t lsz = this->size();
-        double denom = 0, num = 0;
-        for(size_t i1 = 0, i2 = 0;;) {
-            if(this->cmp(this->first[i1], o.first[i2])) {
-                denom += second[i1] * fn(this->first[i1]);
-                I1D;
-            } else if(this->cmp(o.first[i2], this->first[i1])) {
-                denom += o.second[i2] * fn(o.first[i2]);
-                I2D;
-            } else {
-                const auto v1 = second[i1] * fn(this->first[i1]), v2 = o.second[i2] * fn(o.first[i2]);
-                denom += std::max(v1, v2);
-                num += std::min(v1, v2);
-                I1D; I2D;
-            }
-        }
-#undef I1D
-#undef I2D
-        return num / denom;
-    }
-    FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second): FinalRMinHash<T, Cmp>(std::move(first)), second(std::move(second)) {
-        if(this->first.size() != this->second.size()) {
-            char buf[512];
-            std::sprintf(buf, "Illegal FinalCRMinHash: hashes and counts must have equal length. Length one: %zu. Length two: %zu", this->first.size(), second.size());
-            throw std::runtime_error(buf);
-        }
-    }
-};
 
 template<typename T,
          typename Cmp=std::greater<T>,
          typename Hasher=common::WangHash,
          typename CountType=uint32_t
         >
-class CountingRangeMinHash: AbstractMinHash<T, Cmp> {
+class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {
     struct VType {
         T first;
         mutable CountType second;
@@ -435,24 +387,32 @@ public:
         assert(o.size() == size());
         size_t denom = 0, num = 0;
         auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
-#define I1D if(++i1 == minimizers_.end()) break
-#define I2D if(++i2 == o.minimizers_.end()) break
+#define I1DM if(++i1 == minimizers_.end()) break
+#define I2DM if(++i2 == o.minimizers_.end()) break
         for(;;) {
             if(cmp_(i1->first, i2->first)) {
                 denom += i1->second;
-                I1D;
+                I1DM;
             } else if(cmp_(i2->first, i1->first)) {
                 denom += i2->second;
-                I2D;
+                I2DM;
             } else {
                 const auto v1 = i1->second, v2 = i2->second;
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                I1D;
-                I2D;
+                I1DM;
+                I2DM;
             }
         }
         return static_cast<double>(num) / denom;
+    }
+    template<typename Handle>
+    void write(Handle handle) const {
+        this->finalize().write(handle);
+    }
+    void clear() {
+        decltype(minimizers_) tmp;
+        std::swap(tmp, minimizers_);
     }
     template<typename WeightFn=weight::EqualWeight>
     double tf_idf(const CountingRangeMinHash &o, const WeightFn &fn) const {
@@ -462,36 +422,24 @@ public:
         for(;;) {
             if(cmp_(i1->first, i2->first)) {
                 denom += (i1->second) * fn(i1->first);
-                I1D;
+                I1DM;
             } else if(cmp_(i2->first, i1->first)) {
                 denom += (i2->second) * fn(i2->first);
-                I2D;
+                I2DM;
             } else {
                 const auto v1 = i1->second * fn(i1->first), v2 = i2->second * fn(i2->first);
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                I1D;
-                I2D;
+                I1DM;
+                I2DM;
             }
         }
-#undef I1D
-#undef I2D
+#undef I1DM
+#undef I2DM
         return static_cast<double>(num) / denom;
     }
     final_type finalize() const {
-        std::vector<T> reta; std::vector<CountType> retc;
-        reta.reserve(this->ss_); retc.reserve(this->ss_);
-        for(auto &p: minimizers_)
-            reta.push_back(p.first), retc.push_back(p.second);
-        assert(reta.size() == retc.size());
-        size_t nelem = this->ss_;
-        reta.insert(reta.end(), nelem, std::numeric_limits<T>::max());
-        retc.insert(retc.end(), nelem, 0);
-#if !NDEBUG
-        for(size_t i = 0; i < size() - 1; ++i)
-            assert(Cmp()(reta[i], reta[i + 1]));
-#endif
-        return final_type{std::move(reta), std::move(retc)};
+        return FinalCRMinHash<T, Cmp, CountType>(*this);
     }
     template<typename Func>
     void for_each(const Func &func) const {
@@ -516,6 +464,92 @@ public:
     double jaccard_index(const C2 &o) const {
         double is = this->intersection_size(o);
         return is / (minimizers_.size() + o.size() - is);
+    }
+};
+
+
+template<typename T, typename Cmp, typename CountType>
+struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
+    std::vector<CountType> second;
+    size_t countsum() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {sz += sz2;});}
+    double histogram_intersection(const FinalCRMinHash &o) const {
+        assert(o.size() == this->size());
+        const size_t lsz = this->size();
+        size_t denom = 0, num = 0;
+        for(size_t i1 = 0, i2 = 0;;) {
+            if(this->cmp(this->first[i1], o.first[i2])) {
+                denom += second[i1];
+                I1DF;
+            } else if(this->cmp(o.first[i2], this->first[i1])) {
+                denom += o.second[i2];
+                I2DF;
+            } else {
+                const auto v1 = o.second[i2], v2 = second[i1];
+                denom += std::max(v1, v2);
+                num += std::min(v1, v2);
+                I1DF; I2DF;
+            }
+        }
+        return static_cast<double>(num) / denom;
+    }
+    ssize_t write(const char *fn) {
+        gzFile fp = gzopen(fn, "wb");
+        if(!fp) throw std::runtime_error("could not open file.");
+        ssize_t ret = this->write(fp);
+        gzclose(fp);
+        return ret;
+    }
+    ssize_t write(gzFile fp) const {
+        size_t nelem = second.size();
+        ssize_t ret = gzwrite(fp, &nelem, sizeof(nelem));
+        ret += gzwrite(fp, this->first.data(), sizeof(this->first[0]) * nelem);
+        ret += gzwrite(fp, this->second.data(), sizeof(this->second[0]) * nelem);
+        return ret;
+    }
+    template<typename WeightFn=weight::EqualWeight>
+    double tf_idf(const FinalCRMinHash &o, const WeightFn &fn=WeightFn()) const {
+        assert(o.size() == this->size());
+        const size_t lsz = this->size();
+        double denom = 0, num = 0;
+        for(size_t i1 = 0, i2 = 0;;) {
+            if(this->cmp(this->first[i1], o.first[i2])) {
+                denom += second[i1] * fn(this->first[i1]);
+                I1DF;
+            } else if(this->cmp(o.first[i2], this->first[i1])) {
+                denom += o.second[i2] * fn(o.first[i2]);
+                I2DF;
+            } else {
+                const auto v1 = second[i1] * fn(this->first[i1]), v2 = o.second[i2] * fn(o.first[i2]);
+                denom += std::max(v1, v2);
+                num += std::min(v1, v2);
+                I1DF; I2DF;
+            }
+        }
+#undef I1DF
+#undef I2DF
+        return num / denom;
+    }
+    FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second): FinalRMinHash<T, Cmp>(std::move(first)), second(std::move(second)) {
+        if(this->first.size() != this->second.size()) {
+            char buf[512];
+            std::sprintf(buf, "Illegal FinalCRMinHash: hashes and counts must have equal length. Length one: %zu. Length two: %zu", this->first.size(), second.size());
+            throw std::runtime_error(buf);
+        }
+    }
+    template<typename Hasher>
+    FinalCRMinHash(const CountingRangeMinHash<T, Cmp, Hasher, CountType> &prefinal): FinalRMinHash<T,Cmp>() {
+        this->first.reserve(prefinal.size());
+        this->second.reserve(prefinal.size());
+        for(const auto &pair: prefinal)
+            this->first.push_back(pair.first), this->second.push_back(pair.second);
+        if(this->first.size() < prefinal.sketch_size()) {
+            this->first.insert(this->first.end(), prefinal.sketch_size(), std::numeric_limits<T>::max());
+            this->second.insert(this->second.end(), prefinal.sketch_size(), 0);
+        }
+    }
+    template<typename Hasher>
+    FinalCRMinHash(CountingRangeMinHash<T, Cmp, Hasher, CountType> &&prefinal): FinalCRMinHash(static_cast<const CountingRangeMinHash<T, Cmp, Hasher, CountType> &>(prefinal)) {
+        prefinal.clear();
     }
 };
 
