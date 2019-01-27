@@ -810,9 +810,9 @@ public:
                 const double nm = n/m;
                 const double phi = std::ldexp(nm, -4) / std::pow(1 + nm, 2);
 #if !NDEBUG
-                std::fprintf(stderr, "Using normal expected collisions method. p: %d, r: %d, phi: %lf, ret:%lf\n", p(), r(), phi, std::ldexp(HMH_C, p() - r())  * phi);
+                std::fprintf(stderr, "Using normal expected collisions method. p: %d, r: %d, phi: %lf, ret:%lf\n", p(), r(), phi, std::ldexp(detail::HMH_C, p() - r())  * phi);
 #endif
-                return std::ldexp(HMH_C, p() - r())  * phi;
+                return std::ldexp(detail::HMH_C, p() - r())  * phi;
             }
         }
 #if !NDEBUG
