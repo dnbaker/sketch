@@ -571,7 +571,6 @@ TODO:  Consider adding this change to the method. This could improve our perform
         x += deltaX;
         gprev = g;
     }
-    std::fprintf(stderr, "x: %lf\n", x);
     return x*m;
 }
 

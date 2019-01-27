@@ -827,7 +827,6 @@ public:
     double jaccard_index(const HyperMinHash &o) const {
         size_t C = 0, N = 0;
         std::fprintf(stderr, "core size: %zu\n", core_.size());
-#if EXPERIMENTAL_SIMD_CMP
         switch(simd_policy()) { // This can be accelerated for specific sizes
             default: [[fallthrough]];
             U8:      [[fallthrough]]; // 2-bit minimizers. TODO: write this
@@ -836,17 +835,11 @@ public:
             U64:     [[fallthrough]]; // 58-bit minimizers. TODO: write this
             Manual:
                 for(size_t i = 0; i < core_.size(); ++i) {
-                    C += (get_lzc(core_[i]) == get_lzc(o.core_[i]));
+                    C += core_[i] && (get_lzc(core_[i]) == get_lzc(o.core_[i]));
                     N += (core_[i] || o.core_[i]);
                 }
             break;
         }
-#else
-       for(size_t i = 0; i < core_.size(); ++i) {
-           C += (get_lzc(core_[i]) == get_lzc(o.core_[i]));
-           N += (core_[i] || o.core_[i]);
-       }
-#endif
         const double n = this->report(), m = o.report(), ec = expected_collisions(n, m);
         std::fprintf(stderr, "C: %zu. ec: %lf\n", C, ec);
         return C > ec ? (C - ec) / N: 0.;
@@ -854,17 +847,20 @@ public:
     double expected_collisions(double n, double m, bool easy_way=true) const {
         if(easy_way) {
             if(n < m) std::swap(n, m);
-            if(std::log2(n) > ((1 << q()) + r()))
-                throw std::range_error("Too high to calculate");
-            if(std::log2(n) > p() + 5) {
-                const double nm = n/m;
-                const double phi = std::ldexp(nm, -4) / std::pow(1 + nm, 2);
-#if !NDEBUG
-                std::fprintf(stderr, "Using normal expected collisions method. p: %d, r: %d, phi: %lf, ret:%lf\n", p(), r(), phi, std::ldexp(detail::HMH_C, p() - r())  * phi);
+            auto l2n = std::log2(n);
+            if(l2n > ((1 << q()) + r())) {
+#if VERBOSE_AF
+                std::fprintf(stderr, "Warning: too high to approximate\n");
 #endif
-                return std::ldexp(detail::HMH_C, p() - r())  * phi;
+                goto slow;
+            }
+            if(l2n > p() + 5) {
+                const double nm = n/m;
+                const double phi = 4 * nm / std::pow(1 + nm, 2) * detail::HMH_C;
+                return std::ldexp(phi, p_ - r());
             }
         }
+        slow:
 #if !NDEBUG
         std::fprintf(stderr, "Using slow expected collisions method\n");
 #endif
