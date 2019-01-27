@@ -536,14 +536,6 @@ inline double intersection_size(BloomType &first, BloomType &other) noexcept {
     return intersection_size(static_cast<const BloomType &>(first), static_cast<const BloomType &>(other));
 }
 
-template<typename BloomType>
-inline double jaccard_index(const BloomType &h1, const BloomType &h2) {
-    return h1.jaccard_index(h2);
-}
-template<typename BloomType>
-inline double jaccard_index(BloomType &h1, BloomType &h2) {
-    return h1.jaccard_index(h2);
-}
 
 template<typename BloomType>
 static inline double intersection_size(const BloomType &h1, const BloomType &h2) {

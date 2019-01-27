@@ -161,6 +161,32 @@ public:
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
     }
+    RangeMinHash(gzFile fp) {
+        if(!fp) throw std::runtime_error("Null file handle!");
+        this->read(fp);
+    }
+    RangeMinHash(const char *infname) {
+        gzFile fp = gzopen(infname, "rb");
+        this->read(fp);
+        gzclose(fp);
+    }
+    void read(gzFile fp) {
+        gzread(fp, this, sizeof(*this));
+        std::memset(&minimizers_, 0, sizeof(minimizers_));
+        T v;
+        for(ssize_t read; (read = gzread(fp, &v, sizeof(v))) == read;minimizers_.insert(v));
+    }
+    void write(const char *path) const {
+        gzFile fp = gzopen(path, "wb");
+        this->write(fp);
+        gzclose(fp);
+    }
+    void write(gzFile fp) const {
+        if(!fp) throw std::runtime_error("Null file handle!");
+        gzwrite(fp, this, sizeof(*this));
+        for(const auto v: minimizers_)
+            gzwrite(fp, &v, sizeof(v));
+    }
     auto rbegin() const {return minimizers_.rbegin();}
     auto rbegin() {return minimizers_.rbegin();}
     T max_element() const {
@@ -244,12 +270,24 @@ struct FinalRMinHash {
         return is / ((size() << 1) - is);
     }
     double cardinality() const {
-        std::vector<T> diffs;
+        const auto sz = first.size();
+        T *diffs = static_cast<T *>(
+#ifdef AVOID_ALLOCA
+            std::malloc(
+#else
+            __builtin_alloca(
+#endif
+                sizeof(T) * (sz - 1)));
+        T *p = diffs;
         for(auto i1 = first.begin(), i2 = i1; ++i2 != first.end();++i1) {
-            diffs.push_back(*i1 - *i2);
+            *p++ = (*i1 - *i2);
         }
-        sort::insertion_sort(diffs.begin(), diffs.end());
-        return double(1ull << 63) / (diffs[diffs.size() >> 1] + diffs[(diffs.size() >> 1) - 1]);
+        sort::insertion_sort(diffs, p);
+        const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
+#ifdef AVOID_ALLOCA
+        std::free(diffs);
+#endif
+        return ret;
     }
 #define I1D if(++i1 == lsz) break
 #define I2D if(++i2 == lsz) break
@@ -275,6 +313,11 @@ struct FinalRMinHash {
         return num / denom;
     }
     FinalRMinHash(std::vector<T> &&first): first(std::move(first)), cmp() {}
+    FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)), cmp(std::move(o.cmp)) {}
+    template<typename Hasher=common::WangHash>
+    FinalRMinHash(RangeMinHash<T, Cmp, Hasher> &&prefinal): FinalRMinHash(std::move(prefinal.finalize())) {
+        prefinal.clear();
+    }
     size_t size() const {return first.size();}
 };
 

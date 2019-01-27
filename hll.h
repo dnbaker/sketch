@@ -1151,8 +1151,6 @@ inline double intersection_size(HllType &first, HllType &other) noexcept {
     return intersection_size(static_cast<const HllType &>(first), static_cast<const HllType &>(other));
 }
 
-template<typename HllType> inline double jaccard_index(const HllType &h1, const HllType &h2) {return h1.jaccard_index(h2);}
-template<typename HllType> inline double jaccard_index(HllType &h1, HllType &h2) {return h1.jaccard_index(h2);}
 template<typename HllType> inline std::pair<double, bool> bjaccard_index(const HllType &h1, const HllType &h2) {return h1.bjaccard_index(h2);}
 template<typename HllType> inline std::pair<double, bool> bjaccard_index(HllType &h1, HllType &h2) {return h1.bjaccard_index(h2);}
 

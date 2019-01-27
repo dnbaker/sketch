@@ -81,6 +81,15 @@
 namespace sketch {
 namespace common {
 
+template<typename BloomType>
+inline double jaccard_index(const BloomType &h1, const BloomType &h2) {
+    return h1.jaccard_index(h2);
+}
+template<typename BloomType>
+inline double jaccard_index(BloomType &h1, BloomType &h2) {
+    return h1.jaccard_index(h2);
+}
+
 using std::uint64_t;
 using std::uint32_t;
 using std::uint16_t;
