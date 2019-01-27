@@ -646,7 +646,7 @@ public:
                         ptr != eptr; ++ptr) {
                         auto tmp = *ptr;
                         tmp = Space::and_fn(Space::srli(*reinterpret_cast<VType *>(&tmp), r_), mask);
-                        tmp.inc_counts16(ret);
+                        tmp.inc_counts(ret);
                     }
                     break;
                 }
@@ -657,13 +657,12 @@ public:
                             ptr != eptr; ++ptr) {
                             auto tmp = *ptr;
                             tmp = Space::and_fn(Space::srli(*reinterpret_cast<VType *>(&tmp), r_), mask);
+                            tmp.inc_counts16(ret);
                         }
                     }
                     break;
-#if 0
-                case U32:
-                case U64:
-#endif
+                // TODO: case U32:
+                // TODO: case U64:
 #define MANUAL_CORE \
             for(const auto i: core_) {\
                 uint8_t lzc = get_lzc(i);\
@@ -811,9 +810,9 @@ public:
                 const double nm = n/m;
                 const double phi = std::ldexp(nm, -4) / std::pow(1 + nm, 2);
 #if !NDEBUG
-                std::fprintf(stderr, "Using normal expected collisions method. p: %d, r: %d, phi: %lf, ret:%lf\n", p(), r(), phi, std::ldexp(0.169919487159739093975315012348, p() - r())  * phi);
+                std::fprintf(stderr, "Using normal expected collisions method. p: %d, r: %d, phi: %lf, ret:%lf\n", p(), r(), phi, std::ldexp(HMH_C, p() - r())  * phi);
 #endif
-                return std::ldexp(0.169919487159739093975315012348, p() - r())  * phi;
+                return std::ldexp(HMH_C, p() - r())  * phi;
             }
         }
 #if !NDEBUG
