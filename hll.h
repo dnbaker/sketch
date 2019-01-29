@@ -1103,23 +1103,27 @@ public:
     }
     void write(int fileno) const {
         uint32_t bf[]{is_calculated_, clamp_, estim_, jestim_, nthreads_};
-        ::write(fileno, bf, sizeof(bf));
-        ::write(fileno, &np_, sizeof(np_));
-        ::write(fileno, &value_, sizeof(value_));
-        ::write(fileno, core_.data(), core_.size() * sizeof(core_[0]));
+#define CHWR(fn, obj, sz) if(__builtin_expect(::write(fn, (obj), (sz)) != (sz), 0)) throw std::runtime_error("Failed to write to disk in " + __PRETTY_FUNCTION__)
+        CHWR(fileno, bf, sizeof(bf));
+        CHWR(fileno, &np_, sizeof(np_));
+        CHWR(fileno, &value_, sizeof(value_));
+        CHWR(fileno, core_.data(), core_.size());
+#undef CHWR
     }
     void read(int fileno) {
         uint32_t bf[5];
-        ::read(fileno, bf, sizeof(bf));
+#define CHRE(fn, obj, sz) if(__builtin_expect(::read(fn, (obj), (sz)) != (sz), 0)) throw std::runtime_error("Failed to read from fd in " + __PRETTY_FUNCTION__)
+        CHRE(fileno, bf, sizeof(bf));
         is_calculated_ = bf[0];
         clamp_         = bf[1];
         estim_         = static_cast<EstimationMethod>(bf[2]);
         jestim_        = static_cast<JointEstimationMethod>(bf[3]);
         nthreads_      = bf[4];
-        ::read(fileno, &np_, sizeof(np_));
-        ::read(fileno, &value_, sizeof(value_));
+        CHRE(fileno, &np_, sizeof(np_));
+        CHRE(fileno, &value_, sizeof(value_));
         core_.resize(m());
-        ::read(fileno, core_.data(), core_.size());
+        CHRE(fileno, core_.data(), core_.size());
+#undef CHRE
     }
     hllbase_t operator+(const hllbase_t &other) const {
         if(other.p() != p())
