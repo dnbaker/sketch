@@ -878,10 +878,10 @@ public:
         }
         return easy_way ? x: std::ldexp(x, p());
 #else
-        auto r2 = 1 << r(), q2 = 1 << q();
+        size_t r2 = 1ull << r(), q2 = 1ull << q();
         double x = 0;
         for(size_t i = 1; i <= q2; ++i) {
-            for(size_t j = 1; j <= 1 << r2; ++j) {
+            for(size_t j = 1; j <= r2; ++j) {
                 auto b1 = i != q2 ? std::ldexp(r2 + j, -int32_t(p() + r() + i)): std::ldexp(j, -int32_t(p() + r() + i - 1));
                 auto b2 = i != q2 ? std::ldexp(r2 + j + 1, -int32_t(p() + r() + i)): std::ldexp(j + 1,  -int32_t(p() + r() + i - 1));
                 auto prx = std::pow(1 - b2, n) - std::pow(1 - b1, n);
@@ -924,7 +924,7 @@ class BBitMinHasher {
 template<typename T, typename HoldingType>
 struct FinalBBitMinHash {
     std::vector<T, Allocator<T>> core_;
-}
+};
 
 
 } // namespace minhash
