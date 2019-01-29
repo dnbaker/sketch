@@ -822,11 +822,11 @@ public:
         size_t C = 0, N = 0;
         std::fprintf(stderr, "core size: %zu\n", core_.size());
         switch(simd_policy()) { // This can be accelerated for specific sizes
-            default: [[fallthrough]];
-            U8:      [[fallthrough]]; // 2-bit minimizers. TODO: write this
-            U16:     [[fallthrough]]; // 10-bit minimizers. TODO: write this
-            U32:     [[fallthrough]]; // 26-bit minimizers. TODO: write this
-            U64:     [[fallthrough]]; // 58-bit minimizers. TODO: write this
+            default: //[[fallthrough]];
+            U8:      //[[fallthrough]]; // 2-bit minimizers. TODO: write this
+            U16:     //[[fallthrough]]; // 10-bit minimizers. TODO: write this
+            U32:     //[[fallthrough]]; // 26-bit minimizers. TODO: write this
+            U64:     //[[fallthrough]]; // 58-bit minimizers. TODO: write this
             Manual:
                 for(size_t i = 0; i < core_.size(); ++i) {
                     C += core_[i] && (get_lzc(core_[i]) == get_lzc(o.core_[i]));
@@ -835,10 +835,11 @@ public:
             break;
         }
         const double n = this->report(), m = o.report(), ec = expected_collisions(n, m);
-        std::fprintf(stderr, "C: %zu. ec: %lf\n", C, ec);
-        return C > ec ? (C - ec) / N: 0.;
+        std::fprintf(stderr, "C: %zu. ec: %lf. C / N: %lf\n", C, ec, static_cast<double>(C) / N);
+        return std::max((C - ec) / N, 0.);
     }
-    double expected_collisions(double n, double m, bool easy_way=true) const {
+    double expected_collisions(double n, double m, bool easy_way=false) const {
+#if MY_WAY
         if(easy_way) {
             if(n < m) std::swap(n, m);
             auto l2n = std::log2(n);
@@ -850,8 +851,8 @@ public:
             }
             if(l2n > p() + 5) {
                 const double nm = n/m;
-                const double phi = 4 * nm / std::pow(1 + nm, 2) * detail::HMH_C;
-                return std::ldexp(phi, p_ - r());
+                const double phi = 4 * nm / std::pow((1 + n) / m, 2);
+                return std::ldexp(detail::HMH_C * phi, p_ - r());
             }
         }
         slow:
@@ -875,7 +876,21 @@ public:
                 x += prx * pry;
             }
         }
+        return easy_way ? x: std::ldexp(x, p());
+#else
+        auto r2 = 1 << r(), q2 = 1 << q();
+        double x = 0;
+        for(size_t i = 1; i <= q2; ++i) {
+            for(size_t j = 1; j <= 1 << r2; ++j) {
+                auto b1 = i != q2 ? std::ldexp(r2 + j, -int32_t(p() + r() + i)): std::ldexp(j, -int32_t(p() + r() + i - 1));
+                auto b2 = i != q2 ? std::ldexp(r2 + j + 1, -int32_t(p() + r() + i)): std::ldexp(j + 1,  -int32_t(p() + r() + i - 1));
+                auto prx = std::pow(1 - b2, n) - std::pow(1 - b1, n);
+                auto pry = std::pow(1 - b2, m) - std::pow(1 - b1, m);
+                x += prx * pry;
+            }
+        }
         return std::ldexp(x, p());
+#endif
     }
 };
 template<typename T, typename Hasher>
