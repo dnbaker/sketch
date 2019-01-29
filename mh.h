@@ -896,7 +896,7 @@ public:
 template<typename T, typename Hasher>
 void swap(HyperMinHash<T,Hasher> &a, HyperMinHash<T,Hasher> &b) {a.swap(b);}
 
-template<typename T, typename HoldingType>
+template<typename T>
 struct FinalBBitMinHash;
 
 template<typename T, typename Hasher, typename HoldingType=uint32_t>
@@ -904,7 +904,7 @@ class BBitMinHasher {
     std::vector<T> core_;
     uint16_t b_, p_;
     Hasher hf_;
-    using FinalType = FinalBBitMinHash<T, HoldingType>;
+    using FinalType = FinalBBitMinHash<T>;
     template<typename... Args>
     BBitMinHasher(unsigned b, unsigned p, Args &&... args): core_(1ull << p_), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
     void addh(T val) {val = hf_(val);add(val);}
@@ -921,9 +921,76 @@ class BBitMinHasher {
     }
 };
 
-template<typename T, typename HoldingType>
+template<typename T>
 struct FinalBBitMinHash {
     std::vector<T, Allocator<T>> core_;
+    uint16_t b_, p_;
+    double est_cardinality_;
+    template<typename Functor>
+    FinalBBitMinHash(unsigned b, unsigned p, double est, const Functor &func=[]{}):
+        core_(((b * p) + (sizeof(T) * CHAR_BIT - 1)) / (sizeof(T) * CHAR_BIT)), b_(b), p_(p), est_cardinality_(est) {
+        func(*this);
+    }
+    int densify() {
+        std::fprintf(stderr, "[W:%s:%d] densification not implemented. Results will not be made ULTRADENSE\n", __PRETTY_FUNCTION__, __LINE__);
+        return 0; // Success, I guess?
+    }
+    double r() const {
+        return std::ldexp(est_cardinality_, -int(sizeof(T) * CHAR_BIT));
+    }
+    double ab() const {
+        const auto _r = r();
+        auto rm1 = 1. - _r;
+        auto rm1p = std::pow(rm1, std::ldexp(1., b_) - 1);
+        return _r * rm1p / (1. - (rm1p * rm1));
+    }
+    double jaccard_index(const FinalBBitMinHash<T> &o) const {
+        const T *p1 = core_.data(), *pe = core_.data() + core_.size();
+        // Unbiased estimator R_b is  \frac{E_b-C1b}{1-C2b}
+        // Where E_b is 1/k * sum(C_1i == C_2i) for i in range(k)
+        // C1b = A1b (r2/(r1 + r2)) + A2b (r1/(r1 + r2))
+        // C2b = A1b (r1/(r1 + r2)) + A2b (r2/(r1 + r2))
+        // A1b = r_1(1-r_1)^{2^b-1} / (1 - (1 - r_1)^{2^b})
+        // A2b = r_2(1-r_2)^{2^b-1} / (1 - (1 - r_2)^{2^b})
+        // r1 = f1/D, r2 = f2/D
+        // D is cardinality into which things are hashed
+        // f1 = cardinality of set1, f2 is cardinality of set2
+        /*
+Here, the key operation is the computation of the number of identical b-bit samples. While standard hash signatures that are multiples of 16-bit can easily be compared using a single machine instruction, efficiently computing the overlap between b-bit samples
+for small b is less straightforward. In the following, we will describe techniques for computing the number of identical b-bit samples when these are stored in a compact manner, meaning that individual b-bit samples e1,i,j and e2,i,j , i = 1,...,b, j = 1,...k
+are packed into arrays Al[1,..., k·b
+w ], l = 1, 2 of w-bit words. To
+compute the number of identical b-bit samples, we iterate through
+the arrays; for an each offset h, we first compute v = A1[h] ⊕
+A2[h], where ⊕ denotes the bitwise-XOR. Subsequently, the h-th
+bit of v will be set if and only if the h-th bits in A1[h] and A2[h] are
+different. Hence, to compute the number of overlapping b-bit samples encoded in A1[h] and A2[h], we need to compute the number
+of b-bit blocks ending at offsets divisible by b that only contain 0s.
+The case of b = 1 corresponds to the problem of counting the
+number of 0-bits in a word. We tested different methods suggested
+in [34] and found the fastest approach to be pre-computing an array
+bits[1,..., 216], such that bits[t] corresponds to the number of 0-
+bits in the binary representation of t. Then we can compute the
+number of 0-bits in v (in case of w = 32) as
+c = bits[v & 0xffffu] + bits[(v  16) & 0xffffu].
+Interestingly, we can use the same method for the cases where
+b > 1, as we only need to modify the values stored in bits, setting bits[i] to the number of b-bit blocks that only contain 0-bits in
+the binary representation of i.
+We evaluated this approach using a loop computing the number
+of identical samples in two signatures covering a total of 1.8 billion
+32-bit words (using a 64-bit Intel 6600 Processor). Here, the 1-
+bit hashing requires 1.67x the time that the 32-bit minwise hashing
+requires.The results were essentially identical for b = 2.
+Combined with the reduction in overall storage (for a given accuracy level), this means a significant speed improvement in the
+estimation phase: suppose in the original minwise hashing, each
+sample is stored using 64 bits. If we use 1-bit minwise hashing and
+consider R > 0.5, our previous analysis has shown that we could
+gain a storage reduction at least by a factor of 64/3 = 21.3 fold.
+The improvement in computational efficiency would be 21.3/1.67
+= 12.8 fold, which is still significant.
+         */
+        return 0.;
+    }
 };
 
 
