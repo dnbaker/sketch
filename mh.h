@@ -881,6 +881,11 @@ public:
 template<typename T, typename Hasher>
 void swap(HyperMinHash<T,Hasher> &a, HyperMinHash<T,Hasher> &b) {a.swap(b);}
 
+template<typename T, typename Hasher>
+class BBitMinHasher {
+    
+};
+
 } // namespace minhash
 namespace mh = minhash;
 } // namespace sketch
