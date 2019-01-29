@@ -563,20 +563,16 @@ class HyperMinHash {
     std::mutex mutex_; // I should be able to replace most of these with atomics.
 #endif
 public:
-    static constexpr uint32_t q() {return 6u;} // To hold popcount for a 64-bit integer.
+    static constexpr uint32_t q() {return uint32_t(std::ceil(std::log2(sizeof(T) * CHAR_BIT)));} // To hold popcount for a 64-bit integer.
     enum ComparePolicy {
-        Manual = 0,
-        U8 = 1,
-        U16 = 2,
-        U32 = 3,
-        U64 = 4
+        Manual,
+        U8,
+        U16,
+        U32,
+        U64,
     };
     void swap(HyperMinHash &o) {
-        std::swap_ranges(reinterpret_cast<uint8_t *>(&core_), reinterpret_cast<uint8_t *>(&core_) + sizeof(core_), reinterpret_cast<uint8_t *>(&o.core_));
-        std::swap(p_, o.p_);
-        std::swap(r_, o.r_);
-        std::swap(hf_, o.hf_);
-        std::swap(seeds_, o.seeds_);
+        std::swap_ranges(reinterpret_cast<uint8_t *>(this), reinterpret_cast<uint8_t *>(this) + sizeof(*this), reinterpret_cast<uint8_t *>(&o));
     }
     auto &core() {return core_;}
     const auto &core() const {return core_;}
@@ -640,7 +636,7 @@ public:
     }
     ComparePolicy simd_policy() const {
         switch(minimizer_size()) {
-            case 8: return ComparePolicy::U8;
+            case 8:  return ComparePolicy::U8;
             case 16: return ComparePolicy::U16;
             case 32: return ComparePolicy::U32;
             case 64: return ComparePolicy::U64;
@@ -669,8 +665,6 @@ public:
         std::array<uint64_t, 64> ret{0};
         if(core_.bytes() >= sizeof(SIMDHolder)) {
             switch(simd_policy()) {
-#define MANUAL_CORE \
-
 #define CASE_U(cse, func, msk)\
                 case cse: {\
                     const Space::Type mask = Space::set1(UINT64_C(msk));\
@@ -770,9 +764,9 @@ public:
             }
         } else {
             manual:
-            for(size_t i(0); i < core_.size(); ++i) {
-                if(core_[i] < o.core_[i]) core_[i] = o.core_[i];
-            }
+            for(size_t i(0); i < core_.size(); ++i)
+                if(core_[i] < o.core_[i])
+                    core_[i] = o.core_[i];
         }
         return *this;
     }
