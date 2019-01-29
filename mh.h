@@ -896,10 +896,36 @@ public:
 template<typename T, typename Hasher>
 void swap(HyperMinHash<T,Hasher> &a, HyperMinHash<T,Hasher> &b) {a.swap(b);}
 
-template<typename T, typename Hasher>
+template<typename T, typename HoldingType>
+struct FinalBBitMinHash;
+
+template<typename T, typename Hasher, typename HoldingType=uint32_t>
 class BBitMinHasher {
-    
+    std::vector<T> core_;
+    uint16_t b_, p_;
+    Hasher hf_;
+    using FinalType = FinalBBitMinHash<T, HoldingType>;
+    template<typename... Args>
+    BBitMinHasher(unsigned b, unsigned p, Args &&... args): core_(1ull << p_), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
+    void addh(T val) {val = hf_(val);add(val);}
+    void add(T hv) {
+        auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
+        hv <<= p_; hv >>= p_; // Clear top values
+#if NOT_THREADSAFE
+        ref = std::min(ref, hv);
+#else
+        while(ref < hv)
+            __sync_bool_compare_and_swap(std::addressof(ref), ref, hv);
+        
+#endif
+    }
 };
+
+template<typename T, typename HoldingType>
+struct FinalBBitMinHash {
+    std::vector<T, Allocator<T>> core_;
+}
+
 
 } // namespace minhash
 namespace mh = minhash;
