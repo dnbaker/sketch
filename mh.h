@@ -981,6 +981,45 @@ struct FinalBBitMinHash {
                 uint64_t x3 = x0 & x2;
                 return popcount(x3);
             });
+            case 8: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
+#if __AVX512BW__
+                return popcount(_mm512_cmpeq_epu8_mask(x, y);
+#elif __AVX2__
+                static const auto mask = _mm256_set1_epi8(0x1);
+                return popcnt_fn(_mm256_cmpeq_epi8(x, y) & mask);
+#else
+                static const auto mask = _mm_set1_epi8(0x1);
+                return popcnt_fn(_mm_cmpeq_epi8(x, y) & mask);
+#endif
+            }, [](auto x, auto y) {
+                return popcount(_mm_cmpeq_pi8(x, y) & UINT64_C(0x0101010101010101));
+            });
+            case 16: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
+#if __AVX512BW__
+                return popcount(_mm512_cmpeq_epu16_mask(x, y);
+#elif __AVX2__
+                static const auto mask = _mm256_set1_epi16(0x1);
+                return popcnt_fn(_mm256_cmpeq_epi16(x, y) & mask);
+#else
+                static const auto mask = _mm_set1_epi16(0x1);
+                return popcnt_fn(_mm_cmpeq_epi16(x, y) & mask);
+#endif
+            }, [](auto x, auto y) {
+                return popcount(_mm_cmpeq_pi16(x, y) & UINT64_C(0x0001000100010001));
+            });
+            case 32: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
+#if __AVX512BW__
+                return popcount(_mm512_cmpeq_epu32_mask(x, y);
+#elif __AVX2__
+                static const auto mask = _mm256_set1_epi32(0x1);
+                return popcnt_fn(_mm256_cmpeq_epi32(x, y) & mask);
+#else
+                static const auto mask = _mm_set1_epi32(0x1);
+                return popcnt_fn(_mm_cmpeq_epi32(x, y) & mask);
+#endif
+            }, [](auto x, auto y) {
+                return popcount(_mm_cmpeq_pi32(x, y) & UINT64_C(0x0000000100000001));
+            });
             default: throw std::runtime_error("Not Implemented.");
         }
     }
