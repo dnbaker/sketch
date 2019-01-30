@@ -946,11 +946,18 @@ struct FinalBBitMinHash {
     }
     template<typename Func1, typename Func2>
     uint64_t equal_bblocks_sub(const T *p1, const T *pe, const T *p2, const Func1 &f1, const Func2 &f2) {
+#if __AVX512BW__
+#define VT __m512i
+#elif __AVX2__
+#define VT __m256i
+#else
+#define VT __m128i
+#endif
         uint64_t sum = 0;
         if(core_.size() * sizeof(core_[0]) >= sizeof(Space::VType)) {
-            const Space::VType *vp1 = reinterpret_cast<const Space::VType *>(p1);
-            const Space::VType *vpe = reinterpret_cast<const Space::VType *>(pe);
-            const Space::VType *vp2 = reinterpret_cast<const Space::VType *>(p2);
+            const VT *vp1 = reinterpret_cast<const VT *>(p1);
+            const VT *vpe = reinterpret_cast<const VT *>(pe);
+            const VT *vp2 = reinterpret_cast<const VT *>(p2);
             do {sum += f1(*vp1++, *vp2++);} while(vp1 != vpe);
             p1 = reinterpret_cast<const T *>(vp1), p2 = reinterpret_cast<const T *>(vp2);
         }
@@ -1023,6 +1030,7 @@ struct FinalBBitMinHash {
             default: throw std::runtime_error("Not Implemented.");
         }
     }
+#undef VT
     double frac_equal(const FinalBBitMinHash<T> &o) const {
         return std::ldexp(equal_bblocks(o), -int(p_));
     }
