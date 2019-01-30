@@ -590,7 +590,7 @@ INLINE auto popcnt_fn(Type val) {
 
 #define VAL_AS_ARR(ind) reinterpret_cast<const uint64_t *>(&val)[ind]
 #if HAS_AVX_512
-#define FUNCTION_CALL popcnt512(&val, 1)
+#define FUNCTION_CALL popcnt512(val)
 #elif __AVX2__
 // This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
 #define FUNCTION_CALL popcount(VAL_AS_ARR(0)) + popcount(VAL_AS_ARR(1)) + popcount(VAL_AS_ARR(2)) + popcount(VAL_AS_ARR(3))
