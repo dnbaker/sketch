@@ -944,10 +944,45 @@ struct FinalBBitMinHash {
         auto rm1p = std::pow(rm1, std::ldexp(1., b_) - 1);
         return _r * rm1p / (1. - (rm1p * rm1));
     }
-    uint64_t equal_bblocks(const FinalBBitMinHash<T> &o) const {
-        const T *p1 = core_.data(), *pe = core_.data() + core_.size();
-        throw std::runtime_error("NotImplemented.");
+    template<typename Func1, typename Func2>
+    uint64_t equal_bblocks_sub(const T *p1, const T *pe, const T *p2, const Func1 &f1, const Func2 &f2) {
+        uint64_t sum = 0;
+        if(core_.size() * sizeof(core_[0]) >= sizeof(Space::VType)) {
+            const Space::VType *vp1 = reinterpret_cast<const Space::VType *>(p1);
+            const Space::VType *vpe = reinterpret_cast<const Space::VType *>(pe);
+            const Space::VType *vp2 = reinterpret_cast<const Space::VType *>(p2);
+            do {sum += f1(*vp1++, *vp2++);} while(vp1 != vpe);
+            p1 = reinterpret_cast<const T *>(vp1), p2 = reinterpret_cast<const T *>(vp2);
+        }
+        while(p1 != pe)
+            sum += f2(*p1++, *pe++);
         return 0; // This is a lie.
+    }
+    uint64_t equal_bblocks(const FinalBBitMinHash<T> &o) const {
+        assert(o.core_.size() == core_.size());
+        const T *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
+        switch(b_) {
+            case 1: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {return popcnt_fn(~Space::xor_fn(x, y));}, [](auto x, auto y) {return popcount(~(x ^ y));});
+            case 2: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
+                // Based on nucleotide counting in bowtie2
+                static const auto m1 = Space::set1(UINT64_C(0xffffffffffffffff));
+                static const auto m2 = Space::set1(UINT64_C(0x5555555555555555));
+                x ^= y;
+                auto x0 = x ^ m1;
+                auto x1 = Space::srli(x.simd_, 1);
+                auto x2 = Space::and_fn(m2, x1);
+                auto x3 = Space::and_fn(x0, x2);
+                return popcnt_fn(x3);
+            }, [](auto x, auto y) {
+                x ^= y;
+                uint64_t x0 = x ^ UINT64_C(0xffffffffffffffff);
+                uint64_t x1 = x0 >> 1;
+                uint64_t x2 = x1 & UINT64_C(0x5555555555555555);
+                uint64_t x3 = x0 & x2;
+                return popcount(x3);
+            });
+            default: throw std::runtime_error("Not Implemented.");
+        }
     }
     double frac_equal(const FinalBBitMinHash<T> &o) const {
         return std::ldexp(equal_bblocks(o), -int(p_));
