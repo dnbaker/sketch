@@ -921,13 +921,14 @@ class BBitMinHasher {
     }
 };
 
+struct DoNothing {template<typename T>void operator()(const T &x)const{}};
 template<typename T>
 struct FinalBBitMinHash {
     std::vector<T, Allocator<T>> core_;
     uint16_t b_, p_;
     double est_cardinality_;
-    template<typename Functor>
-    FinalBBitMinHash(unsigned b, unsigned p, double est, const Functor &func=[]{}):
+    template<typename Functor=DoNothing>
+    FinalBBitMinHash(unsigned b, unsigned p, double est, const Functor &func=Functor()):
         core_(((b * p) + (sizeof(T) * CHAR_BIT - 1)) / (sizeof(T) * CHAR_BIT)), b_(b), p_(p), est_cardinality_(est) {
         func(*this);
     }
