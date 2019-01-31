@@ -637,6 +637,12 @@ inline void insertion_sort(Iter begin, Iter end) {
 }
 } // namespace sort
 
+
+struct DoNothing {
+    template<typename... Args>void operator()(const Args &&...  args)const{}
+    template<typename T>void operator()(const T &x)const{}
+};
+
 class NotImplementedError: public std::runtime_error {
 public:
     template<typename... Args>

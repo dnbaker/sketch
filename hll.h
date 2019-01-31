@@ -1438,7 +1438,7 @@ public:
     bool may_contain(uint64_t element) const {
         unsigned k = 0;
         if(size() >= Space::COUNT) {
-            if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+            if(size() & (size() - 1)) throw NotImplementedError("supporting a non-power of two.");
             const Type *sptr = reinterpret_cast<const Type *>(&seeds_[0]);
             const Type *eptr = reinterpret_cast<const Type *>(&seeds_[seeds_.size()]);
             VType key;
@@ -1455,7 +1455,7 @@ public:
     void addh(uint64_t val) {
         unsigned k = 0;
         if(size() >= Space::COUNT) {
-            if(size() & (size() - 1)) throw std::runtime_error("NotImplemented: supporting a non-power of two.");
+            if(size() & (size() - 1)) throw NotImplementedError("supporting a non-power of two.");
             const Type *sptr = reinterpret_cast<const Type *>(&seeds_[0]);
             const Type *eptr = reinterpret_cast<const Type *>(&seeds_[seeds_.size()]);
             const Type element = Space::set1(val);

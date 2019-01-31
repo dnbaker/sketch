@@ -36,9 +36,18 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
     1. ccm.h (`ccmbase_t<UpdatePolicy=Increment>/ccm_t`  (use `pccm_t` for Approximate Counting or `cs_t` for a count sketch).
     2. The Count sketch is threadsafe if `-DNOT_THREADSAFE` is not passed or if an atomic container is used. Count-Min sketches are currently not threadsafe due to the use of minimal updates.
 9. MinHash sketches
-    1. mh.h (`RangeMinHash` is the currently verified implementation.) We recommend you build the sketch and then convert to a linear container (e.g., a `std::vector`) using `to_container<ContainerType>()`  for faster comparisons.
-    2. A draft HyperMinHash implementation is available as well, but it has not been tested.
-    3. No MinHash or HyperMinHash implementation is currently threadsafe.
+    1. mh.h (`RangeMinHash` is the currently verified implementation.) We recommend you build the sketch and then convert to a linear container (e.g., a `std::vector`) using `to_container<ContainerType>()` or `.finalize()` for faster comparisons.
+    2. CountingRangeMinHash performs the same operations as RangeMinHash, but provides multiplicities, which facilitates `histogram_similarity`, a generalization of Jaccard with multiplicities.
+    3. Both CountingRangeMinHash and RangeMinHash can be finalized into containers for fast comparisons with `.finalize()`.
+    3. A draft HyperMinHash implementation is available as well, but it has not been thoroughly vetted.
+    4. Range MinHash implementations and the HyperMinHash implementation are *not* threadsafe.
+10. B-Bit MinHash
+    1. bbmh.h
+        1. Partition bbit minhash
+        2. Threadsafe if `-DNOT_THREADSAFE` is not passed.
+        3. Construction is finished.
+        4. Finalizing (bit-packing) is not.
+        5. Comparisons are complete for b in `{1,2,4,8,16,32}` and SIMD-accelerated.
 
 ### Test case
 To build and run the test case:
