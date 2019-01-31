@@ -25,7 +25,7 @@ double ji(const std::unordered_set<uint64_t> &a, const std::unordered_set<uint64
 int main(int argc, char *argv[]) {
     size_t ss = argc < 2 ? 10: size_t(std::strtoull(argv[1], nullptr, 10));
     HyperMinHash<> hmh1(ss, 6), hmh2(ss, 6);
-    FinalBBitMinHash<uint64_t> fbhmm(10, 0, 0);
+    FinalBBitMinHash fbhmm(10, 0, 0);
     std::mt19937_64 mt(1337);
     hmh1.addh(uint64_t(13));
     hmh1.addh(uint64_t(17));

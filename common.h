@@ -582,6 +582,7 @@ inline unsigned popcount(uint64_t val) noexcept {
     return __builtin_popcountll(val);
 #endif
 }
+inline unsigned popcount(__m64 val) noexcept {return popcount(*reinterpret_cast<uint64_t *>(&val));}
 
 template<typename T>
 INLINE auto popcnt_fn(T val);

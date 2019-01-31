@@ -896,7 +896,6 @@ public:
 template<typename T, typename Hasher>
 void swap(HyperMinHash<T,Hasher> &a, HyperMinHash<T,Hasher> &b) {a.swap(b);}
 
-template<typename T>
 struct FinalBBitMinHash;
 
 template<typename T, typename Hasher, typename HoldingType=uint32_t>
@@ -904,7 +903,7 @@ class BBitMinHasher {
     std::vector<T> core_;
     uint16_t b_, p_;
     Hasher hf_;
-    using FinalType = FinalBBitMinHash<T>;
+    using FinalType = FinalBBitMinHash;
     template<typename... Args>
     BBitMinHasher(unsigned b, unsigned p, Args &&... args): core_(1ull << p_), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
     void addh(T val) {val = hf_(val);add(val);}
@@ -921,15 +920,18 @@ class BBitMinHasher {
     }
 };
 
-struct DoNothing {template<typename T>void operator()(const T &x)const{}};
-template<typename T>
+struct DoNothing {
+    template<typename... Args>void operator()(const Args &&...  args)const{}
+    template<typename T>void operator()(const T &x)const{}
+};
+
 struct FinalBBitMinHash {
-    std::vector<T, Allocator<T>> core_;
+    std::vector<uint64_t, Allocator<uint64_t>> core_;
     uint16_t b_, p_;
     double est_cardinality_;
     template<typename Functor=DoNothing>
     FinalBBitMinHash(unsigned b, unsigned p, double est, const Functor &func=Functor()):
-        core_(((b * p) + (sizeof(T) * CHAR_BIT - 1)) / (sizeof(T) * CHAR_BIT)), b_(b), p_(p), est_cardinality_(est) {
+        core_(((b * p) + (sizeof(uint64_t) * CHAR_BIT - 1)) / (sizeof(uint64_t) * CHAR_BIT)), b_(b), p_(p), est_cardinality_(est) {
         func(*this);
     }
     int densify() {
@@ -937,7 +939,7 @@ struct FinalBBitMinHash {
         return 0; // Success, I guess?
     }
     double r() const {
-        return std::ldexp(est_cardinality_, -int(sizeof(T) * CHAR_BIT - p_));
+        return std::ldexp(est_cardinality_, -int(sizeof(uint64_t) * CHAR_BIT - p_));
     }
     double ab() const {
         const auto _r = r();
@@ -946,7 +948,7 @@ struct FinalBBitMinHash {
         return _r * rm1p / (1. - (rm1p * rm1));
     }
     template<typename Func1, typename Func2>
-    uint64_t equal_bblocks_sub(const T *p1, const T *pe, const T *p2, const Func1 &f1, const Func2 &f2) {
+    uint64_t equal_bblocks_sub(const uint64_t *p1, const uint64_t *pe, const uint64_t *p2, const Func1 &f1, const Func2 &f2) const {
 #if __AVX512BW__
 #define VT __m512i
 #elif __AVX2__
@@ -960,7 +962,7 @@ struct FinalBBitMinHash {
             const VT *vpe = reinterpret_cast<const VT *>(pe);
             const VT *vp2 = reinterpret_cast<const VT *>(p2);
             do {sum += f1(*vp1++, *vp2++);} while(vp1 != vpe);
-            p1 = reinterpret_cast<const T *>(vp1), p2 = reinterpret_cast<const T *>(vp2);
+            p1 = reinterpret_cast<const uint64_t *>(vp1), p2 = reinterpret_cast<const uint64_t *>(vp2);
 #if __AVX512BW__
 #else
             switch(b_) {
@@ -974,9 +976,9 @@ struct FinalBBitMinHash {
             sum += f2(*p1++, *pe++);
         return 0; // This is a lie.
     }
-    uint64_t equal_bblocks(const FinalBBitMinHash<T> &o) const {
+    uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
-        const T *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
+        const uint64_t *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
         switch(b_) {
             case 1: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {return popcnt_fn(~Space::xor_fn(x, y));}, [](auto x, auto y) {return popcount(~(x ^ y));});
             case 2: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
@@ -985,7 +987,7 @@ struct FinalBBitMinHash {
                 static const auto m2 = Space::set1(UINT64_C(0x5555555555555555));
                 x ^= y;
                 auto x0 = x ^ m1;
-                auto x1 = Space::srli(x.simd_, 1);
+                auto x1 = Space::srli(x, 1);
                 auto x2 = Space::and_fn(m2, x1);
                 auto x3 = Space::and_fn(x0, x2);
                 return popcnt_fn(x3);
@@ -1000,7 +1002,7 @@ struct FinalBBitMinHash {
             case 4: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
                 x ^= y;
                 auto x0 = x ^ Space::set1(UINT64_C(0xffffffffffffffff));
-                auto x1 = Space::srli(x.simd_, 1);
+                auto x1 = Space::srli(x, 1);
                 auto x2 = Space::and_fn(Space::set1(UINT64_C(0x5555555555555555)), x1);
                 auto x3 = Space::and_fn(x0, x2);
                 auto x4 = x3 & Space::set1(UINT64_C(0x4444444444444444));
@@ -1018,6 +1020,7 @@ struct FinalBBitMinHash {
                 uint64_t x6 = x4 & x5;
                 return popcount(x6);
             });
+#define MMX_CVT(x) (*reinterpret_cast<const __m64 *>(std::addressof(x)))
             case 8: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
                 return popcount(_mm512_cmpeq_epu8_mask(x, y);
@@ -1027,7 +1030,7 @@ struct FinalBBitMinHash {
                 return popcnt_fn(_mm_cmpeq_epi8(x, y));
 #endif
             }, [](auto x, auto y) {
-                return popcount(_mm_cmpeq_pi8(x, y) & UINT64_C(0x0101010101010101));
+                return popcount(_mm_cmpeq_pi8(MMX_CVT(x), MMX_CVT(y)));
             });
             case 16: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
@@ -1038,7 +1041,7 @@ struct FinalBBitMinHash {
                 return popcnt_fn(_mm_cmpeq_epi16(x, y));
 #endif
             }, [](auto x, auto y) {
-                return popcount(_mm_cmpeq_pi16(x, y) & UINT64_C(0x0001000100010001));
+                return popcount(_mm_cmpeq_pi16(MMX_CVT(x), MMX_CVT(y)));
             });
             case 32: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
@@ -1049,17 +1052,17 @@ struct FinalBBitMinHash {
                 return popcnt_fn(_mm_cmpeq_epi32(x, y));
 #endif
             }, [](auto x, auto y) {
-                return popcount(_mm_cmpeq_pi32(x, y) & UINT64_C(0x0000000100000001));
+                return popcount(_mm_cmpeq_pi32(MMX_CVT(x), MMX_CVT(y)));
             });
         }
         throw std::runtime_error("Not Implemented.");
         return 0.;
     }
 #undef VT
-    double frac_equal(const FinalBBitMinHash<T> &o) const {
+    double frac_equal(const FinalBBitMinHash &o) const {
         return std::ldexp(equal_bblocks(o), -int(p_));
     }
-    double jaccard_index(const FinalBBitMinHash<T> &o) const {
+    double jaccard_index(const FinalBBitMinHash &o) const {
         auto a1b = this->ab(), a2b = o.ab();
         auto r1 = r(), r2 = o.r(), rsuminv =1./ (r1 + r2);
         auto c1b = a1b * r2 / rsuminv, c2b = a2b * r1 * rsuminv;
