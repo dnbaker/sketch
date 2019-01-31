@@ -988,6 +988,31 @@ struct FinalBBitMinHash {
                 uint64_t x3 = x0 & x2;
                 return popcount(x3);
             });
+            case 4: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
+                static const auto m1 = Space::set1(UINT64_C(0xffffffffffffffff));
+                static const auto m2 = Space::set1(UINT64_C(0x5555555555555555));
+                static const auto m3 = Space::set1(UINT64_C(0x1111111111111111));
+                static const auto m4 = Space::set1(UINT64_C(0x4444444444444444));
+                x ^= y;
+                auto x0 = x ^ m1;
+                auto x1 = Space::srli(x.simd_, 1);
+                auto x2 = Space::and_fn(m2, x1);
+                auto x3 = Space::and_fn(x0, x2);
+                auto x4 = x3 & m4;
+                auto x5 = Space::srli(Space::and_fn(x3, m3), 2);
+                auto x6 = Space::and_fn(x4, x5);
+                return popcnt_fn(x6);
+            }, [](auto x, auto y) {
+                x ^= y;
+                uint64_t x0 = x ^ UINT64_C(0xffffffffffffffff);
+                uint64_t x1 = x0 >> 1;
+                uint64_t x2 = x1 & UINT64_C(0x5555555555555555);
+                uint64_t x3 = x0 & x2;
+                uint64_t x4 = x3 & UINT64_C(0x4444444444444444);
+                uint64_t x5 = (x3 & UINT64_C(0x1111111111111111)) >> 2;
+                uint64_t x6 = x4 & x5;
+                return popcount(x6);
+            });
             case 8: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
                 return popcount(_mm512_cmpeq_epu8_mask(x, y);
@@ -1027,8 +1052,9 @@ struct FinalBBitMinHash {
             }, [](auto x, auto y) {
                 return popcount(_mm_cmpeq_pi32(x, y) & UINT64_C(0x0000000100000001));
             });
-            default: throw std::runtime_error("Not Implemented.");
         }
+        throw std::runtime_error("Not Implemented.");
+        return 0.;
     }
 #undef VT
     double frac_equal(const FinalBBitMinHash<T> &o) const {
