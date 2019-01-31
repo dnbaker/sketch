@@ -969,6 +969,7 @@ struct FinalBBitMinHash {
                 case 8:  sum >>= 3; break; // Divide by 8 because each matching subblock's values are 8 "1"-bits,
                 case 16: sum >>= 4; break; // which makes us overcount by a factor of the number of bits per operand.
                 case 32: sum >>= 5; break;
+                case 64: sum >>= 6; break;
             }
 #endif
         }
@@ -1023,37 +1024,51 @@ struct FinalBBitMinHash {
 #define MMX_CVT(x) (*reinterpret_cast<const __m64 *>(std::addressof(x)))
             case 8: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
-                return popcount(_mm512_cmpeq_epu8_mask(x, y);
+                return popcount(_mm512_cmpeq_epu8_mask(x, y));
 #elif __AVX2__
                 return popcnt_fn(_mm256_cmpeq_epi8(x, y));
 #else
                 return popcnt_fn(_mm_cmpeq_epi8(x, y));
 #endif
             }, [](auto x, auto y) {
-                return popcount(_mm_cmpeq_pi8(MMX_CVT(x), MMX_CVT(y)));
+                return popcount(_mm_cmpeq_pi8(MMX_CVT(x), MMX_CVT(y))) >> 3;
             });
             case 16: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
-                return popcount(_mm512_cmpeq_epu16_mask(x, y);
+                return popcount(_mm512_cmpeq_epu16_mask(x, y));
 #elif __AVX2__
                 return popcnt_fn(_mm256_cmpeq_epi16(x, y));
 #else
                 return popcnt_fn(_mm_cmpeq_epi16(x, y));
 #endif
             }, [](auto x, auto y) {
-                return popcount(_mm_cmpeq_pi16(MMX_CVT(x), MMX_CVT(y)));
+                return popcount(_mm_cmpeq_pi16(MMX_CVT(x), MMX_CVT(y))) >> 4;
             });
             case 32: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
-                return popcount(_mm512_cmpeq_epu32_mask(x, y);
+                return popcount(_mm512_cmpeq_epu32_mask(x, y));
 #elif __AVX2__
                 return popcnt_fn(_mm256_cmpeq_epi32(x, y));
 #else
                 return popcnt_fn(_mm_cmpeq_epi32(x, y));
 #endif
             }, [](auto x, auto y) {
-                return popcount(_mm_cmpeq_pi32(MMX_CVT(x), MMX_CVT(y)));
+                return popcount(_mm_cmpeq_pi32(MMX_CVT(x), MMX_CVT(y))) >> 5;
             });
+            case 64: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
+#if __AVX512BW__
+                return popcount(_mm512_cmpeq_epu64_mask(x, y));
+#elif __AVX2__
+                return popcnt_fn(_mm256_cmpeq_epi64(x, y));
+#elif __SSE4_1__
+                return popcnt_fn(_mm_cmpeq_epi64(x, y));
+#else
+                auto tmp = _mm_cmpeq_epi32(x, y);
+                auto tmp2 = _mm_slri_epi64(tmp);
+                auto tmp3 = _mm_cmpeq_epi32(tmp, tmp2);
+                return popcount(tmp3);
+#endif
+            }, [](auto x, auto y) {return x == y;});
         }
         throw std::runtime_error("Not Implemented.");
         return 0.;
