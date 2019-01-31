@@ -961,6 +961,14 @@ struct FinalBBitMinHash {
             const VT *vp2 = reinterpret_cast<const VT *>(p2);
             do {sum += f1(*vp1++, *vp2++);} while(vp1 != vpe);
             p1 = reinterpret_cast<const T *>(vp1), p2 = reinterpret_cast<const T *>(vp2);
+#if __AVX512BW__
+#else
+            switch(b_) {
+                case 8:  sum >>= 3; break; // Divide by 8 because each matching subblock's values are 8 "1"-bits,
+                case 16: sum >>= 4; break; // which makes us overcount by a factor of the number of bits per operand.
+                case 32: sum >>= 5; break;
+            }
+#endif
         }
         while(p1 != pe)
             sum += f2(*p1++, *pe++);
@@ -990,17 +998,13 @@ struct FinalBBitMinHash {
                 return popcount(x3);
             });
             case 4: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
-                static const auto m1 = Space::set1(UINT64_C(0xffffffffffffffff));
-                static const auto m2 = Space::set1(UINT64_C(0x5555555555555555));
-                static const auto m3 = Space::set1(UINT64_C(0x1111111111111111));
-                static const auto m4 = Space::set1(UINT64_C(0x4444444444444444));
                 x ^= y;
-                auto x0 = x ^ m1;
+                auto x0 = x ^ Space::set1(UINT64_C(0xffffffffffffffff));
                 auto x1 = Space::srli(x.simd_, 1);
-                auto x2 = Space::and_fn(m2, x1);
+                auto x2 = Space::and_fn(Space::set1(UINT64_C(0x5555555555555555)), x1);
                 auto x3 = Space::and_fn(x0, x2);
-                auto x4 = x3 & m4;
-                auto x5 = Space::srli(Space::and_fn(x3, m3), 2);
+                auto x4 = x3 & Space::set1(UINT64_C(0x4444444444444444));
+                auto x5 = Space::srli(Space::and_fn(x3, Space::set1(UINT64_C(0x1111111111111111))), 2);
                 auto x6 = Space::and_fn(x4, x5);
                 return popcnt_fn(x6);
             }, [](auto x, auto y) {
@@ -1018,11 +1022,9 @@ struct FinalBBitMinHash {
 #if __AVX512BW__
                 return popcount(_mm512_cmpeq_epu8_mask(x, y);
 #elif __AVX2__
-                static const auto mask = _mm256_set1_epi8(0x1);
-                return popcnt_fn(_mm256_cmpeq_epi8(x, y) & mask);
+                return popcnt_fn(_mm256_cmpeq_epi8(x, y));
 #else
-                static const auto mask = _mm_set1_epi8(0x1);
-                return popcnt_fn(_mm_cmpeq_epi8(x, y) & mask);
+                return popcnt_fn(_mm_cmpeq_epi8(x, y));
 #endif
             }, [](auto x, auto y) {
                 return popcount(_mm_cmpeq_pi8(x, y) & UINT64_C(0x0101010101010101));
@@ -1031,11 +1033,9 @@ struct FinalBBitMinHash {
 #if __AVX512BW__
                 return popcount(_mm512_cmpeq_epu16_mask(x, y);
 #elif __AVX2__
-                static const auto mask = _mm256_set1_epi16(0x1);
-                return popcnt_fn(_mm256_cmpeq_epi16(x, y) & mask);
+                return popcnt_fn(_mm256_cmpeq_epi16(x, y));
 #else
-                static const auto mask = _mm_set1_epi16(0x1);
-                return popcnt_fn(_mm_cmpeq_epi16(x, y) & mask);
+                return popcnt_fn(_mm_cmpeq_epi16(x, y));
 #endif
             }, [](auto x, auto y) {
                 return popcount(_mm_cmpeq_pi16(x, y) & UINT64_C(0x0001000100010001));
@@ -1044,11 +1044,9 @@ struct FinalBBitMinHash {
 #if __AVX512BW__
                 return popcount(_mm512_cmpeq_epu32_mask(x, y);
 #elif __AVX2__
-                static const auto mask = _mm256_set1_epi32(0x1);
-                return popcnt_fn(_mm256_cmpeq_epi32(x, y) & mask);
+                return popcnt_fn(_mm256_cmpeq_epi32(x, y));
 #else
-                static const auto mask = _mm_set1_epi32(0x1);
-                return popcnt_fn(_mm_cmpeq_epi32(x, y) & mask);
+                return popcnt_fn(_mm_cmpeq_epi32(x, y));
 #endif
             }, [](auto x, auto y) {
                 return popcount(_mm_cmpeq_pi32(x, y) & UINT64_C(0x0000000100000001));
