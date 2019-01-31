@@ -1022,7 +1022,9 @@ public:
     }
     EstimationMethod get_estim()       const {return  estim_;}
     JointEstimationMethod get_jestim() const {return jestim_;}
-    void set_estim(EstimationMethod val)       {estim_  = val;}
+    void set_estim(EstimationMethod val) {
+        estim_ = std::max(val, ERTL_MLE);
+    }
     void set_jestim(JointEstimationMethod val) {jestim_ = val;}
     void set_jestim(uint16_t val) {jestim_ = static_cast<JointEstimationMethod>(val);}
     void set_estim(uint16_t val)  {estim_  = static_cast<EstimationMethod>(val);}
