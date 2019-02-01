@@ -208,6 +208,7 @@ struct FinalBBitMinHash {
 #undef MMX_CVT
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done
         // Not special case
+        throw NotImplementedError("comparisons for laterally packed minimizers not yet complete.");
         uint64_t sum = 0;
         for(size_t i = 0; i < size_t(1) << p_; ++i) {
             sum += (bbit_at_ind(i) == o.bbit_at_ind(i));
