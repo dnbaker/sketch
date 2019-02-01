@@ -40,7 +40,7 @@ public:
             sum = 1./ sum;
             return sum;
         } else if(mode == ARITHMETIC_MEAN) {
-            sum = std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [](auto x, auto y) {
+            sum = std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [num](auto x, auto y) {
                 return x + num / y;
             }) / core_.size();
         } else { // MEDIAN
@@ -53,11 +53,7 @@ public:
         }
         return sum;
     }
-    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const {
-        FinalBBitMinHash ret (b_, p_, cardinality_estimate(mode));
-        throw NotImplementedError("Need to implement bit packing.");
-        return ret;
-    }
+    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
 
 struct FinalBBitMinHash {
@@ -66,7 +62,7 @@ struct FinalBBitMinHash {
     double est_cardinality_;
     template<typename Functor=DoNothing>
     FinalBBitMinHash(unsigned b, unsigned p, double est):
-        core_(((b * p) + (sizeof(uint64_t) * CHAR_BIT - 1)) / (sizeof(uint64_t) * CHAR_BIT)), b_(b), p_(p), est_cardinality_(est)
+        core_(uint64_t(b) << p_), b_(b), p_(p), est_cardinality_(est)
     {
     }
     int densify() {
@@ -229,6 +225,29 @@ struct FinalBBitMinHash {
         return (fe - c1b) / (1. - c2b);
     }
 };
+
+template<typename T, typename Hasher>
+FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) const {
+        FinalBBitMinHash ret(b_, p_, cardinality_estimate(mode));
+        switch(b_) {
+#define SWITCH_CASE(b) \
+            case b: \
+                for(size_t i = 0; i < core_.size(); ++i) {\
+                    ret.core_[i * b / 64 ] |= core_[i] & UINT64_C(b);\
+                }\
+                break;
+            SWITCH_CASE(1)
+            SWITCH_CASE(2)
+            SWITCH_CASE(4)
+            SWITCH_CASE(8)
+            SWITCH_CASE(16)
+            SWITCH_CASE(32)
+            SWITCH_CASE(64)
+            default:
+                throw NotImplementedError("Need to implement bit packing.");
+        }
+        return ret;
+    }
 
 } // minhash
 namespace mh = minhash;
