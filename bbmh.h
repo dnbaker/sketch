@@ -28,6 +28,36 @@ public:
             __sync_bool_compare_and_swap(std::addressof(ref), ref, hv);
 #endif
     }
+    double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
+        const double num = std::ldexp(1., p_);
+        double sum;
+        if(mode == HARMONIC_MEAN) { // Dampens outliers
+            sum = 0.;
+            for(const auto v: core_) {
+                assert(num >= v);
+                sum += v / num;
+            }
+            sum = 1./ sum;
+            return sum;
+        } else if(mode == ARITHMETIC_MEAN) {
+            sum = std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [](auto x, auto y) {
+                return x + num / y;
+            }) / core_.size();
+        } else { // MEDIAN
+            T *tmp = std::malloc(sizeof(T) * core_.size());
+            if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
+            std::memcpy(tmp, core_.data(), core_.size() * sizeof(T));
+            std::sort(tmp, tmp + core_.size());
+            sum =num / tmp;
+            std::free(tmp);
+        }
+        return sum;
+    }
+    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const {
+        FinalBBitMinHash ret (b_, p_, cardinality_estimate(mode));
+        throw NotImplementedError("Need to implement bit packing.");
+        return ret;
+    }
 };
 
 struct FinalBBitMinHash {
@@ -35,9 +65,9 @@ struct FinalBBitMinHash {
     uint16_t b_, p_;
     double est_cardinality_;
     template<typename Functor=DoNothing>
-    FinalBBitMinHash(unsigned b, unsigned p, double est, const Functor &func=Functor()):
-        core_(((b * p) + (sizeof(uint64_t) * CHAR_BIT - 1)) / (sizeof(uint64_t) * CHAR_BIT)), b_(b), p_(p), est_cardinality_(est) {
-        func(*this);
+    FinalBBitMinHash(unsigned b, unsigned p, double est):
+        core_(((b * p) + (sizeof(uint64_t) * CHAR_BIT - 1)) / (sizeof(uint64_t) * CHAR_BIT)), b_(b), p_(p), est_cardinality_(est)
+    {
     }
     int densify() {
         std::fprintf(stderr, "[W:%s:%d] densification not implemented. Results will not be made ULTRADENSE\n", __PRETTY_FUNCTION__, __LINE__);
