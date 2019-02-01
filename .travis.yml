@@ -25,6 +25,8 @@ script:
   - ./serial_test
   - make test_revhash
   - ./test_revhash
+  - make bbmhtest
+  - ./bbmhtest
 notifications:
     slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe
     rooms:
