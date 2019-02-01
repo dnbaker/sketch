@@ -635,6 +635,14 @@ template<class Iter>
 inline void insertion_sort(Iter begin, Iter end) {
     insertion_sort(begin, end, std::less<std::decay_t<decltype(*begin)>>());
 }
+#ifndef SORT_ALGORITHM
+template<typename... Args>
+void default_sort(Args &&... args) {std::sort(std::forward<Args>(args)...);}
+#else
+template<typename... Args>
+void default_sort(Args &&... args) {SORT_ALGORITHM(std::forward<Args>(args)...);}
+#endif
+
 } // namespace sort
 
 

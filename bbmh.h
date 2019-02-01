@@ -47,7 +47,7 @@ public:
             T *tmp = std::malloc(sizeof(T) * core_.size());
             if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
             std::memcpy(tmp, core_.data(), core_.size() * sizeof(T));
-            std::sort(tmp, tmp + core_.size());
+            common::sort::default_sort(tmp, tmp + core_.size());
             sum =num / tmp;
             std::free(tmp);
         }

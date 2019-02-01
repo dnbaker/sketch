@@ -21,7 +21,7 @@ else
 endif
 
 
-EX=$(patsubst %.cpp,%,$(wildcard *test.cpp))
+EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 all: $(EX)
 
 STD?=-std=c++14
@@ -61,9 +61,6 @@ lztest: src/test.cpp kthread.o $(HEADERS)
 
 serial_test: serial_test.cpp hll.h
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread -DNOT_THREADSAFE $< -o $@ -lz
-
-dev_test: dev_test.cpp kthread.o hll.h
-	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
 dev_test_p: dev_test.cpp kthread.o hll.h
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -static-libstdc++ -static-libgcc $< -o $@ -lz
