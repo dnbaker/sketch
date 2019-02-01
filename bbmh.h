@@ -54,29 +54,39 @@ class BBitMinHasher {
 public:
     using FinalType = FinalBBitMinHash;
     template<typename... Args>
-    BBitMinHasher(unsigned b, unsigned p, Args &&... args): core_(size_t(1) << p, T(1) >> p), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
+    BBitMinHasher(unsigned b, unsigned p, Args &&... args):
+        core_(size_t(1) << p, T(1) << (sizeof(T) * CHAR_BIT - p)), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
     void addh(T val) {val = hf_(val);add(val);}
     void add(T hv) {
         auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
         hv <<= p_; hv >>= p_; // Clear top values
-#if NOT_THREADSAFE
+#if 1
         ref = std::min(ref, hv);
+        assert(ref <= hv);
 #else
+        std::fprintf(stderr, "hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
         while(ref < hv)
             __sync_bool_compare_and_swap(std::addressof(ref), ref, hv);
+        std::fprintf(stderr, "after hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
 #endif
     }
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
-        const double num = std::ldexp(1., p_);
+#if 0
+        for(size_t i = 0; i < core_.size(); ++i)
+            std::fprintf(stderr, "value at index %zu is %zu\n", i, size_t(core_[i]));
+#endif
+        const double num = std::ldexp(1., sizeof(T) * CHAR_BIT - p_);
         double sum;
         switch(mode) {
         case HARMONIC_MEAN: // Dampens outliers
             sum = 0.;
             for(const auto v: core_) {
-                assert(num >= v);
-                sum += v / num;
+                assert(num >= v || !std::fprintf(stderr, "%lf vs %zu failure\n", num, v));
+                sum += double(v) / num;
             }
-            sum = core_.size() / sum;
+            sum /= core_.size();
+            std::fprintf(stderr, "final sum: %lf\n", sum);
+            sum = 1. / sum;
             break;
         case ARITHMETIC_MEAN:
             sum = std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [num](auto x, auto y) {
@@ -91,13 +101,19 @@ public:
             sum = num * ((.5 / tmp[core_.size() >> 1]) + (.5 / tmp[(core_.size() >> 1) - 1]));
             std::free(tmp);
             break;
-        }
-        case HLL_METHOD:
-            std::array<uint64_t, 64> arr;
+        } 
+        case HLL_METHOD: {
+            std::array<uint64_t, 64> arr{0};
+            for(const auto v: core_)
+                ++arr[v  && v != (T(1) << (sizeof(T) * CHAR_BIT - p_))? hll::clz(v << p_) + 1: 0];
+            std::string s;
             for(const auto v: arr)
-                ++arr[v ? hll::clz(v) + 1: 0];
+                s += std::to_string(v) + ',';
+            s.back() = '\n';
+            std::fprintf(stderr, "LZ histogram: %s\n", s.data());
             sum = hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
             break;
+        }
         default: __builtin_unreachable(); // IMPOCEROUS
         }
         return sum;
@@ -305,8 +321,9 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
 #else
 #define __access__(x) operator[](x)
 #endif
-    FinalBBitMinHash ret(b_, p_, cardinality_estimate(mode));
-    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u\n", ret.core_.size(), b_, p_);
+    double cest = cardinality_estimate(mode);
+    FinalBBitMinHash ret(b_, p_, cest);
+    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u. cest: %lf\n", ret.core_.size(), b_, p_);
     using FinalType = typename FinalBBitMinHash::value_type;
     switch(b_) {
 #define SWITCH_CASE(b) \

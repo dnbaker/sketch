@@ -44,7 +44,7 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
 10. B-Bit MinHash
     1. bbmh.h
         1. Partition bbit minhash
-        2. Threadsafe if `-DNOT_THREADSAFE` is not passed.
+        2. Not currently threadsafe
         3. Construction is finished.
         4. Finalizing (bit-packing) is not.
         5. Comparisons are complete for b in `{1,2,4,8,16,32}` and SIMD-accelerated.
