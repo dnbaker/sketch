@@ -1,6 +1,7 @@
 #ifndef SKETCH_BB_MINHASH_H__
 #define SKETCH_BB_MINHASH_H__
 #include "common.h"
+#include "hll.h"
 
 namespace sketch {
 
@@ -16,7 +17,7 @@ class BBitMinHasher {
 public:
     using FinalType = FinalBBitMinHash;
     template<typename... Args>
-    BBitMinHasher(unsigned b, unsigned p, Args &&... args): core_(1ull << p), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
+    BBitMinHasher(unsigned b, unsigned p, Args &&... args): core_(size_t(1) << p), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
     void addh(T val) {val = hf_(val);add(val);}
     void add(T hv) {
         auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
@@ -37,19 +38,24 @@ public:
                 assert(num >= v);
                 sum += v / num;
             }
-            sum = 1./ sum;
+            sum = core_.size() / sum;
             return sum;
         } else if(mode == ARITHMETIC_MEAN) {
             sum = std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [num](auto x, auto y) {
                 return x + num / y;
             }) / core_.size();
-        } else { // MEDIAN
-            T *tmp = std::malloc(sizeof(T) * core_.size());
+        } else if(mode == MEDIAN) { // MEDIAN
+            T *tmp = static_cast<T *>(std::malloc(sizeof(T) * core_.size()));
             if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
             std::memcpy(tmp, core_.data(), core_.size() * sizeof(T));
             common::sort::default_sort(tmp, tmp + core_.size());
-            sum =num / tmp;
+            sum = num * ((.5 / tmp[core_.size() >> 1]) + (.5 / tmp[(core_.size() >> 1) - 1]));
             std::free(tmp);
+        } else {  // mode == HLL_METHOD
+            std::array<uint64_t, 64> arr;
+            for(const auto v: arr)
+                ++arr[v ? hll::clz(v) + 1: 0];
+            sum = hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
         }
         return sum;
     }
@@ -233,7 +239,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
 #define SWITCH_CASE(b) \
             case b: \
                 for(size_t i = 0; i < core_.size(); ++i) {\
-                    ret.core_[i * b / 64 ] |= core_[i] & UINT64_C(b);\
+                    ret.core_[i * b / 64 ] |= (core_[i] & ((UINT64_C(1) << b) - 1)) << (i * b % 64);\
                 }\
                 break;
             SWITCH_CASE(1)
@@ -243,8 +249,14 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
             SWITCH_CASE(16)
             SWITCH_CASE(32)
             SWITCH_CASE(64)
-            default:
-                throw NotImplementedError("Need to implement bit packing.");
+            default: {
+                if(__builtin_expect(p_ < 6, 0))
+                    throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently.");
+                for(size_t _b = 0; _b < _b; ++_b)
+                    for(size_t i = 0; i < core_.size(); ++i)
+                        ret.core_[i / (sizeof(T) * CHAR_BIT) * b_ + _b] |= (core_[i] & (T(1) << _b)) << (i % (sizeof(T) * CHAR_BIT));
+                break;
+            }
         }
         return ret;
     }
