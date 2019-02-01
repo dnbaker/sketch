@@ -6,7 +6,44 @@
 namespace sketch {
 
 namespace minhash {
+
+
+namespace detail {
+// Based on content from BinDash https://github.com/zhaoxiaofei/bindash
+
+static inline uint64_t univhash2(uint64_t s, uint64_t t) {
+    uint64_t x = (1009) * s + (1000*1000+3) * t;
+    return (48271 * x + 11) % ((1ULL << 31) - 1);
+}
+
+template<typename Container>
+inline int densifybin(Container &hashes, unsigned p) {
+    using vtype = typename std::decay<decltype(hashes[0])>::type;
+    auto it = hashes.cbegin();
+    auto min = *it, max = min;
+    while(++it != hashes.end()) {
+        auto v = *it;
+        min = std::min(min, v);
+        max = std::max(max, v);
+    }
+    if ((vtype(1) << p) != max) return 0; // Full sketch
+    if ((vtype(1) << p) == min) return -1; // Empty sketch
+    for (uint64_t i = 0; i < hashes.size(); i++) {
+        uint64_t j = i;
+        uint64_t nattempts = 0;
+        while (UINT64_MAX == hashes[j])
+            j = univhash2(i, nattempts++) % hashes.size();
+        hashes[i] = hashes[j];
+    }
+    return 1;
+}
+
+} // namespace detail
 struct FinalBBitMinHash;
+template<typename CountingType, typename=typename std::enable_if<
+            std::is_arithmetic<CountingType>::value
+        >::type>
+struct FinalCountingBBitMinHash;
 
 using namespace common;
 template<typename T, typename Hasher=common::WangHash>
@@ -17,7 +54,7 @@ class BBitMinHasher {
 public:
     using FinalType = FinalBBitMinHash;
     template<typename... Args>
-    BBitMinHasher(unsigned b, unsigned p, Args &&... args): core_(size_t(1) << p), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
+    BBitMinHasher(unsigned b, unsigned p, Args &&... args): core_(size_t(1) << p, T(1) >> p), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
     void addh(T val) {val = hf_(val);add(val);}
     void add(T hv) {
         auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
@@ -32,44 +69,73 @@ public:
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
         const double num = std::ldexp(1., p_);
         double sum;
-        if(mode == HARMONIC_MEAN) { // Dampens outliers
+        switch(mode) {
+        case HARMONIC_MEAN: // Dampens outliers
             sum = 0.;
             for(const auto v: core_) {
                 assert(num >= v);
                 sum += v / num;
             }
             sum = core_.size() / sum;
-            return sum;
-        } else if(mode == ARITHMETIC_MEAN) {
+            break;
+        case ARITHMETIC_MEAN:
             sum = std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [num](auto x, auto y) {
                 return x + num / y;
             }) / core_.size();
-        } else if(mode == MEDIAN) { // MEDIAN
+            break;
+        case MEDIAN: {
             T *tmp = static_cast<T *>(std::malloc(sizeof(T) * core_.size()));
             if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
             std::memcpy(tmp, core_.data(), core_.size() * sizeof(T));
             common::sort::default_sort(tmp, tmp + core_.size());
             sum = num * ((.5 / tmp[core_.size() >> 1]) + (.5 / tmp[(core_.size() >> 1) - 1]));
             std::free(tmp);
-        } else {  // mode == HLL_METHOD
+            break;
+        }
+        case HLL_METHOD:
             std::array<uint64_t, 64> arr;
             for(const auto v: arr)
                 ++arr[v ? hll::clz(v) + 1: 0];
             sum = hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
+            break;
+        default: __builtin_unreachable(); // IMPOCEROUS
         }
         return sum;
     }
     FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
 
+template<typename T, typename CountingType, typename Hasher=common::WangHash>
+struct CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
+    using super = BBitMinHasher<T, Hasher>;
+    std::vector<CountingType> counters_;
+    // Not threadsafe currently
+    template<typename... Args>
+    CountingBBitMinHasher(unsigned b, unsigned p, Args &&... args): super(b, p, std::forward<Args>(args)...), counters_(1ull << p) {}
+    void add(T hv) {
+        auto ind = hv>>(sizeof(T) * CHAR_BIT - this->p_);
+        auto &ref = this->core_[ind];
+        hv <<= this->p_; hv >>= this->p_; // Clear top values
+        if(ref < hv)
+            ref = hv, counters_[ind] = 1;
+        else ref += (ref == hv);
+    }
+    template<typename CType=CountingType>
+    FinalCountingBBitMinHash<CType> finalize(MHCardinalityMode mode=HARMONIC_MEAN);
+};
+
+
 struct FinalBBitMinHash {
+    using value_type = uint64_t;
     std::vector<uint64_t, Allocator<uint64_t>> core_;
     uint16_t b_, p_;
     double est_cardinality_;
     template<typename Functor=DoNothing>
     FinalBBitMinHash(unsigned b, unsigned p, double est):
-        core_(uint64_t(b) << p_), b_(b), p_(p), est_cardinality_(est)
+        core_(uint64_t(b) << p), b_(b), p_(p), est_cardinality_(est)
     {
+        std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p\n", b, p);
+        assert((core_.size() >> p_) == b_);
     }
     int densify() {
         std::fprintf(stderr, "[W:%s:%d] densification not implemented. Results will not be made ULTRADENSE\n", __PRETTY_FUNCTION__, __LINE__);
@@ -87,11 +153,11 @@ struct FinalBBitMinHash {
     template<typename Func1, typename Func2>
     uint64_t equal_bblocks_sub(const uint64_t *p1, const uint64_t *pe, const uint64_t *p2, const Func1 &f1, const Func2 &f2) const {
 #if __AVX512BW__
-#define VT __m512i
+        using VT = __m512i;
 #elif __AVX2__
-#define VT __m256i
+        using VT = __m256i;
 #else
-#define VT __m128i
+        using VT = __m128i;
 #endif
         uint64_t sum = 0;
         if(core_.size() * sizeof(core_[0]) >= sizeof(Space::VType)) {
@@ -220,7 +286,6 @@ struct FinalBBitMinHash {
         assert(b_ * ind / 64 < core_.size());
         const uint64_t *d = core_.data();
     }
-#undef VT
     double frac_equal(const FinalBBitMinHash &o) const {
         return std::ldexp(equal_bblocks(o), -int(p_));
     }
@@ -235,32 +300,43 @@ struct FinalBBitMinHash {
 
 template<typename T, typename Hasher>
 FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) const {
-        FinalBBitMinHash ret(b_, p_, cardinality_estimate(mode));
-        switch(b_) {
+#if !NDEBUG
+#define __access__(x) at(x)
+#else
+#define __access__(x) operator[](x)
+#endif
+    FinalBBitMinHash ret(b_, p_, cardinality_estimate(mode));
+    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u\n", ret.core_.size(), b_, p_);
+    using FinalType = typename FinalBBitMinHash::value_type;
+    switch(b_) {
 #define SWITCH_CASE(b) \
-            case b: \
-                for(size_t i = 0; i < core_.size(); ++i) {\
-                    ret.core_[i * b / 64 ] |= (core_[i] & ((UINT64_C(1) << b) - 1)) << (i * b % 64);\
-                }\
-                break;
-            SWITCH_CASE(1)
-            SWITCH_CASE(2)
-            SWITCH_CASE(4)
-            SWITCH_CASE(8)
-            SWITCH_CASE(16)
-            SWITCH_CASE(32)
-            SWITCH_CASE(64)
-            default: {
-                if(__builtin_expect(p_ < 6, 0))
-                    throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently.");
-                for(size_t _b = 0; _b < _b; ++_b)
-                    for(size_t i = 0; i < core_.size(); ++i)
-                        ret.core_[i / (sizeof(T) * CHAR_BIT) * b_ + _b] |= (core_[i] & (T(1) << _b)) << (i % (sizeof(T) * CHAR_BIT));
-                break;
-            }
+        case b: \
+            for(size_t i = 0; i < core_.size(); ++i) {\
+                ret.core_.__access__(i * b / 64) |= (core_[i] & ((UINT64_C(1) << b) - 1)) << (i * b % 64);\
+            }\
+            break;
+        SWITCH_CASE(1)
+        SWITCH_CASE(2)
+        SWITCH_CASE(4)
+        SWITCH_CASE(8)
+        SWITCH_CASE(16)
+        SWITCH_CASE(32)
+        SWITCH_CASE(64)
+        default: {
+            if(__builtin_expect(p_ < 6, 0))
+                throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently.");
+            for(size_t _b = 0; _b < _b; ++_b)
+                for(size_t i = 0; i < core_.size(); ++i)
+                    ret.core_.__access__(i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+            break;
         }
-        return ret;
     }
+#undef __access__
+    return ret;
+}
+template<typename CountingType, typename>
+struct FinalCountingBBitMinHash: public FinalBBitMinHash {
+};
 
 } // minhash
 namespace mh = minhash;

@@ -679,7 +679,7 @@ enum MHCardinalityMode: uint8_t {
     MEDIAN,
     HARMONIC_MEAN,
     ARITHMETIC_MEAN,
-    HLL_METHOD // Should perform worse
+    HLL_METHOD, // Should perform worse
 };
 
 } // namespace common
