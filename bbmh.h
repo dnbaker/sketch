@@ -57,6 +57,9 @@ public:
     BBitMinHasher(unsigned b, unsigned p, Args &&... args):
         core_(size_t(1) << p, T(1) << (sizeof(T) * CHAR_BIT - p)), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
     void addh(T val) {val = hf_(val);add(val);}
+    auto default_val() const {
+        return T(1) << (sizeof(T) * CHAR_BIT - p_);
+    }
     void add(T hv) {
         auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
         hv <<= p_; hv >>= p_; // Clear top values
@@ -68,6 +71,16 @@ public:
         while(ref < hv)
             __sync_bool_compare_and_swap(std::addressof(ref), ref, hv);
         std::fprintf(stderr, "after hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
+#endif
+    }
+    void densify() {
+        auto rc = detail::densifybin(core_, p_);
+#if !NDEBUG
+        switch(rc) {
+            case -1: std::fprintf(stderr, "[W] Can't densify empty thing\n"); break;
+            case 0: std::fprintf(stderr, "The densification, it does nothing\n"); break;
+            case 1: std::fprintf(stderr, "Densifying something that needs it\n");
+        }
 #endif
     }
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
@@ -84,33 +97,35 @@ public:
                 assert(num >= v || !std::fprintf(stderr, "%lf vs %zu failure\n", num, v));
                 sum += double(v) / num;
             }
-            sum /= core_.size();
-            std::fprintf(stderr, "final sum: %lf\n", sum);
-            sum = 1. / sum;
+            sum = std::ldexp(1. / sum, p_ * 2);
             break;
         case ARITHMETIC_MEAN:
             sum = std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [num](auto x, auto y) {
                 return x + num / y;
-            }) / core_.size();
+            }); // / core_.size() * core_.size();
             break;
         case MEDIAN: {
             T *tmp = static_cast<T *>(std::malloc(sizeof(T) * core_.size()));
             if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
             std::memcpy(tmp, core_.data(), core_.size() * sizeof(T));
             common::sort::default_sort(tmp, tmp + core_.size());
-            sum = num * ((.5 / tmp[core_.size() >> 1]) + (.5 / tmp[(core_.size() >> 1) - 1]));
+            sum = 0.5 * ((num / tmp[core_.size() >> 1]) + (num / tmp[(core_.size() >> 1) - 1])) * core_.size();
             std::free(tmp);
             break;
         } 
         case HLL_METHOD: {
             std::array<uint64_t, 64> arr{0};
-            for(const auto v: core_)
-                ++arr[v  && v != (T(1) << (sizeof(T) * CHAR_BIT - p_))? hll::clz(v << p_) + 1: 0];
+            for(const auto v: core_) {
+                if(v == default_val())
+                    ++arr[0];
+                else {
+                    ++arr[hll::clz(v << p_) + 1];
+                }
+            }
             std::string s;
             for(const auto v: arr)
                 s += std::to_string(v) + ',';
             s.back() = '\n';
-            std::fprintf(stderr, "LZ histogram: %s\n", s.data());
             sum = hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
             break;
         }
