@@ -766,11 +766,11 @@ public:
         value_(0.), np_(np), is_calculated_(0), clamp_(clamp),
         nthreads_(nthreads > 0 ? nthreads: 1),
         estim_(estim), jestim_(jestim)
-#if LZ_COUNTER
-        , clz_counts_{0}
-#endif
         , hf_(std::forward<Args>(args)...)
     {
+#if LZ_COUNTER
+        std::memset(&clz_counts_[0], 0, sizeof(clz_counts_));
+#endif
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
     explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
@@ -955,8 +955,28 @@ public:
         } else std::fill(core_.begin(), core_.end(), static_cast<uint8_t>(0));
         value_ = is_calculated_ = 0;
     }
-    hllbase_t(hllbase_t&&) = default;
-    hllbase_t(const hllbase_t &other) = default;
+    hllbase_t(hllbase_t&&o) {
+        std::memset(this, 0, sizeof(*this));
+        std::swap_ranges(reinterpret_cast<uint8_t *>(this), reinterpret_cast<uint8_t *>(this) + sizeof(*this), reinterpret_cast<uint8_t *>(std::addressof(o)));
+    }
+#if 0
+    std::vector<uint8_t, Allocator<uint8_t>> core_;
+    double                 value_;
+    uint32_t                  np_;
+    uint8_t        is_calculated_:1;
+    uint8_t                clamp_:1;
+    uint8_t             nthreads_;
+    EstimationMethod       estim_;
+    JointEstimationMethod jestim_;
+    HashStruct                hf_;
+#endif
+    hllbase_t(const hllbase_t &other): core_(other.core_), value_(other.value_), np_(other.np_), is_calculated_(other.is_calculated_),
+        clamp_(other.clamp_), nthreads_(other.nthreads_), estim_(other.estim_), jestim_(other.jestim_), hf_(other.hf_)
+    {
+#if LZ_COUNTER
+        std::memcpy(&clz_counts_[0], &other.clz_counts_[0], sizeof(clz_counts_));
+#endif
+    }
     hllbase_t& operator=(const hllbase_t &other) {
         // Explicitly define to make sure we don't do unnecessary reallocation.
         if(core_.size() != other.core_.size()) core_.resize(other.core_.size());

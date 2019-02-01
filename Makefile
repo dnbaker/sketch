@@ -44,23 +44,21 @@ python: _hll.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-%: %.cpp kthread.o $(HEADERS)
+%: src/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-test: test.cpp kthread.o $(HEADERS)
+test: src/test.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-mctest: mctest.cpp kthread.o $(HEADERS)
+mctest: src/mctest.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -O1 $< -o $@ -lz
 
 %_d: %.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-lztest: test.cpp kthread.o $(HEADERS)
+lztest: src/test.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
 
-bftest: bftest.cpp $(HEADERS)
-	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread $< -o $@ -lz
 serial_test: serial_test.cpp hll.h
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread -DNOT_THREADSAFE $< -o $@ -lz
 
@@ -73,7 +71,7 @@ dev_test_p: dev_test.cpp kthread.o hll.h
 clean:
 	rm -f test.o test hll.o kthread.o *hll*cpython*so $(EX)
 
-mctest: mctest.cpp ccm.h
-mctest_d: mctest.cpp ccm.h
+#mctest: mctest.cpp ccm.h
+#mctest_d: mctest.cpp ccm.h
 
 mostlyclean: clean
