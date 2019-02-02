@@ -36,9 +36,8 @@ namespace detail {
 #if USE_ALIGNED_ALLOC
         return std::aligned_alloc(size, align);
 #else
-        void *ret = nullptr;
-        posix_memalign(&ret, align, size);
-        return ret;
+        void *ret;
+        return posix_memalign(&ret, align, size) ? nullptr: ret;
 #endif
     }
 }
