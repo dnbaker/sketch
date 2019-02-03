@@ -6,7 +6,7 @@
 namespace sketch {
 
 namespace minhash {
-
+using namespace common;
 
 namespace detail {
 // Based on content from BinDash https://github.com/zhaoxiaofei/bindash
@@ -45,17 +45,24 @@ template<typename CountingType, typename=typename std::enable_if<
         >::type>
 struct FinalCountingBBitMinHash;
 
-using namespace common;
 template<typename T, typename Hasher=common::WangHash>
 class BBitMinHasher {
     std::vector<T> core_;
     uint16_t b_, p_;
     Hasher hf_;
 public:
-    using FinalType = FinalBBitMinHash;
+    using final_type = FinalBBitMinHash;
     template<typename... Args>
     BBitMinHasher(unsigned b, unsigned p, Args &&... args):
-        core_(size_t(1) << p, T(1) << (sizeof(T) * CHAR_BIT - p)), b_(b), p_(p), hf_(std::forward<Args>(args)...) {}
+        core_(size_t(1) << p, T(1) << (sizeof(T) * CHAR_BIT - p)), b_(b), p_(p), hf_(std::forward<Args>(args)...)
+    {
+        if(b_ + p_ > sizeof(T) * CHAR_BIT) {
+            char buf[512];
+            std::sprintf(buf, "[E:%s:%s:%d] Width of type (%zu) is insufficient for selected p/b parameters (%d/%d)",
+                         __FILE__, __PRETTY_FUNCTION__, __LINE__, sizeof(T) * CHAR_BIT, int(b_), int(p_));
+            throw std::runtime_error(buf);
+        }
+    }
     void addh(T val) {val = hf_(val);add(val);}
     auto default_val() const {
         return T(1) << (sizeof(T) * CHAR_BIT - p_);
@@ -137,16 +144,20 @@ public:
 };
 
 template<typename T, typename CountingType, typename Hasher=common::WangHash>
-struct CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
+class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
     using super = BBitMinHasher<T, Hasher>;
     std::vector<CountingType> counters_;
+    // TODO: consider probabilistic counting
+    // TODO: consider compact_vector
     // Not threadsafe currently
+public:
+    using final_type = FinalBBitMinHash;
     template<typename... Args>
     CountingBBitMinHasher(unsigned b, unsigned p, Args &&... args): super(b, p, std::forward<Args>(args)...), counters_(1ull << p) {}
     void add(T hv) {
         auto ind = hv>>(sizeof(T) * CHAR_BIT - this->p_);
         auto &ref = this->core_[ind];
-        hv <<= this->p_; hv >>= this->p_; // Clear top values
+        hv <<= this->p_; hv >>= this->p_; // Clear top values. We could also shift/mask, but that requires two other constants vs 1.
         if(ref < hv)
             ref = hv, counters_[ind] = 1;
         else ref += (ref == hv);
@@ -344,7 +355,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
 #define SWITCH_CASE(b) \
         case b: \
             for(size_t i = 0; i < core_.size(); ++i) {\
-                ret.core_.__access__(i * b / 64) |= (core_[i] & ((UINT64_C(1) << b) - 1)) << (i * b % 64);\
+                ret.core_.__access__(i * b / 64) |= (core_[i] & ((UINT64_C(1) << b) - 1)) << ((i * b) % 64); \
             }\
             break;
         SWITCH_CASE(1)
@@ -353,11 +364,14 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
         SWITCH_CASE(8)
         SWITCH_CASE(16)
         SWITCH_CASE(32)
-        SWITCH_CASE(64)
+        case 64:
+            // We've already failed for the case of b_ + p_ being greater than the width of T
+            std::memcpy(ret.core_.data(), core_.data(), sizeof(core_[0]) * core_.size());
+            break;
         default: {
             if(__builtin_expect(p_ < 6, 0))
                 throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently.");
-            for(size_t _b = 0; _b < _b; ++_b)
+            for(size_t _b = 0; _b < b_; ++_b)
                 for(size_t i = 0; i < core_.size(); ++i)
                     ret.core_.__access__(i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
             break;
