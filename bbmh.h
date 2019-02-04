@@ -12,8 +12,8 @@ namespace detail {
 // Based on content from BinDash https://github.com/zhaoxiaofei/bindash
 
 static inline uint64_t univhash2(uint64_t s, uint64_t t) {
-    uint64_t x = (1009) * s + (1000*1000+3) * t;
-    return (48271 * x + 11) % ((1ULL << 31) - 1);
+    // 9223372036854775783 == (1<<63) - 25
+    return (48271 * ((1009) * s + (1000003) * t) + 11) % UINT64_C(9223372036854775783);
 }
 
 template<typename Container>
@@ -122,17 +122,16 @@ public:
         } 
         case HLL_METHOD: {
             std::array<uint64_t, 64> arr{0};
-            for(const auto v: core_) {
-                if(v == default_val())
-                    ++arr[0];
-                else {
-                    ++arr[hll::clz(v << p_) + 1];
-                }
-            }
+            auto diff = p_ - 1;
+            for(const auto v: core_)
+                ++arr[v == default_val() ? 0: hll::clz(v) - diff];
+#if !NDEBUG
             std::string s;
             for(const auto v: arr)
                 s += std::to_string(v) + ',';
             s.back() = '\n';
+            std::fputs(s.data(), stderr);
+#endif
             sum = hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
             break;
         }
@@ -150,6 +149,7 @@ class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
     // TODO: consider probabilistic counting
     // TODO: consider compact_vector
     // Not threadsafe currently
+    // Consider bitpacking with p_ bits for counting
 public:
     using final_type = FinalBBitMinHash;
     template<typename... Args>
@@ -166,6 +166,10 @@ public:
     FinalCountingBBitMinHash<CType> finalize(MHCardinalityMode mode=HARMONIC_MEAN);
 };
 
+
+namespace detail {
+
+}
 
 struct FinalBBitMinHash {
     using value_type = uint64_t;
@@ -371,9 +375,20 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
         default: {
             if(__builtin_expect(p_ < 6, 0))
                 throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently.");
-            for(size_t _b = 0; _b < b_; ++_b)
-                for(size_t i = 0; i < core_.size(); ++i)
-                    ret.core_.__access__(i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+            // TODO:
+            // #if AVX512: if p_ >= 9
+            // Pack an AVX512 element for 1 << (p_ - 9)
+            // else
+            // #endif
+            // #if AVX2: if p_ >= 8
+            // Pack an AVX512 element for 1 << (p_ - 8)
+            // #else if p_ >= 7 // Assume SSE2
+            // Pack an SSE2 element for each 1 << (p_ - 7)
+            if(p_ == 6) {
+                for(size_t _b = 0; _b < b_; ++_b)
+                    for(size_t i = 0; i < core_.size(); ++i)
+                        ret.core_.__access__(i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+            }
             break;
         }
     }
