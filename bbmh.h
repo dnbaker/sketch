@@ -120,7 +120,7 @@ public:
             sum = 0.5 * ((num / tmp[core_.size() >> 1]) + (num / tmp[(core_.size() >> 1) - 1])) * core_.size();
             std::free(tmp);
             break;
-        } 
+        }
         case HLL_METHOD: {
             std::array<uint64_t, 64> arr{0};
             auto diff = p_ - 1;
@@ -332,20 +332,83 @@ struct FinalBBitMinHash {
         }
 #undef MMX_CVT
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done
+        // p_ already guaranteed to be greater than 6
         switch(p_) {
             case 6: {
                 auto match = ~(*p1++ ^ *p2++);
                 while(p1 != pe) match &= ~(*p1++ ^ *p2++);
                 return popcount(match);
             }
+#define VAL_AS_ARR(val, ind) reinterpret_cast<const uint64_t *>(&val)[ind]
             case 7: {
-                __m128i *vp1 = reinterpret_cast<__m128i *>(p1), *vp2 = reinterpret_cast<__m128i *>(p2), __m128i *vpe = reinterpret_cast<__m128i *>(pe);
+                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
                 auto match = ~(*p1++ ^ *p2++);
                 while(vp1 != vpe)
-                    match &= ~(*p1++ ^ p2++);
-                return popcount(*(uint64_t *)&match) + popcount(((uint64_t *)&match)[1]);
+                    match &= ~(*p1++ ^ *p2++);
+                return popcount(VAL_AS_ARR(match, 0)) + popcount(VAL_AS_ARR(match, 1));
             }
-            default: NotImplementedError("p_ > 6 for b not a power of two.");
+#if __AVX2__
+            case 8: {
+                const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2), *vpe = reinterpret_cast<const __m256i *>(pe);
+                auto match = ~(*p1++ ^ *p2++);
+                while(vp1 != vpe)
+                    match &= ~(*p1++ ^ *p2++);
+                return popcount(VAL_AS_ARR(match, 0)) + popcount(VAL_AS_ARR(match, 1)) +
+                       popcount(VAL_AS_ARR(match, 2)) + popcount(VAL_AS_ARR(match, 3));
+            }
+#  if __AVX512__
+            case 9: {
+                const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
+                auto match = ~(*p1++ ^ *p2++);
+                while(vp1 != vpe)
+                    match &= ~(*p1++ ^ *p2++);
+                return popcnt512(match);
+            }
+            default: {
+                // Process each 'b' remainder block in
+                const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
+                auto match = ~(*vp1++ ^ *vp2++);
+                for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
+                auto sum = popcnt512(match);
+                while(vp1 != vpe) {
+                    match = ~(*vp1++ ^ *vp2++);
+                    for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
+                    sum += popcnt512(match);
+                }
+                return sum;
+            }
+#  else /* has avx2 not not 512 */
+            default: {
+                // Process each 'b' remainder block in
+                const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2), *vpe = reinterpret_cast<const __m256i *>(pe);
+                auto match = ~(*vp1++ ^ *vp2++);
+                for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
+                auto sum = popcount(VAL_AS_ARR(match, 0)) + popcount(VAL_AS_ARR(match, 1)) +
+                           popcount(VAL_AS_ARR(match, 2)) + popcount(VAL_AS_ARR(match, 3));
+                while(vp1 != vpe) {
+                    match = ~(*vp1++ ^ *vp2++);
+                    for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
+                    sum += popcount(VAL_AS_ARR(match, 0)) + popcount(VAL_AS_ARR(match, 1)) +
+                               popcount(VAL_AS_ARR(match, 2)) + popcount(VAL_AS_ARR(match, 3));
+                }
+                return sum;
+            }
+#  endif /* avx512 or avx2 */
+#  else /* assume SSE2 */
+            default: {
+                // Process each 'b' remainder block in
+                __m128i *vp1 = reinterpret_cast<__m128i *>(p1), *vp2 = reinterpret_cast<__m128i *>(p2), *vpe = reinterpret_cast<__m128i *>(pe);
+                auto match = ~(*vp1++ ^ *vp2++);
+                for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
+                auto sum = popcount(*(uint64_t *)&match) + popcount(((uint64_t *)&match)[1]);
+                while(vp1 != vpe) {
+                    match = ~(*vp1++ ^ *vp2++);
+                    for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
+                    sum += popcount(*(uint64_t *)&match) + popcount(((uint64_t *)&match)[1]);
+                }
+                return sum;
+            }
+#  endif
         }
     }
     uint64_t bbit_at_ind(size_t ind) const {
