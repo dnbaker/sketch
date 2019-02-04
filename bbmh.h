@@ -170,15 +170,15 @@ public:
 
 namespace detail {
 
-INLINE void setnthbit(uint8_t *ptr, size_t index, bool val) {
-    ptr[index / 8] |= uint8_t(val) << (index % 8);
+INLINE void setnthbit(uint64_t *ptr, size_t index, bool val) {
+    ptr[index / 64] |= uint64_t(val) << (index % 64);
 }
 template<typename T> INLINE void setnthbit(T *ptr, size_t index, bool val) {
-    return setnthbit(reinterpret_cast<uint8_t *>(ptr), index, val);
+    return setnthbit(reinterpret_cast<uint64_t *>(ptr), index, val);
 }
 
-uint8_t getnthbit(const uint8_t *ptr, size_t index) {
-    return (ptr[index / 8] >> (index % 8)) & 1u;
+uint64_t getnthbit(const uint64_t *ptr, size_t index) {
+    return (ptr[index / 64] >> (index % 64)) & 1u;
 }
 
 template<typename T> INLINE T getnthbit(const T *ptr, size_t index) {
