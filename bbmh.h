@@ -170,11 +170,11 @@ public:
 
 namespace detail {
 
-INLINE void setnthbit1(uint8_t *ptr, size_t index, bool val) {
+INLINE void setnthbit(uint8_t *ptr, size_t index, bool val) {
     ptr[index / 8] |= uint8_t(val) << (index % 8);
 }
-template<typename T> INLINE void setnthbit1(T *ptr, size_t index, bool val) {
-    return setnthbit1(reinterpret_cast<uint8_t *>(ptr), index, val);
+template<typename T> INLINE void setnthbit(T *ptr, size_t index, bool val) {
+    return setnthbit(reinterpret_cast<uint8_t *>(ptr), index, val);
 }
 
 uint8_t getnthbit(const uint8_t *ptr, size_t index) {
@@ -339,13 +339,13 @@ struct FinalBBitMinHash {
                 while(p1 != pe) match &= ~(*p1++ ^ *p2++);
                 return popcount(match);
             }
-#define VAL_AS_ARR(val, ind) reinterpret_cast<const uint64_t *>(&val)[ind]
+#define VATPOS(val, ind) reinterpret_cast<const uint64_t *>(&val)[ind]
             case 7: {
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
                 auto match = ~(*p1++ ^ *p2++);
                 while(vp1 != vpe)
                     match &= ~(*p1++ ^ *p2++);
-                return popcount(VAL_AS_ARR(match, 0)) + popcount(VAL_AS_ARR(match, 1));
+                return popcount(VATPOS(match, 0)) + popcount(VATPOS(match, 1));
             }
 #if __AVX2__
             case 8: {
@@ -353,8 +353,8 @@ struct FinalBBitMinHash {
                 auto match = ~(*p1++ ^ *p2++);
                 while(vp1 != vpe)
                     match &= ~(*p1++ ^ *p2++);
-                return popcount(VAL_AS_ARR(match, 0)) + popcount(VAL_AS_ARR(match, 1)) +
-                       popcount(VAL_AS_ARR(match, 2)) + popcount(VAL_AS_ARR(match, 3));
+                return popcount(VATPOS(match, 0)) + popcount(VATPOS(match, 1)) +
+                       popcount(VATPOS(match, 2)) + popcount(VATPOS(match, 3));
             }
 #  if __AVX512__
             case 9: {
@@ -383,13 +383,13 @@ struct FinalBBitMinHash {
                 const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2), *vpe = reinterpret_cast<const __m256i *>(pe);
                 auto match = ~(*vp1++ ^ *vp2++);
                 for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
-                auto sum = popcount(VAL_AS_ARR(match, 0)) + popcount(VAL_AS_ARR(match, 1)) +
-                           popcount(VAL_AS_ARR(match, 2)) + popcount(VAL_AS_ARR(match, 3));
+                auto sum = popcount(VATPOS(match, 0)) + popcount(VATPOS(match, 1)) +
+                           popcount(VATPOS(match, 2)) + popcount(VATPOS(match, 3));
                 while(vp1 != vpe) {
                     match = ~(*vp1++ ^ *vp2++);
                     for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
-                    sum += popcount(VAL_AS_ARR(match, 0)) + popcount(VAL_AS_ARR(match, 1)) +
-                               popcount(VAL_AS_ARR(match, 2)) + popcount(VAL_AS_ARR(match, 3));
+                    sum += popcount(VATPOS(match, 0)) + popcount(VATPOS(match, 1)) +
+                               popcount(VATPOS(match, 2)) + popcount(VATPOS(match, 3));
                 }
                 return sum;
             }
@@ -411,6 +411,7 @@ struct FinalBBitMinHash {
 #  endif
         }
     }
+#undef VATPOS
     uint64_t bbit_at_ind(size_t ind) const {
         throw NotImplementedError("Haven't implemented bbit_at_ind for extractig value for b bits at index");
         assert(b_ * ind / 64 < core_.size());
@@ -437,9 +438,11 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
 #endif
     double cest = cardinality_estimate(mode);
     using detail::getnthbit;
+    using detail::setnthbit;
     FinalBBitMinHash ret(b_, p_, cest);
-    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u. cest: %lf\n", ret.core_.size(), b_, p_);
+    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u. cest: %lf\n", ret.core_.size(), b_, p_, cest);
     using FinalType = typename FinalBBitMinHash::value_type;
+    // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     switch(b_) {
 #define SWITCH_CASE(b) \
         case b: \
@@ -459,7 +462,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
             break;
         default: {
             if(__builtin_expect(p_ < 6, 0))
-                throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently.");
+                throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently. We could reduce this requirement using 32-bit integers.");
             // TODO:
             // #if AVX512: if p_ >= 9
             // Pack an AVX512 element for 1 << (p_ - 9)
@@ -469,16 +472,81 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
             // Pack an AVX512 element for 1 << (p_ - 8)
             // #else if p_ >= 7 // Assume SSE2
             // Pack an SSE2 element for each 1 << (p_ - 7)
-            if(p_ == 6) {
-                for(size_t _b = 0; _b < b_; ++_b) {
+            switch(p_) {
+            case 6: {
+                    for(size_t _b = 0; _b < b_; ++_b) {
+                        for(size_t i = 0; i < core_.size(); ++i) {
+                            ret.core_.__access__(i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+                        }
+                    }
+#if !NDEBUG
                     for(size_t i = 0; i < core_.size(); ++i) {
-                        ret.core_.__access__(i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+                        for(size_t b = 0; b < b_; ++b) {
+                            assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_[i], b));
+                        }
+                    }
+#endif
+                break;
+            }
+            case 7:
+                for(size_t b = 0; b < b_; ++b) {
+                    auto ptr = ret.core_.data() + (b * 2);
+                    assert(core_.size() == 128);
+                    for(size_t i = 0; i < 128; ++i)
+                        setnthbit(ptr, i, getnthbit(core_[i], b));
+                }
+                break;
+#if __AVX2__
+            case 8:
+                for(size_t b = 0; b < b_; ++b) {
+                    auto ptr = ret.core_.data() + (b * 4);
+                    assert(core_.size() == 256);
+                    for(size_t i = 0; i < 256; ++i)
+                        setnthbit(ptr, i, getnthbit(core_[i], b));
+                }
+                break;
+#if __AVX512__
+            case 9:
+                for(size_t b = 0; b < b_; ++b) {
+                    auto ptr = ret.core_.data() + (b * 8);
+                    assert(core_.size() == 512);
+                    for(size_t i = 0; i < 512; ++i)
+                        setnthbit(ptr, i, getnthbit(core_[i], b));
+                }
+                break;
+            default:
+                for(size_t ov = 0, ev = 1 << (p_ - 9); ov != ev; ++ov) {
+                    auto main_ptr = ret.core_.data() + ov * sizeof(__m512i) / sizeof(uint64_t) * b_;
+                    auto core_ptr = core_.data() + ov * 512;
+                    for(size_t b = 0; b < b_; ++b) {
+                        auto ptr = main_ptr + (b * 4);
+                        for(size_t i = 0; i < 512; ++i)
+                            setnthbit(ptr, i, getnthbit(core_ptr[i], b));
                     }
                 }
-#if !NDEBUG
-                for(size_t i = 0; i < core_.size(); ++i) {
+                break;
+#else
+            default:
+                for(size_t ov = 0, ev = 1 << (p_ - 8); ov != ev; ++ov) {
+                    auto main_ptr = ret.core_.data() + ov * sizeof(__m256i) / sizeof(uint64_t) * b_;
+                    auto core_ptr = core_.data() + ov * 256;
                     for(size_t b = 0; b < b_; ++b) {
-                        assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_[i], b));
+                        auto ptr = main_ptr + (b * 4);
+                        for(size_t i = 0; i < 256; ++i)
+                            setnthbit(ptr, i, getnthbit(core_ptr[i], b));
+                    }
+                }
+                break;
+#endif
+#else /* no avx2 or 512 */
+            default:
+                for(size_t ov = 0, ev = 1 << (p_ - 7); ov != ev; ++ov) {
+                    auto main_ptr = ret.core_.data() + ov * sizeof(__m128i) / sizeof(uint64_t) * b_;
+                    auto core_ptr = core_.data() + ov * 128;
+                    for(size_t b = 0; b < b_; ++b) {
+                        auto ptr = main_ptr + (b * 4);
+                        for(size_t i = 0; i < 128; ++i)
+                            setnthbit(ptr, i, getnthbit(core_ptr[i], b));
                     }
                 }
 #endif
