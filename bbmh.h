@@ -9,11 +9,12 @@ namespace minhash {
 using namespace common;
 
 namespace detail {
-// Based on content from BinDash https://github.com/zhaoxiaofei/bindash
 
-static inline uint64_t univhash2(uint64_t s, uint64_t t) {
-    // 9223372036854775783 == (1<<63) - 25
-    return (48271 * ((1009) * s + (1000003) * t) + 11) % UINT64_C(9223372036854775783);
+
+// Based on content from BinDash https://github.com/zhaoxiaofei/bindash
+static inline uint64_t twounivhash(uint64_t s, uint64_t t) {
+    static constexpr uint64_t LARGE_PRIME = 9223372036854775783ull;
+    return (UINT64_C(0x1e68e69958ce15c1) * (UINT64_C(0x84e09756b31589c9) * s + UINT64_C(0xd89576eb901ab7d3) * t) + UINT64_C(0x2f28f2976668b622)) % LARGE_PRIME;
 }
 
 template<typename Container>
@@ -28,11 +29,11 @@ inline int densifybin(Container &hashes, unsigned p) {
     }
     if ((vtype(1) << p) != max) return 0; // Full sketch
     if ((vtype(1) << p) == min) return -1; // Empty sketch
+    const uint64_t empty_val = 1ull << (64 - p);
     for (uint64_t i = 0; i < hashes.size(); i++) {
-        uint64_t j = i;
-        uint64_t nattempts = 0;
-        while (UINT64_MAX == hashes[j])
-            j = univhash2(i, nattempts++) % hashes.size();
+        uint64_t j = i, nattempts = 0;
+        while(hashes[j] == empty_val)
+            j = twounivhash(i, ++nattempts) % hashes.size();
         hashes[i] = hashes[j];
     }
     return 1;
@@ -169,6 +170,24 @@ public:
 
 namespace detail {
 
+INLINE void setnthbit1(uint8_t *ptr, size_t index, bool val) {
+    ptr[index / 8] |= uint8_t(val) << (index % 8);
+}
+template<typename T> INLINE void setnthbit1(T *ptr, size_t index, bool val) {
+    return setnthbit1(reinterpret_cast<uint8_t *>(ptr), index, val);
+}
+
+uint8_t getnthbit(const uint8_t *ptr, size_t index) {
+    return (ptr[index / 8] >> (index % 8)) & 1u;
+}
+
+template<typename T> INLINE T getnthbit(const T *ptr, size_t index) {
+    return T(getnthbit(reinterpret_cast<const uint8_t *>(ptr), index));
+}
+INLINE uint64_t getnthbit(uint64_t val, size_t index) {
+    return getnthbit(&val, index);
+}
+
 }
 
 struct FinalBBitMinHash {
@@ -224,7 +243,7 @@ struct FinalBBitMinHash {
         }
         while(p1 != pe)
             sum += f2(*p1++, *pe++);
-        return 0; // This is a lie.
+        return sum;
     }
     uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
@@ -277,9 +296,7 @@ struct FinalBBitMinHash {
 #else
                 return popcnt_fn(_mm_cmpeq_epi8(x, y));
 #endif
-            }, [](auto x, auto y) {
-                return popcount(_mm_cmpeq_pi8(MMX_CVT(x), MMX_CVT(y))) >> 3;
-            });
+            }, [](auto x, auto y) {return popcount(_mm_cmpeq_pi8(MMX_CVT(x), MMX_CVT(y))) >> 3;});
             case 16: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
                 return popcount(_mm512_cmpeq_epu16_mask(x, y));
@@ -288,9 +305,7 @@ struct FinalBBitMinHash {
 #else
                 return popcnt_fn(_mm_cmpeq_epi16(x, y));
 #endif
-            }, [](auto x, auto y) {
-                return popcount(_mm_cmpeq_pi16(MMX_CVT(x), MMX_CVT(y))) >> 4;
-            });
+            }, [](auto x, auto y) {return popcount(_mm_cmpeq_pi16(MMX_CVT(x), MMX_CVT(y))) >> 4;});
             case 32: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
                 return popcount(_mm512_cmpeq_epu32_mask(x, y));
@@ -299,9 +314,7 @@ struct FinalBBitMinHash {
 #else
                 return popcnt_fn(_mm_cmpeq_epi32(x, y));
 #endif
-            }, [](auto x, auto y) {
-                return popcount(_mm_cmpeq_pi32(MMX_CVT(x), MMX_CVT(y))) >> 5;
-            });
+            }, [](auto x, auto y) {return popcount(_mm_cmpeq_pi32(MMX_CVT(x), MMX_CVT(y))) >> 5;});
             case 64: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
 #if __AVX512BW__
                 return popcount(_mm512_cmpeq_epu64_mask(x, y));
@@ -319,13 +332,21 @@ struct FinalBBitMinHash {
         }
 #undef MMX_CVT
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done
-        // Not special case
-        throw NotImplementedError("comparisons for laterally packed minimizers not yet complete.");
-        uint64_t sum = 0;
-        for(size_t i = 0; i < size_t(1) << p_; ++i) {
-            sum += (bbit_at_ind(i) == o.bbit_at_ind(i));
+        switch(p_) {
+            case 6: {
+                auto match = ~(*p1++ ^ *p2++);
+                while(p1 != pe) match &= ~(*p1++ ^ *p2++);
+                return popcount(match);
+            }
+            case 7: {
+                __m128i *vp1 = reinterpret_cast<__m128i *>(p1), *vp2 = reinterpret_cast<__m128i *>(p2), __m128i *vpe = reinterpret_cast<__m128i *>(pe);
+                auto match = ~(*p1++ ^ *p2++);
+                while(vp1 != vpe)
+                    match &= ~(*p1++ ^ p2++);
+                return popcount(*(uint64_t *)&match) + popcount(((uint64_t *)&match)[1]);
+            }
+            default: NotImplementedError("p_ > 6 for b not a power of two.");
         }
-        return sum;
     }
     uint64_t bbit_at_ind(size_t ind) const {
         throw NotImplementedError("Haven't implemented bbit_at_ind for extractig value for b bits at index");
@@ -337,7 +358,7 @@ struct FinalBBitMinHash {
     }
     double jaccard_index(const FinalBBitMinHash &o) const {
         auto a1b = this->ab(), a2b = o.ab();
-        auto r1 = r(), r2 = o.r(), rsuminv =1./ (r1 + r2);
+        auto r1 = r(), r2 = o.r(), rsuminv = 1./ (r1 + r2);
         auto c1b = a1b * r2 / rsuminv, c2b = a2b * r1 * rsuminv;
         auto fe = frac_equal(o);
         return (fe - c1b) / (1. - c2b);
@@ -352,6 +373,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
 #define __access__(x) operator[](x)
 #endif
     double cest = cardinality_estimate(mode);
+    using detail::getnthbit;
     FinalBBitMinHash ret(b_, p_, cest);
     std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u. cest: %lf\n", ret.core_.size(), b_, p_);
     using FinalType = typename FinalBBitMinHash::value_type;
@@ -385,9 +407,18 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
             // #else if p_ >= 7 // Assume SSE2
             // Pack an SSE2 element for each 1 << (p_ - 7)
             if(p_ == 6) {
-                for(size_t _b = 0; _b < b_; ++_b)
-                    for(size_t i = 0; i < core_.size(); ++i)
+                for(size_t _b = 0; _b < b_; ++_b) {
+                    for(size_t i = 0; i < core_.size(); ++i) {
                         ret.core_.__access__(i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+                    }
+                }
+#if !NDEBUG
+                for(size_t i = 0; i < core_.size(); ++i) {
+                    for(size_t b = 0; b < b_; ++b) {
+                        assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_[i], b));
+                    }
+                }
+#endif
             }
             break;
         }

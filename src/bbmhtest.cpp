@@ -6,7 +6,7 @@ using namespace common;
 
 int main() {
     hll::hll_t h1(12), h2(12);
-    mh::BBitMinHasher<uint64_t> b1(4, 12), b2(4, 12);
+    mh::BBitMinHasher<uint64_t> b1(4, 12), b2(14, 12);
     aes::AesCtr<uint64_t, 4> gen(137);
     size_t shared = 0, b1c = 0, b2c = 0;
     for(size_t i = 10000000; --i;) {
