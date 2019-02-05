@@ -588,6 +588,18 @@ inline unsigned popcount(uint64_t val) noexcept {
 inline unsigned popcount(__m64 val) noexcept {return popcount(*reinterpret_cast<uint64_t *>(&val));}
 
 template<typename T>
+static INLINE uint64_t vatpos(const T v, size_t ind) {
+    return reinterpret_cast<const uint64_t *>(&v)[ind];
+}
+
+template<typename T>
+static INLINE uint64_t sum_of_u64s(const T val) {
+    uint64_t sum = vatpos(val, 0);
+    for(size_t i = 1; i < sizeof(T) / sizeof(uint64_t); ++i)
+        sum += vatpos(val, i);
+    return sum;
+}
+template<typename T>
 INLINE auto popcnt_fn(T val);
 template<>
 INLINE auto popcnt_fn(Type val) {
@@ -601,7 +613,7 @@ INLINE auto popcnt_fn(Type val) {
 // This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
 #define FUNCTION_CALL popcnt256(val)
 #elif __SSE2__
-#define FUNCTION_CALL popcount(((const uint64_t *)&val)[0]) + popcount(((const uint64_t *)&val)[1])
+#define FUNCTION_CALL _mm_set_epi64x(_mm_cvtsi128_si64(n), _mm_cvtsi128_si64(_mm_unpackhi_epi64(n, n)))
 #else
 #  error("Need SSE2. TODO: make this work for non-SIMD architectures")
 #endif

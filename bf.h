@@ -176,9 +176,10 @@ public:
         Space::VType tmp;
         const Type *op(reinterpret_cast<const Type *>(data())),
                    *ep(reinterpret_cast<const Type *>(&core_[core_.size()]));
-        uint64_t sum;
-        for(sum = popcnt_fn(*op++); op < ep; sum += popcnt_fn(*op++));
-        return sum;
+        auto sum = popcnt_fn(*op++);
+        while(op < ep)
+            sum = Space::add(sum, popcnt_fn(*op++));
+        return sum_of_u64s(sum);
     }
     void halve() {
         if(np_ < 17) {
@@ -222,9 +223,9 @@ public:
         const Type *endp = reinterpret_cast<const Type *>(&oc[oc.size()]);
         while(op < endp) {
             tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
-            sum += popcnt_fn(tmp.simd_);
+            sum = Space::add(popcnt_fn(tmp.simd_), sum);
         }
-        return sum;
+        return sum_of_u64s(sum);
     }
 
     double setbit_jaccard_index(const bfbase_t &other) const {
@@ -233,13 +234,15 @@ public:
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         Space::VType l1 = *op++, l2 = *tc++;
         Space::VType tmp;
-        uint64_t sum1(0), sum2(0), sumu(0);
+        Space::Type sum1(Space::set1(0)), sum2 = sum1, sumu = sum1;
 
 #define PERFORM_ITER \
         l1 = *op++; l2 = *tc++; \
-        sum1 += popcnt_fn(l1.simd_); sum2 += popcnt_fn(l2.simd_);\
+        sum1 = Space::add(sum1, popcnt_fn(l1.simd_));\
+        sum2 = Space::add(sum2, popcnt_fn(l2.simd_));\
         tmp = Space::or_fn(l1.simd_, l2.simd_); \
-        sumu += popcnt_fn(tmp);
+        sum2 = Space::add(sumu, popcnt_fn(tmp));
+
         if(core_.size() / Space::COUNT >= 8) {
             REPEAT_7(PERFORM_ITER)
             // Handle the last 7 times after initialization
@@ -250,7 +253,10 @@ public:
         for(const Type *endp = reinterpret_cast<const Type *>(&oc[oc.size()]); op < endp;) {
             PERFORM_ITER
         }
-        return static_cast<double>(sum1 + sum2 - sumu) / sumu;
+        uint64_t usum1 = sum_of_u64s(sum1);
+        uint64_t usum2 = sum_of_u64s(sum2);
+        uint64_t usumu = sum_of_u64s(sumu);
+        return static_cast<double>(usum1 + usum2 - usumu) / usumu;
     }
     double jaccard_index(const bfbase_t &other) const {
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
@@ -258,7 +264,7 @@ public:
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         Space::VType l1 = *op++, l2 = *tc++;
         Space::VType tmp;
-        uint64_t sum1(0), sum2(0), sumu(0);
+        Space::Type sum1(Space::set1(0)), sum2 = sum1, sumu = sum1;
 
         if(core_.size() / Space::COUNT >= 8) {
             REPEAT_7(PERFORM_ITER)
@@ -271,10 +277,13 @@ public:
         while(op < endp) {
             PERFORM_ITER
         }
+        uint64_t usum1 = sum_of_u64s(sum1);
+        uint64_t usum2 = sum_of_u64s(sum2);
+        uint64_t usumu = sum_of_u64s(sumu);
 #undef PERFORM_ITER
-        double set1_est = -std::log(1 - static_cast<double>(sum1) / m()) * m() / nh_;
-        double set2_est = -std::log(1 - static_cast<double>(sum2) / m()) * other.m() / nh_;
-        double union_est = -std::log(1 - static_cast<double>(sumu) / m()) * m() / nh_;
+        double set1_est = -std::log(1 - static_cast<double>(usum1) / m()) * m() / nh_;
+        double set2_est = -std::log(1 - static_cast<double>(usum2) / m()) * other.m() / nh_;
+        double union_est = -std::log(1 - static_cast<double>(usumu) / m()) * m() / nh_;
         double olap = set1_est + set2_est - union_est;
 #if !NDEBUG
         double ji = olap / union_est;

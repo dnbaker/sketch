@@ -8,7 +8,6 @@ namespace sketch {
 namespace minhash {
 using namespace common;
 
-#define VATPOS(val, ind) reinterpret_cast<const uint64_t *>(&val)[ind]
 namespace detail {
 
 
@@ -194,7 +193,7 @@ INLINE auto matching_bits(const __m128i *s1, const __m128i *s2, uint16_t b) {
      __m128i match = ~(*s1++ ^ *s2++);
      while(--b)
          match &= ~(*s1++ ^ *s2++);
-     return popcount(VATPOS(match, 0)) + popcount(VATPOS(match, 1));
+     return popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
 }
 #else
 #error("Require SSE2")
@@ -209,13 +208,6 @@ INLINE auto matching_bits(const __m256i *s1, const __m256i *s2, uint16_t b) {
 }
 #endif
 
-template<typename T>
-uint64_t sum_of_u64s(const T val) {
-    uint64_t sum = 0;
-    for(size_t i = 0; i < sizeof(T) / sizeof(uint64_t); ++i)
-        sum += VATPOS(val, i);
-    return sum;
-}
 
 #if HAS_AVX_512
 INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
@@ -267,10 +259,7 @@ struct FinalBBitMinHash {
         const VT *vp2 = reinterpret_cast<const VT *>(p2);
         auto sum = f1(*vp1++, *vp2++);
         while(vp1 != vpe) sum = _mm512_add_epi64(f1(*vp1++, *vp2++), sum);
-        return VATPOS(sum, 0) + VATPOS(sum, 1) +
-               VATPOS(sum, 2) + VATPOS(sum, 3) +
-               VATPOS(sum, 4) + VATPOS(sum, 5) +
-               VATPOS(sum, 6) + VATPOS(sum, 7);
+        return sum_of_u64s(sum);
     }
 #elif __AVX2__
     template<typename Func1, typename Func2>
@@ -287,8 +276,7 @@ struct FinalBBitMinHash {
         const VT *vp2 = reinterpret_cast<const VT *>(p2);
         auto sum = f1(*vp1++, *vp2++);
         while(vp1 != vpe) sum = _mm256_add_epi64(f1(*vp1++, *vp2++), sum);
-        return VATPOS(sum, 0) + VATPOS(sum, 1) +
-               VATPOS(sum, 2) + VATPOS(sum, 3);
+        return sum_of_u64s(sum);
     }
 #else
     template<typename Func1, typename Func2>
@@ -301,12 +289,6 @@ struct FinalBBitMinHash {
             const VT *vp2 = reinterpret_cast<const VT *>(p2);
             do {sum += f1(*vp1++, *vp2++);} while(vp1 != vpe);
             p1 = reinterpret_cast<const uint64_t *>(vp1), p2 = reinterpret_cast<const uint64_t *>(vp2);
-            switch(b_) {
-                case 8:  sum >>= 3; break; // Divide by 8 because each matching subblock's values are 8 "1"-bits,
-                case 16: sum >>= 4; break; // which makes us overcount by a factor of the number of bits per operand.
-                case 32: sum >>= 5; break;
-                case 64: sum >>= 6; break;
-            }
         }
         while(p1 != pe)
             sum += f2(*p1++, *p2++);
@@ -325,7 +307,7 @@ struct FinalBBitMinHash {
             auto sum = popcnt_fn(~Space::xor_fn(*vp1++, *vp2++));
             while(vp1 != vpe)
                 sum = Space::add_fn(sum, popcnt_fn(~Space::xor_fn(*vp1++, *vp2++)));
-            return detail::sum_of_u64s(sum);
+            return common::sum_of_u64s(sum);
 #else
             return std::accumulate(p1 + 1, pe, popcount(~(*p1 ^ *p2++)), [&](uint64_t sum, auto x) {return sum + popcount(~(x ^ *p2++));});
 #endif
@@ -412,7 +394,7 @@ struct FinalBBitMinHash {
         }
 #endif
 #undef MMX_CVT
-        assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done
+        assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
         // p_ already guaranteed to be greater than 6
         switch(p_) {
             case 6: {
@@ -425,12 +407,12 @@ struct FinalBBitMinHash {
                 __m128i match = ~(*vp1++ ^ *vp2++);
                 while(vp1 != vpe)
                     match &= ~(*vp1++ ^ *vp2++);
-                return popcount(VATPOS(match, 0)) + popcount(VATPOS(match, 1));
+                return popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
             }
 #if __AVX2__
-            case 8: return detail::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_));
+            case 8: return common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_));
 #  if HAS_AVX_512
-            case 9: return detail::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_));
+            case 9: return common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_));
             default: {
                 // Process each 'b' remainder block in
                 const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
@@ -441,7 +423,7 @@ struct FinalBBitMinHash {
                     sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
                 }
                 assert((uint64_t *)vp1 == &core_[core_.size()]);
-                return detail::sum_of_u64s(sum);
+                return common::sum_of_u64s(sum);
             }
 #    else /* has avx2 not not 512 */
             default: {
@@ -461,7 +443,7 @@ struct FinalBBitMinHash {
                 std::fprintf(stderr, "eptr - fptr: %zd. fptr - start: %zd. total distance: %zd\n", eptr - fptr, fptr - p1, &core_[core_.size()] - &core_[0]);
                 assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", fptr, p1 + core_.size()));
 #endif
-                return detail::sum_of_u64s(sum);
+                return common::sum_of_u64s(sum);
             }
 #  endif /* avx512 or avx2 */
 #else /* assume SSE2 */
@@ -481,7 +463,7 @@ struct FinalBBitMinHash {
 #endif
         }
     }
-#undef VATPOS
+#undef common::vatpos
     double frac_equal(const FinalBBitMinHash &o) const {
         return std::ldexp(equal_bblocks(o), -int(p_));
     }
