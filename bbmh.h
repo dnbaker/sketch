@@ -551,7 +551,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
     }
     void read(gzFile fp) {
         FinalBBitMinHash::read(fp);
-        counters_.resize(size_t(1) << p_);
+        counters_.resize(size_t(1) << this->p_);
         gzread(fp, counters_.data(), counters_.size() * sizeof(counters_[0]));
     }
     void write(const char *path, int compression=6) const {
