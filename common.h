@@ -36,7 +36,7 @@
 #endif
 
 #ifndef HAS_AVX_512
-#  define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__)
+#  define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__ || __AVX512__)
 #endif
 
 #ifndef INLINE
@@ -98,6 +98,9 @@ using std::size_t;
 using Space = vec::SIMDTypes<uint64_t>;
 using Type  = typename vec::SIMDTypes<uint64_t>::Type;
 using VType = typename vec::SIMDTypes<uint64_t>::VType;
+#if HAS_AVX_512
+static_assert(sizeof(Space::VType) == sizeof(__m512i), "Must be the right size");
+#endif
 
 template<typename ValueType>
 #if HAS_AVX_512
@@ -591,10 +594,12 @@ INLINE auto popcnt_fn(Type val) {
 
 #define VAL_AS_ARR(ind) reinterpret_cast<const uint64_t *>(&val)[ind]
 #if HAS_AVX_512
+#pragma message("Using 512 bit popcnt")
 #define FUNCTION_CALL popcnt512(val)
 #elif __AVX2__
+#pragma message("Using 256 bit popcnt")
 // This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
-#define FUNCTION_CALL popcount(VAL_AS_ARR(0)) + popcount(VAL_AS_ARR(1)) + popcount(VAL_AS_ARR(2)) + popcount(VAL_AS_ARR(3))
+#define FUNCTION_CALL popcnt256(val)
 #elif __SSE2__
 #define FUNCTION_CALL popcount(((const uint64_t *)&val)[0]) + popcount(((const uint64_t *)&val)[1])
 #else
