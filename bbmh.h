@@ -81,6 +81,9 @@ public:
         std::fprintf(stderr, "after hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
 #endif
     }
+    void write(const char *fn, int compression=6) const {
+        finalize().write(fn, compression);
+    }
     void densify() {
         auto rc = detail::densifybin(core_, p_);
 #if !NDEBUG
