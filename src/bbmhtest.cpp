@@ -10,6 +10,7 @@ int main() {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             hll::hll_t h1(i), h2(i);
             mh::BBitMinHasher<uint64_t> b1(4, i), b2(17, i), b3(17, i);
+            mh::CountingBBitMinHasher<uint64_t, uint32_t> cb1(4, i), cb2(17, i), cb3(17, i);
             aes::AesCtr<uint64_t, 4> gen(137);
             size_t shared = 0, b1c = 0, b2c = 0;
             for(size_t i = 10000000; --i;) {
@@ -32,6 +33,7 @@ int main() {
             std::fprintf(stderr, "Estimate arithmetic mean [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(ARITHMETIC_MEAN), b2.cardinality_estimate(ARITHMETIC_MEAN));
             std::fprintf(stderr, "JI for f3 and f2: %lf\n", f2.jaccard_index(f3));
             std::fprintf(stderr, "equal blocks: %zu\n", size_t(f2.equal_bblocks(f3)));
+            cb1.finalize().write("ZOMG.cb");
         }
     }
 }
