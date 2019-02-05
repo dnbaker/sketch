@@ -79,12 +79,9 @@ public:
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
     void add(T hv) {
-        assert(hv * mul_ == hv / nbuckets_);
         T div = hv * mul_;
         T mod = hv - div * nbuckets_;
-        assert(mod < core_.size());
         auto &ref = core_[mod];
-        std::fprintf(stderr, "new value at index %zu %zu replaces old value %zu\n", mod, size_t(std::min(ref, div)), size_t(ref));
         ref = std::min(ref, div);
         assert(ref <= div);
     }
