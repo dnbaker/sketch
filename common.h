@@ -344,6 +344,13 @@ static inline uint64_t findMultInverse64(uint64_t x) {
   return y;
 }
 
+template<typename T> inline T findmultinv(T v) {
+    return findmultinv<typename std::make_unsigned<T>::type>(v);
+}
+template<> inline uint64_t findmultinv<uint64_t>(uint64_t v) {return findMultInverse64(v);}
+template<> inline uint32_t findmultinv<uint32_t>(uint32_t v) {return findInverse32(v);}
+
+
 template<typename T>
 struct Inverse64 {
     uint64_t operator()(uint64_t x) const {return x;}
@@ -613,7 +620,7 @@ INLINE auto popcnt_fn(Type val) {
 // This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
 #define FUNCTION_CALL popcnt256(val)
 #elif __SSE2__
-#define FUNCTION_CALL _mm_set_epi64x(_mm_cvtsi128_si64(n), _mm_cvtsi128_si64(_mm_unpackhi_epi64(n, n)))
+#define FUNCTION_CALL _mm_set_epi64x(_mm_cvtsi128_si64(val), _mm_cvtsi128_si64(_mm_unpackhi_epi64(val, val)))
 #else
 #  error("Need SSE2. TODO: make this work for non-SIMD architectures")
 #endif

@@ -17,9 +17,15 @@ static inline uint64_t twounivhash(uint64_t s, uint64_t t) {
     return (UINT64_C(0x1e68e69958ce15c1) * (UINT64_C(0x84e09756b31589c9) * s + UINT64_C(0xd89576eb901ab7d3) * t) + UINT64_C(0x2f28f2976668b622)) % LARGE_PRIME;
 }
 
+template<typename T>
+static constexpr T default_val() {
+    return std::numeric_limits<T>::max();
+}
+
 template<typename Container>
-inline int densifybin(Container &hashes, unsigned p) {
+inline int densifybin(Container &hashes) {
     using vtype = typename std::decay<decltype(hashes[0])>::type;
+    const auto empty_val = default_val<vtype>();
     auto it = hashes.cbegin();
     auto min = *it, max = min;
     while(++it != hashes.end()) {
@@ -27,9 +33,8 @@ inline int densifybin(Container &hashes, unsigned p) {
         min = std::min(min, v);
         max = std::max(max, v);
     }
-    if ((vtype(1) << p) != max) return 0; // Full sketch
-    if ((vtype(1) << p) == min) return -1; // Empty sketch
-    const uint64_t empty_val = 1ull << (64 - p);
+    if (empty_val != max) return 0; // Full sketch
+    if (empty_val == min) return -1; // Empty sketch
     for (uint64_t i = 0; i < hashes.size(); i++) {
         uint64_t j = i, nattempts = 0;
         while(hashes[j] == empty_val)
@@ -39,7 +44,11 @@ inline int densifybin(Container &hashes, unsigned p) {
     return 1;
 }
 
+
 } // namespace detail
+
+
+
 struct FinalBBitMinHash;
 template<typename CountingType, typename=typename std::enable_if<
             std::is_arithmetic<CountingType>::value
@@ -47,15 +56,74 @@ template<typename CountingType, typename=typename std::enable_if<
 struct FinalCountingBBitMinHash;
 
 template<typename T, typename Hasher=common::WangHash>
+class DivBBitMinHasher {
+    // Avoids expensive div/mod operations by finding multiplicative
+    // inverse of the number of desired buckets.
+    // We make this possible by (cheating) and ORing the nbuckets with 1
+    std::vector<T> core_;
+    uint32_t b_;
+    T nbuckets_;
+    T mul_;
+    Hasher hf_;
+public:
+    using final_type = FinalBBitMinHash;
+    template<typename... Args>
+    DivBBitMinHasher(unsigned b, unsigned nbuckets, Args &&... args):
+        core_(nbuckets, detail::default_val<T>()), b_(b), nbuckets_(nbuckets|1), mul_(multinv::findmultinv<T>(nbuckets|1)), hf_(std::forward<Args>(args)...)
+    {
+        if(b_ < 1 || b_ > 64) throw "a party";
+        assert(1337 * mul_ == 1337 / nbuckets_);
+    }
+    void addh(T val) {val = hf_(val);add(val);}
+    void clear() {
+        std::fill(core_.begin(), core_.end(), detail::default_val<T>());
+    }
+    void add(T hv) {
+        assert(hv * mul_ == hv / nbuckets_);
+        T div = hv * mul_;
+        T mod = hv - div * nbuckets_;
+        assert(mod < core_.size());
+        auto &ref = core_[mod];
+        std::fprintf(stderr, "new value at index %zu %zu replaces old value %zu\n", mod, size_t(std::min(ref, div)), size_t(ref));
+        ref = std::min(ref, div);
+        assert(ref <= div);
+    }
+    void write(const char *fn, int compression=6) {
+        finalize().write(fn, compression);
+    }
+    void densify() {
+        auto rc = detail::densifybin(core_);
+#if !NDEBUG
+        switch(rc) {
+            case -1: std::fprintf(stderr, "[W] Can't densify empty thing\n"); break;
+            case 0: std::fprintf(stderr, "The densification, it does nothing\n"); break;
+            case 1: std::fprintf(stderr, "Densifying something that needs it\n");
+        }
+#endif
+    }
+    double cardinality_estimate() {
+        densify();
+        const double num = double(sizeof(T) * CHAR_BIT) / nbuckets_;
+        double sum = 0.;
+        for(const auto v: core_) {
+            assert(num >= v || !std::fprintf(stderr, "%lf vs %zu failure\n", num, v));
+            sum += double(v) / num;
+        }
+        return std::pow(nbuckets_, 2) / sum;
+    }
+    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN);
+};
+
+template<typename T, typename Hasher=common::WangHash>
 class BBitMinHasher {
     std::vector<T> core_;
-    uint16_t b_, p_;
+    uint32_t b_, p_;
     Hasher hf_;
 public:
     using final_type = FinalBBitMinHash;
     template<typename... Args>
     BBitMinHasher(unsigned b, unsigned p, Args &&... args):
-        core_(size_t(1) << p, T(1) << (sizeof(T) * CHAR_BIT - p)), b_(b), p_(p), hf_(std::forward<Args>(args)...)
+        core_(size_t(1) << p, detail::default_val<T>()), b_(b), p_(p), hf_(std::forward<Args>(args)...)
     {
         if(b_ + p_ > sizeof(T) * CHAR_BIT) {
             char buf[512];
@@ -65,11 +133,8 @@ public:
         }
     }
     void addh(T val) {val = hf_(val);add(val);}
-    auto default_val() const {
-        return T(1) << (sizeof(T) * CHAR_BIT - p_);
-    }
     void clear() {
-        std::fill(core_.begin(), core_.end(), default_val());
+        std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
     void add(T hv) {
         auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
@@ -84,11 +149,11 @@ public:
         std::fprintf(stderr, "after hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
 #endif
     }
-    void write(const char *fn, int compression=6) const {
+    void write(const char *fn, int compression=6) {
         finalize().write(fn, compression);
     }
     void densify() {
-        auto rc = detail::densifybin(core_, p_);
+        auto rc = detail::densifybin(core_);
 #if !NDEBUG
         switch(rc) {
             case -1: std::fprintf(stderr, "[W] Can't densify empty thing\n"); break;
@@ -97,11 +162,12 @@ public:
         }
 #endif
     }
-    double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
+    double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) {
 #if 0
         for(size_t i = 0; i < core_.size(); ++i)
             std::fprintf(stderr, "value at index %zu is %zu\n", i, size_t(core_[i]));
 #endif
+        densify();
         const double num = std::ldexp(1., sizeof(T) * CHAR_BIT - p_);
         double sum;
         switch(mode) {
@@ -111,13 +177,11 @@ public:
                 assert(num >= v || !std::fprintf(stderr, "%lf vs %zu failure\n", num, v));
                 sum += double(v) / num;
             }
-            sum = std::ldexp(1. / sum, p_ * 2);
-            break;
+            return std::ldexp(1. / sum, p_ * 2);
         case ARITHMETIC_MEAN: // better? Still not great.
-            sum = std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [num](auto x, auto y) {
+            return std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [num](auto x, auto y) {
                 return x + num / y;
             }); // / core_.size() * core_.size();
-            break;
         case MEDIAN: { // not very accurate, but cheap. Not recommended.
             T *tmp = static_cast<T *>(std::malloc(sizeof(T) * core_.size()));
             if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
@@ -125,21 +189,20 @@ public:
             common::sort::default_sort(tmp, tmp + core_.size());
             sum = 0.5 * ((num / tmp[core_.size() >> 1]) + (num / tmp[(core_.size() >> 1) - 1])) * core_.size();
             std::free(tmp);
-            break;
+            return sum;
         }
         case HLL_METHOD: {
             std::array<uint64_t, 64> arr{0};
             auto diff = p_ - 1;
             for(const auto v: core_)
-                ++arr[v == default_val() ? 0: hll::clz(v) - diff];
-            sum = hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
-            break;
+                ++arr[v == detail::default_val<T>() ? 0: hll::clz(v) - diff];
+            return hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
         }
         default: __builtin_unreachable(); // IMPOCEROUS
         }
         return sum;
     }
-    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
+    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN);
 };
 
 template<typename T, typename CountingType, typename Hasher=common::WangHash>
@@ -162,7 +225,7 @@ public:
             ref = hv, counters_[ind] = 1;
         else ref += (ref == hv);
     }
-    FinalCountingBBitMinHash<CountingType> finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
+    FinalCountingBBitMinHash<CountingType> finalize(MHCardinalityMode mode=HARMONIC_MEAN);
 };
 
 
@@ -221,7 +284,7 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
 struct FinalBBitMinHash {
     using value_type = uint64_t;
     double est_cardinality_;
-    uint16_t b_, p_;
+    uint32_t b_, p_;
     std::vector<uint64_t, Allocator<uint64_t>> core_;
     template<typename Functor=DoNothing>
     FinalBBitMinHash(unsigned b, unsigned p, double est): est_cardinality_(est), b_(b), p_(p),
@@ -231,16 +294,6 @@ struct FinalBBitMinHash {
     }
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
-    void densify() {
-        auto rc = detail::densifybin(core_, p_);
-#if !NDEBUG
-        switch(rc) {
-            case -1: std::fprintf(stderr, "[W] Can't densify empty thing\n"); break;
-            case 0: std::fprintf(stderr, "The densification, it does nothing\n"); break;
-            case 1: std::fprintf(stderr, "Densifying something that needs it\n");
-        }
-#endif
-    }
     double r() const {
         return std::ldexp(est_cardinality_, -int(sizeof(uint64_t) * CHAR_BIT - p_));
     }
@@ -251,7 +304,7 @@ struct FinalBBitMinHash {
         return _r * rm1p / (1. - (rm1p * rm1));
     }
     void read(gzFile fp) {
-        uint16_t arr[2];
+        uint32_t arr[2];
         if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw std::runtime_error("Could not read from file.");
         b_ = arr[0];
         p_ = arr[1];
@@ -422,7 +475,8 @@ struct FinalBBitMinHash {
 };
 
 template<typename T, typename Hasher>
-FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) const {
+FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) {
+    densify();
     double cest = cardinality_estimate(mode);
     using detail::getnthbit;
     using detail::setnthbit;
@@ -527,8 +581,9 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
 };
 
 template<typename T, typename CountingType, typename Hasher>
-FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(MHCardinalityMode mode) const {
-    return FinalCountingBBitMinHash<CountingType>(std::move(BBitMinHasher<T, Hasher>::finalize(mode)), this->counters_);
+FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(MHCardinalityMode mode) {
+    auto bbm = BBitMinHasher<T, Hasher>::finalize(mode);
+    return FinalCountingBBitMinHash<CountingType>(std::move(bbm), this->counters_);
 }
 
 } // minhash
