@@ -113,12 +113,12 @@ public:
             }
             sum = std::ldexp(1. / sum, p_ * 2);
             break;
-        case ARITHMETIC_MEAN:
+        case ARITHMETIC_MEAN: // better? Still not great.
             sum = std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [num](auto x, auto y) {
                 return x + num / y;
             }); // / core_.size() * core_.size();
             break;
-        case MEDIAN: {
+        case MEDIAN: { // not very accurate, but cheap. Not recommended.
             T *tmp = static_cast<T *>(std::malloc(sizeof(T) * core_.size()));
             if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
             std::memcpy(tmp, core_.data(), core_.size() * sizeof(T));
@@ -132,13 +132,6 @@ public:
             auto diff = p_ - 1;
             for(const auto v: core_)
                 ++arr[v == default_val() ? 0: hll::clz(v) - diff];
-#if !NDEBUG
-            std::string s;
-            for(const auto v: arr)
-                s += std::to_string(v) + ',';
-            s.back() = '\n';
-            std::fputs(s.data(), stderr);
-#endif
             sum = hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
             break;
         }
@@ -464,78 +457,42 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
                 }
 #endif
             break;
-        case 7: {
-            for(size_t b = 0; b < b_; ++b) {
-                auto ptr = ret.core_.data() + (b * 2);
-                assert(core_.size() == 128);
-                for(size_t i = 0; i < 128; ++i)
-                    setnthbit(ptr, i, getnthbit(core_[i], b));
-            }
-            break;
-        }
+#define DEFAULT_SET_CASE(num, type) \
+        default:\
+            for(size_t ov = 0, ev = 1 << (p_ - num); ov != ev; ++ov) {\
+                auto main_ptr = ret.core_.data() + ov * sizeof(type) / sizeof(uint64_t) * b_;\
+                auto core_ptr = core_.data() + ov * (sizeof(type) * CHAR_BIT);\
+                for(size_t b = 0; b < b_; ++b) {\
+                    auto ptr = main_ptr + (b * sizeof(type)/sizeof(uint64_t));\
+                    for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
+                        setnthbit(ptr, i, getnthbit(core_ptr[i], b));\
+                }\
+            }\
+            break
+#define SET_CASE(num, type) \
+        case num:\
+            for(size_t b = 0; b < b_; ++b) {\
+                auto ptr = ret.core_.data() + (b * sizeof(type)/sizeof(uint64_t));\
+                assert(core_.size() == (sizeof(type) * CHAR_BIT));\
+                for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
+                    setnthbit(ptr, i, getnthbit(core_[i], b));\
+            }\
+            break
+        SET_CASE(7, __m128i);
 #if __AVX2__
-        case 8:
-            for(size_t b = 0; b < b_; ++b) {
-                auto ptr = ret.core_.data() + (b * 4);
-                assert(core_.size() == 256);
-                for(size_t i = 0; i < 256; ++i)
-                    setnthbit(ptr, i, getnthbit(core_[i], b));
-            }
-#if !NDEBUG
-            for(size_t i = 0; i < core_.size(); ++i) {
-                for(size_t j = 0; j < b_; ++j) {
-                    uint64_t retsubb = j * 4;
-                    uint64_t which_bit = i % 256;
-                    assert(getnthbit(ret.core_.data() + retsubb, which_bit) == getnthbit(core_[i], j));
-                }
-            }
-#endif
-            break;
+        SET_CASE(8, __m256i);
 #if HAS_AVX_512
-        case 9:
-            for(size_t b = 0; b < b_; ++b) {
-                auto ptr = ret.core_.data() + (b * sizeof(__m512i)/sizeof(uint64_t));
-                assert(core_.size() == (sizeof(__m512i) * CHAR_BIT));
-                for(size_t i = 0; i < (sizeof(__m512i) * CHAR_BIT); ++i)
-                    setnthbit(ptr, i, getnthbit(core_[i], b));
-            }
-            break;
-        default:
-            for(size_t ov = 0, ev = 1 << (p_ - 9); ov != ev; ++ov) {
-                auto main_ptr = ret.core_.data() + ov * sizeof(__m512i) / sizeof(uint64_t) * b_;
-                auto core_ptr = core_.data() + ov * (sizeof(__m512i) * CHAR_BIT);
-                for(size_t b = 0; b < b_; ++b) {
-                    auto ptr = main_ptr + (b * sizeof(__m512i)/sizeof(uint64_t));
-                    for(size_t i = 0; i < (sizeof(__m512i) * CHAR_BIT); ++i)
-                        setnthbit(ptr, i, getnthbit(core_ptr[i], b));
-                }
-            }
-            break;
+        SET_CASE(9, __m512i);
+
+        DEFAULT_SET_CASE(9u, __m512i);
 #else
-        default:
-            for(size_t ov = 0, ev = 1 << (p_ - 8); ov != ev; ++ov) {
-                auto main_ptr = ret.core_.data() + ov * sizeof(__m256i) / sizeof(uint64_t) * b_;
-                auto core_ptr = core_.data() + ov * (sizeof(__m256i) * CHAR_BIT);
-                for(size_t b = 0; b < b_; ++b) {
-                    auto ptr = main_ptr + (b * sizeof(__m256i) / sizeof(uint64_t));
-                    for(size_t i = 0; i < (sizeof(__m256i) * CHAR_BIT); ++i)
-                        setnthbit(ptr, i, getnthbit(core_ptr[i], b));
-                }
-            }
-            break;
+        DEFAULT_SET_CASE(8u, __m256i);
 #endif
 #else /* no avx2 or 512 */
-        default:
-            for(size_t ov = 0, ev = 1 << (p_ - 7); ov != ev; ++ov) {
-                auto main_ptr = ret.core_.data() + ov * sizeof(__m128i) / sizeof(uint64_t) * b_;
-                auto core_ptr = core_.data() + ov * 128;
-                for(size_t b = 0; b < b_; ++b) {
-                    auto ptr = main_ptr + (b * sizeof(__m128i) / sizeof(uint64_t));
-                    for(size_t i = 0; i < 128; ++i)
-                        setnthbit(ptr, i, getnthbit(core_ptr[i], b));
-                }
-            }
+        DEFAULT_SET_CASE(7u, __m128i);
 #endif
+#undef DEFAULT_SET_CASE
+#undef SET_CASE
         }
     }
     return ret;
