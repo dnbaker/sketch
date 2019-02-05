@@ -227,13 +227,19 @@ struct FinalBBitMinHash {
     double est_cardinality_;
     template<typename Functor=DoNothing>
     FinalBBitMinHash(unsigned b, unsigned p, double est):
-        core_((uint64_t(b) << p) >> 6), b_(b), p_(p), est_cardinality_(est)
+        core_((uint64_t(b) << p) >> 6, 1ull << p), b_(b), p_(p), est_cardinality_(est)
     {
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, p, core_.size(), core_.size() * 64);
     }
-    int densify() {
-        std::fprintf(stderr, "[W:%s:%d] densification not implemented. Results will not be made ULTRADENSE\n", __PRETTY_FUNCTION__, __LINE__);
-        return 0; // Success, I guess?
+    void densify() {
+        auto rc = detail::densifybin(core_, p_);
+#if !NDEBUG
+        switch(rc) {
+            case -1: std::fprintf(stderr, "[W] Can't densify empty thing\n"); break;
+            case 0: std::fprintf(stderr, "The densification, it does nothing\n"); break;
+            case 1: std::fprintf(stderr, "Densifying something that needs it\n");
+        }
+#endif
     }
     double r() const {
         return std::ldexp(est_cardinality_, -int(sizeof(uint64_t) * CHAR_BIT - p_));
@@ -243,6 +249,34 @@ struct FinalBBitMinHash {
         auto rm1 = 1. - _r;
         auto rm1p = std::pow(rm1, std::ldexp(1., b_) - 1);
         return _r * rm1p / (1. - (rm1p * rm1));
+    }
+    void read(gzFile fp) {
+        uint16_t arr[2];
+        if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw std::runtime_error("Could not read from file.");
+        b_ = arr[0];
+        p_ = arr[1];
+        if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw std::runtime_error("Could not read from file.");
+        core_.resize((uint64_t(b_) << p_) >> 6, 1ull << p_);
+        gzread(fp, core_.data(), sizeof(core_[0]) * core_.size());
+    }
+    void read(const char *path) {
+        gzFile fp = gzopen(path, "rb");
+        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
+        read(fp);
+        gzclose(fp);
+    }
+    void write(const char *path, int compression=6) const {
+        std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");
+        gzFile fp = gzopen(path, mode.data());
+        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
+        write(fp);
+        gzclose(fp);
+    }
+    void write(gzFile fp) const {
+        uint16_t arr[] {b_, p_};
+        if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
+        if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
+        if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != core_.size() * sizeof(core_[0]), 0)) throw std::runtime_error("Could not write to file");
     }
 #if HAS_AVX_512
     template<typename Func1, typename Func2>
