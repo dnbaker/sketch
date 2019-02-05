@@ -53,7 +53,7 @@ test: src/test.cpp kthread.o $(HEADERS)
 mctest: src/mctest.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -O1 $< -o $@ -lz
 
-%_d: %.cpp kthread.o $(HEADERS)
+%_d: src/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
 lztest: src/test.cpp kthread.o $(HEADERS)
