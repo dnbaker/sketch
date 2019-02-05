@@ -68,6 +68,9 @@ public:
     auto default_val() const {
         return T(1) << (sizeof(T) * CHAR_BIT - p_);
     }
+    void clear() {
+        std::fill(core_.begin(), core_.end(), default_val());
+    }
     void add(T hv) {
         auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
         hv <<= p_; hv >>= p_; // Clear top values
@@ -225,12 +228,12 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
 
 struct FinalBBitMinHash {
     using value_type = uint64_t;
-    std::vector<uint64_t, Allocator<uint64_t>> core_;
-    uint16_t b_, p_;
     double est_cardinality_;
+    uint16_t b_, p_;
+    std::vector<uint64_t, Allocator<uint64_t>> core_;
     template<typename Functor=DoNothing>
-    FinalBBitMinHash(unsigned b, unsigned p, double est):
-        core_((uint64_t(b) << p) >> 6, 1ull << p), b_(b), p_(p), est_cardinality_(est)
+    FinalBBitMinHash(unsigned b, unsigned p, double est): est_cardinality_(est), b_(b), p_(p),
+        core_((uint64_t(b) << p) >> 6)
     {
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, p, core_.size(), core_.size() * 64);
     }
@@ -259,7 +262,7 @@ struct FinalBBitMinHash {
         b_ = arr[0];
         p_ = arr[1];
         if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw std::runtime_error("Could not read from file.");
-        core_.resize((uint64_t(b_) << p_) >> 6, 1ull << p_);
+        core_.resize((uint64_t(b_) << p_) >> 6);
         gzread(fp, core_.data(), sizeof(core_[0]) * core_.size());
     }
     void read(const char *path) {
@@ -335,102 +338,6 @@ struct FinalBBitMinHash {
     uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
         const uint64_t *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
-#if 0
-        if(b_ == 1) {
-#if HAS_AVX_512 || __AVX2__
-            Space::VType *vp1 = (Space::VType *)p1;
-            Space::VType *vp2 = (Space::VType *)p2;
-            Space::VType *vpe = (Space::VType *)pe;
-            auto sum = popcnt_fn(~Space::xor_fn(*vp1++, *vp2++));
-            while(vp1 != vpe)
-                sum = Space::add_fn(sum, popcnt_fn(~Space::xor_fn(*vp1++, *vp2++)));
-            return common::sum_of_u64s(sum);
-#else
-            return std::accumulate(p1 + 1, pe, popcount(~(*p1 ^ *p2++)), [&](uint64_t sum, auto x) {return sum + popcount(~(x ^ *p2++));});
-#endif
-        }
-            case 2: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
-                // Based on nucleotide counting in bowtie2
-                x ^= y;
-                auto x0 = x ^ Space::set1(UINT64_C(0xffffffffffffffff));
-                auto x1 = Space::srli(x, 1);
-                auto x2 = Space::and_fn(Space::set1(UINT64_C(0x5555555555555555)), x1);
-                auto x3 = Space::and_fn(x0, x2);
-                return popcnt_fn(x3);
-            }, [](auto x, auto y) {
-                x ^= y;
-                uint64_t x0 = x ^ UINT64_C(0xffffffffffffffff);
-                uint64_t x1 = x0 >> 1;
-                uint64_t x2 = x1 & UINT64_C(0x5555555555555555);
-                uint64_t x3 = x0 & x2;
-                return popcount(x3);
-            });
-            case 4: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
-                x ^= y;
-                auto x0 = x ^ Space::set1(UINT64_C(0xffffffffffffffff));
-                auto x1 = Space::srli(x, 1);
-                auto x2 = Space::and_fn(Space::set1(UINT64_C(0x5555555555555555)), x1);
-                auto x3 = Space::and_fn(x0, x2);
-                auto x4 = x3 & Space::set1(UINT64_C(0x4444444444444444));
-                auto x5 = Space::srli(Space::and_fn(x3, Space::set1(UINT64_C(0x1111111111111111))), 2);
-                auto x6 = Space::and_fn(x4, x5);
-                return popcnt_fn(x6);
-            }, [](auto x, auto y) {
-                x ^= y;
-                uint64_t x0 = x ^ UINT64_C(0xffffffffffffffff);
-                uint64_t x1 = x0 >> 1;
-                uint64_t x2 = x1 & UINT64_C(0x5555555555555555);
-                uint64_t x3 = x0 & x2;
-                uint64_t x4 = x3 & UINT64_C(0x4444444444444444);
-                uint64_t x5 = (x3 & UINT64_C(0x1111111111111111)) >> 2;
-                uint64_t x6 = x4 & x5;
-                return popcount(x6);
-            });
-#define MMX_CVT(x) (*reinterpret_cast<const __m64 *>(std::addressof(x)))
-            case 8: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
-#if __AVX512BW__
-                return popcount(_mm512_cmpeq_epu8_mask(x, y));
-#elif __AVX2__
-                return popcnt_fn(_mm256_cmpeq_epi8(x, y));
-#else
-                return popcnt_fn(_mm_cmpeq_epi8(x, y));
-#endif
-            }, [](auto x, auto y) {return popcount(_mm_cmpeq_pi8(MMX_CVT(x), MMX_CVT(y))) >> 3;});
-            case 16: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
-#if __AVX512BW__
-                return popcount(_mm512_cmpeq_epu16_mask(x, y));
-#elif __AVX2__
-                return popcnt_fn(_mm256_cmpeq_epi16(x, y));
-#else
-                return popcnt_fn(_mm_cmpeq_epi16(x, y));
-#endif
-            }, [](auto x, auto y) {return popcount(_mm_cmpeq_pi16(MMX_CVT(x), MMX_CVT(y))) >> 4;});
-            case 32: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
-#if __AVX512BW__
-                return popcount(_mm512_cmpeq_epu32_mask(x, y));
-#elif __AVX2__
-                return popcnt_fn(_mm256_cmpeq_epi32(x, y));
-#else
-                return popcnt_fn(_mm_cmpeq_epi32(x, y));
-#endif
-            }, [](auto x, auto y) {return popcount(_mm_cmpeq_pi32(MMX_CVT(x), MMX_CVT(y))) >> 5;});
-            case 64: return equal_bblocks_sub(p1, pe, p2, [](auto x, auto y) {
-#if __AVX512BW__
-                return popcount(_mm512_cmpeq_epu64_mask(x, y));
-#elif __AVX2__
-                return popcnt_fn(_mm256_cmpeq_epi64(x, y));
-#elif __SSE4_1__
-                return popcnt_fn(_mm_cmpeq_epi64(x, y));
-#else
-                auto tmp = _mm_cmpeq_epi32(x, y);
-                auto tmp2 = _mm_slri_epi64(tmp);
-                auto tmp3 = _mm_cmpeq_epi32(tmp, tmp2);
-                return popcount(tmp3);
-#endif
-            }, std::equal_to<uint64_t>());
-        }
-#endif
-#undef MMX_CVT
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
         // p_ already guaranteed to be greater than 6
         switch(p_) {
@@ -454,7 +361,7 @@ struct FinalBBitMinHash {
                 // Process each 'b' remainder block in
                 const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
                 auto sum = detail::matching_bits(vp1, vp2, b_);
-                for(size_t i = 1; i < (size_t(1) << (p_ - 9)); ++i) {
+                for(size_t i = 1; i < (size_t(1) << (p_ - 9_)); ++i) {
                     vp1 += b_;
                     vp2 += b_;
                     sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
@@ -467,9 +374,6 @@ struct FinalBBitMinHash {
                 const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2), *vpe = reinterpret_cast<const __m256i *>(pe);
                 auto sum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < 1ull << (p_ - 8u); ++i) {
-#if !NDEBUG
-                    std::fprintf(stderr, "Now incrementing matching bits for next block with i = %zu of %zu with p = %d: %zu\n", i, size_t(1) << (p_ - 8u), p_, detail::matching_bits(reinterpret_cast<const __m256i *>(p1) + i * b_, reinterpret_cast<const __m256i *>(p2) + i * b_, b_));
-#endif
                     vp1 += b_;
                     vp2 += b_;
                     sum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
@@ -477,7 +381,6 @@ struct FinalBBitMinHash {
 #if !NDEBUG
                 auto fptr = (uint64_t *)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
                 auto eptr = p1 + core_.size();
-                std::fprintf(stderr, "eptr - fptr: %zd. fptr - start: %zd. total distance: %zd\n", eptr - fptr, fptr - p1, &core_[core_.size()] - &core_[0]);
                 assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", fptr, p1 + core_.size()));
 #endif
                 return common::sum_of_u64s(sum);
@@ -500,7 +403,6 @@ struct FinalBBitMinHash {
 #endif
         }
     }
-#undef common::vatpos
     double frac_equal(const FinalBBitMinHash &o) const {
         return std::ldexp(equal_bblocks(o), -int(p_));
     }
