@@ -10,7 +10,7 @@ int main() {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             hll::hll_t h1(i), h2(i);
             mh::BBitMinHasher<uint64_t> b1(4, i), b2(b, i), b3(b, i);
-            mh::DivBBitMinHasher<uint64_t> fb(b, i);
+            //mh::DivBBitMinHasher<uint64_t> fb(b, i);
             mh::CountingBBitMinHasher<uint64_t, uint32_t> cb1(b, i), cb2(b, i), cb3(17, i);
             aes::AesCtr<uint64_t, 4> gen(137);
             size_t shared = 0, b1c = 0, b2c = 0;
@@ -18,7 +18,7 @@ int main() {
                 auto v = gen();
                 switch(v & 0x3uL) {
                     case 0:
-                    case 1: h1.addh(v); h2.addh(v); b2.addh(v); b1.addh(v); ++shared; b3.addh(v); fb.addh(v); break;
+                    case 1: h1.addh(v); h2.addh(v); b2.addh(v); b1.addh(v); ++shared; b3.addh(v); /*fb.addh(v);*/ break;
                     case 2: h1.addh(v); b1.addh(v); ++b1c; b3.addh(v); break;
                     case 3: h2.addh(v); b2.addh(v); ++b2c; break;
                 }
