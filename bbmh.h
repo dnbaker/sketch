@@ -67,7 +67,7 @@ class DivBBitMinHasher {
 public:
     using final_type = FinalBBitMinHash;
     template<typename... Args>
-    DivBBitMinHasher(unsigned b, unsigned nbuckets, Args &&... args):
+    DivBBitMinHasher(unsigned nbuckets, unsigned b, Args &&... args):
         core_(nbuckets, detail::default_val<T>()), b_(b), nbuckets_(nbuckets), hf_(std::forward<Args>(args)...)
     {
         if(b_ < 1 || b_ > 64) throw "a party";
@@ -116,7 +116,7 @@ public:
     }
     using final_type = FinalBBitMinHash;
     template<typename... Args>
-    BBitMinHasher(unsigned b, unsigned p, Args &&... args):
+    BBitMinHasher(unsigned p, unsigned b, Args &&... args):
         core_(size_t(1) << p, detail::default_val<T>()), b_(b), p_(p), hf_(std::forward<Args>(args)...)
     {
         if(b_ + p_ > sizeof(T) * CHAR_BIT) {
@@ -221,7 +221,7 @@ class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
 public:
     using final_type = FinalCountingBBitMinHash<CountingType>;
     template<typename... Args>
-    CountingBBitMinHasher(unsigned b, unsigned p, Args &&... args): super(b, p, std::forward<Args>(args)...), counters_(1ull << p) {}
+    CountingBBitMinHasher(unsigned p, unsigned b, Args &&... args): super(b, p, std::forward<Args>(args)...), counters_(1ull << p) {}
     void add(T hv) {
         auto ind = hv>>(sizeof(T) * CHAR_BIT - this->p_);
         auto &ref = this->core_[ind];
@@ -295,7 +295,7 @@ public:
     uint32_t b_, p_;
     std::vector<uint64_t, Allocator<uint64_t>> core_;
     template<typename Functor=DoNothing>
-    FinalBBitMinHash(unsigned b, unsigned p, double est): est_cardinality_(est), b_(b), p_(p),
+    FinalBBitMinHash(unsigned p, unsigned b, double est): est_cardinality_(est), b_(b), p_(p),
         core_((uint64_t(b) << p) >> 6)
     {
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, p, core_.size(), core_.size() * 64);
@@ -494,7 +494,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) cons
     double cest = cardinality_estimate(mode);
     using detail::getnthbit;
     using detail::setnthbit;
-    FinalBBitMinHash ret(b_, p_, cest);
+    FinalBBitMinHash ret(p_, b_, cest);
     std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u. cest: %lf\n", ret.core_.size(), b_, p_, cest);
     using FinalType = typename FinalBBitMinHash::value_type;
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
@@ -569,7 +569,7 @@ template<typename CountingType, typename>
 struct FinalCountingBBitMinHash: public FinalBBitMinHash {
     std::vector<CountingType> counters_;
     FinalCountingBBitMinHash(FinalBBitMinHash &&tmp, const std::vector<CountingType> &counts): FinalBBitMinHash(std::move(tmp)), counters_(counts) {}
-    FinalCountingBBitMinHash(unsigned b, unsigned p, double est): FinalBBitMinHash(b, p, est), counters_(size_t(1) << this->p_) {}
+    FinalCountingBBitMinHash(unsigned p, unsigned b, double est): FinalBBitMinHash(b, p, est), counters_(size_t(1) << this->p_) {}
     void write(gzFile fp) const {
         FinalBBitMinHash::write(fp);
         gzwrite(fp, counters_.data(), counters_.size() * sizeof(counters_[0]));
