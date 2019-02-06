@@ -93,7 +93,7 @@ public:
 #endif
     }
     double cardinality_estimate() {
-        densify();
+        if(densify() < 0) return 0.;
         const double num = double(sizeof(T) * CHAR_BIT) / nbuckets_;
         double sum = 0.;
         for(const auto v: core_) {
@@ -152,7 +152,7 @@ public:
     void write(gzFile fp) const {
         finalize().write(fp);
     }
-    void densify() const {
+    int densify() const {
         auto rc = detail::densifybin(core_);
 #if !NDEBUG
         switch(rc) {
@@ -161,13 +161,14 @@ public:
             case 1: std::fprintf(stderr, "Densifying something that needs it\n");
         }
 #endif
+        return rc;
     }
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
 #if 0
         for(size_t i = 0; i < core_.size(); ++i)
             std::fprintf(stderr, "value at index %zu is %zu\n", i, size_t(core_[i]));
 #endif
-        densify();
+        if(densify() < 0) return 0.;
         const double num = std::ldexp(1., sizeof(T) * CHAR_BIT - p_);
         double sum;
         switch(mode) {
