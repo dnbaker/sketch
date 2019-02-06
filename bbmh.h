@@ -146,8 +146,8 @@ public:
         std::fprintf(stderr, "after hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
 #endif
     }
-    void write(const char *fn, int compression=6) const {
-        finalize().write(fn, compression);
+    void write(const char *fn, int compression=6, uint32_t b=0) const {
+        finalize(b ? b: b_).write(fn, compression);
     }
     void write(gzFile fp) const {
         finalize().write(fp);
@@ -203,7 +203,7 @@ public:
         }
         return sum;
     }
-    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
+    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN, uint32_t b=0) const;
 };
 template<typename T, typename Hasher=common::WangHash>
 void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
@@ -230,7 +230,7 @@ public:
             ref = hv, counters_[ind] = 1;
         else ref += (ref == hv);
     }
-    FinalCountingBBitMinHash<CountingType> finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
+    FinalCountingBBitMinHash<CountingType> finalize(MHCardinalityMode mode=HARMONIC_MEAN, uint32_t b=0) const;
 };
 
 
@@ -489,12 +489,13 @@ public:
 };
 
 template<typename T, typename Hasher>
-FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) const {
+FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode, uint32_t b) const {
+    b = b ? b: b_; // Use the b_ of BBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
     densify();
     double cest = cardinality_estimate(mode);
     using detail::getnthbit;
     using detail::setnthbit;
-    FinalBBitMinHash ret(p_, b_, cest);
+    FinalBBitMinHash ret(p_, b, cest);
     std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u. cest: %lf\n", ret.core_.size(), b_, p_, cest);
     using FinalType = typename FinalBBitMinHash::value_type;
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
@@ -595,8 +596,8 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
 };
 
 template<typename T, typename CountingType, typename Hasher>
-FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(MHCardinalityMode mode) const {
-    auto bbm = BBitMinHasher<T, Hasher>::finalize(mode);
+FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(MHCardinalityMode mode, uint32_t b) const {
+    auto bbm = BBitMinHasher<T, Hasher>::finalize(mode, b);
     return FinalCountingBBitMinHash<CountingType>(std::move(bbm), this->counters_);
 }
 
