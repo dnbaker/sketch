@@ -613,10 +613,8 @@ INLINE auto popcnt_fn(Type val) {
 
 #define VAL_AS_ARR(ind) reinterpret_cast<const uint64_t *>(&val)[ind]
 #if HAS_AVX_512
-#pragma message("Using 512 bit popcnt")
 #define FUNCTION_CALL popcnt512(val)
 #elif __AVX2__
-#pragma message("Using 256 bit popcnt")
 // This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
 #define FUNCTION_CALL popcnt256(val)
 #elif __SSE2__
