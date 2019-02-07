@@ -146,8 +146,8 @@ public:
         std::fprintf(stderr, "after hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
 #endif
     }
-    void write(const char *fn, int compression=6, uint32_t b=0) const {
-        finalize(b ? b: b_).write(fn, compression);
+    void write(const char *fn, int compression=6, uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const {
+        finalize(mode, b ? b: b_).write(fn, compression);
     }
     void write(gzFile fp) const {
         finalize().write(fp);
