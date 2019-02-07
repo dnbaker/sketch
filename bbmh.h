@@ -60,15 +60,15 @@ class DivBBitMinHasher {
     // Avoids expensive div/mod operations by finding multiplicative
     // inverse of the number of desired buckets.
     // We make this possible by (cheating) and ORing the nbuckets with 1
-    mutable std::vector<T> core_;
-    uint32_t b_;
+    std::vector<T> core_;
+    uint32_t b_, p_;
     T nbuckets_;
     Hasher hf_;
 public:
     using final_type = FinalBBitMinHash;
     template<typename... Args>
-    DivBBitMinHasher(unsigned nbuckets, unsigned b, Args &&... args):
-        core_(nbuckets, detail::default_val<T>()), b_(b), nbuckets_(nbuckets), hf_(std::forward<Args>(args)...)
+    DivBBitMinHasher(unsigned nbuckets, unsigned p, unsigned b, Args &&... args):
+        core_(nbuckets, detail::default_val<T>()), b_(b), p_(p), nbuckets_(nbuckets), hf_(std::forward<Args>(args)...)
     {
         if(b_ < 1 || b_ > 64) throw "a party";
     }
@@ -82,8 +82,8 @@ public:
     void write(const char *fn, int compression=6) const {
         finalize().write(fn, compression);
     }
-    void densify() {
-        auto rc = detail::densifybin(core_);
+    int densify() {
+        int rc = detail::densifybin(core_);
 #if !NDEBUG
         switch(rc) {
             case -1: std::fprintf(stderr, "[W] Can't densify empty thing\n"); break;
@@ -91,9 +91,29 @@ public:
             case 1: std::fprintf(stderr, "Densifying something that needs it\n");
         }
 #endif
+        return rc;
+    }
+    double cardinality_estimate() const {
+        std::vector<T> *cptr = &core_;
+        const double num = double(sizeof(T) * CHAR_BIT) / nbuckets_;
+        double sum = 0.;
+        {
+            std::vector<T> tmp;
+            if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
+                tmp = core_;
+                detail::densifybin(tmp);
+                cptr = &tmp;
+            }
+            for(const auto v: *cptr)
+                sum += double(v) / num;
+        }
+        return std::pow(nbuckets_, 2) / sum;
     }
     double cardinality_estimate() {
-        if(densify() < 0) return 0.;
+        if(densify() < 0) {
+            std::fprintf(stderr, "Warning: cardinality estimate is 0 because the sketch is fully empty.\n");
+            return 0.;
+        }
         const double num = double(sizeof(T) * CHAR_BIT) / nbuckets_;
         double sum = 0.;
         for(const auto v: core_) {
@@ -107,7 +127,7 @@ public:
 
 template<typename T, typename Hasher=common::WangHash>
 class BBitMinHasher {
-    mutable std::vector<T> core_;
+    std::vector<T> core_;
     uint32_t b_, p_;
     Hasher hf_;
 public:
@@ -149,10 +169,10 @@ public:
     void write(const char *fn, int compression=6, uint32_t b=0) const {
         finalize(b ? b: b_).write(fn, compression);
     }
-    void write(gzFile fp) const {
-        finalize().write(fp);
+    void write(gzFile fp, uint32_t b=0) const {
+        finalize(b?b:b_).write(fp);
     }
-    int densify() const {
+    int densify() {
         auto rc = detail::densifybin(core_);
 #if !NDEBUG
         switch(rc) {
@@ -164,38 +184,42 @@ public:
         return rc;
     }
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
-#if 0
-        for(size_t i = 0; i < core_.size(); ++i)
-            std::fprintf(stderr, "value at index %zu is %zu\n", i, size_t(core_[i]));
-#endif
-        if(densify() < 0) return 0.;
+        if(std::find_if(core_.begin(), core_.end(), [](auto x) {return x != detail::default_val<T>();}) == core_.end())
+            return 0.; // Empty sketch
         const double num = std::ldexp(1., sizeof(T) * CHAR_BIT - p_);
         double sum;
+        std::vector<T> tmp;
+        const std::vector<T> *ptr = &core_;
+        if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) { // Copy and calculate from densified.
+            tmp = core_;
+            detail::densifybin(tmp);
+            ptr = &tmp;
+        }
         switch(mode) {
         case HARMONIC_MEAN: // Dampens outliers
             sum = 0.;
-            for(const auto v: core_) {
+            for(const auto v: (*ptr)) {
                 assert(num >= v || !std::fprintf(stderr, "%lf vs %zu failure\n", num, v));
                 sum += double(v) / num;
             }
             return std::ldexp(1. / sum, p_ * 2);
         case ARITHMETIC_MEAN: // better? Still not great.
-            return std::accumulate(core_.begin() + 1, core_.end(), num / core_[0], [num](auto x, auto y) {
+            return std::accumulate((*ptr).begin() + 1, (*ptr).end(), num / (*ptr)[0], [num](auto x, auto y) {
                 return x + num / y;
-            }); // / core_.size() * core_.size();
+            }); // / (*ptr).size() * (*ptr).size();
         case MEDIAN: { // not very accurate, but cheap. Not recommended.
-            T *tmp = static_cast<T *>(std::malloc(sizeof(T) * core_.size()));
+            T *tmp = static_cast<T *>(std::malloc(sizeof(T) * (*ptr).size()));
             if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
-            std::memcpy(tmp, core_.data(), core_.size() * sizeof(T));
-            common::sort::default_sort(tmp, tmp + core_.size());
-            sum = 0.5 * ((num / tmp[core_.size() >> 1]) + (num / tmp[(core_.size() >> 1) - 1])) * core_.size();
+            std::memcpy(tmp, (*ptr).data(), (*ptr).size() * sizeof(T));
+            common::sort::default_sort(tmp, tmp + (*ptr).size());
+            sum = 0.5 * ((num / tmp[(*ptr).size() >> 1]) + (num / tmp[((*ptr).size() >> 1) - 1])) * (*ptr).size();
             std::free(tmp);
             return sum;
         }
         case HLL_METHOD: {
             std::array<uint64_t, 64> arr{0};
             auto diff = p_ - 1;
-            for(const auto v: core_)
+            for(const auto v: (*ptr))
                 ++arr[v == detail::default_val<T>() ? 0: hll::clz(v) - diff];
             return hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
         }
@@ -491,8 +515,15 @@ public:
 template<typename T, typename Hasher>
 FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode, uint32_t b) const {
     b = b ? b: b_; // Use the b_ of BBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
-    densify();
+    std::vector<T> tmp;
+    const std::vector<T> *ptr = &core_;
+    if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
+        tmp = core_;
+        detail::densifybin(tmp);
+        ptr = &core_;
+    }
     double cest = cardinality_estimate(mode);
+    const std::vector<T> &core_ref = *ptr;
     using detail::getnthbit;
     using detail::setnthbit;
     FinalBBitMinHash ret(p_, b, cest);
@@ -501,7 +532,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode, uint
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b_ == 64) {
         // We've already failed for the case of b_ + p_ being greater than the width of T
-        std::memcpy(ret.core_.data(), core_.data(), sizeof(core_[0]) * core_.size());
+        std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
     } else {
         if(__builtin_expect(p_ < 6, 0))
             throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently. We could reduce this requirement using 32-bit integers.");
@@ -516,12 +547,12 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode, uint
         switch(p_) {
         case 6:
                 for(size_t _b = 0; _b < b_; ++_b)
-                    for(size_t i = 0; i < core_.size(); ++i)
-                        ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+                    for(size_t i = 0; i < core_ref.size(); ++i)
+                        ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
 #if !NDEBUG
-                for(size_t i = 0; i < core_.size(); ++i) {
+                for(size_t i = 0; i < core_ref.size(); ++i) {
                     for(size_t b = 0; b < b_; ++b) {
-                        assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_[i], b));
+                        assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_ref[i], b));
                     }
                 }
 #endif
@@ -530,7 +561,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode, uint
         default:\
             for(size_t ov = 0, ev = 1 << (p_ - num); ov != ev; ++ov) {\
                 auto main_ptr = ret.core_.data() + ov * sizeof(type) / sizeof(uint64_t) * b_;\
-                auto core_ptr = core_.data() + ov * (sizeof(type) * CHAR_BIT);\
+                auto core_ptr = core_ref.data() + ov * (sizeof(type) * CHAR_BIT);\
                 for(size_t b = 0; b < b_; ++b) {\
                     auto ptr = main_ptr + (b * sizeof(type)/sizeof(uint64_t));\
                     for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
@@ -542,9 +573,9 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode, uint
         case num:\
             for(size_t b = 0; b < b_; ++b) {\
                 auto ptr = ret.core_.data() + (b * sizeof(type)/sizeof(uint64_t));\
-                assert(core_.size() == (sizeof(type) * CHAR_BIT));\
+                assert(core_ref.size() == (sizeof(type) * CHAR_BIT));\
                 for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
-                    setnthbit(ptr, i, getnthbit(core_[i], b));\
+                    setnthbit(ptr, i, getnthbit(core_ref[i], b));\
             }\
             break
         SET_CASE(7, __m128i);
