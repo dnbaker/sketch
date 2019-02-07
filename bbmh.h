@@ -340,7 +340,7 @@ public:
         gzclose(fp);
     }
     void write(gzFile fp) const {
-        uint16_t arr[] {b_, p_};
+        uint32_t arr[] {b_, p_};
         if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
         if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
         if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != core_.size() * sizeof(core_[0]), 0)) throw std::runtime_error("Could not write to file");
