@@ -450,7 +450,7 @@ public:
 #else /* assume SSE2 */
             default: {
                 // Process each 'b' remainder block in
-                const __m128 *vp1 = reinterpret_cast<const __m128 *>(p1), *vp2 = reinterpret_cast<const __m128 *>(p2), *vpe = reinterpret_cast<const __m128 *>(pe);
+                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
                 __m128i match = ~(*vp1++ ^ *vp2++);
                 for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
                 auto sum = popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
