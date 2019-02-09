@@ -622,7 +622,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
         read(fp);
         gzclose(fp);
     }
-        
+
     template<typename=std::enable_if_t<std::is_same<CountingType, uint32_t>::value>> // Only finished for uint32_t currently
     std::pair<uint64_t, uint64_t> histogram_sums(const FinalCountingBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
