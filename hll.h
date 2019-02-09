@@ -1085,7 +1085,7 @@ public:
         CW(fp, core_.data(), core_.size() * sizeof(core_[0]));
 #undef CW
     }
-    void write(const char *path, bool write_gz=false) const {
+    void write(const char *path, bool write_gz=true) const {
         if(write_gz) {
             gzFile fp(gzopen(path, "wb"));
             if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
