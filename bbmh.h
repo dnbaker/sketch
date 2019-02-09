@@ -166,8 +166,8 @@ public:
         std::fprintf(stderr, "after hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
 #endif
     }
-    void write(const char *fn, int compression=6, uint32_t b=0) const {
-        finalize(b ? b: b_).write(fn, compression);
+    void write(const char *fn, int compression=6, uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const {
+        finalize(mode, b ? b: b_).write(fn, compression);
     }
     void write(gzFile fp, uint32_t b=0) const {
         finalize(b?b:b_).write(fp);
@@ -364,7 +364,7 @@ public:
         gzclose(fp);
     }
     void write(gzFile fp) const {
-        uint16_t arr[] {b_, p_};
+        uint32_t arr[] {b_, p_};
         if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
         if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
         if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != core_.size() * sizeof(core_[0]), 0)) throw std::runtime_error("Could not write to file");
@@ -474,14 +474,14 @@ public:
 #else /* assume SSE2 */
             default: {
                 // Process each 'b' remainder block in
-                __m128i *vp1 = reinterpret_cast<__m128i *>(p1), *vp2 = reinterpret_cast<__m128i *>(p2), *vpe = reinterpret_cast<__m128i *>(pe);
+                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
                 __m128i match = ~(*vp1++ ^ *vp2++);
                 for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
-                auto sum = popcount(*(uint64_t *)&match) + popcount(((uint64_t *)&match)[1]);
+                auto sum = popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
                 while(vp1 != vpe) {
                     match = ~(*vp1++ ^ *vp2++);
                     for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
-                    sum += popcount(*(uint64_t *)&match) + popcount(((uint64_t *)&match)[1]);
+                    sum += popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
                 }
                 return sum;
             }
