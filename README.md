@@ -43,14 +43,16 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
     4. Range MinHash implementations and the HyperMinHash implementation are *not* threadsafe.
 10. B-Bit MinHash
     1. bbmh.h
-        1. Partition bbit minhash
-        2. Not currently threadsafe
-        3. Construction is finished.
-        4. Finalizing (bit-packing) is not.
-        5. Comparisons are complete for b in `{1,2,4,8,16,32}` and SIMD-accelerated.
+    2. One-permutation (partition) bbit minhash
+        1. Threadsafe
+        2. Bit-packed and fully accelerated
+        3. Currently, only power of two partitions are supported, for convenience and for the speed of avoiding division/modulo operations.
+    3. One-permutation counting bbit minhash
+        1. In progress
+        2. Not threadsafe.
 
 ### Test case
-To build and run the test case:
+To build and run the hll test case:
 
 ```bash
 make test && ./test
@@ -66,9 +68,10 @@ for(uint64_t i(0); i < 10000000ull; ++i) hll.addh(i);
 fprintf(stderr, "Elements estimated: %lf. Error bounds: %lf.\n", hll.report(), hll.est_err());
 ```
 
-The other structures work with a similar interface. See the type constructors for more information.
+The other structures work with a similar interface. See the type constructors for more information or view [10xdash](https://github.com/dnbaker/10xdash) for examples on using the
+same interface for a variety of data structures.
 
-Simply `#include hll/<header_name>`.
+Simply `#include sketch/<header_name>`.
 
 ### Multithreading
 By default, updates to the hyperloglog structure to occur using atomic operations, though threading should be handled by the calling code. Otherwise, the flag `-DNOT_THREADSAFE` should be passed. The cost of this is relatively minor, but in single-threaded situations, this would be preferred.
