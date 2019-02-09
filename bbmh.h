@@ -225,7 +225,7 @@ public:
         }
         return sum;
     }
-    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN, uint32_t b=0) const;
+    FinalBBitMinHash finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
 template<typename T, typename Hasher=common::WangHash>
 void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
@@ -252,7 +252,7 @@ public:
             ref = hv, counters_[ind] = 1;
         else ref += (ref == hv);
     }
-    FinalCountingBBitMinHash<CountingType> finalize(MHCardinalityMode mode=HARMONIC_MEAN, uint32_t b=0) const;
+    FinalCountingBBitMinHash<CountingType> finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
 
 
@@ -511,7 +511,7 @@ public:
 };
 
 template<typename T, typename Hasher>
-FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode, uint32_t b) const {
+FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
     b = b ? b: b_; // Use the b_ of BBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
     std::vector<T> tmp;
     const std::vector<T> *ptr = &core_;
@@ -625,8 +625,8 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
 };
 
 template<typename T, typename CountingType, typename Hasher>
-FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(MHCardinalityMode mode, uint32_t b) const {
-    auto bbm = BBitMinHasher<T, Hasher>::finalize(mode, b);
+FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
+    auto bbm = BBitMinHasher<T, Hasher>::finalize(b, mode);
     return FinalCountingBBitMinHash<CountingType>(std::move(bbm), this->counters_);
 }
 
