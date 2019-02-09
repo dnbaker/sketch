@@ -156,14 +156,12 @@ public:
     void add(T hv) {
         auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
         hv <<= p_; hv >>= p_; // Clear top values
-#if 1
+#ifdef NOT_THREADSAFE
         ref = std::min(ref, hv);
         assert(ref <= hv);
 #else
-        std::fprintf(stderr, "hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
-        while(ref < hv)
+        while(hv < ref)
             __sync_bool_compare_and_swap(std::addressof(ref), ref, hv);
-        std::fprintf(stderr, "after hv: %zu vs current %zu\n", size_t(hv), size_t(ref));
 #endif
     }
     void write(const char *fn, int compression=6, uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const {
