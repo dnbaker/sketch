@@ -454,12 +454,16 @@ public:
             }
 #    else /* has avx2 not not 512 */
             default: {
-                const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2), *vpe = reinterpret_cast<const __m256i *>(pe);
+                const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2);
+#if !NDEBUG
+                const __m256i *vpe = reinterpret_cast<const __m256i *>(pe);
+#endif
                 auto sum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < 1ull << (p_ - 8u); ++i) {
                     vp1 += b_;
                     vp2 += b_;
                     sum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
+                    assert(vp1 <= vpe);
                 }
 #if !NDEBUG
                 auto fptr = (uint64_t *)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
