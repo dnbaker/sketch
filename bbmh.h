@@ -165,7 +165,7 @@ public:
 #endif
     }
     void write(const char *fn, int compression=6, uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const {
-        finalize(mode, b ? b: b_).write(fn, compression);
+        finalize(b ? b: b_, mode).write(fn, compression);
     }
     void write(gzFile fp, uint32_t b=0) const {
         finalize(b?b:b_).write(fp);
