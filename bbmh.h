@@ -165,7 +165,7 @@ public:
 #endif
     }
     void write(const char *fn, int compression=6, uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const {
-        finalize(mode, b ? b: b_).write(fn, compression);
+        finalize(b ? b: b_, mode).write(fn, compression);
     }
     void write(gzFile fp, uint32_t b=0) const {
         finalize(b?b:b_).write(fp);
@@ -225,7 +225,7 @@ public:
         }
         return sum;
     }
-    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN, uint32_t b=0) const;
+    FinalBBitMinHash finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
 template<typename T, typename Hasher=common::WangHash>
 void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
@@ -252,7 +252,7 @@ public:
             ref = hv, counters_[ind] = 1;
         else ref += (ref == hv);
     }
-    FinalCountingBBitMinHash<CountingType> finalize(MHCardinalityMode mode=HARMONIC_MEAN, uint32_t b=0) const;
+    FinalCountingBBitMinHash<CountingType> finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
 
 
@@ -365,7 +365,7 @@ public:
         uint32_t arr[] {b_, p_};
         if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
         if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
-        if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != core_.size() * sizeof(core_[0]), 0)) throw std::runtime_error("Could not write to file");
+        if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != ssize_t(core_.size() * sizeof(core_[0])), 0)) throw std::runtime_error("Could not write to file");
     }
 #if HAS_AVX_512
     template<typename Func1, typename Func2>
@@ -454,12 +454,16 @@ public:
             }
 #    else /* has avx2 not not 512 */
             default: {
-                const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2), *vpe = reinterpret_cast<const __m256i *>(pe);
+                const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2);
+#if !NDEBUG
+                const __m256i *vpe = reinterpret_cast<const __m256i *>(pe);
+#endif
                 auto sum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < 1ull << (p_ - 8u); ++i) {
                     vp1 += b_;
                     vp2 += b_;
                     sum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
+                    assert(vp1 <= vpe);
                 }
 #if !NDEBUG
                 auto fptr = (uint64_t *)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
@@ -508,10 +512,15 @@ public:
 #endif
         return double(eq - expected) / nmin();
     }
+    double containment_index(const FinalBBitMinHash &o) const {
+        double ji = jaccard_index(o);
+        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        return is / est_cardinality_;
+    }
 };
 
 template<typename T, typename Hasher>
-FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode, uint32_t b) const {
+FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
     b = b ? b: b_; // Use the b_ of BBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
     std::vector<T> tmp;
     const std::vector<T> *ptr = &core_;
@@ -723,8 +732,8 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
 };
 
 template<typename T, typename CountingType, typename Hasher>
-FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(MHCardinalityMode mode, uint32_t b) const {
-    auto bbm = BBitMinHasher<T, Hasher>::finalize(mode, b);
+FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
+    auto bbm = BBitMinHasher<T, Hasher>::finalize(b, mode);
     return FinalCountingBBitMinHash<CountingType>(std::move(bbm), this->counters_);
 }
 
