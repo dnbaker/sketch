@@ -50,25 +50,90 @@ inline int densifybin(Container &hashes) {
 
 
 struct FinalBBitMinHash;
+struct FinalDivBBitMinHash;
+
 template<typename CountingType, typename=typename std::enable_if<
             std::is_arithmetic<CountingType>::value
         >::type>
 struct FinalCountingBBitMinHash;
 
+namespace div {
+
+// Extrapolated from 32-it method at https://github.com/lemire/fastmod and its accompanying paper
+// Method for 64-bit integers developed and available at https://github.com/dnbaker/fastmod
+
+static inline __uint128_t computeM_u64(uint64_t d) {
+  __uint128_t M = UINT64_C(0xFFFFFFFFFFFFFFFF);
+  M <<= 64;
+  M |= UINT64_C(0xFFFFFFFFFFFFFFFF);
+  M /= d;
+  M += 1;
+  return M;
+}
+
+static inline uint64_t mul128_u64(__uint128_t lowbits, uint64_t d) {
+  __uint128_t bottom_half = (lowbits & UINT64_C(0xFFFFFFFFFFFFFFFF)) * d; // Won't overflow
+  bottom_half >>= 64;  // Only need the top 64 bits, as we'll shift the lower half away;
+  __uint128_t top_half = (lowbits >> 64) * d;
+  __uint128_t both_halves = bottom_half + top_half; // Both halves are already shifted down by 64
+  both_halves >>= 64; // Get top half of both_halves
+  return (uint64_t)both_halves;
+}
+static inline uint64_t fastdiv_u64(uint64_t a, __uint128_t M) {
+  return mul128_u64(M, a);
+}
+
+static inline uint64_t fastmod_u64(uint64_t a, __uint128_t M, uint64_t d) {
+  __uint128_t lowbits = M * a;
+  return mul128_u64(lowbits, d);
+}
+static inline uint64_t computeM_u32(uint32_t d) {
+  return UINT64_C(0xFFFFFFFFFFFFFFFF) / d + 1;
+}
+static inline uint64_t mul128_u32(uint64_t lowbits, uint32_t d) {
+  return ((__uint128_t)lowbits * d) >> 64;
+}
+static inline uint32_t fastmod_u32(uint32_t a, uint64_t M, uint32_t d) {
+  uint64_t lowbits = M * a;
+  return (uint32_t)(mul128_u32(lowbits, d));
+}
+
+// fastmod computes (a / d) given precomputed M for d>1
+static inline uint32_t fastdiv_u32(uint32_t a, uint64_t M) {
+  return (uint32_t)(mul128_u32(M, a));
+}
+
+template<typename T>
+struct Schismatic;
+template<> struct Schismatic<uint64_t> {
+    const uint64_t d_;
+    const __uint128_t M_;
+    Schismatic(uint64_t d): d_(d), M_(computeM_u64(d)) {}
+    INLINE uint64_t div(uint64_t v) const {return fastdiv_u64(v, M_);}
+    INLINE uint64_t mod(uint64_t v) const {return fastmod_u64(v, M_, d_);}
+};
+template<> struct Schismatic<uint32_t> {
+    const uint32_t d_;
+    const uint64_t M_;
+    Schismatic(uint32_t d): d_(d), M_(computeM_u32(d)) {}
+    INLINE uint32_t div(uint32_t v) const {return fastdiv_u32(v, M_);}
+    INLINE uint32_t mod(uint32_t v) const {return fastmod_u32(v, M_, d_);}
+};
+
+} // namespace div
+
 template<typename T, typename Hasher=common::WangHash>
 class DivBBitMinHasher {
-    // Avoids expensive div/mod operations by finding multiplicative
-    // inverse of the number of desired buckets.
-    // We make this possible by (cheating) and ORing the nbuckets with 1
     std::vector<T> core_;
     uint32_t b_, p_;
-    T nbuckets_;
+    div::Schismatic<typename std::make_unsigned<T>::type> div_;
+    __uint128_t M_; // Cached for fastmod64
     Hasher hf_;
 public:
-    using final_type = FinalBBitMinHash;
+    using final_type = FinalDivBBitMinHash;
     template<typename... Args>
-    DivBBitMinHasher(unsigned nbuckets, unsigned p, unsigned b, Args &&... args):
-        core_(nbuckets, detail::default_val<T>()), b_(b), p_(p), nbuckets_(nbuckets), hf_(std::forward<Args>(args)...)
+    DivBBitMinHasher(unsigned nbuckets, unsigned b, Args &&... args):
+        core_(nbuckets, detail::default_val<T>()), b_(b), div_(nbuckets), hf_(std::forward<Args>(args)...)
     {
         if(b_ < 1 || b_ > 64) throw "a party";
     }
@@ -76,8 +141,17 @@ public:
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
-    void add(T hv) {
-        throw NotImplementedError("NotImplemented");
+    T nbuckets() const {return div_.d_;}
+    INLINE void add(T hv) {
+        const T bucket = div_.mod(hv);
+        const T quot = div_.div(hv);
+        auto &ref = core_[bucket];
+#ifdef NOT_THREADSAFE
+        ref = std::min(quot, ref);
+#else
+        while(quot < ref)
+            __sync_bool_compare_and_swap(std::addressof(ref), ref, quot);
+#endif
     }
     void write(const char *fn, int compression=6) const {
         finalize().write(fn, compression);
@@ -95,7 +169,7 @@ public:
     }
     double cardinality_estimate() const {
         std::vector<T> *cptr = &core_;
-        const double num = double(sizeof(T) * CHAR_BIT) / nbuckets_;
+        const double num = double(sizeof(T) * CHAR_BIT) / nbuckets();
         double sum = 0.;
         {
             std::vector<T> tmp;
@@ -107,22 +181,9 @@ public:
             for(const auto v: *cptr)
                 sum += double(v) / num;
         }
-        return std::pow(nbuckets_, 2) / sum;
+        return std::pow(nbuckets(), 2) / sum;
     }
-    double cardinality_estimate() {
-        if(densify() < 0) {
-            std::fprintf(stderr, "Warning: cardinality estimate is 0 because the sketch is fully empty.\n");
-            return 0.;
-        }
-        const double num = double(sizeof(T) * CHAR_BIT) / nbuckets_;
-        double sum = 0.;
-        for(const auto v: core_) {
-            assert(num >= v || !std::fprintf(stderr, "%lf vs %zu failure\n", num, v));
-            sum += double(v) / num;
-        }
-        return std::pow(nbuckets_, 2) / sum;
-    }
-    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
+    FinalDivBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
 
 template<typename T, typename Hasher=common::WangHash>
@@ -316,7 +377,6 @@ public:
     double est_cardinality_;
     uint32_t b_, p_;
     std::vector<uint64_t, Allocator<uint64_t>> core_;
-    template<typename Functor=DoNothing>
     FinalBBitMinHash(unsigned p, unsigned b, double est): est_cardinality_(est), b_(b), p_(p),
         core_((uint64_t(b) << p) >> 6)
     {
