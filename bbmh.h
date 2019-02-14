@@ -512,6 +512,11 @@ public:
 #endif
         return double(eq - expected) / nmin();
     }
+    double containment_index(const FinalBBitMinHash &o) const {
+        double ji = jaccard_index(o);
+        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        return is / est_cardinality_;
+    }
 };
 
 template<typename T, typename Hasher>

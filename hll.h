@@ -739,8 +739,7 @@ protected:
     double                 value_;
     uint32_t                  np_;
     uint8_t        is_calculated_:1;
-    uint8_t                clamp_:1;
-    uint8_t             nthreads_;
+    uint8_t             nthreads_:7;
     EstimationMethod       estim_;
     JointEstimationMethod jestim_;
     HashStruct                hf_;
@@ -763,11 +762,12 @@ public:
                        JointEstimationMethod jestim=ERTL_JOINT_MLE,
                        int nthreads=-1, bool clamp=false, Args &&... args):
         core_(static_cast<uint64_t>(1) << np),
-        value_(0.), np_(np), is_calculated_(0), clamp_(clamp),
+        value_(0.), np_(np), is_calculated_(0),
         nthreads_(nthreads > 0 ? nthreads: 1),
         estim_(estim), jestim_(jestim)
         , hf_(std::forward<Args>(args)...)
     {
+        std::fprintf(stderr, "Warning: clamp parameter is deprecated and will be removed in future releases.\n");
 #if LZ_COUNTER
         std::memset(&clz_counts_[0], 0, sizeof(clz_counts_));
 #endif
@@ -959,19 +959,8 @@ public:
         std::memset(this, 0, sizeof(*this));
         std::swap_ranges(reinterpret_cast<uint8_t *>(this), reinterpret_cast<uint8_t *>(this) + sizeof(*this), reinterpret_cast<uint8_t *>(std::addressof(o)));
     }
-#if 0
-    std::vector<uint8_t, Allocator<uint8_t>> core_;
-    double                 value_;
-    uint32_t                  np_;
-    uint8_t        is_calculated_:1;
-    uint8_t                clamp_:1;
-    uint8_t             nthreads_;
-    EstimationMethod       estim_;
-    JointEstimationMethod jestim_;
-    HashStruct                hf_;
-#endif
     hllbase_t(const hllbase_t &other): core_(other.core_), value_(other.value_), np_(other.np_), is_calculated_(other.is_calculated_),
-        clamp_(other.clamp_), nthreads_(other.nthreads_), estim_(other.estim_), jestim_(other.jestim_), hf_(other.hf_)
+        nthreads_(other.nthreads_), estim_(other.estim_), jestim_(other.jestim_), hf_(other.hf_)
     {
 #if LZ_COUNTER
         std::memcpy(&clz_counts_[0], &other.clz_counts_[0], sizeof(clz_counts_));
@@ -990,7 +979,7 @@ public:
     }
     hllbase_t& operator=(hllbase_t&&) = default;
     hllbase_t clone() const {
-        return hllbase_t(np_, estim_, jestim_, nthreads_, clamp_);
+        return hllbase_t(np_, estim_, jestim_, nthreads_);
     }
 
     hllbase_t &operator+=(const hllbase_t &other) {
@@ -1078,7 +1067,7 @@ public:
     }
     void write(gzFile fp) const {
 #define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
-        uint32_t bf[]{is_calculated_, clamp_, estim_, jestim_, nthreads_};
+        uint32_t bf[]{is_calculated_, clamp(), estim_, jestim_, nthreads_};
         CW(fp, bf, sizeof(bf));
         CW(fp, &np_, sizeof(np_));
         CW(fp, &value_, sizeof(value_));
@@ -1104,7 +1093,6 @@ public:
         uint32_t bf[5];
         CR(fp, bf, sizeof(bf));
         is_calculated_ = bf[0];
-        clamp_  = bf[1];
         estim_  = static_cast<EstimationMethod>(bf[2]);
         jestim_ = static_cast<JointEstimationMethod>(bf[3]);
         nthreads_ = bf[4];
@@ -1124,7 +1112,7 @@ public:
         read(path.data());
     }
     void write(int fileno) const {
-        uint32_t bf[]{is_calculated_, clamp_, estim_, jestim_, nthreads_};
+        uint32_t bf[]{is_calculated_, clamp(), estim_, jestim_, nthreads_};
 #define CHWR(fn, obj, sz) if(__builtin_expect(::write(fn, (obj), (sz)) != ssize_t(sz), 0)) throw std::runtime_error(std::string("Failed to write to disk in ") + __PRETTY_FUNCTION__)
         CHWR(fileno, bf, sizeof(bf));
         CHWR(fileno, &np_, sizeof(np_));
@@ -1137,7 +1125,6 @@ public:
 #define CHRE(fn, obj, sz) if(__builtin_expect(::read(fn, (obj), (sz)) != ssize_t(sz), 0)) throw std::runtime_error(std::string("Failed to read from fd in ") + __PRETTY_FUNCTION__)
         CHRE(fileno, bf, sizeof(bf));
         is_calculated_ = bf[0];
-        clamp_         = bf[1];
         estim_         = static_cast<EstimationMethod>(bf[2]);
         jestim_        = static_cast<JointEstimationMethod>(bf[3]);
         nthreads_      = bf[4];
@@ -1190,20 +1177,30 @@ public:
         if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
         return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
     }
+    double containment_index(const hllbase_t &h2) const {
+        if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
+            auto full_cmps = ertl_joint(*this, h2);
+            const auto ret = full_cmps[2] / full_cmps[0];
+            return ret;
+        }
+        const double us = union_size(h2);
+        const double my_sz = creport();
+        const double ret = (my_sz + h2.creport() - us) / my_sz;
+        return std::max(0., ret);
+    }
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
             const auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
-            return clamp_ && ret < relative_error() ? 0.: ret;
+            return ret;
         }
         const double us = union_size(h2);
         const double ret = (creport() + h2.creport() - us) / us;
-        return clamp_ ? ret < relative_error() ? 0.: ret
-                      : std::max(0., ret);
+        return std::max(0., ret);
     }
     size_t size() const {return size_t(m());}
-    bool clamp()  const {return clamp_;}
-    void set_clamp(bool val) {clamp_ = val;}
+    static constexpr bool clamp() {return false;}
+    void set_clamp(bool val) {std::fprintf(stderr, "clamp has been deprecated. This does nothing\n");}
     static constexpr unsigned min_size() {
         return std::log2(sizeof(detail::SIMDHolder));
     }
