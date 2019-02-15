@@ -1,5 +1,6 @@
 #ifndef SKETCH_BB_MINHASH_H__
 #define SKETCH_BB_MINHASH_H__
+#include "div.h"
 #include "common.h"
 #include "hll.h"
 
@@ -44,31 +45,57 @@ inline int densifybin(Container &hashes) {
     return 1;
 }
 
+template<typename T>
+static inline double harmonic_cardinality_estimate(std::vector<T> &minvec, bool densify=true) {
+    if(densify) if(detail::densifybin(minvec) < 0) return 0.;
+    const double num = double(sizeof(T) * CHAR_BIT) / minvec.size();
+    double sum = 0.;
+    for(const auto v: minvec)
+        sum += double(v) / num;
+    return std::pow(minvec.size(), 2) / sum;
+}
+
+template<typename T>
+static inline double harmonic_cardinality_estimate(const std::vector<T> &minvec) {
+    if(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) != minvec.end()) {
+        std::vector<T> tmp = minvec; // copy
+        detail::densifybin(tmp);
+        return harmonic_cardinality_estimate(tmp, false);
+    } // Else don't worry about it, just do the thing.
+    const double num = double(sizeof(T) * CHAR_BIT) / minvec.size();
+    double sum = 0.;
+    for(const auto v: minvec)
+        sum += double(v) / num;
+    return std::pow(minvec.size(), 2) / sum;
+}
+
 
 } // namespace detail
 
 
 
 struct FinalBBitMinHash;
+struct FinalDivBBitMinHash;
+
 template<typename CountingType, typename=typename std::enable_if<
             std::is_arithmetic<CountingType>::value
         >::type>
 struct FinalCountingBBitMinHash;
 
+
+
 template<typename T, typename Hasher=common::WangHash>
 class DivBBitMinHasher {
-    // Avoids expensive div/mod operations by finding multiplicative
-    // inverse of the number of desired buckets.
-    // We make this possible by (cheating) and ORing the nbuckets with 1
     std::vector<T> core_;
     uint32_t b_, p_;
-    T nbuckets_;
+    schism::Schismatic<T> div_;
+    __uint128_t M_; // Cached for fastmod64
     Hasher hf_;
 public:
-    using final_type = FinalBBitMinHash;
+    using final_type = FinalDivBBitMinHash;
     template<typename... Args>
-    DivBBitMinHasher(unsigned nbuckets, unsigned p, unsigned b, Args &&... args):
-        core_(nbuckets, detail::default_val<T>()), b_(b), p_(p), nbuckets_(nbuckets), hf_(std::forward<Args>(args)...)
+    DivBBitMinHasher(unsigned nbuckets, unsigned b, Args &&... args):
+        core_(nbuckets, detail::default_val<T>()), b_(b), div_(nbuckets), hf_(std::forward<Args>(args)...)
     {
         if(b_ < 1 || b_ > 64) throw "a party";
     }
@@ -76,8 +103,17 @@ public:
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
-    void add(T hv) {
-        throw NotImplementedError("NotImplemented");
+    T nbuckets() const {return div_.d_;}
+    INLINE void add(T hv) {
+        const T bucket = div_.mod(hv);
+        const T quot = div_.div(hv);
+        auto &ref = core_[bucket];
+#ifdef NOT_THREADSAFE
+        ref = std::min(quot, ref);
+#else
+        while(quot < ref)
+            __sync_bool_compare_and_swap(std::addressof(ref), ref, quot);
+#endif
     }
     void write(const char *fn, int compression=6) const {
         finalize().write(fn, compression);
@@ -94,36 +130,14 @@ public:
         return rc;
     }
     double cardinality_estimate() const {
-        std::vector<T> *cptr = &core_;
-        const double num = double(sizeof(T) * CHAR_BIT) / nbuckets_;
-        double sum = 0.;
-        {
-            std::vector<T> tmp;
-            if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
-                tmp = core_;
-                detail::densifybin(tmp);
-                cptr = &tmp;
-            }
-            for(const auto v: *cptr)
-                sum += double(v) / num;
-        }
-        return std::pow(nbuckets_, 2) / sum;
+        return harmonic_cardinality_estimate(core_);
     }
     double cardinality_estimate() {
-        if(densify() < 0) {
-            std::fprintf(stderr, "Warning: cardinality estimate is 0 because the sketch is fully empty.\n");
-            return 0.;
-        }
-        const double num = double(sizeof(T) * CHAR_BIT) / nbuckets_;
-        double sum = 0.;
-        for(const auto v: core_) {
-            assert(num >= v || !std::fprintf(stderr, "%lf vs %zu failure\n", num, v));
-            sum += double(v) / num;
-        }
-        return std::pow(nbuckets_, 2) / sum;
+        return harmonic_cardinality_estimate(core_);
     }
-    FinalBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
+    FinalDivBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
+
 
 template<typename T, typename Hasher=common::WangHash>
 class BBitMinHasher {
@@ -195,25 +209,11 @@ public:
         }
         switch(mode) {
         case HARMONIC_MEAN: // Dampens outliers
-            sum = 0.;
-            for(const auto v: (*ptr)) {
-                assert(num >= v || !std::fprintf(stderr, "%lf vs %zu failure\n", num, v));
-                sum += double(v) / num;
-            }
-            return std::ldexp(1. / sum, p_ * 2);
+            return detail::harmonic_cardinality_estimate(*const_cast<std::vector<T> *>(ptr), false);
         case ARITHMETIC_MEAN: // better? Still not great.
             return std::accumulate((*ptr).begin() + 1, (*ptr).end(), num / (*ptr)[0], [num](auto x, auto y) {
                 return x + num / y;
             }); // / (*ptr).size() * (*ptr).size();
-        case MEDIAN: { // not very accurate, but cheap. Not recommended.
-            T *tmp = static_cast<T *>(std::malloc(sizeof(T) * (*ptr).size()));
-            if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
-            std::memcpy(tmp, (*ptr).data(), (*ptr).size() * sizeof(T));
-            common::sort::default_sort(tmp, tmp + (*ptr).size());
-            sum = 0.5 * ((num / tmp[(*ptr).size() >> 1]) + (num / tmp[((*ptr).size() >> 1) - 1])) * (*ptr).size();
-            std::free(tmp);
-            return sum;
-        }
         case HLL_METHOD: {
             std::array<uint64_t, 64> arr{0};
             auto diff = p_ - 1;
@@ -243,7 +243,7 @@ class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
 public:
     using final_type = FinalCountingBBitMinHash<CountingType>;
     template<typename... Args>
-    CountingBBitMinHasher(unsigned p, unsigned b, Args &&... args): super(b, p, std::forward<Args>(args)...), counters_(1ull << p) {}
+    CountingBBitMinHasher(unsigned p, unsigned b, Args &&... args): super(p, b, std::forward<Args>(args)...), counters_(1ull << p) {}
     void add(T hv) {
         auto ind = hv>>(sizeof(T) * CHAR_BIT - this->p_);
         auto &ref = this->core_[ind];
@@ -316,7 +316,6 @@ public:
     double est_cardinality_;
     uint32_t b_, p_;
     std::vector<uint64_t, Allocator<uint64_t>> core_;
-    template<typename Functor=DoNothing>
     FinalBBitMinHash(unsigned p, unsigned b, double est): est_cardinality_(est), b_(b), p_(p),
         core_((uint64_t(b) << p) >> 6)
     {
@@ -497,20 +496,13 @@ public:
         return uint64_t(1) << p_;
     }
     double jaccard_index(const FinalBBitMinHash &o) const {
-#if 0
-        auto a1b = this->ab(), a2b = o.ab();
-        auto r1 = r(), r2 = o.r(), rsuminv = 1./ (r1 + r2);
-        auto c1b = a1b * r2 / rsuminv, c2b = a2b * r1 * rsuminv;
-        auto fe = frac_equal(o);
-        return (fe - c1b) / (1. - c2b);
-#endif
-        auto eq = equal_bblocks(o);
-        auto expected = 1ull << p_;
-        expected >>= b_;
-#if !NDEBUG
-        std::fprintf(stderr, "expected: %zu. eq: %zu. nmin: %zu. Diff: %zu. est ji: %lf\n", size_t(expected), size_t(eq), size_t(nmin()), size_t(eq - expected), double(eq - expected) / nmin());
-#endif
-        return double(eq - expected) / nmin();
+        /*
+         * reference: https://arxiv.org/abs/1802.03914.
+        */
+        const double b2pow = std::ldexp(1., -b_);
+        double frac = frac_equal(o);
+        frac -= b2pow;
+        return frac / (1. - b2pow);
     }
     double containment_index(const FinalBBitMinHash &o) const {
         double ji = jaccard_index(o);
@@ -630,6 +622,104 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
         if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
         read(fp);
         gzclose(fp);
+    }
+
+    template<typename=std::enable_if_t<std::is_same<CountingType, uint32_t>::value>> // Only finished for uint32_t currently
+    std::pair<uint64_t, uint64_t> histogram_sums(const FinalCountingBBitMinHash &o) const {
+        assert(o.core_.size() == core_.size());
+        const uint64_t *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
+        assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
+        size_t offset = 0;
+        uint64_t matched_sum = 0;
+        // p_ already guaranteed to be greater than 6
+        switch(p_) {
+            case 6: {
+                __m128i total_sum = _mm_set1_epi32(0);
+                auto match = ~(*p1++ ^ *p2++);
+                while(p1 != pe) match &= ~(*p1++ ^ *p2++);
+                for(size_t i = 0; i < 32; ++i) {
+                    auto maskv = match & 0x3u;
+#ifdef ENABLE_COMPUTED_GOTO
+                    // Can this be masked with ~(v-1) somehow?
+                    const void **labels = {&&zero, &&one, &&two, &&three};
+                    goto labels[maskv];
+                    zero: goto end;
+                    one: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); goto end;
+                    two: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); goto end;
+                    three: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]);
+                    end:
+#else
+                    switch(maskv) {
+                        case 0: break;
+                        case 1: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); break;
+                        case 2: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); break;
+                        case 3: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]); break;
+                    }
+#endif
+                    total_sum = _mm_add_epi32(total_sum, __mm_max_epi32(o.counters_.data()[i*2], counters_.data()[i * 2]));
+                }
+                const auto p = (const uint32_t *)total_sum;
+                return {matched_sum, p[0] + p[1] + p[2] + p[3]};
+            }
+            default: throw NotImplementedError();
+#if 0
+            case 7: {
+                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
+                __m128i match = ~(*vp1++ ^ *vp2++);
+                while(vp1 != vpe)
+                    match &= ~(*vp1++ ^ *vp2++);
+                return popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
+            }
+#if __AVX2__
+            case 8: return common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_));
+#  if HAS_AVX_512
+            case 9: return common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_));
+            default: {
+                // Process each 'b' remainder block in
+                const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
+                auto sum = detail::matching_bits(vp1, vp2, b_);
+                for(size_t i = 1; i < (size_t(1) << (p_ - 9_)); ++i) {
+                    vp1 += b_;
+                    vp2 += b_;
+                    sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
+                }
+                assert((uint64_t *)vp1 == &core_[core_.size()]);
+                return common::sum_of_u64s(sum);
+            }
+#    else /* has avx2 not not 512 */
+            default: {
+                const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2), *vpe = reinterpret_cast<const __m256i *>(pe);
+                auto sum = detail::matching_bits(vp1, vp2, b_);
+                for(size_t i = 1; i < 1ull << (p_ - 8u); ++i) {
+                    vp1 += b_;
+                    vp2 += b_;
+                    sum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
+                }
+#if !NDEBUG
+                auto fptr = (uint64_t *)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
+                auto eptr = p1 + core_.size();
+                assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", fptr, p1 + core_.size()));
+#endif
+                return common::sum_of_u64s(sum);
+            }
+#  endif /* avx512 or avx2 */
+#else /* assume SSE2 */
+            default: {
+                // Process each 'b' remainder block in
+                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
+                __m128i match = ~(*vp1++ ^ *vp2++);
+                for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
+                auto sum = popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
+                while(vp1 != vpe) {
+                    match = ~(*vp1++ ^ *vp2++);
+                    for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
+                    sum += popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
+                }
+                return sum;
+            }
+#endif
+#endif
+        }
     }
 };
 
