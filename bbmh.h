@@ -1,5 +1,6 @@
 #ifndef SKETCH_BB_MINHASH_H__
 #define SKETCH_BB_MINHASH_H__
+#include "div.h"
 #include "common.h"
 #include "hll.h"
 
@@ -44,6 +45,30 @@ inline int densifybin(Container &hashes) {
     return 1;
 }
 
+template<typename T>
+static inline double harmonic_cardinality_estimate(std::vector<T> &minvec, bool densify=true) {
+    if(densify) if(detail::densifybin(minvec) < 0) return 0.;
+    const double num = double(sizeof(T) * CHAR_BIT) / minvec.size();
+    double sum = 0.;
+    for(const auto v: minvec)
+        sum += double(v) / num;
+    return std::pow(minvec.size(), 2) / sum;
+}
+
+template<typename T>
+static inline double harmonic_cardinality_estimate(const std::vector<T> &minvec) {
+    if(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) != minvec.end()) {
+        std::vector<T> tmp = minvec; // copy
+        detail::densifybin(tmp);
+        return harmonic_cardinality_estimate(tmp, false);
+    } // Else don't worry about it, just do the thing.
+    const double num = double(sizeof(T) * CHAR_BIT) / minvec.size();
+    double sum = 0.;
+    for(const auto v: minvec)
+        sum += double(v) / num;
+    return std::pow(minvec.size(), 2) / sum;
+}
+
 
 } // namespace detail
 
@@ -57,76 +82,13 @@ template<typename CountingType, typename=typename std::enable_if<
         >::type>
 struct FinalCountingBBitMinHash;
 
-namespace div {
 
-// Extrapolated from 32-it method at https://github.com/lemire/fastmod and its accompanying paper
-// Method for 64-bit integers developed and available at https://github.com/dnbaker/fastmod
-
-static inline __uint128_t computeM_u64(uint64_t d) {
-  __uint128_t M = UINT64_C(0xFFFFFFFFFFFFFFFF);
-  M <<= 64;
-  M |= UINT64_C(0xFFFFFFFFFFFFFFFF);
-  M /= d;
-  M += 1;
-  return M;
-}
-
-static inline uint64_t mul128_u64(__uint128_t lowbits, uint64_t d) {
-  __uint128_t bottom_half = (lowbits & UINT64_C(0xFFFFFFFFFFFFFFFF)) * d; // Won't overflow
-  bottom_half >>= 64;  // Only need the top 64 bits, as we'll shift the lower half away;
-  __uint128_t top_half = (lowbits >> 64) * d;
-  __uint128_t both_halves = bottom_half + top_half; // Both halves are already shifted down by 64
-  both_halves >>= 64; // Get top half of both_halves
-  return (uint64_t)both_halves;
-}
-static inline uint64_t fastdiv_u64(uint64_t a, __uint128_t M) {
-  return mul128_u64(M, a);
-}
-
-static inline uint64_t fastmod_u64(uint64_t a, __uint128_t M, uint64_t d) {
-  __uint128_t lowbits = M * a;
-  return mul128_u64(lowbits, d);
-}
-static inline uint64_t computeM_u32(uint32_t d) {
-  return UINT64_C(0xFFFFFFFFFFFFFFFF) / d + 1;
-}
-static inline uint64_t mul128_u32(uint64_t lowbits, uint32_t d) {
-  return ((__uint128_t)lowbits * d) >> 64;
-}
-static inline uint32_t fastmod_u32(uint32_t a, uint64_t M, uint32_t d) {
-  uint64_t lowbits = M * a;
-  return (uint32_t)(mul128_u32(lowbits, d));
-}
-
-// fastmod computes (a / d) given precomputed M for d>1
-static inline uint32_t fastdiv_u32(uint32_t a, uint64_t M) {
-  return (uint32_t)(mul128_u32(M, a));
-}
-
-template<typename T>
-struct Schismatic;
-template<> struct Schismatic<uint64_t> {
-    const uint64_t d_;
-    const __uint128_t M_;
-    Schismatic(uint64_t d): d_(d), M_(computeM_u64(d)) {}
-    INLINE uint64_t div(uint64_t v) const {return fastdiv_u64(v, M_);}
-    INLINE uint64_t mod(uint64_t v) const {return fastmod_u64(v, M_, d_);}
-};
-template<> struct Schismatic<uint32_t> {
-    const uint32_t d_;
-    const uint64_t M_;
-    Schismatic(uint32_t d): d_(d), M_(computeM_u32(d)) {}
-    INLINE uint32_t div(uint32_t v) const {return fastdiv_u32(v, M_);}
-    INLINE uint32_t mod(uint32_t v) const {return fastmod_u32(v, M_, d_);}
-};
-
-} // namespace div
 
 template<typename T, typename Hasher=common::WangHash>
 class DivBBitMinHasher {
     std::vector<T> core_;
     uint32_t b_, p_;
-    div::Schismatic<typename std::make_unsigned<T>::type> div_;
+    schism::Schismatic<T> div_;
     __uint128_t M_; // Cached for fastmod64
     Hasher hf_;
 public:
@@ -168,23 +130,14 @@ public:
         return rc;
     }
     double cardinality_estimate() const {
-        std::vector<T> *cptr = &core_;
-        const double num = double(sizeof(T) * CHAR_BIT) / nbuckets();
-        double sum = 0.;
-        {
-            std::vector<T> tmp;
-            if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
-                tmp = core_;
-                detail::densifybin(tmp);
-                cptr = &tmp;
-            }
-            for(const auto v: *cptr)
-                sum += double(v) / num;
-        }
-        return std::pow(nbuckets(), 2) / sum;
+        return harmonic_cardinality_estimate(core_);
+    }
+    double cardinality_estimate() {
+        return harmonic_cardinality_estimate(core_);
     }
     FinalDivBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
+
 
 template<typename T, typename Hasher=common::WangHash>
 class BBitMinHasher {
@@ -256,25 +209,11 @@ public:
         }
         switch(mode) {
         case HARMONIC_MEAN: // Dampens outliers
-            sum = 0.;
-            for(const auto v: (*ptr)) {
-                assert(num >= v || !std::fprintf(stderr, "%lf vs %zu failure\n", num, v));
-                sum += double(v) / num;
-            }
-            return std::ldexp(1. / sum, p_ * 2);
+            return detail::harmonic_cardinality_estimate(*const_cast<std::vector<T> *>(ptr), false);
         case ARITHMETIC_MEAN: // better? Still not great.
             return std::accumulate((*ptr).begin() + 1, (*ptr).end(), num / (*ptr)[0], [num](auto x, auto y) {
                 return x + num / y;
             }); // / (*ptr).size() * (*ptr).size();
-        case MEDIAN: { // not very accurate, but cheap. Not recommended.
-            T *tmp = static_cast<T *>(std::malloc(sizeof(T) * (*ptr).size()));
-            if(__builtin_expect(!tmp, 0)) throw std::bad_alloc();
-            std::memcpy(tmp, (*ptr).data(), (*ptr).size() * sizeof(T));
-            common::sort::default_sort(tmp, tmp + (*ptr).size());
-            sum = 0.5 * ((num / tmp[(*ptr).size() >> 1]) + (num / tmp[((*ptr).size() >> 1) - 1])) * (*ptr).size();
-            std::free(tmp);
-            return sum;
-        }
         case HLL_METHOD: {
             std::array<uint64_t, 64> arr{0};
             auto diff = p_ - 1;
@@ -557,20 +496,13 @@ public:
         return uint64_t(1) << p_;
     }
     double jaccard_index(const FinalBBitMinHash &o) const {
-#if 0
-        auto a1b = this->ab(), a2b = o.ab();
-        auto r1 = r(), r2 = o.r(), rsuminv = 1./ (r1 + r2);
-        auto c1b = a1b * r2 / rsuminv, c2b = a2b * r1 * rsuminv;
-        auto fe = frac_equal(o);
-        return (fe - c1b) / (1. - c2b);
-#endif
-        auto eq = equal_bblocks(o);
-        auto expected = 1ull << p_;
-        expected >>= b_;
-#if !NDEBUG
-        std::fprintf(stderr, "expected: %zu. eq: %zu. nmin: %zu. Diff: %zu. est ji: %lf\n", size_t(expected), size_t(eq), size_t(nmin()), size_t(eq - expected), double(eq - expected) / nmin());
-#endif
-        return double(eq - expected) / nmin();
+        /*
+         * reference: https://arxiv.org/abs/1802.03914.
+        */
+        const double b2pow = std::ldexp(1., -b_);
+        double frac = frac_equal(o);
+        frac -= b2pow;
+        return frac / (1. - b2pow);
     }
     double containment_index(const FinalBBitMinHash &o) const {
         double ji = jaccard_index(o);

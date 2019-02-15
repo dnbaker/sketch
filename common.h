@@ -698,10 +698,9 @@ static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, s
 } // namespace detail
 
 enum MHCardinalityMode: uint8_t {
-    MEDIAN,
     HARMONIC_MEAN,
     ARITHMETIC_MEAN,
-    HLL_METHOD, // Should perform worse
+    HLL_METHOD, // Should perform worse than harmonic
 };
 
 } // namespace common
