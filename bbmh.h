@@ -118,6 +118,7 @@ public:
     void write(const char *fn, int compression=6) const {
         finalize().write(fn, compression);
     }
+    void write(const std::string &fn, int compression=6) const {write(fn.data(), compression);}
     int densify() {
         int rc = detail::densifybin(core_);
 #if !NDEBUG
@@ -160,6 +161,10 @@ public:
             throw std::runtime_error(buf);
         }
     }
+    void read(const std::string &path) {read(path.data());}
+    void read(const char *path) {
+        throw NotImplementedError("NotImplemented function. This is likely an error, as you probabyl don't mean to call this.");
+    }
     void addh(T val) {val = hf_(val);add(val);}
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
@@ -181,6 +186,7 @@ public:
     void write(const char *fn, int compression=6, uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const {
         finalize(b ? b: b_, mode).write(fn, compression);
     }
+    void write(const std::string &fn, int compression=6, uint32_t b=0) const {write(fn.data(), compression, b);}
     void write(gzFile fp, uint32_t b=0) const {
         finalize(b?b:b_).write(fp);
     }
@@ -321,6 +327,15 @@ public:
     {
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, p, core_.size(), core_.size() * 64);
     }
+    void free() {
+        decltype(core_) tmp;
+        std::swap(tmp, core_);
+    }
+    FinalBBitMinHash(const std::string &path): FinalBBitMinHash(path.data()) {}
+    FinalBBitMinHash(const char *path) {
+        std::memset(this, 0, sizeof(*this));
+        read(path);
+    }
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
     template<typename T, typename Hasher=common::WangHash>
@@ -353,6 +368,7 @@ public:
         read(fp);
         gzclose(fp);
     }
+    void write(const std::string &path, int compression=6) const {write(path.data(), compression);}
     void write(const char *path, int compression=6) const {
         std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");
         gzFile fp = gzopen(path, mode.data());
@@ -510,6 +526,10 @@ public:
         return is / est_cardinality_;
     }
 };
+
+INLINE double jaccard_index(const FinalBBitMinHash &a, const FinalBBitMinHash &b) {
+    return a.jaccard_index(b);
+}
 
 template<typename T, typename Hasher>
 FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
