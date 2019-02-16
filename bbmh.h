@@ -642,12 +642,12 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
 #ifdef ENABLE_COMPUTED_GOTO
                     // Can this be masked with ~(v-1) somehow?
                     const void **labels = {&&zero, &&one, &&two, &&three};
-                    goto labels[maskv];
+                    goto *labels[maskv];
                     zero: goto end;
                     one: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); goto end;
                     two: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); goto end;
                     three: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]);
-                    end:
+                    end: ;
 #else
                     switch(maskv) {
                         case 0: break;
