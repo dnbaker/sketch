@@ -188,6 +188,7 @@ protected:
     std::vector<uint64_t, common::Allocator<uint64_t>> seeds_;
 
 public:
+    using counter_register_type = typename std::decay<decltype(data_[0])>::type;
     static constexpr bool supports_deletion() {
         return !conservative_update;
     }
@@ -220,7 +221,7 @@ public:
 #endif
     }
     VectorType &ref() {return data_;}
-    auto addh(uint64_t val) {return add(val);}
+    auto addh(uint64_t val, double inc=1.) {return add(val, inc);}
     template<typename T>
     T hash(T val) const {
         return hf_(val);

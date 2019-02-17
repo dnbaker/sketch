@@ -29,10 +29,12 @@ struct CWSamples {
 };
 
 template<typename FType=float, typename HashStruct=common::WangHash>
-class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,true> {
-    using super = cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,true>;
+class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,false> {
+    using super = cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,false>;
     using FSpace = vec::SIMDTypes<FType>;
     FType scale_;
+public:
+    FType decay_rate() const {return scale_;}
     void addh(uint64_t val) {this->add(val);}
     void add(uint64_t val) {
         if(scale_) {
