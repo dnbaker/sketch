@@ -26,6 +26,7 @@ int main(int argc, char *argv[]) {
     pccm_t thing(nbits >> 1, l2sz, nhashes);
     ccm_t thingexact(nbits, l2sz, nhashes);
     sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, sketch::common::WangHash, false> thingwithnonminmal(nbits, l2sz, nhashes);
+    sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, sketch::common::WangHash, false> thingwithfloats(nbits, l2sz, nhashes);
     cs_t thingcs(l2sz, nhashes);
     sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
 #if __cplusplus >= 201703L
