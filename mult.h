@@ -28,9 +28,9 @@ struct CWSamples {
     }
 };
 
-template<typename FType=float, typename HashStruct=common::WangHash>
-class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,false> {
-    using super = cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,false>;
+template<typename FType=float, typename HashStruct=common::WangHash, bool conservative=false>
+class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
+    using super = cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
     using FSpace = vec::SIMDTypes<FType>;
     FType scale_;
 public:
