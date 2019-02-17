@@ -221,7 +221,7 @@ public:
 #endif
     }
     VectorType &ref() {return data_;}
-    auto addh(uint64_t val, double inc=1.) {return add(val, inc);}
+    auto addh(uint64_t val) {return add(val);}
     template<typename T>
     T hash(T val) const {
         return hf_(val);
