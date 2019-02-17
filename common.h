@@ -63,7 +63,7 @@
 #  define FOREVER for(;;)
 #endif
 #ifndef ASSERT_INT_T
-#  define ASSERT_INT_T(T) typename=::std::enable_if_t<::std::is_integral_v<(T)>>
+#  define ASSERT_INT_T(T) typename=typename ::std::enable_if<::std::is_integral<(T)>::value>::type
 #endif
 
 #if __has_cpp_attribute(no_unique_address)
