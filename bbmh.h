@@ -340,6 +340,8 @@ public:
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
     template<typename T, typename Hasher=common::WangHash>
     FinalBBitMinHash(BBitMinHasher<T, Hasher> &&o): FinalBBitMinHash(std::move(o.finalize())) {
+        std::fprintf(stderr, "est card %lf\n", est_cardinality_);
+        std::fprintf(stderr, "b: %u. p: %u. size of core: %zu\n", b_, p_, core_.size());
         o.free();
     }
     template<typename T, typename Hasher=common::WangHash>
@@ -518,7 +520,7 @@ public:
         const double b2pow = std::ldexp(1., -b_);
         double frac = frac_equal(o);
         frac -= b2pow;
-        return frac / (1. - b2pow);
+        return std::max(0., frac / (1. - b2pow));
     }
     double containment_index(const FinalBBitMinHash &o) const {
         double ji = jaccard_index(o);
