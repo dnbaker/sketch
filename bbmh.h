@@ -87,7 +87,7 @@ struct FinalCountingBBitMinHash;
 template<typename T, typename Hasher=common::WangHash>
 class DivBBitMinHasher {
     std::vector<T> core_;
-    uint32_t b_, p_;
+    uint32_t b_;
     schism::Schismatic<T> div_;
     __uint128_t M_; // Cached for fastmod64
     Hasher hf_;
@@ -340,8 +340,6 @@ public:
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
     template<typename T, typename Hasher=common::WangHash>
     FinalBBitMinHash(BBitMinHasher<T, Hasher> &&o): FinalBBitMinHash(std::move(o.finalize())) {
-        std::fprintf(stderr, "est card %lf\n", est_cardinality_);
-        std::fprintf(stderr, "b: %u. p: %u. size of core: %zu\n", b_, p_, core_.size());
         o.free();
     }
     template<typename T, typename Hasher=common::WangHash>
@@ -533,6 +531,106 @@ INLINE double jaccard_index(const FinalBBitMinHash &a, const FinalBBitMinHash &b
     return a.jaccard_index(b);
 }
 
+struct FinalDivBBitMinHash {
+private:
+    FinalDivBBitMinHash() {}
+public:
+    using value_type = uint64_t;
+    double est_cardinality_;
+    uint64_t nbuckets_;
+    uint32_t b_;
+    std::vector<uint64_t, Allocator<uint64_t>> core_;
+    FinalDivBBitMinHash(unsigned nbuckets, unsigned b, double est): est_cardinality_(est), b_(b), nbuckets_(nbuckets),
+        core_((uint64_t(b) * nbuckets_) / 64 + (nbuckets_ * uint64_t(b) % 64 != 0))
+    {
+        std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, nbuckets, core_.size(), core_.size() * 64);
+    }
+    void free() {
+        decltype(core_) tmp;
+        std::swap(tmp, core_);
+    }
+    FinalDivBBitMinHash(const std::string &path): FinalDivBBitMinHash(path.data()) {}
+    FinalDivBBitMinHash(const char *path) {
+        std::memset(this, 0, sizeof(*this));
+        read(path);
+    }
+    FinalDivBBitMinHash(FinalDivBBitMinHash &&o) = default;
+    FinalDivBBitMinHash(const FinalDivBBitMinHash &o) = default;
+    template<typename T, typename Hasher=common::WangHash>
+    FinalDivBBitMinHash(DivBBitMinHasher<T, Hasher> &&o): FinalDivBBitMinHash(std::move(o.finalize())) {
+        std::fprintf(stderr, "est card %lf\n", est_cardinality_);
+        std::fprintf(stderr, "b: %u. nbuckets: %u. size of core: %zu\n", b_, nbuckets_, core_.size());
+        o.free();
+    }
+    template<typename T, typename Hasher=common::WangHash>
+    FinalDivBBitMinHash(const DivBBitMinHasher<T, Hasher> &o): FinalDivBBitMinHash(std::move(o.finalize())) {}
+    void read(gzFile fp) {
+        uint64_t arr[2];
+        if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw std::runtime_error("Could not read from file.");
+        b_ = arr[0];
+        nbuckets_ = arr[1];
+        if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw std::runtime_error("Could not read from file.");
+        core_.resize(b_ * nbuckets_ / 64 + (b_ * nbuckets_ % 64 != 0));
+        gzread(fp, core_.data(), sizeof(core_[0]) * core_.size());
+    }
+    void read(const char *path) {
+        gzFile fp = gzopen(path, "rb");
+        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
+        read(fp);
+        gzclose(fp);
+    }
+    void write(const std::string &path, int compression=6) const {write(path.data(), compression);}
+    void write(const char *path, int compression=6) const {
+        std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");
+        gzFile fp = gzopen(path, mode.data());
+        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
+        write(fp);
+        gzclose(fp);
+    }
+    void write(gzFile fp) const {
+        uint64_t arr[] {b_, nbuckets_};
+        if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
+        if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
+        if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != ssize_t(core_.size() * sizeof(core_[0])), 0)) throw std::runtime_error("Could not write to file");
+    }
+    double equal_bblocks(const FinalDivBBitMinHash &o) const {
+        throw NotImplementedError("FinalDivBBitMinHash not yet completed.");
+    }
+    double frac_equal(const FinalDivBBitMinHash &o) const {
+        return double(equal_bblocks(o)) / nbuckets_;
+    }
+    uint64_t nmin() const {
+        return nbuckets_;
+    }
+    double jaccard_index(const FinalDivBBitMinHash &o) const {
+        /*
+         * reference: https://arxiv.org/abs/1802.03914.
+        */
+        const double b2pow = std::ldexp(1., -b_);
+        double frac = frac_equal(o);
+        frac -= b2pow;
+        return std::max(0., frac / (1. - b2pow));
+    }
+    double containment_index(const FinalDivBBitMinHash &o) const {
+        double ji = jaccard_index(o);
+        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        return is / est_cardinality_;
+    }
+};
+
+template<typename T, typename Hasher>
+FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) const {
+#if 0
+    std::vector<T> core_;
+    uint32_t b_, p_;
+    schism::Schismatic<T> div_;
+    __uint128_t M_; // Cached for fastmod64
+    Hasher hf_;
+#endif
+    FinalDivBBitMinHash ret(nbuckets(), b_, cardinality_estimate());
+    throw NotImplementedError("BitPacking for DivBBitMinHasher not yet complete.");
+}
+
 template<typename T, typename Hasher>
 FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
     b = b ? b: b_; // Use the b_ of BBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
@@ -653,95 +751,35 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
         size_t offset = 0;
         uint64_t matched_sum = 0;
-        // p_ already guaranteed to be greater than 6
-        switch(p_) {
-            case 6: {
-                __m128i total_sum = _mm_set1_epi32(0);
-                auto match = ~(*p1++ ^ *p2++);
-                while(p1 != pe) match &= ~(*p1++ ^ *p2++);
-                for(size_t i = 0; i < 32; ++i) {
-                    auto maskv = match & 0x3u;
+        __m128i total_sum = _mm_set1_epi32(0);
+        for(size_t i = 0; i < 1u << (p_ - 6); ++i) {
+            auto match = ~(*p1++ ^ *p2++);
+            while(p1 != pe) match &= ~(*p1++ ^ *p2++);
+            for(size_t i = 0; i < 32; ++i) {
+                auto maskv = match & 0x3u;
 #ifdef ENABLE_COMPUTED_GOTO
-                    // Can this be masked with ~(v-1) somehow?
-                    const void **labels = {&&zero, &&one, &&two, &&three};
-                    goto *labels[maskv];
-                    zero: goto end;
-                    one: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); goto end;
-                    two: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); goto end;
-                    three: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]);
-                    end: ;
+                // Can this be masked with ~(v-1) somehow?
+                const void **labels = {&&zero, &&one, &&two, &&three};
+                goto *labels[maskv];
+                zero: goto end;
+                one: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); goto end;
+                two: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); goto end;
+                three: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]);
+                end: ;
 #else
-                    switch(maskv) {
-                        case 0: break;
-                        case 1: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); break;
-                        case 2: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); break;
-                        case 3: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]); break;
-                    }
-#endif
-                    total_sum = _mm_add_epi32(total_sum, __mm_max_epi32(o.counters_.data()[i*2], counters_.data()[i * 2]));
+                switch(maskv) {
+                    case 0: break;
+                    case 1: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); break;
+                    case 2: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); break;
+                    case 3: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]); break;
                 }
-                const auto p = (const uint32_t *)total_sum;
-                return {matched_sum, p[0] + p[1] + p[2] + p[3]};
-            }
-            default: throw NotImplementedError();
-#if 0
-            case 7: {
-                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
-                __m128i match = ~(*vp1++ ^ *vp2++);
-                while(vp1 != vpe)
-                    match &= ~(*vp1++ ^ *vp2++);
-                return popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
-            }
-#if __AVX2__
-            case 8: return common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_));
-#  if HAS_AVX_512
-            case 9: return common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_));
-            default: {
-                // Process each 'b' remainder block in
-                const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
-                auto sum = detail::matching_bits(vp1, vp2, b_);
-                for(size_t i = 1; i < (size_t(1) << (p_ - 9_)); ++i) {
-                    vp1 += b_;
-                    vp2 += b_;
-                    sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
-                }
-                assert((uint64_t *)vp1 == &core_[core_.size()]);
-                return common::sum_of_u64s(sum);
-            }
-#    else /* has avx2 not not 512 */
-            default: {
-                const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2), *vpe = reinterpret_cast<const __m256i *>(pe);
-                auto sum = detail::matching_bits(vp1, vp2, b_);
-                for(size_t i = 1; i < 1ull << (p_ - 8u); ++i) {
-                    vp1 += b_;
-                    vp2 += b_;
-                    sum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
-                }
-#if !NDEBUG
-                auto fptr = (uint64_t *)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
-                auto eptr = p1 + core_.size();
-                assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", fptr, p1 + core_.size()));
 #endif
-                return common::sum_of_u64s(sum);
+                total_sum = _mm_add_epi32(total_sum, __mm_max_epi32(o.counters_.data()[i*2], counters_.data()[i * 2]));
             }
-#  endif /* avx512 or avx2 */
-#else /* assume SSE2 */
-            default: {
-                // Process each 'b' remainder block in
-                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
-                __m128i match = ~(*vp1++ ^ *vp2++);
-                for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
-                auto sum = popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
-                while(vp1 != vpe) {
-                    match = ~(*vp1++ ^ *vp2++);
-                    for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
-                    sum += popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
-                }
-                return sum;
-            }
-#endif
-#endif
         }
+
+        const auto p = (const uint32_t *)total_sum;
+        return {matched_sum, uint64_t(p[0]) + p[1] + p[2] + p[3]};
     }
 };
 
