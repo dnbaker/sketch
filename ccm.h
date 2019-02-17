@@ -17,6 +17,9 @@ namespace detail {
     };
     template<typename T>
     static constexpr int range_check(unsigned nbits, T val) {
+        CONST_IF(std::is_floating_point<T>::value) {
+            return 0; // Yeah, we're fine.
+        }
         CONST_IF(std::is_signed<T>::value) {
             const int64_t v = val;
             return v < -int64_t(1ull << (nbits - 1)) ? -1
@@ -474,7 +477,7 @@ public:
     template<typename...Args>
     csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
         core_(uint64_t(nh) << np), np_(np), nh_(nh), nph_(64 / (np + 1)), hf_(std::forward<Args>(args)...),
-        mask_((1ull << np_) - 1), 
+        mask_((1ull << np_) - 1),
         seeds_((nh_ + (nph_ - 1)) / nph_ - 1)
     {
         aes::AesCtr<uint64_t> gen(np + nh + seedseed);
