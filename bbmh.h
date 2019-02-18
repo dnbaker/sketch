@@ -214,6 +214,15 @@ public:
 #endif
         return rc;
     }
+    double make_alpha() const {
+        auto m = 1u << p_;
+        switch(1u << p_) {
+            case 16: return .673;
+            case 32: return .697;
+            case 64: return .709;
+            default: return 0.7213 / (1 + 1.079/m);
+        }
+    }
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
         if(std::find_if(core_.begin(), core_.end(), [](auto x) {return x != detail::default_val<T>();}) == core_.end())
             return 0.; // Empty sketch
@@ -230,18 +239,26 @@ public:
         case HARMONIC_MEAN: // Dampens outliers
             return detail::harmonic_cardinality_estimate(*const_cast<std::vector<T> *>(ptr), false);
         case ARITHMETIC_MEAN: // better? Still not great.
-            return std::accumulate((*ptr).begin() + 1, (*ptr).end(), num / (*ptr)[0], [num](auto x, auto y) {
-                return x + num / y;
-            }); // / (*ptr).size() * (*ptr).size();
+            return arithmean(ptr->begin(), ptr->end(), [num](auto x) {return num / x;}) * core_.size();
+        case MEDIAN: {
+            std::vector<double> ests(ptr->size());
+            for(size_t i = 0; i < ests.size(); ++i)
+                ests[i] = num / core_[i];
+            std::sort(ests.begin(), ests.end());
+            return (ests[ests.size() / 2] + (ests[ests.size() / 2 - 1])) * .5 * core_.size() * make_alpha();
+        }
         case GEOMETRIC_MEAN: // better? Still not great.
             // This can be accelerated with vector class library's fast log routines and conversion operations
-            return std::exp((std::log(num) * core_.size() -
-                std::accumulate((*ptr).begin() + 1, (*ptr).end(), std::log((*ptr)[0]), [num](auto x, auto y) {
-                    return x + std::log(y);
-                })) / core_.size()
-                );
+            return
+#if 1
+                geomean_invprod(ptr->begin(), ptr->end(), num) * core_.size() * make_alpha();
+#else
+            // Slower, simpler way:
+            std::exp(std::accumulate(ptr->begin(), ptr->end(), 0., [num](auto x, auto y) {return x + std::log(num / y);}) / core_.size()) * core_.size();
+#endif
             // pth root of product of all estimates, where p = core_.size()
             // exp(1/p * [log(num) * len(minimizers) - sum(log(x) for x in minimizers)])
+            // Then, times the number of minimizers, because we've partitioned the data into that many streams.
         case HLL_METHOD: {
             std::array<uint64_t, 64> arr{0};
             auto diff = p_ - 1;

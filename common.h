@@ -206,6 +206,30 @@ static constexpr INLINE unsigned ilog2(T x) noexcept {
     return sizeof(T) * CHAR_BIT - clz(x)  - 1;
 }
 
+struct identity {
+    template<typename T>
+    constexpr decltype(auto) operator()(T &&t) const {
+        return std::forward<T>(t);
+    }
+};
+
+template<typename I1, typename I2, typename Func=identity>
+double geomean(I1 beg, I2 end, const Func &func=Func()) {
+   return std::exp(std::accumulate(beg, end, 0., [&func](auto x, auto y) {return x + std::log(func(y));}) / std::distance(beg, end));
+}
+template<typename I1, typename I2, typename Func=identity>
+double geomean_invprod(I1 beg, I2 end, double num=1., const Func &func=Func()) {
+   return std::exp(std::log(num) - std::accumulate(beg, end, 0., [&func](auto x, auto y) {return x + std::log(func(y));}) / std::distance(beg, end));
+}
+template<typename I1, typename I2, typename Func=identity>
+double arithmean(I1 beg, I2 end, const Func &func=Func()) {
+   return std::accumulate(beg, end, 0., [&func](auto x, auto y) {return x + func(y);}) / std::distance(beg, end);
+}
+template<typename I1, typename I2, typename Func=identity>
+double arithmean_invsim(I1 beg, I2 end, double num=1., const Func &func=Func()) {
+   return std::accumulate(beg, end, 0., [&func,num](auto x, auto y) {return x + num / func(y);}) / std::distance(beg, end);
+}
+
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
 // This is our core 64-bit hash.
@@ -783,6 +807,7 @@ enum MHCardinalityMode: uint8_t {
     HARMONIC_MEAN,
     GEOMETRIC_MEAN,
     ARITHMETIC_MEAN,
+    MEDIAN,
     HLL_METHOD, // Should perform worse than harmonic
 };
 
