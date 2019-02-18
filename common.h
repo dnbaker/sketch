@@ -613,7 +613,11 @@ INLINE auto popcnt_fn(Type val) {
 
 #define VAL_AS_ARR(ind) reinterpret_cast<const uint64_t *>(&val)[ind]
 #if HAS_AVX_512
-#define FUNCTION_CALL popcnt512(val)
+#  if defined(__AVX512VPOPCNTDQ__)
+#    define FUNCTION_CALL ::_mm512_popcnt_epi64(val)
+#  else
+#    define FUNCTION_CALL popcnt512(val)
+#  endif
 #elif __AVX2__
 // This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
 #define FUNCTION_CALL popcnt256(val)
