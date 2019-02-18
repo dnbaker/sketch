@@ -753,6 +753,7 @@ public:
         return std::make_pair(sizeof(*this),
                               core_.size() * sizeof(core_[0]));
     }
+    uint64_t hash(uint64_t val) const {return hf_(val);}
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(static_cast<double>(m()));}

@@ -23,8 +23,8 @@ endif
 
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 all: $(EX)
-run_tests: $(EX)
-	for i in $(EX); do ./$$i; done
+run_tests: $(EX) lztest
+	for i in $(EX) lztest; do ./$$i; done
 
 STD?=-std=c++14
 
@@ -36,7 +36,7 @@ HEADERS=$(wildcard *.h)
 python: _hll.cpython.so
 	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`python3-config --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
-%.cpython.so: %.cpp hll.o
+%.cpython.so: %.cpp # hll.o
 	$(CXX) $(UNDEFSTR) $(INCLUDES) -O3 -Wall $(FLAGS) $(INC) -shared $(STD) -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \
     ln -fs $*$(SUF) $@
 
@@ -49,20 +49,11 @@ python: _hll.cpython.so
 %: src/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-test: src/test.cpp kthread.o $(HEADERS)
-	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
-
-mctest: src/mctest.cpp kthread.o $(HEADERS)
-	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -O1 $< -o $@ -lz
-
 %_d: src/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
 lztest: src/test.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
-
-serial_test: serial_test.cpp hll.h
-	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread -DNOT_THREADSAFE $< -o $@ -lz
 
 dev_test_p: dev_test.cpp kthread.o hll.h
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -static-libstdc++ -static-libgcc $< -o $@ -lz
