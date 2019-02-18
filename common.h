@@ -577,8 +577,8 @@ static constexpr inline bool is_pow2(T val) {
 template<typename T>
 class TD;
 
-inline unsigned popcount(uint64_t val) noexcept {
-#ifndef NO_USE_CQF_ASM
+INLINE auto popcount(uint64_t val) noexcept {
+#ifdef AVOID_ASM_POPCNT
 // From cqf https://github.com/splatlab/cqf/
     asm("popcnt %[val], %[val]"
             : [val] "+r" (val)

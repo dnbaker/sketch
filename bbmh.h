@@ -308,7 +308,11 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
     __m512i match = ~(*s1++ ^ *s2++);
     while(--b)
         match &= ~(*s1++ ^ *s2++);
+#if defined(__AVX512VPOPCNTDQ__)
+    return ::_mm512_popcnt_epi64(match);
+#else
     return popcnt512(match);
+#endif
 }
 #endif
 

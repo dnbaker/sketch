@@ -28,7 +28,7 @@ struct CWSamples {
     }
 };
 
-template<typename FType=float, typename HashStruct=common::WangHash, bool conservative=false>
+template<typename FType=float, typename HashStruct=common::WangHash, bool decay=false, bool conservative=false>
 class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
     using super = cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
     using FSpace = vec::SIMDTypes<FType>;
@@ -37,13 +37,12 @@ public:
     FType decay_rate() const {return scale_;}
     void addh(uint64_t val) {this->add(val);}
     void add(uint64_t val) {
-        if(scale_) {
+        CONST_IF(decay)
             rescale();
-        }
         super::add(val);
     }
     template<typename...Args>
-    realccm_t(FType scale_prod=0., Args &&...args): scale_(scale_prod), super(std::forward<Args>(args)...) {
+    realccm_t(FType scale_prod=1., Args &&...args): scale_(scale_prod), super(std::forward<Args>(args)...) {
         assert(scale_ >= 0. && scale_ <= 1.);
     }
     void rescale() {
