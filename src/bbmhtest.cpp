@@ -26,6 +26,7 @@ int main() {
             }
             b1.densify();
             b2.densify();
+            std::fprintf(stderr, "b1: %lf\n", b1.cardinality_estimate());
             auto f1 = b1.finalize(), f2 = b2.finalize(), f3 = b3.finalize();
             std::fprintf(stderr, "Expected Cardinality [shared:%zu/b1:%zu/b2:%zu]\n", shared, b1c, b2c);
             std::fprintf(stderr, "h1 est %lf, h2 est: %lf\n", h1.report(), h2.report());
@@ -34,6 +35,7 @@ int main() {
             std::fprintf(stderr, "Estimate arithmetic mean [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(ARITHMETIC_MEAN), b2.cardinality_estimate(ARITHMETIC_MEAN));
             std::fprintf(stderr, "JI for f3 and f2: %lf\n", f2.jaccard_index(f3));
             std::fprintf(stderr, "equal blocks: %zu\n", size_t(f2.equal_bblocks(f3)));
+            std::fprintf(stderr, "f1, f2, and f3 cardinalities: %lf, %lf, %lf\n", f1.est_cardinality_, f2.est_cardinality_, f3.est_cardinality_);
             cb1.finalize().write("ZOMG.cb");
         }
     }

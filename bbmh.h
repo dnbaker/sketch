@@ -35,7 +35,12 @@ inline int densifybin(Container &hashes) {
         max = std::max(max, v);
     }
     if (empty_val != max) return 0; // Full sketch
-    if (empty_val == min) return -1; // Empty sketch
+    if (empty_val == min) {
+#if !NDEBUG
+        std::fprintf(stderr, "Can't densify empty sketch\n");
+#endif
+        return -1; // Empty sketch
+    }
     for (uint64_t i = 0; i < hashes.size(); i++) {
         uint64_t j = i, nattempts = 0;
         while(hashes[j] == empty_val)
@@ -46,9 +51,9 @@ inline int densifybin(Container &hashes) {
 }
 
 template<typename T>
-static inline double harmonic_cardinality_estimate(std::vector<T> &minvec, bool densify=true) {
-    if(densify) if(detail::densifybin(minvec) < 0) return 0.;
-    const double num = double(sizeof(T) * CHAR_BIT) / minvec.size();
+static inline double harmonic_cardinality_estimate_impl(const std::vector<T> &minvec) {
+    const double num = (minvec.size() & (minvec.size() - 1)) ? std::ldexp(1., double(sizeof(T) * CHAR_BIT) - std::log2(minvec.size()))
+                                                             : double(UINT64_C(-1)) / minvec.size();
     double sum = 0.;
     for(const auto v: minvec)
         sum += double(v) / num;
@@ -56,17 +61,24 @@ static inline double harmonic_cardinality_estimate(std::vector<T> &minvec, bool 
 }
 
 template<typename T>
+static inline double harmonic_cardinality_estimate(std::vector<T> &minvec, bool densify=true) {
+    if(densify) {
+        if(detail::densifybin(minvec) < 0) {
+            std::fprintf(stderr, "Failed to densify for harmonic cardinality\n");
+            return 0.;
+        }
+    }
+    return harmonic_cardinality_estimate_impl<T>(minvec);
+}
+
+template<typename T>
 static inline double harmonic_cardinality_estimate(const std::vector<T> &minvec) {
     if(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) != minvec.end()) {
         std::vector<T> tmp = minvec; // copy
         detail::densifybin(tmp);
-        return harmonic_cardinality_estimate(tmp, false);
+        return harmonic_cardinality_estimate_impl(tmp);
     } // Else don't worry about it, just do the thing.
-    const double num = double(sizeof(T) * CHAR_BIT) / minvec.size();
-    double sum = 0.;
-    for(const auto v: minvec)
-        sum += double(v) / num;
-    return std::pow(minvec.size(), 2) / sum;
+    return harmonic_cardinality_estimate_impl(minvec);
 }
 
 
@@ -136,7 +148,7 @@ public:
     double cardinality_estimate() {
         return harmonic_cardinality_estimate(core_);
     }
-    FinalDivBBitMinHash finalize(MHCardinalityMode mode=HARMONIC_MEAN) const;
+    FinalDivBBitMinHash finalize(unsigned b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
 
 
@@ -322,12 +334,12 @@ struct FinalBBitMinHash {
 private:
     FinalBBitMinHash() {}
 public:
-    using value_type = uint64_t;
+    using value_type = uint64_t; // This may be templated someday
     double est_cardinality_;
     uint32_t b_, p_;
-    std::vector<uint64_t, Allocator<uint64_t>> core_;
+    std::vector<value_type, Allocator<value_type>> core_;
     FinalBBitMinHash(unsigned p, unsigned b, double est): est_cardinality_(est), b_(b), p_(p),
-        core_((uint64_t(b) << p) >> 6)
+        core_((value_type(b) << p) >> 6)
     {
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, p, core_.size(), core_.size() * 64);
     }
@@ -349,7 +361,7 @@ public:
     template<typename T, typename Hasher=common::WangHash>
     FinalBBitMinHash(const BBitMinHasher<T, Hasher> &o): FinalBBitMinHash(std::move(o.finalize())) {}
     double r() const {
-        return std::ldexp(est_cardinality_, -int(sizeof(uint64_t) * CHAR_BIT - p_));
+        return std::ldexp(est_cardinality_, -int(sizeof(value_type) * CHAR_BIT - p_));
     }
     double ab() const {
         const auto _r = r();
@@ -363,7 +375,7 @@ public:
         b_ = arr[0];
         p_ = arr[1];
         if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw std::runtime_error("Could not read from file.");
-        core_.resize((uint64_t(b_) << p_) >> 6);
+        core_.resize((value_type(b_) << p_) >> 6);
         gzread(fp, core_.data(), sizeof(core_[0]) * core_.size());
     }
     void read(const char *path) {
@@ -439,7 +451,7 @@ public:
 #endif
     uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
-        const uint64_t *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
+        const value_type *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
         // p_ already guaranteed to be greater than 6
         switch(p_) {
@@ -468,7 +480,7 @@ public:
                     vp2 += b_;
                     sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
                 }
-                assert((uint64_t *)vp1 == &core_[core_.size()]);
+                assert((value_type*)vp1 == &core_[core_.size()]);
                 return common::sum_of_u64s(sum);
             }
 #    else /* has avx2 not not 512 */
@@ -485,7 +497,7 @@ public:
                     assert(vp1 <= vpe);
                 }
 #if !NDEBUG
-                auto fptr = (uint64_t *)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
+                auto fptr = (value_type*)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
                 auto eptr = p1 + core_.size();
                 assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", fptr, p1 + core_.size()));
 #endif
@@ -543,9 +555,9 @@ public:
     double est_cardinality_;
     uint64_t nbuckets_;
     uint32_t b_;
-    std::vector<uint64_t, Allocator<uint64_t>> core_;
+    std::vector<value_type, Allocator<value_type>> core_;
     FinalDivBBitMinHash(unsigned nbuckets, unsigned b, double est): est_cardinality_(est), b_(b), nbuckets_(nbuckets),
-        core_((uint64_t(b) * nbuckets_) / 64 + (nbuckets_ * uint64_t(b) % 64 != 0))
+        core_((value_type(b) * nbuckets_) / 64 + (nbuckets_ * value_type(b) % (sizeof(value_type) * CHAR_BIT) != 0))
     {
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, nbuckets, core_.size(), core_.size() * 64);
     }
@@ -623,19 +635,6 @@ public:
 };
 
 template<typename T, typename Hasher>
-FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(MHCardinalityMode mode) const {
-#if 0
-    std::vector<T> core_;
-    uint32_t b_, p_;
-    schism::Schismatic<T> div_;
-    __uint128_t M_; // Cached for fastmod64
-    Hasher hf_;
-#endif
-    FinalDivBBitMinHash ret(nbuckets(), b_, cardinality_estimate());
-    throw NotImplementedError("BitPacking for DivBBitMinHasher not yet complete.");
-}
-
-template<typename T, typename Hasher>
 FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
     b = b ? b: b_; // Use the b_ of BBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
     std::vector<T> tmp;
@@ -659,13 +658,83 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
     } else {
         if(__builtin_expect(p_ < 6, 0))
             throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently. We could reduce this requirement using 32-bit integers.");
-        // #if AVX512: if p_ >= 9
-        // Pack an AVX512 element for 1 << (p_ - 9)
-        // else
-        // #endif
-        // #if AVX2: if p_ >= 8
-        // Pack an AVX512 element for 1 << (p_ - 8)
-        // #else if p_ >= 7 // Assume SSE2
+        // Pack an SSE2 element for each 1 << (p_ - 7)
+        switch(p_) {
+        case 6:
+                for(size_t _b = 0; _b < b_; ++_b)
+                    for(size_t i = 0; i < core_ref.size(); ++i)
+                        ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+#if !NDEBUG
+                for(size_t i = 0; i < core_ref.size(); ++i) {
+                    for(size_t b = 0; b < b_; ++b) {
+                        assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_ref[i], b));
+                    }
+                }
+#endif
+            break;
+#define DEFAULT_SET_CASE(num, type) \
+        default:\
+            for(size_t ov = 0, ev = 1 << (p_ - num); ov != ev; ++ov) {\
+                auto main_ptr = ret.core_.data() + ov * sizeof(type) / sizeof(FinalType) * b_;\
+                auto core_ptr = core_ref.data() + ov * (sizeof(type) * CHAR_BIT);\
+                for(size_t b = 0; b < b_; ++b) {\
+                    auto ptr = main_ptr + (b * sizeof(type)/sizeof(FinalType));\
+                    for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
+                        setnthbit(ptr, i, getnthbit(core_ptr[i], b));\
+                }\
+            }\
+            break
+#define SET_CASE(num, type) \
+        case num:\
+            for(size_t b = 0; b < b_; ++b) {\
+                auto ptr = ret.core_.data() + (b * sizeof(type)/sizeof(FinalType));\
+                assert(core_ref.size() == (sizeof(type) * CHAR_BIT));\
+                for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
+                    setnthbit(ptr, i, getnthbit(core_ref[i], b));\
+            }\
+            break
+        SET_CASE(7, __m128i);
+#if __AVX2__
+        SET_CASE(8, __m256i);
+#if HAS_AVX_512
+        SET_CASE(9, __m512i);
+
+        DEFAULT_SET_CASE(9u, __m512i);
+#else
+        DEFAULT_SET_CASE(8u, __m256i);
+#endif
+#else /* no avx2 or 512 */
+        DEFAULT_SET_CASE(7u, __m128i);
+#endif
+#undef DEFAULT_SET_CASE
+#undef SET_CASE
+        }
+    }
+    return ret;
+}
+
+template<typename T, typename Hasher>
+FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
+    b = b ? b: b_; // Use the b_ of DivBBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
+    std::vector<T> tmp;
+    const std::vector<T> *ptr = &core_;
+    if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
+        tmp = core_;
+        detail::densifybin(tmp);
+        ptr = &core_;
+    }
+    double cest = cardinality_estimate(mode);
+    const std::vector<T> &core_ref = *ptr;
+    using detail::getnthbit;
+    using detail::setnthbit;
+    FinalDivBBitMinHash ret(nbuckets(), b, cest);
+    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, nbuckets(): %u. cest: %lf\n", ret.core_.size(), b_, nbuckets(), cest);
+    using FinalType = typename FinalDivBBitMinHash::value_type;
+    // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
+    if(b_ == 64) {
+        std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
+    } else {
+#if 0
         // Pack an SSE2 element for each 1 << (p_ - 7)
         switch(p_) {
         case 6:
@@ -718,8 +787,12 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
 #undef SET_CASE
         }
     }
+#endif
+    }
     return ret;
 }
+
+
 template<typename CountingType, typename>
 struct FinalCountingBBitMinHash: public FinalBBitMinHash {
     std::vector<CountingType> counters_;

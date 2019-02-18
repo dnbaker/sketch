@@ -767,7 +767,6 @@ public:
         estim_(estim), jestim_(jestim)
         , hf_(std::forward<Args>(args)...)
     {
-        std::fprintf(stderr, "Warning: clamp parameter is deprecated and will be removed in future releases.\n");
 #if LZ_COUNTER
         std::memset(&clz_counts_[0], 0, sizeof(clz_counts_));
 #endif

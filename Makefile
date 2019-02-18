@@ -23,6 +23,8 @@ endif
 
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 all: $(EX)
+run_tests: $(EX)
+	for i in $(EX); do ./$$i; done
 
 STD?=-std=c++14
 

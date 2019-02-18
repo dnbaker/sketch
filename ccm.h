@@ -468,9 +468,7 @@ class csbase_t {
      * not weigh over the other items with the opposite sign. Treat these as 0s.
     */
     std::vector<CounterType, Allocator<CounterType>> core_;
-    uint32_t np_;
-    uint32_t nh_;
-    uint32_t nph_;
+    uint32_t np_, nh_, nph_;
     const HashStruct hf_;
     uint64_t mask_;
     std::vector<CounterType, Allocator<CounterType>> seeds_;
