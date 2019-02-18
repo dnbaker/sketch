@@ -17,7 +17,8 @@ PYBIND11_MODULE(_hll, m) {
         .def("report", &hll_t::report, "Emit estimated cardinality. Performs sum if not performed, but sum must be recalculated if further entries are added.")
         .def("add", [](hll_t &h1, uint64_t v) {h1.add(v);}, "Add a (hashed) value to the sketch.")
         .def("addh_", [](hll_t &h1, uint64_t v) {h1.addh(h1.hash(v));}, "Hash an integer value and then add that to the sketch..")
-        .def("jaccard_index", [](hll_t &h1, hll_t &h2) {return jaccard_index(h2, h2);});
+        .def("jaccard_index", [](hll_t &h1, hll_t &h2) {return jaccard_index(h2, h2);})
+        .def("union", [](const hll_t &h1, const hll_t &h2) {return h1 + h2;});
     m.def("jaccard_index", [](hll_t &h1, hll_t &h2) {
             return jaccard_index(h1, h2);
         }

@@ -243,6 +243,9 @@ public:
         }
         return sum;
     }
+    BBitMinHasher &operator+=(const BBitMinHasher &o) {
+        
+    }
     FinalBBitMinHash finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
 template<typename T, typename Hasher=common::WangHash>
