@@ -197,7 +197,7 @@ public:
                               seeds_.size() * sizeof(seeds_[0]) + data_.bytes());
     }
     void clear() {
-        common::detail::zero_memory(data_, std::log2(subtbl_sz_));
+        common::detail::zero_memory(data_, ilog2(subtbl_sz_));
     }
     template<typename... Args>
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):

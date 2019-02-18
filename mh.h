@@ -538,7 +538,7 @@ class HyperMinHash {
     std::mutex mutex_; // I should be able to replace most of these with atomics.
 #endif
 public:
-    static constexpr uint32_t q() {return uint32_t(std::ceil(std::log2(sizeof(T) * CHAR_BIT)));} // To hold popcount for a 64-bit integer.
+    static constexpr uint32_t q() {return uint32_t(std::ceil(ilog2(sizeof(T) * CHAR_BIT)));} // To hold popcount for a 64-bit integer.
     enum ComparePolicy {
         Manual,
         U8,
@@ -817,7 +817,7 @@ public:
 #if MY_WAY
         if(easy_way) {
             if(n < m) std::swap(n, m);
-            auto l2n = std::log2(n);
+            auto l2n = ilog2(n);
             if(l2n > ((1 << q()) + r())) {
 #if VERBOSE_AF
                 std::fprintf(stderr, "Warning: too high to approximate\n");

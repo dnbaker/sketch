@@ -392,7 +392,7 @@ public:
         clear();
         core_.resize(new_size >> OFFSET);
         clear();
-        np_ = std::size_t(std::log2(new_size)) - OFFSET;
+        np_ = std::size_t(ilog2(new_size)) - OFFSET;
         reseed();
         mask_ = new_size - 1;
         assert(np_ < 64); // To handle underflow

@@ -52,12 +52,13 @@ inline int densifybin(Container &hashes) {
 
 template<typename T>
 static inline double harmonic_cardinality_estimate_impl(const std::vector<T> &minvec) {
-    const double num = (minvec.size() & (minvec.size() - 1)) ? std::ldexp(1., double(sizeof(T) * CHAR_BIT) - std::log2(minvec.size()))
-                                                             : double(UINT64_C(-1)) / minvec.size();
+    const double num = (minvec.size() & (minvec.size() - 1)) == 0 ? std::ldexp(1., double(sizeof(T) * CHAR_BIT) - std::log2(minvec.size()))
+                                                                  : double(UINT64_C(-1)) / minvec.size();
     double sum = 0.;
     for(const auto v: minvec)
         sum += double(v) / num;
     return std::pow(minvec.size(), 2) / sum;
+    // TODO: this could be accelerated with pre-inverting num, std::accumulate, _mm{,256,512}_add_epi*T, and _mm512_reduce_add_epi*T
 }
 
 template<typename T>
@@ -132,7 +133,7 @@ public:
     }
     void write(const std::string &fn, int compression=6) const {write(fn.data(), compression);}
     int densify() {
-        int rc = detail::densifybin(core_);
+        const int rc = detail::densifybin(core_);
 #if !NDEBUG
         switch(rc) {
             case -1: std::fprintf(stderr, "[W] Can't densify empty thing\n"); break;
@@ -232,6 +233,15 @@ public:
             return std::accumulate((*ptr).begin() + 1, (*ptr).end(), num / (*ptr)[0], [num](auto x, auto y) {
                 return x + num / y;
             }); // / (*ptr).size() * (*ptr).size();
+        case GEOMETRIC_MEAN: // better? Still not great.
+            // This can be accelerated with vector class library's fast log routines and conversion operations
+            return std::exp((std::log(num) * core_.size() -
+                std::accumulate((*ptr).begin() + 1, (*ptr).end(), std::log((*ptr)[0]), [num](auto x, auto y) {
+                    return x + std::log(y);
+                })) / core_.size()
+                );
+            // pth root of product of all estimates, where p = core_.size()
+            // exp(1/p * [log(num) * len(minimizers) - sum(log(x) for x in minimizers)])
         case HLL_METHOD: {
             std::array<uint64_t, 64> arr{0};
             auto diff = p_ - 1;
@@ -637,6 +647,28 @@ public:
     }
 };
 
+#define DEFAULT_SET_CASE(num, type, p_) \
+        default:\
+            for(size_t ov = 0, ev = 1 << (p_ - num); ov != ev; ++ov) {\
+                auto main_ptr = ret.core_.data() + ov * sizeof(type) / sizeof(FinalType) * b_;\
+                auto core_ptr = core_ref.data() + ov * (sizeof(type) * CHAR_BIT);\
+                for(size_t b = 0; b < b_; ++b) {\
+                    auto ptr = main_ptr + (b * sizeof(type)/sizeof(FinalType));\
+                    for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
+                        setnthbit(ptr, i, getnthbit(core_ptr[i], b));\
+                }\
+            }\
+            break
+#define SET_CASE(num, type, p_) \
+        case num:\
+            for(size_t b = 0; b < b_; ++b) {\
+                auto ptr = ret.core_.data() + (b * sizeof(type)/sizeof(FinalType));\
+                assert(core_ref.size() == (sizeof(type) * CHAR_BIT));\
+                for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
+                    setnthbit(ptr, i, getnthbit(core_ref[i], b));\
+            }\
+            break
+
 template<typename T, typename Hasher>
 FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
     b = b ? b: b_; // Use the b_ of BBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
@@ -654,6 +686,16 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
     FinalBBitMinHash ret(p_, b, cest);
     std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u. cest: %lf\n", ret.core_.size(), b_, p_, cest);
     using FinalType = typename FinalBBitMinHash::value_type;
+#if !NDEBUG
+#define CASE_6_TEST\
+                for(size_t i = 0; i < core_ref.size(); ++i) {\
+                    for(size_t b = 0; b < b_; ++b) {\
+                        assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_ref[i], b));\
+                    }\
+                }
+#else
+#define CASE_6_TEST
+#endif
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b_ == 64) {
         // We've already failed for the case of b_ + p_ being greater than the width of T
@@ -667,50 +709,21 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
                 for(size_t _b = 0; _b < b_; ++_b)
                     for(size_t i = 0; i < core_ref.size(); ++i)
                         ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
-#if !NDEBUG
-                for(size_t i = 0; i < core_ref.size(); ++i) {
-                    for(size_t b = 0; b < b_; ++b) {
-                        assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_ref[i], b));
-                    }
-                }
-#endif
+            CASE_6_TEST
             break;
-#define DEFAULT_SET_CASE(num, type) \
-        default:\
-            for(size_t ov = 0, ev = 1 << (p_ - num); ov != ev; ++ov) {\
-                auto main_ptr = ret.core_.data() + ov * sizeof(type) / sizeof(FinalType) * b_;\
-                auto core_ptr = core_ref.data() + ov * (sizeof(type) * CHAR_BIT);\
-                for(size_t b = 0; b < b_; ++b) {\
-                    auto ptr = main_ptr + (b * sizeof(type)/sizeof(FinalType));\
-                    for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
-                        setnthbit(ptr, i, getnthbit(core_ptr[i], b));\
-                }\
-            }\
-            break
-#define SET_CASE(num, type) \
-        case num:\
-            for(size_t b = 0; b < b_; ++b) {\
-                auto ptr = ret.core_.data() + (b * sizeof(type)/sizeof(FinalType));\
-                assert(core_ref.size() == (sizeof(type) * CHAR_BIT));\
-                for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
-                    setnthbit(ptr, i, getnthbit(core_ref[i], b));\
-            }\
-            break
-        SET_CASE(7, __m128i);
+        SET_CASE(7, __m128i, p_);
 #if __AVX2__
-        SET_CASE(8, __m256i);
+        SET_CASE(8, __m256i, p_);
 #if HAS_AVX_512
-        SET_CASE(9, __m512i);
+        SET_CASE(9, __m512i, p_);
 
-        DEFAULT_SET_CASE(9u, __m512i);
+        DEFAULT_SET_CASE(9u, __m512i, p_);
 #else
-        DEFAULT_SET_CASE(8u, __m256i);
+        DEFAULT_SET_CASE(8u, __m256i, p_);
 #endif
 #else /* no avx2 or 512 */
-        DEFAULT_SET_CASE(7u, __m128i);
+        DEFAULT_SET_CASE(7u, __m128i, p_);
 #endif
-#undef DEFAULT_SET_CASE
-#undef SET_CASE
         }
     }
     return ret;
@@ -737,64 +750,37 @@ FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinal
     if(b_ == 64) {
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
     } else {
-#if 0
-        // Pack an SSE2 element for each 1 << (p_ - 7)
-        switch(p_) {
+        const auto l2szfloor = ilog2(core_ref.size());
+        switch(l2szfloor) {
         case 6:
                 for(size_t _b = 0; _b < b_; ++_b)
                     for(size_t i = 0; i < core_ref.size(); ++i)
                         ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
-#if !NDEBUG
-                for(size_t i = 0; i < core_ref.size(); ++i) {
-                    for(size_t b = 0; b < b_; ++b) {
-                        assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_ref[i], b));
-                    }
-                }
-#endif
+                CASE_6_TEST
             break;
-#define DEFAULT_SET_CASE(num, type) \
-        default:\
-            for(size_t ov = 0, ev = 1 << (p_ - num); ov != ev; ++ov) {\
-                auto main_ptr = ret.core_.data() + ov * sizeof(type) / sizeof(uint64_t) * b_;\
-                auto core_ptr = core_ref.data() + ov * (sizeof(type) * CHAR_BIT);\
-                for(size_t b = 0; b < b_; ++b) {\
-                    auto ptr = main_ptr + (b * sizeof(type)/sizeof(uint64_t));\
-                    for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
-                        setnthbit(ptr, i, getnthbit(core_ptr[i], b));\
-                }\
-            }\
-            break
-#define SET_CASE(num, type) \
-        case num:\
-            for(size_t b = 0; b < b_; ++b) {\
-                auto ptr = ret.core_.data() + (b * sizeof(type)/sizeof(uint64_t));\
-                assert(core_ref.size() == (sizeof(type) * CHAR_BIT));\
-                for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
-                    setnthbit(ptr, i, getnthbit(core_ref[i], b));\
-            }\
-            break
-        SET_CASE(7, __m128i);
+        SET_CASE(7, __m128i, l2szfloor);
 #if __AVX2__
-        SET_CASE(8, __m256i);
+        SET_CASE(8, __m256i, l2szfloor);
 #if HAS_AVX_512
-        SET_CASE(9, __m512i);
+        SET_CASE(9, __m512i, l2szfloor);
 
-        DEFAULT_SET_CASE(9u, __m512i);
+        DEFAULT_SET_CASE(9u, __m512i, l2szfloor);
 #else
-        DEFAULT_SET_CASE(8u, __m256i);
+        DEFAULT_SET_CASE(8u, __m256i, l2szfloor);
 #endif
 #else /* no avx2 or 512 */
-        DEFAULT_SET_CASE(7u, __m128i);
+        DEFAULT_SET_CASE(7u, __m128i, l2szfloor);
 #endif
-#undef DEFAULT_SET_CASE
-#undef SET_CASE
         }
-    }
-#endif
+        if((1ull << l2szfloor) != core_ref.size()) {
+            throw NotImplementedError(std::string("Haven't implemented bitpacking for non-power of two sizes. Remainder: ") + std::to_string(core_ref.size() & ((1ull << l2szfloor) - 1)));
+        }
     }
     return ret;
 }
 
+#undef DEFAULT_SET_CASE
+#undef SET_CASE
 
 template<typename CountingType, typename>
 struct FinalCountingBBitMinHash: public FinalBBitMinHash {

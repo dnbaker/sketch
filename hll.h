@@ -639,74 +639,6 @@ std::array<double, 3> ertl_joint(HllType &h1, HllType &h2) {
 
 
 
-#define clztbl(x, arg) do {\
-    switch(arg) {\
-        case 0:                         x += 4; break;\
-        case 1:                         x += 3; break;\
-        case 2: case 3:                 x += 2; break;\
-        case 4: case 5: case 6: case 7: x += 1; break;\
-    }} while(0)
-
-constexpr INLINE int clz_manual( uint32_t x )
-{
-  int n(0);
-  if ((x & 0xFFFF0000) == 0) {n  = 16; x <<= 16;}
-  if ((x & 0xFF000000) == 0) {n +=  8; x <<=  8;}
-  if ((x & 0xF0000000) == 0) {n +=  4; x <<=  4;}
-  clztbl(n, x >> (32 - 4));
-  return n;
-}
-
-// Overload
-constexpr INLINE int clz_manual( uint64_t x )
-{
-  int n(0);
-  if ((x & 0xFFFFFFFF00000000ull) == 0) {n  = 32; x <<= 32;}
-  if ((x & 0xFFFF000000000000ull) == 0) {n += 16; x <<= 16;}
-  if ((x & 0xFF00000000000000ull) == 0) {n +=  8; x <<=  8;}
-  if ((x & 0xF000000000000000ull) == 0) {n +=  4; x <<=  4;}
-  clztbl(n, x >> (64 - 4));
-  return n;
-}
-
-// clz wrappers. Apparently, __builtin_clzll is undefined for values of 0.
-// However, by modifying our code to set a 1-bit at the end of the shifted
-// region, we can guarantee that this does not happen for our use case.
-
-#if __GNUC__ || __clang__
-constexpr INLINE unsigned clz(unsigned long long x) {
-    return __builtin_clzll(x);
-}
-constexpr INLINE unsigned clz(unsigned long x) {
-    return __builtin_clzl(x);
-}
-constexpr INLINE unsigned clz(unsigned x) {
-    return __builtin_clz(x);
-}
-constexpr INLINE unsigned ffs(unsigned long long x) {
-    return __builtin_ffsll(x);
-}
-constexpr INLINE unsigned ffs(unsigned long x) {
-    return __builtin_ffsl(x);
-}
-constexpr INLINE unsigned ffs(unsigned x) {
-    return __builtin_ffs(x);
-}
-#else
-#pragma message("Using manual clz instead of gcc/clang __builtin_*")
-#error("Have not created a manual ffs function. Must be compiled with gcc or clang. (Or a compiler supporting it.)")
-#define clz(x) clz_manual(x)
-// https://en.wikipedia.org/wiki/Find_first_set#CLZ
-// Modified for constexpr, added 64-bit overload.
-#endif
-
-static_assert(clz(0x0000FFFFFFFFFFFFull) == 16, "64-bit clz failed.");
-static_assert(clz(0x000000000FFFFFFFull) == 36, "64-bit clz failed.");
-static_assert(clz(0x0000000000000FFFull) == 52, "64-bit clz failed.");
-static_assert(clz(0x0000000000000003ull) == 62, "64-bit clz failed.");
-static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz failed.");
-
-
 constexpr double make_alpha(size_t m) {
     switch(m) {
         case 16: return .673;
@@ -1027,7 +959,7 @@ public:
         if(new_size & (new_size - 1)) new_size = roundup(new_size);
         clear();
         core_.resize(new_size);
-        np_ = std::log2(new_size);
+        np_ = ilog2(new_size);
     }
     EstimationMethod get_estim()       const {return  estim_;}
     JointEstimationMethod get_jestim() const {return jestim_;}
@@ -1202,7 +1134,7 @@ public:
     static constexpr bool clamp() {return false;}
     void set_clamp(bool val) {std::fprintf(stderr, "clamp has been deprecated. This does nothing\n");}
     static constexpr unsigned min_size() {
-        return std::log2(sizeof(detail::SIMDHolder));
+        return ilog2(sizeof(detail::SIMDHolder));
     }
 #if LZ_COUNTER
     ~hllbase_t() {
