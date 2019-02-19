@@ -1029,8 +1029,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
             }
         }
 
-        const auto p = (const uint32_t *)total_sum;
-        return {matched_sum, uint64_t(p[0]) + p[1] + p[2] + p[3]};
+        return {matched_sum, common::sum_of_u64s(total_sum)};
     }
 };
 

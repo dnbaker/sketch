@@ -60,6 +60,42 @@ public:
 };
 
 } // namespace cws
+namespace nt {
+template<typename Container=std::vector<uint32_t, Allocator<uint32_t>>, typename HashStruct=WangHash, bool filter=true>
+struct Card {
+    // Ref: https://www.ncbi.nlm.nih.gov/pubmed/28453674
+    Container core_;
+    const uint16_t p_, r_, pshift_;
+    HashStruct hf_;
+    template<typename...Args>
+    Card(unsigned r, unsigned p, Args &&... args):
+        core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p) {}
+    void addh(uint64_t v) {
+        v = hf_(v);
+        add(v);
+    }
+    void add(uint64_t v) {
+        CONST_IF(filter) {
+            if(v >> pshift_)
+                return;
+        }
+        v <<= (64 - r_);
+        v >>= (64 - r_);
+#ifndef NOT_THREADSAFE
+        __sync_fetch_and_add(&core_[v], 1);
+#else
+        ++core_[v];
+#endif
+    }
+};
+template<typename CType, typename HashStruct=WangHash, bool filter=true>
+struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, filter> {
+    using super = Card<std::vector<CType, Allocator<CType>>, HashStruct, filter>;
+    static_assert(std::is_integral<CType>::value, "Must be integral.");
+    VecCard(unsigned p, unsigned r): super(p, r, 1ull << r) {}
+};
+
+} // namespace nt
 } // namespace sketch
 
 #endif /* DNB_SKETCH_MULTIPLICITY_H__ */
