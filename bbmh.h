@@ -138,6 +138,7 @@ public:
         if(nbuckets % 64) {
             std::fprintf(stderr, "Warning: rounded n buckets from %u for %u so that it's convenient for our comparison strategy.\n", nbuckets, unsigned(div_.d_));
         }
+        assert(core_.size() % 64 == 0);
         if(b_ < 1 || b_ > 64) throw "a party";
     }
     void addh(T val) {val = hf_(val);add(val);}
@@ -623,6 +624,7 @@ public:
     FinalDivBBitMinHash(unsigned nbuckets, unsigned b, double est): est_cardinality_(est), nbuckets_(nbuckets), b_(b),
         core_((value_type(b) * nbuckets_) / 64 + (nbuckets_ * value_type(b) % (sizeof(value_type) * CHAR_BIT) != 0))
     {
+        assert(core_.size() % b == 0);
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, nbuckets, core_.size(), core_.size() * 64);
     }
     void free() {
@@ -837,22 +839,22 @@ public:
 #define DEFAULT_SET_CASE(num, type, p_) \
         default:\
             for(size_t ov = 0, ev = 1 << (p_ - num); ov != ev; ++ov) {\
-                auto main_ptr = ret.core_.data() + ov * sizeof(type) / sizeof(FinalType) * b_;\
+                auto main_ptr = ret.core_.data() + ov * sizeof(type) / sizeof(FinalType) * b;\
                 auto core_ptr = core_ref.data() + ov * (sizeof(type) * CHAR_BIT);\
-                for(size_t b = 0; b < b_; ++b) {\
-                    auto ptr = main_ptr + (b * sizeof(type)/sizeof(FinalType));\
+                for(size_t _b = 0; _b < b; ++_b) {\
+                    auto ptr = main_ptr + (_b * sizeof(type)/sizeof(FinalType));\
                     for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
-                        setnthbit(ptr, i, getnthbit(core_ptr[i], b));\
+                        setnthbit(ptr, i, getnthbit(core_ptr[i], _b));\
                 }\
             }\
             break
 #define SET_CASE(num, type, p_) \
         case num:\
-            for(size_t b = 0; b < b_; ++b) {\
-                auto ptr = ret.core_.data() + (b * sizeof(type)/sizeof(FinalType));\
+            for(size_t _b = 0; _b < b; ++_b) {\
+                auto ptr = ret.core_.data() + (_b * sizeof(type)/sizeof(FinalType));\
                 assert(core_ref.size() == (sizeof(type) * CHAR_BIT));\
                 for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
-                    setnthbit(ptr, i, getnthbit(core_ref[i], b));\
+                    setnthbit(ptr, i, getnthbit(core_ref[i], _b));\
             }\
             break
 
@@ -893,9 +895,9 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
         // Pack an SSE2 element for each 1 << (p_ - 7)
         switch(p_) {
         case 6:
-                for(size_t _b = 0; _b < b_; ++_b)
-                    for(size_t i = 0; i < core_ref.size(); ++i)
-                        ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+                for(size_t _b = 0; _b < b; ++_b)
+                    for(size_t i = 0; i < 64u; ++i)
+                        ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
             CASE_6_TEST
             break;
         SET_CASE(7, __m128i, p_);
@@ -933,35 +935,69 @@ FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinal
     FinalDivBBitMinHash ret(nbuckets(), b, cest);
     std::fprintf(stderr, "size of ret vector: %zu. b_: %u, nbuckets(): %u. cest: %lf\n", ret.core_.size(), b_, nbuckets(), cest);
     using FinalType = typename FinalDivBBitMinHash::value_type;
+    assert(ret.core_.size() % b == 0);
+    assert(core_.size() % 64 == 0);
+    std::fprintf(stderr, "core size: %zu being collapsed into b (%d)-bit samples in core of size %zu\n", core_.size(), int(b), ret.core_.size());
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
-    if(b_ == 64) {
+    if(b == 64) {
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
     } else {
         const auto l2szfloor = ilog2(core_ref.size());
         const auto pow2 = 1ull << l2szfloor;
         switch(l2szfloor) {
         case 6:
-                for(size_t _b = 0; _b < b_; ++_b)
-                    for(size_t i = 0; i < l2szfloor; ++i)
-                        ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+                for(size_t _b = 0; _b < b; ++_b)
+                    for(size_t i = 0; i < 64u; ++i)
+                        ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
                 CASE_6_TEST
             break;
         SET_CASE(7, __m128i, l2szfloor);
 #if __AVX2__
         SET_CASE(8, __m256i, l2szfloor);
-#if HAS_AVX_512
+#  if HAS_AVX_512
         SET_CASE(9, __m512i, l2szfloor);
 
         DEFAULT_SET_CASE(9u, __m512i, l2szfloor);
-#else
+#  else
         DEFAULT_SET_CASE(8u, __m256i, l2szfloor);
-#endif
+#  endif
 #else /* no avx2 or 512 */
         DEFAULT_SET_CASE(7u, __m128i, l2szfloor);
 #endif
         }
-        if((1ull << l2szfloor) != core_ref.size()) {
-            std::fprintf(stderr, "Warning: Haven't implemented bitpacking for non-power of two sizes. Remainder: %zu\n", core_ref.size() & ((1ull << l2szfloor) - 1));
+        if(pow2 == core_ref.size()) {
+            LOG_DEBUG("All packed\n");
+        } else {
+            assert(is_pow2(core_ref.size() - (core_ref.size() & ((1ull << l2szfloor) - 1))));
+#define LEFTOVERS(type)\
+            for(size_t ind = pow2 / (sizeof(type) * CHAR_BIT);ind < core_ref.size() / (sizeof(type) * CHAR_BIT);++ind) {\
+                auto main_ptr = ret.core_.data() + ind * sizeof(type) / sizeof(FinalType) * b;\
+                auto core_ptr = core_ref.data() + ind * sizeof(type) * CHAR_BIT;\
+                for(auto _b = 0u; _b < b; ++_b) {\
+                    auto ptr = main_ptr + (_b * sizeof(type)/sizeof(FinalType));\
+                    for(size_t i = 0u; i < sizeof(type) * CHAR_BIT; ++i) {\
+                        setnthbit(ptr, i, getnthbit(core_ptr[i], _b));\
+                    }\
+                }\
+            }\
+            size_t ind = core_ref.size() / (sizeof(type) * CHAR_BIT) * (sizeof(type) * CHAR_BIT); // Get the last n
+#if HAS_AVX_512
+            LEFTOVERS(__m512i)
+#elif __AVX2__
+            LEFTOVERS(__m256i)
+#else
+            LEFTOVERS(__m128i)
+#endif
+            while(ind < core_ref.size()) {
+                //std::fprintf(stderr, "Rem: %zd. Mod of rem: %zd\n", core_ref.size() - ind, (core_ref.size() - ind) % 64);
+                auto core_ptr = core_ref.data() + ind;
+                auto ref_ptr  = ret.core_.data() + (ind / (sizeof(FinalType) * CHAR_BIT) * b);
+                //std::fprintf(stderr, "ret vore Rem: %zd. Mod of rem: %zd\n", &*ret.core_.end() - ref_ptr, (&*ret.core_.end() - ref_ptr) % 64);
+                for(size_t _b = 0; _b < b; ++_b)
+                    for(size_t i = 0; i < 64u; ++i)
+                        setnthbit(ref_ptr, i, getnthbit(core_ptr, _b));
+                ind += sizeof(FinalType) * CHAR_BIT;
+            }
         }
     }
     return ret;
@@ -1047,8 +1083,8 @@ namespace mh = minhash;
 } // namespace sketch
 
 #ifdef UNDEF_LDB
-#undef LOG_DEBUG
-#undef UNDEF_LDB
+#  undef LOG_DEBUG
+#  undef UNDEF_LDB
 #endif
 
 #endif /* #ifndef SKETCH_BB_MINHASH_H__*/
