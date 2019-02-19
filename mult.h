@@ -66,21 +66,26 @@ struct Card {
     // Ref: https://www.ncbi.nlm.nih.gov/pubmed/28453674
     Container core_;
     const uint16_t p_, r_, pshift_;
+    std::atomic<uint64_t> total_added_;
     HashStruct hf_;
     template<typename...Args>
     Card(unsigned r, unsigned p, Args &&... args):
-        core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p) {}
+        core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p) {total_added_.store(0);}
     void addh(uint64_t v) {
         v = hf_(v);
         add(v);
     }
     void add(uint64_t v) {
+        ++total_added_;
         CONST_IF(filter) {
             if(v >> pshift_)
                 return;
         }
         v <<= (64 - r_);
         v >>= (64 - r_);
+        CONST_IF(sizeof(core_[0]) < 4) {
+            if(core_[v] == std::numeric_limits<std::decay_t<decltype(core_[0])>>::max()) return;
+        }
 #ifndef NOT_THREADSAFE
         __sync_fetch_and_add(&core_[v], 1);
 #else

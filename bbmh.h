@@ -936,10 +936,11 @@ FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinal
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
     } else {
         const auto l2szfloor = ilog2(core_ref.size());
+        const auto pow2 = 1ull << l2szfloor;
         switch(l2szfloor) {
         case 6:
                 for(size_t _b = 0; _b < b_; ++_b)
-                    for(size_t i = 0; i < core_ref.size(); ++i)
+                    for(size_t i = 0; i < l2szfloor; ++i)
                         ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b_ + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
                 CASE_6_TEST
             break;
