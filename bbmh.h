@@ -4,7 +4,26 @@
 #include "common.h"
 #include "hll.h"
 
+
 namespace sketch {
+
+#ifndef LOG_DEBUG
+#    define UNDEF_LDB
+#    if !NDEBUG
+#        define LOG_DEBUG(...) log_debug(__PRETTY_FUNCTION__, __FILE__, __LINE__, ##__VA_ARGS__)
+static int log_debug(const char *func, const char *filename, int line, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int ret(std::fprintf(stderr, "[D:%s:%s:%d] ", func, filename, line));
+    ret += std::vfprintf(stderr, fmt, args);
+    va_end(args);
+    return ret;
+}
+#    else
+#        define LOG_DEBUG(...)
+#    endif
+#endif
+
 
 namespace minhash {
 using namespace common;
@@ -34,13 +53,15 @@ inline int densifybin(Container &hashes) {
         min = std::min(min, v);
         max = std::max(max, v);
     }
-    if (empty_val != max) return 0; // Full sketch
-    if (empty_val == min) {
-#if !NDEBUG
-        std::fprintf(stderr, "Can't densify empty sketch\n");
-#endif
+    if (max == empty_val) {
+        LOG_DEBUG("Full sketch, no densification needed");
+        return 0; // Full sketch
+    }
+    if (min == empty_val) {
+        LOG_DEBUG("Can't densify empty sketch\n");
         return -1; // Empty sketch
     }
+    LOG_DEBUG("Densifying because the minimum thing is all whatevers\n");
     for (uint64_t i = 0; i < hashes.size(); i++) {
         uint64_t j = i, nattempts = 0;
         while(hashes[j] == empty_val)
@@ -112,7 +133,7 @@ public:
         b_(b), div_(core_.size()), hf_(std::forward<Args>(args)...)
     {
         if(nbuckets % 64) {
-            std::fprintf(stderr, "Warning: rounded n buckets from %u for %u so that it's convenient for our comparison strategy.\n", nbuckets, unsigned(div_.div_));
+            std::fprintf(stderr, "Warning: rounded n buckets from %u for %u so that it's convenient for our comparison strategy.\n", nbuckets, unsigned(div_.d_));
         }
         if(b_ < 1 || b_ > 64) throw "a party";
     }
@@ -147,11 +168,17 @@ public:
 #endif
         return rc;
     }
-    double cardinality_estimate() const {
-        return harmonic_cardinality_estimate(core_);
+    double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
+#if !NDEBUG
+        if(mode != HARMONIC_MEAN) std::fprintf(stderr, "Warning: HARMONIC_MEAN is the only MHCardinalityMode for %s\n", __PRETTY_FUNCTION__);
+#endif
+        return detail::harmonic_cardinality_estimate(core_);
     }
-    double cardinality_estimate() {
-        return harmonic_cardinality_estimate(core_);
+    double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) {
+#if !NDEBUG
+        if(mode != HARMONIC_MEAN) std::fprintf(stderr, "Warning: HARMONIC_MEAN is the only MHCardinalityMode for %s\n", __PRETTY_FUNCTION__);
+#endif
+        return detail::harmonic_cardinality_estimate(core_);
     }
     FinalDivBBitMinHash finalize(unsigned b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
 };
@@ -665,10 +692,10 @@ public:
     }
     uint64_t equal_bblocks(const FinalDivBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
-        const value_type *p1 = core_.data(), *pe = core_.data() + b_ * nbuckets_ / 64, *p2 = o.core_.data();
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
         // p_ already guaranteed to be greater than 6
         auto l2szfloor = ilog2(nbuckets_);
+        const value_type *p1 = core_.data(), *pe = core_.data() + b_ * (1ull << l2szfloor) / 64, *p2 = o.core_.data();
         uint64_t sum;
         switch(l2szfloor) {
             case 6: {
@@ -736,11 +763,11 @@ public:
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
                 __m128i match = ~(*vp1++ ^ *vp2++);
                 for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
-                auto lsum = popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
+                auto lsum = common::sum_of_u64s(match);
                 while(vp1 != vpe) {
                     match = ~(*vp1++ ^ *vp2++);
                     for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
-                    lsum += popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
+                    lsum += common::sum_of_u64s(match);
                 }
                 sum = lsum;
                 break;
@@ -751,17 +778,51 @@ public:
          * For simplicity, do SSE2 until 64
          */
         const value_type *pf = &core_[core_.size()];
-        if(pe == pf) return sum;
-        const __m128i *vp1 = reinterpret_cast<const __m128i *>(pe), *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * nbuckets_ / 64);
+        if(pe == pf) return sum; // If there is no remainder, we're done
+#if HAS_AVX_512
+        {
+            __m512i lsum = _mm256_set1_epi64(0);
+            const __m512i *vp1 = reinterpret_cast<const __m512i *>(pe), *vp2 = reinterpret_cast<const __m512i *>(o.core_.data() +  b_ * (1ull << l2szfloor) / 64);
+            while(pf - reinterpret_cast<const uint64_t *>(vp1) > b_ * sizeof(__m512i) / sizeof(uint64_t)) {
+                __m512i match = ~(*vp1++ * *vp2++);
+                for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
+#if __AVX512VPOPCNTDQ__
+                lsum = _mm512_add_epi64(_mm512_popcnt_epi64(match), lsum);
+#else
+                lsum = _mm512_add_epi64(popcnt512(match), lsum);
+#endif
+            }
+            sum += common::sum_of_u64s(lsum);
+            p1 = reinterpret_cast<const uint64_t *>(vp1);
+            p2 = reinterpret_cast<const uint64_t *>(vp2);
+        }
+#elif __AVX2__
+        {
+            const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>( b_ * (1ull << l2szfloor) / 64);
+            __m256i lsum = _mm256_set1_epi64x(0);
+            while(pf - reinterpret_cast<const uint64_t *>(vp1) > b_ * sizeof(__m256i) / sizeof(uint64_t)) {
+                __m256i match = ~(*vp1++ * *vp2++);
+                for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
+                lsum = _mm256_add_epi64(lsum, popcnt256(match));
+            }
+            sum += common::sum_of_u64s(lsum);
+            p1 = reinterpret_cast<const uint64_t *>(vp1);
+            p2 = reinterpret_cast<const uint64_t *>(vp2);
+        }
+#else
+        const __m128i *vp1 = reinterpret_cast<const __m128i *>(pe);
+        const __m128i *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
         while(pf - reinterpret_cast<const uint64_t *>(vp1) > b_ * sizeof(__m128i) / sizeof(uint64_t)) {
             __m128i match = ~(*vp1++ * *vp2++);
             for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
-            sum += popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
+            sum += common::sum_of_u64s(match); // Since there's no faster popcount for __m128i currently.
         }
-        if((const uint64_t*)vp1 != pf) {
-            p1 = (const uint64_t *)vp1;
+        p1 = reinterpret_cast<const uint64_t *>(vp1);
+        p2 = reinterpret_cast<const uint64_t *>(vp2);
+#endif
+        pe = p1;
+        while(p1 < pf) {
             assert(p1 < pf);
-            p2 = (const uint64_t *)vp2;
             uint64_t match = ~(*p1++ * *p2++);
             for(unsigned b = b_; --b; match &= ~(*p1++ ^ *p2++));
             sum += popcount(match);
@@ -803,12 +864,12 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
         detail::densifybin(tmp);
         ptr = &core_;
     }
-    double cest = cardinality_estimate(mode);
     const std::vector<T> &core_ref = *ptr;
+    double cest = detail::harmonic_cardinality_estimate_impl(core_ref);
     using detail::getnthbit;
     using detail::setnthbit;
     FinalBBitMinHash ret(p_, b, cest);
-    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, p_: %u. cest: %lf\n", ret.core_.size(), b_, p_, cest);
+    LOG_DEBUG("size of ret vector: %zu. b_: %u, p_: %u. cest: %lf. this card: %lf\n", ret.core_.size(), b_, p_, cest, this->cardinality_estimate(HLL_METHOD));
     using FinalType = typename FinalBBitMinHash::value_type;
 #if !NDEBUG
 #define CASE_6_TEST\
@@ -897,7 +958,7 @@ FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinal
 #endif
         }
         if((1ull << l2szfloor) != core_ref.size()) {
-            throw NotImplementedError(std::string("Haven't implemented bitpacking for non-power of two sizes. Remainder: ") + std::to_string(core_ref.size() & ((1ull << l2szfloor) - 1)));
+            std::fprintf(stderr, "Warning: Haven't implemented bitpacking for non-power of two sizes. Remainder: %zu\n", core_ref.size() & ((1ull << l2szfloor) - 1));
         }
     }
     return ret;
@@ -982,5 +1043,10 @@ FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Ha
 } // minhash
 namespace mh = minhash;
 } // namespace sketch
+
+#ifdef UNDEF_LDB
+#undef LOG_DEBUG
+#undef UNDEF_LDB
+#endif
 
 #endif /* #ifndef SKETCH_BB_MINHASH_H__*/
