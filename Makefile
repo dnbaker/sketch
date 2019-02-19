@@ -10,8 +10,12 @@ DBG=-DNDEBUG
 else
 DBG=
 endif
-FLAGS=-O3 -funroll-loops -pipe -march=native -msse2 -mavx2 -Ivec/blaze -Ivec -I. -fpic -Wall -Wextra \
-	-Wdisabled-optimization -Wno-unused-parameter -pedantic -fno-strict-aliasing \
+WARNINGS=-Wall -Wextra -Wno-char-subscripts \
+		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
+		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
+		 -pedantic -Wunused-variable -Wno-attributes
+FLAGS=-O3 -funroll-loops -pipe -march=native -msse2 -mavx2 -Ivec/blaze -Ivec -I. -fpic -Wall $(WARNINGS) \
+     -fno-strict-aliasing -Wreorder \
 	-Wno-attributes -Wno-pragmas # -Wsuggest-attribute=malloc
 
 ifeq ($(shell uname),Darwin)

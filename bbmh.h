@@ -3,6 +3,9 @@
 #include "div.h"
 #include "common.h"
 #include "hll.h"
+#if !NDEBUG
+#include <cstdarg>
+#endif
 
 
 namespace sketch {
@@ -617,7 +620,7 @@ public:
     uint64_t nbuckets_;
     uint32_t b_;
     std::vector<value_type, Allocator<value_type>> core_;
-    FinalDivBBitMinHash(unsigned nbuckets, unsigned b, double est): est_cardinality_(est), b_(b), nbuckets_(nbuckets),
+    FinalDivBBitMinHash(unsigned nbuckets, unsigned b, double est): est_cardinality_(est), nbuckets_(nbuckets), b_(b),
         core_((value_type(b) * nbuckets_) / 64 + (nbuckets_ * value_type(b) % (sizeof(value_type) * CHAR_BIT) != 0))
     {
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, nbuckets, core_.size(), core_.size() * 64);
@@ -783,7 +786,7 @@ public:
         {
             __m512i lsum = _mm256_set1_epi64(0);
             const __m512i *vp1 = reinterpret_cast<const __m512i *>(pe), *vp2 = reinterpret_cast<const __m512i *>(o.core_.data() +  b_ * (1ull << l2szfloor) / 64);
-            while(pf - reinterpret_cast<const uint64_t *>(vp1) > b_ * sizeof(__m512i) / sizeof(uint64_t)) {
+            while(pf + b_ * sizeof(__m512i) / sizeof(uint64_t) <= reinterpret_cast<const uint64_t *>(vp1)) {
                 __m512i match = ~(*vp1++ * *vp2++);
                 for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
 #if __AVX512VPOPCNTDQ__
@@ -800,7 +803,7 @@ public:
         {
             const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>( b_ * (1ull << l2szfloor) / 64);
             __m256i lsum = _mm256_set1_epi64x(0);
-            while(pf - reinterpret_cast<const uint64_t *>(vp1) > b_ * sizeof(__m256i) / sizeof(uint64_t)) {
+            while(pf + sizeof(__m256i) / sizeof(uint64_t) <= reinterpret_cast<const uint64_t *>(vp1)) {
                 __m256i match = ~(*vp1++ * *vp2++);
                 for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
                 lsum = _mm256_add_epi64(lsum, popcnt256(match));
@@ -812,7 +815,7 @@ public:
 #else
         const __m128i *vp1 = reinterpret_cast<const __m128i *>(pe);
         const __m128i *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
-        while(pf - reinterpret_cast<const uint64_t *>(vp1) > b_ * sizeof(__m128i) / sizeof(uint64_t)) {
+        while(pf + b_ * sizeof(__m128i) / sizeof(uint64_t) <= reinterpret_cast<const uint64_t *>(vp1)) {
             __m128i match = ~(*vp1++ * *vp2++);
             for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
             sum += common::sum_of_u64s(match); // Since there's no faster popcount for __m128i currently.
@@ -822,7 +825,6 @@ public:
 #endif
         pe = p1;
         while(p1 < pf) {
-            assert(p1 < pf);
             uint64_t match = ~(*p1++ * *p2++);
             for(unsigned b = b_; --b; match &= ~(*p1++ ^ *p2++));
             sum += popcount(match);
