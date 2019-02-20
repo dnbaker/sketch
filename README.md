@@ -44,12 +44,20 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
 10. B-Bit MinHash
     1. bbmh.h
     2. One-permutation (partition) bbit minhash
-        1. Threadsafe
-        2. Bit-packed and fully accelerated
-        3. Currently, only power of two partitions are supported, for convenience and for the speed of avoiding division/modulo operations.
+        1. Threadsafe, bit-packed and fully SIMD-accelerated
+        2. Power of two partitions are supported in BBitMinHasher, which is finalized into a FinalBBitMinHash sketch. This is faster than the alternative.
+        3. We also support arbitrary divisions using fastmod64 with DivBBitMinHasher and its corresponding final sketch, FinalDivBBitMinHash.
     3. One-permutation counting bbit minhash
         1. In progress
         2. Not threadsafe.
+11. ntcard
+    1. mult.h
+    2. Threadsafe
+    3. Reference: https://www.ncbi.nlm.nih.gov/pubmed/28453674
+    4. Not SIMD-accelerated, but also general, supporting any arbitrary coverage level
+12. Future work:
+    1. Consistent Weighted Sampling and its Improved cousin
+    2. {Bag,Super}MinHash for efficient weighted Jaccard
 
 ### Test case
 To build and run the hll test case:
