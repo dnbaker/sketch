@@ -35,6 +35,7 @@ All have been accelerated with SIMD parallelism, and HyperLogLogs are threadsafe
 8. Count-Min and Count Sketches
     1. ccm.h (`ccmbase_t<UpdatePolicy=Increment>/ccm_t`  (use `pccm_t` for Approximate Counting or `cs_t` for a count sketch).
     2. The Count sketch is threadsafe if `-DNOT_THREADSAFE` is not passed or if an atomic container is used. Count-Min sketches are currently not threadsafe due to the use of minimal updates.
+    3. Count-min sketches can support concept drift if `realccm_t` from mult.h is used.
 9. MinHash sketches
     1. mh.h (`RangeMinHash` is the currently verified implementation.) We recommend you build the sketch and then convert to a linear container (e.g., a `std::vector`) using `to_container<ContainerType>()` or `.finalize()` for faster comparisons.
     2. CountingRangeMinHash performs the same operations as RangeMinHash, but provides multiplicities, which facilitates `histogram_similarity`, a generalization of Jaccard with multiplicities.
