@@ -63,41 +63,102 @@ public:
 namespace nt {
 template<typename Container=std::vector<uint32_t, Allocator<uint32_t>>, typename HashStruct=WangHash, bool filter=true>
 struct Card {
+    // If using a different kind of counter than a native integer
+    // simply define another numeric limits class providing max().
     // Ref: https://www.ncbi.nlm.nih.gov/pubmed/28453674
+    using CounterType = std::decay_t<decltype(Container()[0])>;
     Container core_;
     const uint16_t p_, r_, pshift_;
+    const CounterType maxcnt_;
     std::atomic<uint64_t> total_added_;
     HashStruct hf_;
+    // Create a table of 2 << r entries
+    // because the people who made this structure are weird
+    // and use inconsistent notation
     template<typename...Args>
-    Card(unsigned r, unsigned p, Args &&... args):
-        core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p) {total_added_.store(0);}
+    Card(unsigned r, unsigned p, CounterType maxcnt=std::numeric_limits<CounterType>::max(), Args &&... args):
+        core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p), maxcnt_(maxcnt) {total_added_.store(0);}
     void addh(uint64_t v) {
         v = hf_(v);
         add(v);
     }
+    template<typename... Args>
+    void set_hash(Args &&...args) {
+        hf_ = std::move(HashStruct(std::forward<Args>(args)...));
+    }
+    size_t rbuck() const {
+        return size_t(1) << r_; //
+    }
     void add(uint64_t v) {
         ++total_added_;
+        const bool lastbit = v >> (pshift_ - 1) & 1;
         CONST_IF(filter) {
             if(v >> pshift_)
                 return;
         }
         v <<= (64 - r_);
         v >>= (64 - r_);
-        CONST_IF(sizeof(core_[0]) < 4) {
-            if(core_[v] == std::numeric_limits<std::decay_t<decltype(core_[0])>>::max()) return;
-        }
+        if(lastbit) v += (size_t(1) << r_);
+        if(core_[v] != maxcnt_)
 #ifndef NOT_THREADSAFE
-        __sync_fetch_and_add(&core_[v], 1);
+            __sync_fetch_and_add(&core_[v], 1);
 #else
-        ++core_[v];
+            ++core_[v];
 #endif
+    }
+    static constexpr double l2 = std::log(2.);
+    static constexpr size_t nsubs = 1ull << 16; // Why? The paper doesn't say and their code is weird.
+    struct Deleter {
+        template<typename T>
+        operator()(const T *x) {
+            std::free(const_cast<T *>(x));
+        }
+    };
+    struct ResultType {
+        std::unique_ptr<float, Deleter> data_;
+    };
+    ResultType report() const {
+        const CounterType max_val = *std::max_element(core_.begin(), core_.end()),
+                          nvals = max_val + 1;
+        unsigned *arr = static_cast<unsigned *>(std::calloc(2 * nvals, sizeof(unsigned)));
+        if(!arr) throw std::bad_alloc();
+        for(size_t i = 0; i < 2u; ++i) {
+            size_t core_offset = i << r_;
+            size_t arr_offset = nvals * i;
+            for(size_t j = 0; j < size_t(1) << r_; ++j) {
+                ++arr[core_[j + core_offset] + arr_offset];
+            }
+        }
+        double *pmeans = static_cast<double *>(std::malloc(sizeof(double) * nvals));
+        if(!pmeans) {
+            std::free(arr); // Clean up
+            throw std::bad_alloc();
+        }
+        for(size_t i = 0; i < nsubs; ++i) {
+            pmeans[i] = (arr[i] + arr[i + nsubs]) * .5;
+        }
+        std::free(arr);
+        float *f_i = static_cast<float *>(std::malloc(sizeof(float) * nvals));
+        double logpm0 = std::log(pmeans[0]);
+        double lpmml2r = logpm0 - r_ * l2;
+        f_i[0] = std::ldexp(-lpmml2r, p_ + r_); // F0 mean
+        f_i[1]= -pmeans[1] / (pmeans[0] * (lpmml2r));
+        for(size_t i = 2; i < nvals; ++i) {
+            double sum=0.0;
+            for(size_t j = 1; j < i; j++)
+                sum += j * pmeans[i-j] * f_i[j];
+            f_i[i] = -1.0*pmeans[i]/(pmeans[0]*(logpm0))-sum/(i*pmeans[0]);
+        }
+        std::free(pmeans);
+        for(size_t i=1; i<nvals; f_i[i] = std::abs(f_i[i] * f_i[0]), ++i);
+        return ResultType{std::unique_ptr<float, Deleter>(f_i)};
     }
 };
 template<typename CType, typename HashStruct=WangHash, bool filter=true>
 struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, filter> {
     using super = Card<std::vector<CType, Allocator<CType>>, HashStruct, filter>;
     static_assert(std::is_integral<CType>::value, "Must be integral.");
-    VecCard(unsigned p, unsigned r): super(p, r, 1ull << r) {}
+    VecCard(unsigned r, unsigned p): super(p, r, 2ull << r) {} // 2 << r
 };
 
 } // namespace nt

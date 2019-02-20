@@ -115,8 +115,14 @@ using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
 
 #ifdef NOT_THREADSAFE
 using DefaultCompactVectorType = ::compact::vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
+
+template<size_t NBITS>
+using DefaultStaticCompactVectorType = ::compact::vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>;
 #else
 using DefaultCompactVectorType = ::compact::ts_vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
+
+template<size_t NBITS>
+using DefaultStaticCompactVectorType = ::compact::ts_vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>;
 #endif
 
 template<typename T>
