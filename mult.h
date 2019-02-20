@@ -4,9 +4,27 @@
 #include "blaze/Math.h"
 #include <random>
 #include "ccm.h" // Count-min sketch
+#include <cstdarg>
 
 namespace sketch {
 using namespace common;
+#ifndef LOG_DEBUG
+#    define UNDEF_LDB
+#    if !NDEBUG
+#        define LOG_DEBUG(...) log_debug(__PRETTY_FUNCTION__, __FILE__, __LINE__, ##__VA_ARGS__)
+//#include <cstdarg>
+static int log_debug(const char *func, const char *filename, int line, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int ret(std::fprintf(stderr, "[D:%s:%s:%d] ", func, filename, line));
+    ret += std::vfprintf(stderr, fmt, args);
+    va_end(args);
+    return ret;
+}
+#    else
+#        define LOG_DEBUG(...)
+#    endif
+#endif
 
 namespace cws {
 
@@ -77,7 +95,10 @@ struct Card {
     // and use inconsistent notation
     template<typename...Args>
     Card(unsigned r, unsigned p, CounterType maxcnt=std::numeric_limits<CounterType>::max(), Args &&... args):
-        core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p), maxcnt_(maxcnt) {total_added_.store(0);}
+        core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p), maxcnt_(maxcnt) {
+        total_added_.store(0);
+        LOG_DEBUG("size of sketch: %zu\n", core_.size());
+    }
     void addh(uint64_t v) {
         v = hf_(v);
         add(v);
@@ -110,35 +131,45 @@ struct Card {
     static constexpr size_t nsubs = 1ull << 16; // Why? The paper doesn't say and their code is weird.
     struct Deleter {
         template<typename T>
-        operator()(const T *x) {
+        void operator()(const T *x) const {
             std::free(const_cast<T *>(x));
         }
     };
     struct ResultType {
-        std::unique_ptr<float, Deleter> data_;
+        std::vector<float> data_;
+        size_t total;
+        void report(std::FILE *fp=stderr) const {
+            std::fprintf(fp, "maxcount=%zu,F1=%zu,F0=%f", data_.size() - 1, total, data_[0]);
+            for(size_t i = 1; i < data_.size(); std::fprintf(fp, ",%f", data_[i++]));
+        }
     };
+#if !NDEBUG
+#define access at
+#else
+#define access operator[]
+#endif
     ResultType report() const {
         const CounterType max_val = *std::max_element(core_.begin(), core_.end()),
                           nvals = max_val + 1;
-        unsigned *arr = static_cast<unsigned *>(std::calloc(2 * nvals, sizeof(unsigned)));
-        if(!arr) throw std::bad_alloc();
+        std::vector<unsigned> arr(2 * nvals);
+        LOG_DEBUG("Made arr with nvals = %zu\n", size_t(nvals));
         for(size_t i = 0; i < 2u; ++i) {
             size_t core_offset = i << r_;
             size_t arr_offset = nvals * i;
+            std::fprintf(stderr, "offset for arr: %zu. cfor core: %zu\n", arr_offset, core_offset);
             for(size_t j = 0; j < size_t(1) << r_; ++j) {
-                ++arr[core_[j + core_offset] + arr_offset];
+                ++arr.access(core_.access(j + core_offset) + arr_offset);
             }
         }
-        double *pmeans = static_cast<double *>(std::malloc(sizeof(double) * nvals));
-        if(!pmeans) {
-            std::free(arr); // Clean up
-            throw std::bad_alloc();
+        LOG_DEBUG("Filled arr with nvals = %zu\n", size_t(nvals));
+        std::vector<double> pmeans(nvals);
+        for(size_t i = 0; i < nvals; ++i) {
+            pmeans[i] = (arr[i] + arr[i + nvals]) * .5;
         }
-        for(size_t i = 0; i < nsubs; ++i) {
-            pmeans[i] = (arr[i] + arr[i + nsubs]) * .5;
-        }
-        std::free(arr);
-        float *f_i = static_cast<float *>(std::malloc(sizeof(float) * nvals));
+        //std::free(arr);
+        std::vector<float> f_i(nvals);
+        LOG_DEBUG("Made f_i arr\n");
+        //if(!f_i) throw std::bad_alloc();
         double logpm0 = std::log(pmeans[0]);
         double lpmml2r = logpm0 - r_ * l2;
         f_i[0] = std::ldexp(-lpmml2r, p_ + r_); // F0 mean
@@ -149,19 +180,24 @@ struct Card {
                 sum += j * pmeans[i-j] * f_i[j];
             f_i[i] = -1.0*pmeans[i]/(pmeans[0]*(logpm0))-sum/(i*pmeans[0]);
         }
-        std::free(pmeans);
+#undef access
         for(size_t i=1; i<nvals; f_i[i] = std::abs(f_i[i] * f_i[0]), ++i);
-        return ResultType{std::unique_ptr<float, Deleter>(f_i)};
+        return ResultType{std::move(f_i), total_added_.load()};
     }
 };
 template<typename CType, typename HashStruct=WangHash, bool filter=true>
 struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, filter> {
-    using super = Card<std::vector<CType, Allocator<CType>>, HashStruct, filter>;
+    using ConType = std::vector<CType, Allocator<CType>>;
+    using super = Card<ConType, HashStruct, filter>;
     static_assert(std::is_integral<CType>::value, "Must be integral.");
-    VecCard(unsigned r, unsigned p): super(p, r, 2ull << r) {} // 2 << r
+    VecCard(unsigned r, unsigned p, CType max=std::numeric_limits<CType>::max()): super(r, p, max, 2ull << r) {} // 2 << r
 };
 
 } // namespace nt
 } // namespace sketch
+
+#ifdef UNDEF_LDB
+#undef LOG_DEBUG
+#endif
 
 #endif /* DNB_SKETCH_MULTIPLICITY_H__ */
