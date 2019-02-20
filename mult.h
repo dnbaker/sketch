@@ -99,6 +99,9 @@ struct Card {
         total_added_.store(0);
         LOG_DEBUG("size of sketch: %zu\n", core_.size());
     }
+    Card(Card &&o): core_(std::move(o.core_)), p_(o.p_), r_(o.r_), pshift_(o.pshift_), maxcnt_(o.maxcnt_), hf_(std::move(o.hf_)) {
+        total_added_.store(o.total_added_.load());
+    }
     void addh(uint64_t v) {
         v = hf_(v);
         add(v);
@@ -109,6 +112,36 @@ struct Card {
     }
     size_t rbuck() const {
         return size_t(1) << r_; //
+    }
+    Card operator+(const Card &x) const {
+        if(x.r_ != r_ || x.p_ != p_ || x.maxcnt_ != maxcnt_) {
+            throw std::runtime_error("Parameter mismatch");
+        }
+        Card ret(r_, p_, maxcnt_, core_); // First, copy this container.
+        ret += x;
+        return ret;
+    }
+    Card &operator+=(const Card &x) {
+        if(!std::is_same<Container, std::vector<CounterType, Allocator<CounterType>>>::value) {
+            throw NotImplementedError("Haven't implemented merging of nthashes for any container but aligned std::vectors\n");
+        }
+        total_added_.store(total_added_.load() + x.total_added_.load());
+        if(core_.size() * sizeof(core_[0]) >= sizeof(Space::VType)) {
+            using VSpace = vec::SIMDTypes<CounterType>;
+            using VType = typename vec::SIMDTypes<CounterType>::VType;
+            VType *optr = reinterpret_cast<VType *>(this->core_.data());
+            const VType *iptr = reinterpret_cast<const VType *>(x.core_.data());
+            const VType *const eptr = reinterpret_cast<const VType *>(this->core_.data() + this->core_.size());
+            assert(core_.size() % sizeof(VType) / sizeof(core_[0]) == 0);
+            FOREVER {
+                Space::store(reinterpret_cast<typename VSpace::Type *>(optr), Space::add(Space::load(reinterpret_cast<const typename VSpace::Type *>(optr)), Space::load(reinterpret_cast<const typename VSpace::Type *>(iptr))));
+                ++iptr;
+                ++optr;
+                if(eptr == optr)
+                    break;
+            }
+        } else for(size_t i = 0; i < core_.size(); core_[i] += x.core_[i], ++i);
+        return *this;
     }
     void add(uint64_t v) {
         ++total_added_;
@@ -187,8 +220,7 @@ struct Card {
 };
 template<typename CType, typename HashStruct=WangHash, bool filter=true>
 struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, filter> {
-    using ConType = std::vector<CType, Allocator<CType>>;
-    using super = Card<ConType, HashStruct, filter>;
+    using super = Card<std::vector<CType, Allocator<CType>>, HashStruct, filter>;
     static_assert(std::is_integral<CType>::value, "Must be integral.");
     VecCard(unsigned r, unsigned p, CType max=std::numeric_limits<CType>::max()): super(r, p, max, 2ull << r) {} // 2 << r
 };
