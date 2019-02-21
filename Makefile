@@ -1,10 +1,6 @@
 .PHONY:all python clean mostlyclean
-ifndef CXX
-CXX=g++
-endif
-ifndef CC
-CC=gcc
-endif
+CXX?=g++
+CC?=gcc
 ifndef DBG
 DBG=-DNDEBUG
 else

@@ -48,8 +48,9 @@ class AlignedAllocator;
 
 
 template <Alignment Align>
-struct AlignedAllocator<void, Align>
+class AlignedAllocator<void, Align>
 {
+public:
     using pointer = void *;
     using const_pointer = const void *;
     using value_type = void;

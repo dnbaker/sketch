@@ -160,7 +160,7 @@ struct Card {
             ++core_[v];
 #endif
     }
-    static constexpr double l2 = std::log(2.);
+    static constexpr double l2 = M_LN2;
     static constexpr size_t nsubs = 1ull << 16; // Why? The paper doesn't say and their code is weird.
     struct Deleter {
         template<typename T>

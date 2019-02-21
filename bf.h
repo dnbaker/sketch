@@ -39,9 +39,10 @@ using Allocator = std::allocator<ValueType, ss::Alignment::Normal>;
 // be for bit-packed versions.
 
 static constexpr size_t optimal_nhashes(size_t l2sz, size_t est_cardinality) {
-    assert(l2sz <= 64u);
     l2sz  = size_t(1) << l2sz;
-    return std::ceil(std::log(2.) * l2sz / est_cardinality);
+    size_t ipart = M_LN2 * l2sz / est_cardinality;
+    double fpart = M_LN2 * l2sz / est_cardinality;
+    return ipart + ((fpart - ipart) != 0);
 }
 
 template<typename HashStruct=WangHash>
