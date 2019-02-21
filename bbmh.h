@@ -1049,7 +1049,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 auto maskv = match & 0x3u;
 #ifdef ENABLE_COMPUTED_GOTO
                 // Can this be masked with ~(v-1) somehow?
-                const void **labels = {&&zero, &&one, &&two, &&three};
+                void **labels[4] = {&&zero, &&one, &&two, &&three};
                 goto *labels[maskv];
                 zero: goto end;
                 one: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); goto end;

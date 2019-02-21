@@ -118,7 +118,7 @@ public:
     SET_SKETCH(hashes_)
 };
 
-template<typename T, typename Cmp> class FinalRMinHash; // Forward definition
+template<typename T, typename Cmp> struct FinalRMinHash; // Forward definition
 /*
 The sketch is the set of minimizers.
 
@@ -198,9 +198,9 @@ public:
         }
     }
     auto begin() {return minimizers_.begin();}
-    const auto begin() const {return minimizers_.begin();}
+    auto begin() const {return minimizers_.begin();}
     auto end() {return minimizers_.end();}
-    const auto end() const {return minimizers_.end();}
+    auto end() const {return minimizers_.end();}
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
         return minhash::intersection_size(o, *this, Cmp());
