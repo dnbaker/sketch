@@ -158,7 +158,7 @@ public:
         }
         return ret;
     }
-};
+}; // realccm_t
 
 } // namespace cws
 namespace nt {
@@ -300,7 +300,7 @@ struct Card {
         for(size_t i=1; i<nvals; f_i[i] = std::abs(f_i[i] * f_i[0]), ++i);
         return ResultType{std::move(f_i), total_added_.load()};
     }
-};
+}; // Card
 template<typename CType, typename HashStruct=WangHash, bool filter=true>
 struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, filter> {
     using super = Card<std::vector<CType, Allocator<CType>>, HashStruct, filter>;
