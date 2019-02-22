@@ -13,7 +13,7 @@ int main() {
             mh::BBitMinHasher<uint64_t> b1(i, b), b2(i, b), b3(i, b);
             mh::DivBBitMinHasher<uint64_t> db1(2000 * i, b), db2(2000 * i, b), db3(2000 * i, b);
             //mh::DivBBitMinHasher<uint64_t> fb(i, b);
-            mh::CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(b, i);
+            mh::CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(i, b);
             aes::AesCtr<uint64_t, 4> gen(137);
             size_t shared = 0, b1c = 0, b2c = 0;
             for(size_t i = 50000000; --i;) {
@@ -41,6 +41,8 @@ int main() {
             std::fprintf(stderr, "JI for f3 and f2: %lf\n", f2.jaccard_index(f3));
             std::fprintf(stderr, "equal blocks: %zu\n", size_t(f2.equal_bblocks(f3)));
             std::fprintf(stderr, "f1, f2, and f3 cardinalities: %lf, %lf, %lf\n", f1.est_cardinality_, f2.est_cardinality_, f3.est_cardinality_);
+            //auto cb13res = cb1.finalize().histogram_sums(cb3.finalize());
+            //std::fprintf(stderr, "cb13res %lf, %lf\n", cb13res.weighted_jaccard_index(), cb13res.jaccard_index());
             cb1.finalize().write("ZOMG.cb");
         }
     }

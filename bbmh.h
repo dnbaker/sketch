@@ -318,7 +318,7 @@ void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
 template<typename T, typename CountingType, typename Hasher=common::WangHash>
 class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
     using super = BBitMinHasher<T, Hasher>;
-    std::vector<CountingType> counters_;
+    std::vector<CountingType, Allocator<CountingType>> counters_;
     // TODO: consider probabilistic counting
     // TODO: consider compact_vector
     // Not threadsafe currently
@@ -1008,8 +1008,8 @@ FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinal
 
 template<typename CountingType, typename>
 struct FinalCountingBBitMinHash: public FinalBBitMinHash {
-    std::vector<CountingType> counters_;
-    FinalCountingBBitMinHash(FinalBBitMinHash &&tmp, const std::vector<CountingType> &counts): FinalBBitMinHash(std::move(tmp)), counters_(counts) {}
+    std::vector<CountingType, Allocator<CountingType>> counters_;
+    FinalCountingBBitMinHash(FinalBBitMinHash &&tmp, const std::vector<CountingType, Allocator<CountingType>> &counts): FinalBBitMinHash(std::move(tmp)), counters_(counts) {}
     FinalCountingBBitMinHash(unsigned p, unsigned b, double est): FinalBBitMinHash(b, p, est), counters_(size_t(1) << this->p_) {}
     void write(gzFile fp) const {
         FinalBBitMinHash::write(fp);
@@ -1034,17 +1034,32 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
         gzclose(fp);
     }
 
-    template<typename=std::enable_if_t<std::is_same<CountingType, uint32_t>::value>> // Only finished for uint32_t currently
-    std::pair<uint64_t, uint64_t> histogram_sums(const FinalCountingBBitMinHash &o) const {
-        assert(o.core_.size() == core_.size());
+    struct HistResult {
+        uint64_t matched_sum_,
+                 total_sum_,
+                 matched_bits_,
+                 total_bits_;
+        double jaccard_index() const {
+            return static_cast<double>(matched_bits_) / total_bits_;
+        }
+        double weighted_jaccard_index() const {
+            return static_cast<double>(matched_sum_) / total_sum_;
+        }
+    };
+    template<typename=typename std::enable_if<std::is_same<CountingType, uint32_t>::value>::type> // Only finished for uint32_t currently
+    HistResult histogram_sums(const FinalCountingBBitMinHash &o) const {
+        if(!std::is_same<CountingType, uint32_t>::value) throw NotImplementedError("histogram_sums only available for uint32_t");
+        assert(o.core_.size() == core_.size() || !std::fprintf(stderr, "Mismatched sizes: %zu, %zu\n", core_.size(), o.core_.size()));
         const uint64_t *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
         size_t offset = 0;
         uint64_t matched_sum = 0;
         __m128i total_sum = _mm_set1_epi32(0);
-        for(size_t i = 0; i < 1u << (p_ - 6); ++i) {
+        uint64_t pc_sum = 0;
+        for(size_t i = 0; i < 1u << (p_ - 7); ++i) {
             auto match = ~(*p1++ ^ *p2++);
             while(p1 != pe) match &= ~(*p1++ ^ *p2++);
+            pc_sum += popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
             for(size_t i = 0; i < 32; ++i) {
                 auto maskv = match & 0x3u;
 #ifdef ENABLE_COMPUTED_GOTO
@@ -1064,11 +1079,11 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                     case 3: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]); break;
                 }
 #endif
-                total_sum = _mm_add_epi32(total_sum, __mm_max_epi32(o.counters_.data()[i*2], counters_.data()[i * 2]));
+                total_sum = _mm_add_epi32(total_sum, _mm_max_epi32(*((__m128i *)o.counters_.data() + 2 * i), *((__m128i *)counters_.data() + 2 * i)));
             }
         }
 
-        return {matched_sum, common::sum_of_u64s(total_sum)};
+        return {matched_sum, common::sum_of_u64s(total_sum), pc_sum, core_.size() * sizeof(core_[0]) * sizeof(char)};
     }
 };
 
