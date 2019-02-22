@@ -692,7 +692,7 @@ public:
     // Constructor
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE,
                        JointEstimationMethod jestim=ERTL_JOINT_MLE,
-                       int nthreads=-1, bool clamp=false): hllbase_t(np, ERTL_MLE, ERTL_JOINT_MLE, nthreads, clamp) {}
+                       int nthreads=-1): hllbase_t(np, ERTL_MLE, ERTL_JOINT_MLE, nthreads, false) {}
     template<typename... Args>
     explicit hllbase_t(size_t np, EstimationMethod estim,
                        JointEstimationMethod jestim,
