@@ -19,7 +19,6 @@ int main(int argc, char *argv[]) {
     for(const auto &el: s2) ncfalse += cbf.may_contain(el);
     std::fprintf(stderr, "Error rate: %lf\n", static_cast<double>(nfalse) / nels);
     std::fprintf(stderr, "Counting error rate: %lf\n", static_cast<double>(ncfalse) / nels);
-    auto it(s1.cbegin());
     uint64_t s1c = 0, s2c = 0, s1f = 0;
     for(const auto &el: s1) {
         auto count = cbf.est_count(el);

@@ -448,13 +448,13 @@ public:
     void may_contain(const std::vector<uint64_t> vals, std::vector<uint64_t> &ret) const {
         return may_contain(vals.data(), vals.size(), ret);
     }
-    void may_contain(const uint64_t *vals, size_t nvals, std::vector<uint64_t> &ret) const {
+    auto &may_contain(const uint64_t *vals, size_t nvals, std::vector<uint64_t> &ret) const {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         ret.clear();
 #if !NDEBUG
         std::fprintf(stderr, "nvals: %zu. nvals. Resize size: %zu\n", nvals, nvals >> 6 + ((nvals & 0x63u) != 0));
 #endif
-        ret.resize(nvals >> 6 + ((nvals & 0x63u) != 0), UINT64_C(-1));
+        ret.resize((nvals >> 6) + ((nvals & 0x63u) != 0), UINT64_C(-1));
         unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
         const auto shift = p();
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
@@ -462,8 +462,7 @@ public:
         while(nleft > npersimd) {
             seed.simd_ = (*seedptr++).simd_;
             for(unsigned  i(0); i < nvals; ++i) {
-                bool is_present = true;
-                v.simd_ = hf_(Space::set1(vals[i]) ^ seed.simd_);
+                v = hf_(Space::set1(vals[i]) ^ seed.simd_);
                 v.for_each([&](const uint64_t &val) {
                     ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(val, npw, shift)) << (i & 63u));
                 });
@@ -479,6 +478,7 @@ public:
             }
             nleft -= std::min(npw, nleft);
         }
+        return ret;
     }
 
     const auto &core()    const {return core_;}

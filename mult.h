@@ -67,10 +67,11 @@ public:
     FType decay_rate() const {return scale_;}
     void addh(uint64_t val, FType inc=1.) {this->add(val, inc);}
     template<typename...Args>
-    realccm_t(FType scale_prod=1., Args &&...args): scale_(scale_prod), scale_inv_(1./scale_prod), scale_cur_(scale_prod), super(std::forward<Args>(args)...) {
+    realccm_t(FType scale_prod, Args &&...args): scale_(scale_prod), scale_inv_(1./scale_prod), scale_cur_(scale_prod), super(std::forward<Args>(args)...) {
         total_added_.store(0);
         assert(scale_ >= 0. && scale_ <= 1.);
     }
+    realccm_t(): realccm_t(1.-1e-7) {}
     void rescale() {
         auto scale_div = std::pow(scale_, rescale_frequency_);
         auto ptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data());
@@ -177,11 +178,13 @@ struct Card {
     // because the people who made this structure are weird
     // and use inconsistent notation
     template<typename...Args>
-    Card(unsigned r, unsigned p, CounterType maxcnt=std::numeric_limits<CounterType>::max(), Args &&... args):
+    Card(unsigned r, unsigned p, CounterType maxcnt, Args &&... args):
         core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p), maxcnt_(maxcnt) {
         total_added_.store(0);
         LOG_DEBUG("size of sketch: %zu\n", core_.size());
     }
+    template<typename...Args>
+    Card(unsigned r, unsigned p): Card(r, p, std::numeric_limits<CounterType>::max()) {}
     Card(Card &&o): core_(std::move(o.core_)), p_(o.p_), r_(o.r_), pshift_(o.pshift_), maxcnt_(o.maxcnt_), hf_(std::move(o.hf_)) {
         total_added_.store(o.total_added_.load());
     }

@@ -1062,7 +1062,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
             pc_sum += popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
             for(size_t i = 0; i < 32; ++i) {
                 auto maskv = match & 0x3u;
-#ifdef ENABLE_COMPUTED_GOTO
+#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
                 // Can this be masked with ~(v-1) somehow?
                 void **labels[4] = {&&zero, &&one, &&two, &&three};
                 goto *labels[maskv];

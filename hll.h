@@ -690,10 +690,13 @@ public:
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(static_cast<double>(m()));}
     // Constructor
-    template<typename... Args>
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE,
                        JointEstimationMethod jestim=ERTL_JOINT_MLE,
-                       int nthreads=-1, bool clamp=false, Args &&... args):
+                       int nthreads=-1, bool clamp=false): hllbase_t(np, ERTL_MLE, ERTL_JOINT_MLE, nthreads, clamp) {}
+    template<typename... Args>
+    explicit hllbase_t(size_t np, EstimationMethod estim,
+                       JointEstimationMethod jestim,
+                       int nthreads, bool clamp, Args &&... args):
         core_(static_cast<uint64_t>(1) << np),
         value_(0.), np_(np), is_calculated_(0),
         nthreads_(nthreads > 0 ? nthreads: 1),
