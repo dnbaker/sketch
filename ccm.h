@@ -406,31 +406,6 @@ public:
             }
         }
         return updater_.est_count(count);
-#if 0
-        // Now this must be a count sketch.
-        std::vector<int64_t> estimates;
-        estimates.reserve(nhashes_);
-        while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
-            tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-            tmp.for_each([&](uint64_t &subval) {
-                for(k = 0; k < nperhash64; ++k) {
-                    estimates.push_back(data_[((subval >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * ((subval >> ((nperhash64 - k - 1) * nbitsperhash)) & 1 ? 1: -1) );
-                }
-                ++seedind;
-            });
-        }
-        while(nhdone < nhashes_) {
-            uint64_t hv = hash(val ^ seeds_[seedind]);
-            for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); ++k) {
-                estimates.push_back(data_[((hv >> (k * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++] * detail::signarr<int64_t>[(hv >> ((nperhash64 - k - 1) * nbitsperhash)) & 1]);
-            }
-            ++seedind;
-        }
-        sort::insertion_sort(std::begin(estimates), std::end(estimates));
-        return std::max(static_cast<int64_t>(0),
-                        nhashes_ & 1 ? estimates[nhashes_>>1]
-                                     : (estimates[nhashes_>>1] + estimates[(nhashes_>>1) - 1]) / 2);
-#endif
     }
     ccmbase_t operator+(const ccmbase_t &other) const {
         ccmbase_t cpy = *this;

@@ -51,14 +51,16 @@ class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, A
     using super = cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
     using FSpace = vec::SIMDTypes<FType>;
     FType scale_;
+    using super::seeds_;
+    using super::data_;
+    using super::nhashes_;
+    using super::mask_;
+    using super::subtbl_sz_;
+    using super::l2sz_;
+    using super::hash;
 public:
     FType decay_rate() const {return scale_;}
-    void addh(uint64_t val) {this->add(val);}
-    void add(uint64_t val) {
-        CONST_IF(decay)
-            rescale();
-        super::add(val);
-    }
+    void addh(uint64_t val, FType inc=1.) {this->add(val, inc);}
     template<typename...Args>
     realccm_t(FType scale_prod=1., Args &&...args): scale_(scale_prod), super(std::forward<Args>(args)...) {
         assert(scale_ >= 0. && scale_ <= 1.);
@@ -74,6 +76,72 @@ public:
         FType *rptr = reinterpret_cast<FType *>(ptr);
         while(rptr < this->data_.data() + this->data_.size())
             *rptr++ *= scale_;
+    }
+    FType add(const uint64_t val, FType inc) {
+        CONST_IF(decay) // TODO: change to holding a multiplier which increments each round and then
+                        // multiplicatively decrease the whole table every so often.
+                        // This amortizes whole-table multiplications.
+            rescale();
+        unsigned nhdone = 0, seedind = 0;
+        const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
+        const auto nbitsperhash = l2sz_;
+        const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
+        Space::VType vb = Space::set1(val), tmp;
+        FType ret;
+        CONST_IF(conservative) {
+            std::vector<uint64_t> indices, best_indices;
+            indices.reserve(nhashes_);
+            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
+                tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
+                tmp.for_each([&](uint64_t subval) {
+                    for(unsigned k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
+                });
+                seedind += Space::COUNT;
+            }
+            while(nhdone < nhashes_) {
+                uint64_t hv = hash(val ^ seeds_[seedind]);
+                for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
+                ++seedind;
+            }
+            best_indices.push_back(indices[0]);
+            ssize_t minval = data_[indices[0]];
+            unsigned score;
+            for(size_t i(1); i < indices.size(); ++i) {
+                // This will change with
+                if((score = data_[indices[i]]) == minval) {
+                    best_indices.push_back(indices[i]);
+                } else if(score < minval) {
+                    best_indices.clear();
+                    best_indices.push_back(indices[i]);
+                    minval = score;
+                }
+            }
+            ret = (data_[best_indices[0]] += inc);
+            for(size_t i = 1; i < best_indices.size() - 1; data_[best_indices[i++]] += inc);
+            // This is likely a scatter/gather candidate, but they aren't particularly fast operations.
+            // This could be more valuable on a GPU.
+        } else { // not conservative update. This means we support deletions
+            ret = std::numeric_limits<decltype(ret)>::max();
+            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
+                Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
+                    for(unsigned k(0); k < nperhash64;) {
+                        auto ref = data_[((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
+                        ref += inc;
+                        ret = std::min(ret, double(ref));
+                    }
+                });
+                seedind += Space::COUNT;
+            }
+            while(nhdone < nhashes_) {
+                uint64_t hv = hash(val ^ seeds_[seedind++]);
+                for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone);) {
+                    auto ref = data_[((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
+                    throw NotImplementedError("The updater should be here");
+                    ret = std::min(ret, ssize_t(ref));
+                }
+            }
+        }
+        return ret;
     }
 };
 
