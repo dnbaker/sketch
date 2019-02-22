@@ -58,7 +58,7 @@ class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, A
     using super::subtbl_sz_;
     using super::l2sz_;
     using super::hash;
-    static constexpr size_t rescale_frequency_ = 1ul << 20;
+    static constexpr size_t rescale_frequency_ = 1ul << 12;
 
     FType scale_, scale_inv_, scale_cur_;
     std::atomic<uint64_t> total_added_;
@@ -72,7 +72,7 @@ public:
         assert(scale_ >= 0. && scale_ <= 1.);
     }
     realccm_t(): realccm_t(1.-1e-7) {}
-    void rescale() {
+    void rescale(size_t exp=rescale_frequency_) {
         auto scale_div = std::pow(scale_, rescale_frequency_);
         auto ptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data());
         auto eptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data() + this->data_.size());
@@ -107,13 +107,11 @@ public:
         CONST_IF(conservative) {
             std::vector<uint64_t> indices, best_indices;
             indices.reserve(nhashes_);
-            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
-                tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-                tmp.for_each([&](uint64_t subval) {
+            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64))
+                Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
                     for(unsigned k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
-                });
+                }),
                 seedind += Space::COUNT;
-            }
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind]);
                 for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
