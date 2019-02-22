@@ -5,6 +5,7 @@
 #include <random>
 #include "ccm.h" // Count-min sketch
 #include <cstdarg>
+#include <mutex>
 
 namespace sketch {
 using namespace common;
@@ -50,7 +51,6 @@ template<typename FType=float, typename HashStruct=common::WangHash, bool decay=
 class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
     using super = cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
     using FSpace = vec::SIMDTypes<FType>;
-    FType scale_;
     using super::seeds_;
     using super::data_;
     using super::nhashes_;
@@ -58,30 +58,45 @@ class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, A
     using super::subtbl_sz_;
     using super::l2sz_;
     using super::hash;
+    static constexpr size_t rescale_frequency_ = 1ul << 20;
+
+    FType scale_, scale_inv_, scale_cur_;
+    std::atomic<uint64_t> total_added_;
+    std::mutex mut_;
 public:
     FType decay_rate() const {return scale_;}
     void addh(uint64_t val, FType inc=1.) {this->add(val, inc);}
     template<typename...Args>
-    realccm_t(FType scale_prod=1., Args &&...args): scale_(scale_prod), super(std::forward<Args>(args)...) {
+    realccm_t(FType scale_prod=1., Args &&...args): scale_(scale_prod), scale_inv_(1./scale_prod), scale_cur_(scale_prod), super(std::forward<Args>(args)...) {
+        total_added_.store(0);
         assert(scale_ >= 0. && scale_ <= 1.);
     }
     void rescale() {
+        auto scale_div = std::pow(scale_, rescale_frequency_);
         auto ptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data());
         auto eptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data() + this->data_.size());
-        auto mul = FSpace::set1(scale_);
+        auto mul = FSpace::set1(scale_div);
         while(eptr > ptr) {
             *ptr = Space::mul(ptr->simd_, mul);
             ++ptr;
         }
         FType *rptr = reinterpret_cast<FType *>(ptr);
         while(rptr < this->data_.data() + this->data_.size())
-            *rptr++ *= scale_;
+            *rptr++ *= scale_div;
     }
     FType add(const uint64_t val, FType inc) {
-        CONST_IF(decay) // TODO: change to holding a multiplier which increments each round and then
-                        // multiplicatively decrease the whole table every so often.
-                        // This amortizes whole-table multiplications.
-            rescale();
+        ++total_added_; // I don't care about ordering, I just want it to be atomic.
+        CONST_IF(decay) {
+            inc *= scale_cur_;
+            scale_cur_ *= scale_inv_;
+            if(total_added_ % rescale_frequency_ == 0u) { // Power of two, bitmask is efficient
+                {
+                    std::lock_guard<decltype(mut_)> lock(mut_);
+                    rescale();
+                }
+                scale_cur_ = scale_; // So when we multiply inc by scale_cur, the insertion happens at 1
+            }
+        }
         unsigned nhdone = 0, seedind = 0;
         const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
         const auto nbitsperhash = l2sz_;
