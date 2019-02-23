@@ -119,6 +119,8 @@ struct SuperMinHash {
     // in b-bit minimizing.
     // The number of bits needed for full minimizer encoding in this scheme
     // is 32 + log2(m_).
+    // Best of all, because our sketch only needs mod in CountType space,
+    // our mods are 5 instructions vs 16-19 on x86 for fastmod.
     const Policy<CountType> pol_;
     using BType = typename std::make_signed<CountType>::type;
     uint64_t a_, i_;
@@ -129,7 +131,8 @@ struct SuperMinHash {
     std::vector<uint64_t, Allocator<uint64_t>>   h_;
     SuperMinHash(size_t arg): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
         p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg), 0) {
-        b_.back() = pol_.arg2vecsize(arg);
+        b_.back() = m_;
+        assert(m_ <= std::numeric_limits<CountingType>::max());
     }
     static constexpr uint64_t join_cmp(uint32_t i, uint32_t r) {
         return (uint64_t(i) << 32) | r;
