@@ -236,6 +236,34 @@ double arithmean_invsim(I1 beg, I2 end, double num=1., const Func &func=Func()) 
    return std::accumulate(beg, end, 0., [&func,num](auto x, auto y) {return x + num / func(y);}) / std::distance(beg, end);
 }
 
+
+// pcg32
+// The purpose of this is fast random number generation for {Super,Bag}MinHash
+struct pcg32_random_t {   // Internals are *Private*.
+    uint64_t state;                    // RNG state.  All values are possible.
+    uint64_t inc;                      // Controls which RNG sequence (stream) is
+                                       // selected. Must *always* be odd.
+};
+
+static INLINE uint32_t pcg32_random_r(pcg32_random_t *rng) {
+    uint64_t oldstate = rng->state;
+    rng->state = oldstate * 6364136223846793005ULL + rng->inc;
+    uint32_t xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
+    uint32_t rot = oldstate >> 59u;
+    return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+}
+
+struct PCGen: pcg32_random_t {
+    PCGen(uint64_t seed, uint64_t inc=3930499866110305181uLL){
+        this->state = seed; this->inc = inc|1; // Ensures that increment is odd
+    }
+    PCGen &seed(uint64_t newseed) {this->state = newseed; return *this;}
+    uint32_t operator()() {return pcg32_random_r(this);}
+    uint64_t make_u64() {return (uint64_t(this->operator()()) << 32) | this->operator()();}
+    static constexpr uint32_t max() {return std::numeric_limits<uint32_t>::max();}
+    static constexpr uint32_t min() {return std::numeric_limits<uint32_t>::min();}
+};
+
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
 // This is our core 64-bit hash.
