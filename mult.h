@@ -4,7 +4,6 @@
 #include "blaze/Math.h"
 #include <random>
 #include "ccm.h" // Count-min sketch
-#include "div.h"
 #include <cstdarg>
 #include <mutex>
 

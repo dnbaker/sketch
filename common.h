@@ -22,6 +22,7 @@
 #include "unistd.h"
 #include "x86intrin.h"
 #include "kthread.h"
+#include  "div.h"
 #if ZWRAP_USE_ZSTD
 #  include "zstd_zlibwrapper.h"
 #else

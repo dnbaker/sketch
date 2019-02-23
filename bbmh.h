@@ -1,6 +1,5 @@
 #ifndef SKETCH_BB_MINHASH_H__
 #define SKETCH_BB_MINHASH_H__
-#include "div.h"
 #include "common.h"
 #include "hll.h"
 #if !NDEBUG
