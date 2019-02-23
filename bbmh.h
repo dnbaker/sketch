@@ -106,9 +106,71 @@ static inline double harmonic_cardinality_estimate(const std::vector<T> &minvec)
     return harmonic_cardinality_estimate_impl(minvec);
 }
 
-
 } // namespace detail
 
+
+
+template<template<typename> typename Policy=policy::SizePow2Policy, typename CountType=uint32_t>
+struct SuperMinHash {
+    // Note:
+    // Instead of maintaining real and integral portions of a hash in floating point,
+    // we store these in 32-bit portions of a 64-bit value, keeping the index information
+    // in the higher register and the fractional portion in a lower one.
+    // This is reduced entropy per 64-bit value (when finalized), so we're quite justified
+    // in b-bit minimizing.
+    // The number of bits needed for full minimizer encoding in this scheme
+    // is 32 + log2(m_).
+    const Policy<CountType> pol_;
+    using BType = typename std::make_signed<CountType>::type;
+    uint64_t a_, i_;
+    uint32_t m_;
+    std::vector<CountType> p_;
+    std::vector<CountType> q_;
+    std::vector<BType>                           b_;
+    std::vector<uint64_t, Allocator<uint64_t>>   h_;
+    SuperMinHash(size_t arg): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
+        p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg), 0) {
+        b_.back() = pol_.arg2vecsize(arg);
+    }
+    static constexpr uint64_t join_cmp(uint32_t i, uint32_t r) {
+        return (uint64_t(i) << 32) | r;
+    }
+    size_t needed_bits() const {
+        return std::ceil(32 + std::log2(m_));
+    }
+    void addh(uint64_t item) {
+        PCGen gen(item);
+        uint64_t j = 0;
+        while(j < a_) {
+            uint32_t r = gen();
+            uint32_t k = pol_.mod(gen());
+            if(q_[j] != i_) {
+                q_[j] = i_;
+                p_[j] = j;
+            }
+            if(q_[k] != i_) {
+                q_[k] = i_;
+                p_[k] = j;
+            }
+            std::swap(p_[k], p_[j]);
+            auto crj = join_cmp(j, r);
+            if(crj < h_[p_[j]]) {
+                auto jprime = std::min(m_ - 1, uint32_t(h_[p_[j]] >> 32));
+                h_[p_[j]] = crj;
+                if(j < jprime) {
+                    --b_[jprime];
+                    ++b_[j];
+                    while(b_[a_] == 0) --a_;
+                }
+            }
+            ++j;
+        }
+        ++i_;
+    }
+    // TODO: pack this into Final{Div,}BBitMinHashers or FinalHashers.
+    // TODO: cardinality estimates
+    //       this would be harder because of the way we pack values
+};
 
 
 struct FinalBBitMinHash;

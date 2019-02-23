@@ -837,6 +837,32 @@ static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, s
 }
 } // namespace detail
 
+namespace policy {
+
+template<typename T>
+struct SizePow2Policy {
+    T mask_;
+    SizePow2Policy(size_t n): mask_((1ull << nelem2arg(n))) {}
+    static size_t nelem2arg(size_t nelem) {
+        return ilog2(roundup(nelem));
+    }
+    static size_t arg2vecsize(size_t arg) {return size_t(1) << arg;}
+    T mod(T rv) const {return rv & mask_;}
+};
+
+template<typename T>
+struct SizeDivPolicy {
+    schism::Schismatic<T> div_;
+    static size_t nelem2arg(size_t nelem) {
+        return nelem;
+    }
+    static size_t arg2vecsize(size_t arg) {return arg;}
+    T mod(T rv) const {return div_.mod(rv);}
+    SizeDivPolicy(T div): div_(div) {}
+};
+
+} // policy
+
 enum MHCardinalityMode: uint8_t {
     HARMONIC_MEAN,
     GEOMETRIC_MEAN,
