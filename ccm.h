@@ -8,6 +8,50 @@ namespace sketch {
 namespace cm {
 
 namespace detail {
+#if 0
+// Overloads for setting memory to 0 for either compact vectors
+// or std::vectors
+#endif
+template<typename T, typename AllocatorType=typename T::allocator>
+static inline double sqrl2(std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
+#if defined(AVOID_ALLOCA)
+    double *ptr = std::malloc(sizeof(double) * nhashes);
+#else
+    double *ptr = __builtin_alloca(sizeof(double) * nhashes);
+#endif
+    using VT = typename vec::SIMDTypes<T>::VType;
+    using VS = vec::SIMDTypes<T>;
+    VT sum = VS::set1(0);
+    for(size_t i = 0; i < nhashes; ++i) {
+        const VT *p = reinterpret_cast<const VT *>(&v[i << l2sz]), *pe= reinterpret_cast<const VT *>(&v[(i + 1) << l2sz]);
+        sum = VS::add(sum, VS::mul(*p, *p));
+        while(++p < pe) 
+            sum = VS::add(sum, VS::mul(*p, *p));
+        ptr[i] = std::sqrt(sum.sum());
+    }
+    common::sort::insertion_sort(ptr, ptr + nhashes);
+    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+#if defined(AVOID_ALLOCA)
+    std::free(ptr);
+#endif
+    return ret;
+}
+template<typename T1, unsigned int BITS, typename T2, typename Allocator>
+static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v) {
+    throw common::NotImplementedError("Need to do this table by table\n");
+    return std::sqrt(std::accumulate(v.begin(), v.end(), size_t(0), [](size_t x, const auto &y) {
+        return x + (y * y);
+    }));
+}
+template<typename T1, unsigned int BITS, typename T2, typename Allocator>
+static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {
+    throw common::NotImplementedError("Need to do this table by table\n");
+    return std::sqrt(std::accumulate(v.begin(), v.end(), size_t(0), [](size_t x, const auto &y) {
+        return x + (y * y);
+    }));
+}
+template<typename T>
+double sqrl2(const T &data, uint32_t hashes, uint32_t l2sz);
     template<typename IntType, typename=typename std::enable_if<std::is_signed<IntType>::value>::type>
     static constexpr IntType signarr []{static_cast<IntType>(-1), static_cast<IntType>(1)};
 
@@ -57,6 +101,11 @@ struct Increment {
         return RetType(i) + RetType(j);
     }
 };
+
+/*
+ TODO: L2 estimate --
+ median(sqrt(sum(x**2 for x in row)))
+*/
 
 
 struct CountSketch {
@@ -198,6 +247,9 @@ public:
     }
     void clear() {
         common::detail::zero_memory(data_, ilog2(subtbl_sz_));
+    }
+    double l2est() const {
+        return sqrl2(data_, nhashes_, l2sz_);
     }
     template<typename... Args>
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):
@@ -458,6 +510,9 @@ public:
         for(auto &el: seeds_) el = gen();
         // Just to make sure that simd addh is always accessing owned memory.
         while(seeds_.size() < sizeof(Space::Type) / sizeof(uint64_t)) seeds_.emplace_back(gen());
+    }
+    double l2est() const {
+        return sqrl2(core_, nh_, np_);
     }
     void addh(uint64_t val) {
         uint64_t v = hf_(val);
