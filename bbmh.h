@@ -132,7 +132,7 @@ struct SuperMinHash {
     SuperMinHash(size_t arg): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
         p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg), 0) {
         b_.back() = m_;
-        assert(m_ <= std::numeric_limits<CountingType>::max());
+        assert(m_ <= std::numeric_limits<CountType>::max());
     }
     static constexpr uint64_t join_cmp(uint32_t i, uint32_t r) {
         return (uint64_t(i) << 32) | r;
@@ -627,7 +627,6 @@ public:
                 }
 #if !NDEBUG
                 auto fptr = (value_type*)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
-                auto eptr = p1 + core_.size();
                 assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", fptr, p1 + core_.size()));
 #endif
                 return common::sum_of_u64s(sum);
@@ -819,7 +818,6 @@ public:
                 }
 #if !NDEBUG
                 auto fptr = (value_type*)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (l2szfloor - 8u)));
-                auto eptr = p1 + core_.size();
                 assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", fptr, p1 + core_.size()));
 #endif
                 sum = common::sum_of_u64s(lsum);
@@ -997,7 +995,7 @@ FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinal
     using detail::getnthbit;
     using detail::setnthbit;
     FinalDivBBitMinHash ret(nbuckets(), b, cest);
-    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, nbuckets(): %u. cest: %lf\n", ret.core_.size(), b_, nbuckets(), cest);
+    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, nbuckets(): %u. cest: %lf\n", ret.core_.size(), b_, unsigned(nbuckets()), cest);
     using FinalType = typename FinalDivBBitMinHash::value_type;
     assert(ret.core_.size() % b == 0);
     assert(core_.size() % 64 == 0);

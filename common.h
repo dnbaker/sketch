@@ -847,6 +847,7 @@ struct SizePow2Policy {
     static size_t nelem2arg(size_t nelem) {
         return ilog2(roundup(nelem));
     }
+    size_t nelem() const {return size_t(mask_) + 1;}
     static size_t arg2vecsize(size_t arg) {return size_t(1) << arg;}
     T mod(T rv) const {return rv & mask_;}
 };
@@ -857,6 +858,7 @@ struct SizeDivPolicy {
     static size_t nelem2arg(size_t nelem) {
         return nelem;
     }
+    size_t nelem() const {return div_.d_;}
     static size_t arg2vecsize(size_t arg) {return arg;}
     T mod(T rv) const {return div_.mod(rv);}
     SizeDivPolicy(T div): div_(div) {}
