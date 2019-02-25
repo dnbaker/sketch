@@ -1,5 +1,5 @@
 # sketch [![Build Status](https://travis-ci.com/dnbaker/sketch.svg?branch=master)](https://travis-ci.com/dnbaker/sketch)
-sketch is a generic, header-only library wit a variety of sketch data structures for scalable and streaming applications.
+sketch is a generic, header-only library providing implementations of variety of sketch data structures for scalable and streaming applications.
 All have been accelerated with SIMD parallelism where possible, most are composable, and many are threadsafe unless `-DNOT_THREADSAFE` is passed as a compilation flag.
 
 ## Contents
