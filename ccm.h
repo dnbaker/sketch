@@ -2,6 +2,8 @@
 #include "common.h"
 #include "aesctr/aesctr.h"
 #include <ctime>
+#include <deque>
+#include <queue>
 
 namespace sketch {
 
@@ -402,8 +404,7 @@ public:
             std::vector<uint64_t> indices, best_indices;
             indices.reserve(nhashes_);
             while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
-                tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-                tmp.for_each([&](uint64_t subval) {
+                Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
                     for(unsigned k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
                 });
                 seedind += Space::COUNT;
@@ -461,8 +462,7 @@ public:
         const auto nbitsperhash = l2sz_;
         uint64_t count = std::numeric_limits<uint64_t>::max();
         while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
-            tmp = hash(Space::xor_fn(vb.simd_, Space::load(sptr++)));
-            tmp.for_each([&](const uint64_t subval){
+            Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](const uint64_t subval){
                 for(k = 0; k < nperhash64; count = std::min(count, uint64_t(data_[((subval >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++])));
             });
             seedind += Space::COUNT;
@@ -572,16 +572,14 @@ public:
         return core_[(hv & mask_) + (subidx << np_)];
     }
     INLINE void subh(Space::VType hv) noexcept {
-        Space::VType tmp = hf_(hv);
         unsigned gadded = 0;
-        tmp.for_each([&](uint64_t v) {
+        Space::VType(hf_(hv)).for_each([&](uint64_t v) {
             for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
                 sub(v, gadded++);
         });
         for(auto it = seeds_.begin(); gadded < nh_;) {
-            tmp = hf_(Space::xor_fn(Space::set1(*it++), hv));
             unsigned lastgadded = gadded;
-            tmp.for_each([&](uint64_t v) {
+            Space::VType(hf_(Space::xor_fn(Space::set1(*it++), hv))).for_each([&](uint64_t v) {
                 unsigned added;
                 for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); sub(v, added++), v >>= (np_ + 1));
                 gadded = added;
@@ -589,16 +587,14 @@ public:
         }
     }
     INLINE void addh(Space::VType hv) noexcept {
-        Space::VType tmp = hf_(hv);
         unsigned gadded = 0;
-        tmp.for_each([&](uint64_t v) {
+        Space::VType(hf_(hv)).for_each([&](uint64_t v) {
             for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
                 add(v, gadded++);
         });
         for(auto it = seeds_.begin(); gadded < nh_;) {
-            tmp = hf_(Space::xor_fn(Space::set1(*it++), hv));
             unsigned lastgadded = gadded;
-            tmp.for_each([&](uint64_t v) {
+            Space::VType(hf_(Space::xor_fn(Space::set1(*it++), hv))).for_each([&](uint64_t v) {
                 unsigned added;
                 for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); add(v, added++), v >>= (np_ + 1));
                 gadded = added;
@@ -632,6 +628,7 @@ template<typename VectorType=DefaultCompactVectorType,
 class cmmbase_t: protected ccmbase_t<update::Increment, VectorType, HashStruct> {
     uint64_t stream_size_;
     using BaseType = ccmbase_t<update::Increment, VectorType, HashStruct>;
+public:
     cmmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0): BaseType(nbits, l2sz, nhashes, seed), stream_size_(0) {
         throw NotImplementedError("count min mean sketch not completed.");
     }
@@ -642,6 +639,25 @@ class cmmbase_t: protected ccmbase_t<update::Increment, VectorType, HashStruct> 
     }
     uint64_t est_count(uint64_t val) const {
         return BaseType::est_count(val); // TODO: this (This is just
+    }
+};
+
+template<typename CMType, template<typename> typename QueueContainer=std::queue>
+class SlidingWindow {
+    QueueContainer<uint64_t> hashes_;
+public:
+    CMType cm_;
+    size_t queue_size_;
+    SlidingWindow(size_t queue_size, CMType &&cm): queue_size_(queue_size), cm_(std::move(cm)) {
+        hashes_.reserve(queue_size_);
+    }
+    void addh(uint64_t v) {
+        cm_.addh(v);
+        if(hashes_.size() == queue_size_) {
+            cm_.sub(hashes_.front());
+            hashes_.pop_front();
+            hashes_.push_back(v);
+        }
     }
 };
 
