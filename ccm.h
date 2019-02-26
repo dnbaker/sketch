@@ -8,17 +8,11 @@ namespace sketch {
 namespace cm {
 
 namespace detail {
-#if 0
-// Overloads for setting memory to 0 for either compact vectors
-// or std::vectors
-#endif
+using common::detail::alloca_wrap;
 template<typename T, typename AllocatorType=typename T::allocator>
-static inline double sqrl2(std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
-#if defined(AVOID_ALLOCA)
-    double *ptr = std::malloc(sizeof(double) * nhashes);
-#else
-    double *ptr = __builtin_alloca(sizeof(double) * nhashes);
-#endif
+static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
+    alloca_wrap<double> mem(nhashes);
+    double *ptr = mem.get();
     using VT = typename vec::SIMDTypes<T>::VType;
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
@@ -31,48 +25,70 @@ static inline double sqrl2(std::vector<T, AllocatorType> &v, uint32_t nhashes, u
     }
     common::sort::insertion_sort(ptr, ptr + nhashes);
     double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-#if defined(AVOID_ALLOCA)
-    std::free(ptr);
-#endif
     return ret;
 }
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v) {
-    throw common::NotImplementedError("Need to do this table by table\n");
-    return std::sqrt(std::accumulate(v.begin(), v.end(), size_t(0), [](size_t x, const auto &y) {
-        return x + (y * y);
-    }));
+static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
+    alloca_wrap<double> mem(nhashes);
+    double *ptr = mem.get();
+    for(size_t i = 0; i < nhashes; ++i) {
+        size_t start = i << l2sz, end = (i + 1) << l2sz;
+        double sum = 0;
+        while(start != end) {
+            int64_t val = v[start];
+            val *= val;
+            sum += val;
+            ++start;
+        }
+        sum = std::sqrt(sum);
+        ptr[i] = sum;
+    }
+    common::sort::insertion_sort(ptr, ptr + nhashes);
+    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    return ret;
 }
-template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {
-    throw common::NotImplementedError("Need to do this table by table\n");
-    return std::sqrt(std::accumulate(v.begin(), v.end(), size_t(0), [](size_t x, const auto &y) {
-        return x + (y * y);
-    }));
-}
-template<typename T>
-double sqrl2(const T &data, uint32_t hashes, uint32_t l2sz);
-    template<typename IntType, typename=typename std::enable_if<std::is_signed<IntType>::value>::type>
-    static constexpr IntType signarr []{static_cast<IntType>(-1), static_cast<IntType>(1)};
 
-    template<typename T>
-    struct IndexedValue {
-        using Type = typename std::decay_t<decltype(*(T(100, 10).cbegin()))>;
-    };
-    template<typename T>
-    static constexpr int range_check(unsigned nbits, T val) {
-        CONST_IF(std::is_floating_point<T>::value) {
-            return 0; // Yeah, we're fine.
+template<typename T1, unsigned int BITS, typename T2, typename Allocator>
+static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
+    alloca_wrap<double> mem(nhashes);
+    double *ptr = mem.get();
+    for(size_t i = 0; i < nhashes; ++i) {
+        size_t start = i << l2sz, end = (i + 1) << l2sz;
+        double sum = 0;
+        while(start != end) {
+            int64_t val = v[start];
+            val *= val;
+            sum += val;
+            ++start;
         }
-        CONST_IF(std::is_signed<T>::value) {
-            const int64_t v = val;
-            return v < -int64_t(1ull << (nbits - 1)) ? -1
-				                     : v > int64_t((1ull << (nbits - 1)) - 1);
-        } else {
-            return val >= (1ull << nbits);
-        }
+        sum = std::sqrt(sum);
+        ptr[i] = sum;
+    }
+    common::sort::insertion_sort(ptr, ptr + nhashes);
+    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    return ret;
+}
+template<typename IntType, typename=typename std::enable_if<std::is_signed<IntType>::value>::type>
+static constexpr IntType signarr []{static_cast<IntType>(-1), static_cast<IntType>(1)};
+
+template<typename T>
+struct IndexedValue {
+    using Type = typename std::decay_t<decltype(*(T(100, 10).cbegin()))>;
+};
+template<typename T>
+static constexpr int range_check(unsigned nbits, T val) {
+    CONST_IF(std::is_floating_point<T>::value) {
+        return 0; // Yeah, we're fine.
+    }
+    CONST_IF(std::is_signed<T>::value) {
+        const int64_t v = val;
+        return v < -int64_t(1ull << (nbits - 1)) ? -1
+				                 : v > int64_t((1ull << (nbits - 1)) - 1);
+    } else {
+        return val >= (1ull << nbits);
     }
 }
+} // namespace detail
 
 namespace update {
 
@@ -249,7 +265,7 @@ public:
         common::detail::zero_memory(data_, ilog2(subtbl_sz_));
     }
     double l2est() const {
-        return sqrl2(data_, nhashes_, l2sz_);
+        return detail::sqrl2(data_, nhashes_, l2sz_);
     }
     template<typename... Args>
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):
@@ -590,11 +606,8 @@ public:
         }
     }
     CounterType est_count(uint64_t val) const {
-#if AVOID_ALLOCA
-        CounterType *ptr = static_cast<CounterType *>(std::malloc(nh_ * sizeof(CounterType))), *p = ptr;
-#else
-        CounterType *ptr = static_cast<CounterType *>(__builtin_alloca(nh_ * sizeof(CounterType))), *p = ptr;
-#endif
+        common::detail::alloca_wrap<CounterType> mem(nh_);
+        CounterType *ptr = mem.get(), *p = ptr;
         if(__builtin_expect(ptr == nullptr, 0)) throw std::bad_alloc();
         uint64_t v = hf_(val);
         unsigned added;
@@ -610,9 +623,6 @@ public:
         }
         end:
         sort::insertion_sort(ptr, ptr + nh_);
-#if AVOID_ALLOCA
-        std::free(ptr);
-#endif
         return (ptr[nh_>>1] + ptr[(nh_-1)>>1]) >> 1;
     }
 };

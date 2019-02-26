@@ -836,6 +836,27 @@ template<typename T1, unsigned int BITS, typename T2, typename Allocator>
 static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {
    std::memset(v.get(), 0, v.bytes()); // zero array
 }
+
+template<typename T>
+struct alloca_wrap {
+    T *ptr_;
+    alloca_wrap(size_t n): ptr_
+#if defined(AVOID_ALLOCA)
+        (static_cast<T *>(std::malloc(n * sizeof(T))))
+#else
+        (static_cast<T *>(__builtin_alloca(n * sizeof(T))))
+#endif
+    {}
+    T *get() {
+        return ptr_;
+    }
+    ~alloca_wrap() {
+#if defined(AVOID_ALLOCA)
+        std::free(ptr_);
+#endif
+    }
+};
+
 } // namespace detail
 
 namespace policy {

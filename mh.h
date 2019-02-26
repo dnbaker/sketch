@@ -250,22 +250,13 @@ struct FinalRMinHash {
     }
     double cardinality() const {
         const auto sz = first.size();
-        T *diffs = static_cast<T *>(
-#ifdef AVOID_ALLOCA
-            std::malloc(
-#else
-            __builtin_alloca(
-#endif
-                sizeof(T) * (sz - 1)));
-        T *p = diffs;
+        common::detail::alloca_wrap<T> mem(sz - 1);
+        T *diffs = mem.get(), *p = diffs;
         for(auto i1 = first.begin(), i2 = i1; ++i2 != first.end();++i1) {
             *p++ = (*i1 - *i2);
         }
         sort::insertion_sort(diffs, p);
         const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
-#ifdef AVOID_ALLOCA
-        std::free(diffs);
-#endif
         return ret;
     }
 #define I1DF if(++i1 == lsz) break

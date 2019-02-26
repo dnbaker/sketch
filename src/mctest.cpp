@@ -82,4 +82,6 @@ int main(int argc, char *argv[]) {
     }
     std::fprintf(stderr, "Estimated count for 137: %d\n", thingcs.est_count(137));
     KWiseIndependentPolynomialHash<4> hf; // Just to test compilation
+    thingwithnonminmal.l2est();
+    thingwithfloats.l2est();
 }
