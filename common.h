@@ -35,6 +35,9 @@
 #  define NO_BLAZE
 #  include "vec.h" // Import vec.h, but disable blaze and sleef.
 #endif
+#if __AES__
+#include "aesctr/aesctr.h"
+#endif
 
 #ifndef HAS_AVX_512
 #  define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__ || __AVX512__)
@@ -82,8 +85,7 @@
 namespace sketch {
 namespace common {
 
-#if defined(__AES__)
-#include "aesctr/aesctr.h"
+#if __AES__
 using DefaultRNGType = aes::AesCtr<uint64_t, 8>;
 #else
 using DefaultRNGType = std::mt19937_64;
