@@ -1,6 +1,5 @@
 #include "bbmh.h"
 #include "hll.h"
-#include "aesctr/aesctr.h"
 using namespace sketch;
 using namespace common;
 
@@ -15,7 +14,7 @@ int main() {
             mh::DivBBitMinHasher<uint64_t> db1(2000 * i, b), db2(2000 * i, b), db3(2000 * i, b);
             //mh::DivBBitMinHasher<uint64_t> fb(i, b);
             mh::CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(i, b);
-            aes::AesCtr<uint64_t, 4> gen(137);
+            DefaultRNGType gen(137);
             size_t shared = 0, b1c = 0, b2c = 0;
             for(size_t i = 50000000; --i;) {
                 auto v = gen();

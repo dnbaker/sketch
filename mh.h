@@ -2,7 +2,6 @@
 #include <mutex>
 //#include <queue>
 #include "hll.h" // For common.h and clz functions
-#include "aesctr/aesctr.h"
 
 /*
  * TODO: support minhash using sketch size and a variable number of hashes.
@@ -102,7 +101,7 @@ public:
         hashes_(nkeys),
         hf_(std::move(hf))
     {
-        aes::AesCtr<uint64_t, 4> gen(seedseed);
+        DefaultRNGType gen(seedseed);
         seeds_.reserve(nseeds());
         while(seeds_.size() < nseeds()) seeds_.emplace_back(gen());
         throw NotImplementedError();

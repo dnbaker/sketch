@@ -1,6 +1,5 @@
 #pragma once
 #include "common.h"
-#include "aesctr/aesctr.h"
 #include <ctime>
 #include <deque>
 #include <queue>
@@ -172,7 +171,7 @@ struct CountSketch {
 };
 
 struct PowerOfTwo {
-    aes::AesCtr<uint64_t, 2> rng_;
+    common::DefaultRNGType rng_;
     uint64_t  gen_;
     uint8_t nbits_;
     // Also saturates
@@ -522,7 +521,7 @@ public:
         mask_((1ull << np_) - 1),
         seeds_((nh_ + (nph_ - 1)) / nph_ - 1)
     {
-        aes::AesCtr<uint64_t> gen(np + nh + seedseed);
+        DefaultRNGType gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
         // Just to make sure that simd addh is always accessing owned memory.
         while(seeds_.size() < sizeof(Space::Type) / sizeof(uint64_t)) seeds_.emplace_back(gen());

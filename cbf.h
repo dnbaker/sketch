@@ -2,7 +2,6 @@
 #define COUNTING_CRUEL_BLOOM__
 #include "bf.h"
 #include "hll.h"
-#include "aesctr/aesctr.h"
 
 namespace sketch {
 namespace bf {
@@ -30,7 +29,7 @@ static std::vector<unsigned> pcbf_bf_mgen(unsigned nsketches, unsigned l2sz, boo
 }
 } // namespace detail
 
-template<typename HashStruct=WangHash, typename RngType=aes::AesCtr<std::uint64_t, 8>>
+template<typename HashStruct=WangHash, typename RngType=common::DefaultRNGType>
 class cbfbase_t {
 protected:
     std::vector<bfbase_t<HashStruct>> bfs_;
@@ -112,7 +111,7 @@ using cbf_t = cbfbase_t<>;
 
 
 
-template<typename HashStruct=WangHash, typename RngType=aes::AesCtr<uint64_t, 8>>
+template<typename HashStruct=WangHash, typename RngType=common::DefaultRNGType>
 class pcbfbase_t {
     // Probabilistic bloom filter counting.
     // Much like cbf_t, but also provides cardinality estimates for the number of elements reaching each stage.

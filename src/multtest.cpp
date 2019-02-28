@@ -2,7 +2,7 @@
 using namespace sketch;
 using namespace cws;
 int main () {
-    aes::AesCtr<uint64_t> gen;
+    common::DefaultRNGType gen;
     CWSamples<> zomg(100, 1000);
     realccm_t<> rc(0.999, 10, 20, 8);
     nt::VecCard<uint16_t> vc(13, 10), vc2(13, 10);

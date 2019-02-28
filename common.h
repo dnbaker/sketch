@@ -82,6 +82,13 @@
 namespace sketch {
 namespace common {
 
+#if defined(__AES__)
+#include "aesctr/aesctr.h"
+using DefaultRNGType = aes::AesCtr<uint64_t, 8>;
+#else
+using DefaultRNGType = std::mt19937_64;
+#endif
+
 template<typename BloomType>
 inline double jaccard_index(const BloomType &h1, const BloomType &h2) {
     return h1.jaccard_index(h2);

@@ -1,5 +1,4 @@
 #include "hll.h"
-#include "aesctr/aesctr.h"
 #include <iostream>
 using namespace sketch;
 using namespace sketch::common;
@@ -21,7 +20,7 @@ struct MultiplyAddXorN: public RecursiveReversibleHash<MultiplyAddXor> {
 #endif
 
 int main() {
-    aes::AesCtr<uint64_t> gen(137);
+    DefaultRNGType gen(137);
     std::vector<uint64_t> vec(1 << 20);
     hll::hllbase_t<XorMultiplyN<20>> h1(10);
     hll::hllbase_t<XorMultiplyN<1000>> h2(10);
