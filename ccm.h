@@ -449,6 +449,9 @@ public:
                 }
             }
         }
+#if !NDEBUG
+        std::fprintf(stderr, "ret: %zd\n", ret);
+#endif
         return ret;
     }
     uint64_t est_count(uint64_t val) const {

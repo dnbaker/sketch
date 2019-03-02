@@ -470,7 +470,9 @@ public:
     FinalBBitMinHash(unsigned p, unsigned b, double est): est_cardinality_(est), b_(b), p_(p),
         core_((value_type(b) << p) >> 6)
     {
+#if !NDEBUG
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, p, core_.size(), core_.size() * 64);
+#endif
     }
     void free() {
         decltype(core_) tmp;
@@ -688,7 +690,9 @@ public:
         core_((value_type(b) * nbuckets_) / 64 + (nbuckets_ * value_type(b) % (sizeof(value_type) * CHAR_BIT) != 0))
     {
         assert(core_.size() % b == 0);
+#if !NDEBUG
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, nbuckets, core_.size(), core_.size() * 64);
+#endif
     }
     void free() {
         decltype(core_) tmp;
