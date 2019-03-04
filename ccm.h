@@ -7,9 +7,9 @@
 namespace sketch {
 
 namespace cm {
+using common::detail::alloca_wrap;
 
 namespace detail {
-using common::detail::alloca_wrap;
 template<typename T, typename AllocatorType=typename T::allocator>
 static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
     alloca_wrap<double> mem(nhashes);
@@ -291,6 +291,7 @@ public:
     }
     VectorType &ref() {return data_;}
     auto addh(uint64_t val) {return add(val);}
+    auto addh_val(uint64_t val) {return add(val);}
     template<typename T>
     T hash(T val) const {
         return hf_(val);
@@ -532,6 +533,24 @@ public:
     double l2est() const {
         return sqrl2(core_, nh_, np_);
     }
+    CounterType addh_val(uint64_t val) {
+        alloca_wrap<CounterType> counts(nh_);
+        auto cptr = counts.get();
+        uint64_t v = hf_(val);
+        unsigned added;
+        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), *cptr++ = add(v, added++));
+        auto it = seeds_.begin();
+        while(added < nh_) {
+            v = hf_(*it++ ^ val);
+            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
+                *cptr++ = add(v, added++);
+                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
+            }
+        }
+        sort::insertion_sort(counts.get(), cptr);
+        cptr = counts.get();
+        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
+    }
     void addh(uint64_t val) {
         uint64_t v = hf_(val);
         unsigned added;
@@ -548,7 +567,7 @@ public:
     void subh(uint64_t val) {
         uint64_t v = hf_(val);
         unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), add(v, added++));
+        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), sub(v, added++));
         auto it = seeds_.begin();
         while(added < nh_) {
             v = hf_(*it++ ^ val);
@@ -558,11 +577,29 @@ public:
             }
         }
     }
-    INLINE void add(uint64_t hv, unsigned subidx) noexcept {
-        at_pos(hv, subidx) += sign(hv);
+    auto subh_val(uint64_t val) {
+        alloca_wrap<CounterType> counts(nh_);
+        auto cptr = counts.get();
+        uint64_t v = hf_(val);
+        unsigned added;
+        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), *cptr++ = sub(v, added++));
+        auto it = seeds_.begin();
+        while(added < nh_) {
+            v = hf_(*it++ ^ val);
+            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
+                *cptr++ = sub(v, added++);
+                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
+            }
+        }
+        sort::insertion_sort(counts.get(), cptr);
+        cptr = counts.get();
+        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
     }
-    INLINE void sub(uint64_t hv, unsigned subidx) noexcept {
-        at_pos(hv, subidx) -= sign(hv);
+    INLINE auto add(uint64_t hv, unsigned subidx) noexcept {
+        return at_pos(hv, subidx) += sign(hv);
+    }
+    INLINE auto sub(uint64_t hv, unsigned subidx) noexcept {
+        return at_pos(hv, subidx) -= sign(hv);
     }
     INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
         assert((hv & mask_) + (subidx << np_) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
