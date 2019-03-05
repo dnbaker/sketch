@@ -339,13 +339,16 @@ public:
         /* Now handle the rest of the bits.
          * For simplicity, do SSE2 until 64
          */
-        const value_type *pf = &core_[core_.size()];
-        if(pe == pf) return sum; // If there is no remainder, we're done
+        const value_type *const pf = &core_[core_.size()];
+        if(pe == pf) {
+            std::fprintf(stderr, "No remainder, we are done\n");
+            return sum; // If there is no remainder, we're done
+        }
 #if HAS_AVX_512
         {
             __m512i lsum = _mm256_set1_epi64(0);
             const __m512i *vp1 = reinterpret_cast<const __m512i *>(pe), *vp2 = reinterpret_cast<const __m512i *>(o.core_.data() +  b_ * (1ull << l2szfloor) / 64);
-            while(pf + b_ * sizeof(__m512i) / sizeof(uint64_t) <= reinterpret_cast<const uint64_t *>(vp1)) {
+            while(vp1 + b_ <= reinterpret_cast<const __m512i *>(pf)) {
                 __m512i match = ~(*vp1++ * *vp2++);
                 for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
 #if __AVX512VPOPCNTDQ__
@@ -360,9 +363,9 @@ public:
         }
 #elif __AVX2__
         {
-            const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>( b_ * (1ull << l2szfloor) / 64);
+            const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
             __m256i lsum = _mm256_set1_epi64x(0);
-            while(pf + sizeof(__m256i) / sizeof(uint64_t) <= reinterpret_cast<const uint64_t *>(vp1)) {
+            while(vp1 + b_ <= reinterpret_cast<const __m256i *>(pf)) {
                 __m256i match = ~(*vp1++ * *vp2++);
                 for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
                 lsum = _mm256_add_epi64(lsum, popcnt256(match));
@@ -374,7 +377,7 @@ public:
 #else
         const __m128i *vp1 = reinterpret_cast<const __m128i *>(pe);
         const __m128i *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
-        while(pf + b_ * sizeof(__m128i) / sizeof(uint64_t) <= reinterpret_cast<const uint64_t *>(vp1)) {
+        while(vp1 + b_ <= reinterpret_cast<const __m128i *>(pf)) {
             __m128i match = ~(*vp1++ * *vp2++);
             for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
             sum += common::sum_of_u64s(match); // Since there's no faster popcount for __m128i currently.
@@ -382,12 +385,10 @@ public:
         p1 = reinterpret_cast<const uint64_t *>(vp1);
         p2 = reinterpret_cast<const uint64_t *>(vp2);
 #endif
-        pe = p1;
         while(p1 < pf) {
             uint64_t match = ~(*p1++ * *p2++);
             for(unsigned b = b_; --b; match &= ~(*p1++ ^ *p2++));
             sum += popcount(match);
-            assert(p1 == pf);
         }
         return sum;
     }

@@ -31,7 +31,7 @@ int main() {
             auto f1 = b1.finalize(), f2 = b2.finalize(), f3 = b3.finalize();
             auto fdb1 = db1.finalize();
             auto fdb2 = db2.finalize();
-            auto fdb3 = db3.finalize();
+            //auto fdb3 = db3.finalize();
             std::fprintf(stderr, "Expected Cardinality [shared:%zu/b1:%zu/b2:%zu]\n", shared, b1c, b2c);
             std::fprintf(stderr, "h1 est %lf, h2 est: %lf\n", h1.report(), h2.report());
             std::fprintf(stderr, "Estimate Harmonicard [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(HARMONIC_MEAN), b2.cardinality_estimate(HARMONIC_MEAN));
@@ -40,7 +40,7 @@ int main() {
             std::fprintf(stderr, "Estimate (median) b1:%lf/b2:%lf]\n", b1.cardinality_estimate(MEDIAN), b2.cardinality_estimate(MEDIAN));
             std::fprintf(stderr, "Estimate geometic mean [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(GEOMETRIC_MEAN), b2.cardinality_estimate(GEOMETRIC_MEAN));
             std::fprintf(stderr, "JI for f3 and f2: %lf\n", f1.jaccard_index(f2));
-            std::fprintf(stderr, "JI for fdb3 and fdb2: %lf\n", fdb2.jaccard_index(fdb3));
+            std::fprintf(stderr, "JI for fdb1 and fdb2: %lf\n", fdb2.jaccard_index(fdb1));
             std::fprintf(stderr, "equal blocks: %zu\n", size_t(f2.equal_bblocks(f3)));
             std::fprintf(stderr, "f1, f2, and f3 cardinalities: %lf, %lf, %lf\n", f1.est_cardinality_, f2.est_cardinality_, f3.est_cardinality_);
             //auto cb13res = cb1.finalize().histogram_sums(cb3.finalize());
