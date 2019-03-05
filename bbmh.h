@@ -210,7 +210,7 @@ public:
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
-    T nbuckets() const {return div_.d_;}
+    T nbuckets() const {return div_.d_;} // also core_.size()
     INLINE void add(T hv) {
         const T bucket = div_.mod(hv);
         const T quot = div_.div(hv);
@@ -945,8 +945,8 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
 #if !NDEBUG
 #define CASE_6_TEST\
                 for(size_t i = 0; i < core_ref.size(); ++i) {\
-                    for(size_t b = 0; b < b_; ++b) {\
-                        assert(getnthbit(ret.core_.data() + b, i) == getnthbit(core_ref[i], b));\
+                    for(size_t _b = 0; _b < b; ++_b) {\
+                        assert(getnthbit(ret.core_.data() + _b, i) == getnthbit(core_ref[i], _b));\
                     }\
                 }
 #else
@@ -985,26 +985,17 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
     return ret;
 }
 
-template<typename T, typename Hasher>
-FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
-    b = b ? b: b_; // Use the b_ of DivBBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
-    std::vector<T> tmp;
-    const std::vector<T> *ptr = &core_;
-    if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
-        tmp = core_;
-        detail::densifybin(tmp);
-        ptr = &core_;
-    }
-    double cest = cardinality_estimate(mode);
-    const std::vector<T> &core_ref = *ptr;
+template<typename T>
+FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T> &core_ref) {
     using detail::getnthbit;
     using detail::setnthbit;
-    FinalDivBBitMinHash ret(nbuckets(), b, cest);
-    std::fprintf(stderr, "size of ret vector: %zu. b_: %u, nbuckets(): %u. cest: %lf\n", ret.core_.size(), b_, unsigned(nbuckets()), cest);
+    const double cest = detail::harmonic_cardinality_estimate(core_ref);
+    FinalDivBBitMinHash ret(core_ref.size(), b, cest);
+    std::fprintf(stderr, "size of ret vector: %zu. b: %u, nbuckets(): %u. cest: %lf\n", ret.core_.size(), b, unsigned(core_ref.size()), cest);
     using FinalType = typename FinalDivBBitMinHash::value_type;
     assert(ret.core_.size() % b == 0);
-    assert(core_.size() % 64 == 0);
-    std::fprintf(stderr, "core size: %zu being collapsed into b (%d)-bit samples in core of size %zu\n", core_.size(), int(b), ret.core_.size());
+    assert(core_ref.size() % 64 == 0);
+    std::fprintf(stderr, "core size: %zu being collapsed into b (%d)-bit samples in core of size %zu\n", core_ref.size(), int(b), ret.core_.size());
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b == 64) {
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
@@ -1072,6 +1063,20 @@ FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinal
 
 #undef DEFAULT_SET_CASE
 #undef SET_CASE
+template<typename T, typename Hasher>
+FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
+    b = b ? b: b_; // Use the b_ of DivBBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
+    std::vector<T> tmp;
+    const std::vector<T> *ptr = &core_;
+    if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
+        tmp = core_;
+        detail::densifybin(tmp);
+        ptr = &core_;
+    }
+    const std::vector<T> &core_ref = *ptr;
+    return div_bbit_finalize<T>(b, core_ref);
+}
+
 
 template<typename CountingType, typename>
 struct FinalCountingBBitMinHash: public FinalBBitMinHash {
