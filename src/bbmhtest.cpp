@@ -21,9 +21,9 @@ int main() {
                 auto v = gen();
                 switch(v & 0x3uL) {
                     case 0:
-                    case 1: h1.addh(v); h2.addh(v); b2.addh(v); b1.addh(v); ++shared; b3.addh(v); /*fb.addh(v);*/ break;
-                    case 2: h1.addh(v); b1.addh(v); ++b1c; b3.addh(v); cb3.addh(v);break;
-                    case 3: h2.addh(v); b2.addh(v); ++b2c; cb1.addh(v); break;
+                    case 1: h1.addh(v); h2.addh(v); b2.addh(v); b1.addh(v); ++shared; b3.addh(v); db1.addh(v); db2.addh(v);/*fb.addh(v);*/ break;
+                    case 2: h1.addh(v); b1.addh(v); ++b1c; b3.addh(v); cb3.addh(v); db1.addh(v); break;
+                    case 3: h2.addh(v); b2.addh(v); ++b2c; cb1.addh(v); db2.addh(v); break;
                 }
             }
             b1.densify();
@@ -39,7 +39,8 @@ int main() {
             std::fprintf(stderr, "Estimate arithmetic mean [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(ARITHMETIC_MEAN), b2.cardinality_estimate(ARITHMETIC_MEAN));
             std::fprintf(stderr, "Estimate (median) b1:%lf/b2:%lf]\n", b1.cardinality_estimate(MEDIAN), b2.cardinality_estimate(MEDIAN));
             std::fprintf(stderr, "Estimate geometic mean [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(GEOMETRIC_MEAN), b2.cardinality_estimate(GEOMETRIC_MEAN));
-            std::fprintf(stderr, "JI for f3 and f2: %lf\n", f2.jaccard_index(f3));
+            std::fprintf(stderr, "JI for f3 and f2: %lf\n", f1.jaccard_index(f2));
+            std::fprintf(stderr, "JI for fdb3 and fdb2: %lf\n", fdb2.jaccard_index(fdb3));
             std::fprintf(stderr, "equal blocks: %zu\n", size_t(f2.equal_bblocks(f3)));
             std::fprintf(stderr, "f1, f2, and f3 cardinalities: %lf, %lf, %lf\n", f1.est_cardinality_, f2.est_cardinality_, f3.est_cardinality_);
             //auto cb13res = cb1.finalize().histogram_sums(cb3.finalize());
