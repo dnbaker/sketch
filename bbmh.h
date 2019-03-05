@@ -131,6 +131,7 @@ struct SuperMinHash {
     std::vector<uint64_t, Allocator<uint64_t>>   h_;
     SuperMinHash(size_t arg): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
         p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg), 0) {
+        std::fprintf(stderr, "Size allocated: %zu\n", pol_.arg2vecsize(arg));
         b_.back() = m_;
         assert(m_ <= std::numeric_limits<CountType>::max());
     }
