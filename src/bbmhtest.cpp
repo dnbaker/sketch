@@ -8,7 +8,8 @@ int main() {
     for(size_t i = 7; i < 20; ++i) {
         for(const auto b: {7u, 13u, 14u, 17u, 9u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
-            mh::SuperMinHash<> smh(12);
+            mh::SuperMinHash<policy::SizePow2Policy> smh(12);
+            mh::SuperMinHash<policy::SizeDivPolicy> smh2(1 << 12);
             hll::hll_t h1(i), h2(i);
             mh::BBitMinHasher<uint64_t> b1(i, b), b2(i, b), b3(i, b);
             mh::DivBBitMinHasher<uint64_t> db1(2000 * i, b), db2(2000 * i, b), db3(2000 * i, b);
