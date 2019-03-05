@@ -35,7 +35,7 @@ public:
     }
 #define ADDH_CORE(op)\
         auto hv = h_(o);\
-        if(cmp_(o, core_[0]) && hashes_.find(hv) == hashes_.end()) {\
+        if((core_.size() < m_ || cmp_(o, core_[0])) && hashes_.find(hv) == hashes_.end()) {\
             GET_LOCK\
             hashes_.emplace(hv);\
             core_.emplace_back(op(o));\
@@ -91,7 +91,7 @@ public:
     void addh(Obj &&o, ScoreType score) {
 #define ADDH_CORE(op)\
         auto hv = h_(o);\
-        if(cmp_(score, core_[0]) && hashes_.find(hv) == hashes_.end()) {\
+        if((core_.empty() || cmp_(score, core_[0])) && hashes_.find(hv) == hashes_.end()) {\
             std::lock_guard<std::mutex> lock(mut_);\
             if(!cmp_(score, core_[0])) return;\
             hashes_.emplace(hv);\
@@ -107,9 +107,13 @@ public:
     }
     void addh(const Obj &o, ScoreType score) {
         auto hv = h_(o);
-        if(cmp_(score, core_[0]) && hashes_.find(hv) == hashes_.end()) {
+        if(core_.size() < m_ || cmp_(score, core_[0])) {
+            if(hashes_.find(hv) != hashes_.end()) {
+                std::fprintf(stderr, "Found hash: %zu\n", size_t(*hashes_.find(hv)));
+                return;
+            }
             std::lock_guard<std::mutex> lock(mut_);
-            if(!cmp_(score, core_[0])) return;
+            if(core_.size() >= m_ && !cmp_(score, core_[0])) return;
             hashes_.emplace(hv);
             core_.emplace_back(std::make_pair(o, score));
             std::push_heap(core_.begin(), core_.end(), cmp_);
@@ -124,6 +128,7 @@ public:
     size_t max_size() const {return m_;}
 };
 
+#undef GET_LOCK
 } // namespace heap
 
 } // namespace sketch
