@@ -9,13 +9,13 @@ namespace heap {
 using namespace common;
 
 // https://arxiv.org/abs/1711.00975
-template<typename Obj, typename Cmp=std::less<Obj>, typename HashFunc=std::hash<Obj>
+template<typename Obj, typename Cmp=std::greater<Obj>, typename HashFunc=std::hash<Obj>
         >
 class ObjHeap {
 #ifndef NOT_THREADSAFE
 #define GET_LOCK \
             std::lock_guard<std::mutex> lock(mut_); \
-            if(!cmp_(o, core_[0])) return;
+            if(core_.size() >= m_ && !cmp_(o, core_.front())) return;
 #else
 #define GET_LOCK
 #endif
@@ -34,8 +34,13 @@ public:
         core_.reserve(n);
     }
 #define ADDH_CORE(op)\
+        using std::to_string;\
         auto hv = h_(o);\
-        if((core_.size() < m_ || cmp_(o, core_[0])) && hashes_.find(hv) == hashes_.end()) {\
+        if((core_.size() < m_ || cmp_(o, core_[0]))) { \
+            if(hashes_.find(hv) != hashes_.end()) {\
+                std::fprintf(stderr, "hv present. Ignoring\n");\
+                return;\
+            } \
             GET_LOCK\
             hashes_.emplace(hv);\
             core_.emplace_back(op(o));\
@@ -44,6 +49,7 @@ public:
                 std::pop_heap(core_.begin(), core_.end(), cmp_);\
                 hashes_.erase(hashes_.find(h_(core_.back()))); \
                 core_.pop_back();\
+                /* std::fprintf(stderr, "new min: %s\n", to_string(core_.front()).data()); */\
             }\
         }
     void addh(Obj &&o) {
@@ -64,10 +70,10 @@ class ObjScoreHeap {
     using TupType = std::pair<Obj, ScoreType>;
     struct MainCmp {
         bool operator()(const TupType &a, const TupType &b) const {
-            return a.second < b.second;
+            return a.second > b.second;
         }
         bool operator()(ScoreType score, const TupType &b) const {
-            return score < b.second;
+            return score > b.second;
         }
     };
 
@@ -91,38 +97,26 @@ public:
     void addh(Obj &&o, ScoreType score) {
 #define ADDH_CORE(op)\
         auto hv = h_(o);\
-        if((core_.empty() || cmp_(score, core_[0])) && hashes_.find(hv) == hashes_.end()) {\
+        if(core_.size() < m_ || cmp_(score, core_[0])) {\
+            if(hashes_.find(hv) != hashes_.end()) {\
+                /*std::fprintf(stderr, "Found hash: %zu\n", size_t(*hashes_.find(hv))); */\
+                return;\
+            }\
             std::lock_guard<std::mutex> lock(mut_);\
-            if(!cmp_(score, core_[0])) return;\
+            if(core_.size() >= m_ && !cmp_(score, core_[0])) return;\
             hashes_.emplace(hv);\
             core_.emplace_back(std::make_pair(op(o), score));\
             std::push_heap(core_.begin(), core_.end(), cmp_);\
             if(core_.size() > m_) {\
                 std::pop_heap(core_.begin(), core_.end(), cmp_);\
-                hashes_.erase(hashes_.find(h_(core_.back()))); \
+                hashes_.erase(hashes_.find(h_(core_.back().first))); \
                 core_.pop_back();\
             }\
         }
         ADDH_CORE(std::move)
     }
     void addh(const Obj &o, ScoreType score) {
-        auto hv = h_(o);
-        if(core_.size() < m_ || cmp_(score, core_[0])) {
-            if(hashes_.find(hv) != hashes_.end()) {
-                std::fprintf(stderr, "Found hash: %zu\n", size_t(*hashes_.find(hv)));
-                return;
-            }
-            std::lock_guard<std::mutex> lock(mut_);
-            if(core_.size() >= m_ && !cmp_(score, core_[0])) return;
-            hashes_.emplace(hv);
-            core_.emplace_back(std::make_pair(o, score));
-            std::push_heap(core_.begin(), core_.end(), cmp_);
-            if(core_.size() > m_) {
-                std::pop_heap(core_.begin(), core_.end(), cmp_);
-                hashes_.erase(hashes_.find(h_(core_.back().first))); 
-                core_.pop_back();
-            }
-        }
+        ADDH_CORE()
     }
     size_t size() const {return core_.size();}
     size_t max_size() const {return m_;}
