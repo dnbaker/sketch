@@ -268,6 +268,16 @@ public:
     double l2est() const {
         return detail::sqrl2(data_, nhashes_, l2sz_);
     }
+    template<typename Func>
+    void for_each_register(const Func &func) {
+        for(size_t i = 0; i < data_.size(); ++i)
+            func(data_[i]);
+    }
+    template<typename Func>
+    void for_each_register(const Func &func) const {
+        for(size_t i = 0; i < data_.size(); ++i)
+            func(data_[i]);
+    }
     template<typename... Args>
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):
             data_(nbits, nhashes << l2sz),
@@ -450,9 +460,6 @@ public:
                 }
             }
         }
-#if !NDEBUG
-        std::fprintf(stderr, "ret: %zd\n", ret);
-#endif
         return ret;
     }
     uint64_t est_count(uint64_t val) const {
@@ -563,6 +570,16 @@ public:
                 if(added == nh_) break; // this could be optimized by pre-scanning, I think.
             }
         }
+    }
+    template<typename Func>
+    void for_each_register(const Func &func) {
+        for(size_t i = 0; i < core_.size(); ++i)
+            func(core_[i]);
+    }
+    template<typename Func>
+    void for_each_register(const Func &func) const {
+        for(size_t i = 0; i < core_.size(); ++i)
+            func(core_[i]);
     }
     void subh(uint64_t val) {
         uint64_t v = hf_(val);

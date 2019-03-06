@@ -82,6 +82,15 @@ int main(int argc, char *argv[]) {
     }
     std::fprintf(stderr, "Estimated count for 137: %d\n", thingcs.est_count(137));
     KWiseIndependentPolynomialHash<4> hf; // Just to test compilation
-    thingwithnonminmal.l2est();
-    thingwithfloats.l2est();
+    double nonmin = thingwithnonminmal.l2est();
+    double nonmin_man = 0;
+    thingwithnonminmal.for_each_register([&](const auto &x) {nonmin_man += x * x;});
+    nonmin_man = std::sqrt(nonmin_man);
+    std::fprintf(stderr, "nonmin: %lf. man: %lf\n", nonmin, nonmin_man);
+    double twf = thingwithfloats.l2est();
+    nonmin_man = 0;
+    thingwithfloats.for_each_register([&](const auto &x) {nonmin_man += x * x;});
+    nonmin_man = std::sqrt(nonmin_man);
+    std::fprintf(stderr, "float: %lf. man: %lf\n", twf, nonmin_man);
+    std::fprintf(stderr, "thingexact: %lf\n", thingexact.l2est());
 }
