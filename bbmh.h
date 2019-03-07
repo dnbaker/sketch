@@ -56,14 +56,20 @@ inline int densifybin(Container &hashes) {
         max = std::max(max, v);
     }
     if (max == empty_val) {
-        LOG_DEBUG("Full sketch, no densification needed");
+#if VERBOSE_AF
+        LOG_DEBUG("Full sketch, no densification needed\n");
+#endif
         return 0; // Full sketch
     }
     if (min == empty_val) {
+#if VERBOSE_AF
         LOG_DEBUG("Can't densify empty sketch\n");
+#endif
         return -1; // Empty sketch
     }
-    LOG_DEBUG("Densifying because the minimum thing is all whatevers\n");
+#if VERBOSE_AF
+    LOG_DEBUG("Densifying\n");
+#endif
     for (uint64_t i = 0; i < hashes.size(); i++) {
         uint64_t j = i, nattempts = 0;
         while(hashes[j] == empty_val)
@@ -202,8 +208,10 @@ public:
     FinalDivBBitMinHash(const FinalDivBBitMinHash &o) = default;
     template<typename T, typename Hasher=common::WangHash>
     FinalDivBBitMinHash(DivBBitMinHasher<T, Hasher> &&o): FinalDivBBitMinHash(std::move(o.finalize())) {
-        std::fprintf(stderr, "est card %lf\n", est_cardinality_);
-        std::fprintf(stderr, "b: %u. nbuckets: %u. size of core: %zu\n", b_, nbuckets_, core_.size());
+#if VERBOSE_AF
+        LOG_DEBUG("est card %lf\n", est_cardinality_);
+        LOG_DEBUG(stderr, "b: %u. nbuckets: %u. size of core: %zu\n", b_, nbuckets_, core_.size());
+#endif
         o.free();
     }
     template<typename T, typename Hasher=common::WangHash>
@@ -326,7 +334,7 @@ public:
                 __m128i match = ~(*vp1++ ^ *vp2++);
                 for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
                 auto lsum = common::sum_of_u64s(match);
-                while(vp1 != vpe) {
+                while((uint64_t *)vp1 + 2 <= (uint64_t *)vpe) {
                     match = ~(*vp1++ ^ *vp2++);
                     for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
                     lsum += common::sum_of_u64s(match);
@@ -341,7 +349,9 @@ public:
          */
         const value_type *const pf = &core_[core_.size()];
         if(pe == pf) {
+#if VERBOSE_AF
             std::fprintf(stderr, "No remainder, we are done\n");
+#endif
             return sum; // If there is no remainder, we're done
         }
 #if HAS_AVX_512
@@ -349,7 +359,7 @@ public:
             __m512i lsum = _mm256_set1_epi64(0);
             const __m512i *vp1 = reinterpret_cast<const __m512i *>(pe), *vp2 = reinterpret_cast<const __m512i *>(o.core_.data() +  b_ * (1ull << l2szfloor) / 64);
             while(vp1 + b_ <= reinterpret_cast<const __m512i *>(pf)) {
-                __m512i match = ~(*vp1++ * *vp2++);
+                __m512i match = ~(*vp1++ ^ *vp2++);
                 for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
 #if __AVX512VPOPCNTDQ__
                 lsum = _mm512_add_epi64(_mm512_popcnt_epi64(match), lsum);
@@ -366,8 +376,9 @@ public:
             const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
             __m256i lsum = _mm256_set1_epi64x(0);
             while(vp1 + b_ <= reinterpret_cast<const __m256i *>(pf)) {
-                __m256i match = ~(*vp1++ * *vp2++);
-                for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
+                //std::fprintf(stderr, "I am %zu away from the end\n", reinterpret_cast<const __m256i *>(pf) - (vp1 + b_));
+                __m256i match = ~(*vp1++ ^ *vp2++);
+                for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
                 lsum = _mm256_add_epi64(lsum, popcnt256(match));
             }
             sum += common::sum_of_u64s(lsum);
@@ -378,7 +389,7 @@ public:
         const __m128i *vp1 = reinterpret_cast<const __m128i *>(pe);
         const __m128i *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
         while(vp1 + b_ <= reinterpret_cast<const __m128i *>(pf)) {
-            __m128i match = ~(*vp1++ * *vp2++);
+            __m128i match = ~(*vp1++ ^ *vp2++);
             for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
             sum += common::sum_of_u64s(match); // Since there's no faster popcount for __m128i currently.
         }
@@ -422,7 +433,7 @@ struct SuperMinHash {
     std::vector<BType>                           b_;
     SuperMinHash(size_t arg): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
         p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg), 0) {
-        std::fprintf(stderr, "Size allocated: %zu\n", pol_.arg2vecsize(arg));
+        //std::fprintf(stderr, "Size allocated: %zu\n", pol_.arg2vecsize(arg));
         b_.back() = m_;
         assert(m_ <= std::numeric_limits<CountType>::max());
     }
@@ -529,7 +540,7 @@ public:
     void write(const std::string &fn, int compression=6) const {write(fn.data(), compression);}
     int densify() {
         const int rc = detail::densifybin(core_);
-#if !NDEBUG
+#if VERBOSE_AF
         switch(rc) {
             case -1: std::fprintf(stderr, "[W] Can't densify empty thing\n"); break;
             case 0: std::fprintf(stderr, "The densification, it does nothing\n"); break;
@@ -539,13 +550,13 @@ public:
         return rc;
     }
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
-#if !NDEBUG
+#if VERBOSE_AF
         if(mode != HARMONIC_MEAN) std::fprintf(stderr, "Warning: HARMONIC_MEAN is the only MHCardinalityMode for %s\n", __PRETTY_FUNCTION__);
 #endif
         return detail::harmonic_cardinality_estimate(core_);
     }
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) {
-#if !NDEBUG
+#if VERBOSE_AF
         if(mode != HARMONIC_MEAN) std::fprintf(stderr, "Warning: HARMONIC_MEAN is the only MHCardinalityMode for %s\n", __PRETTY_FUNCTION__);
 #endif
         return detail::harmonic_cardinality_estimate(core_);
@@ -606,7 +617,7 @@ public:
     }
     int densify() {
         auto rc = detail::densifybin(core_);
-#if !NDEBUG
+#if VERBOSE_AF
         switch(rc) {
             case -1: std::fprintf(stderr, "[W] Can't densify empty thing\n"); break;
             case 0: std::fprintf(stderr, "The densification, it does nothing\n"); break;
@@ -961,7 +972,9 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
     using detail::getnthbit;
     using detail::setnthbit;
     FinalBBitMinHash ret(p_, b, cest);
+#if VERBOSE_AF
     LOG_DEBUG("size of ret vector: %zu. b_: %u, p_: %u. cest: %lf. this card: %lf\n", ret.core_.size(), b_, p_, cest, this->cardinality_estimate(HLL_METHOD));
+#endif
     using FinalType = typename FinalBBitMinHash::value_type;
 #if !NDEBUG
 #define CASE_6_TEST\
@@ -1012,11 +1025,11 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
     using detail::setnthbit;
     const double cest = est_v ? est_v : detail::harmonic_cardinality_estimate(core_ref);
     FinalDivBBitMinHash ret(core_ref.size(), b, cest);
-    std::fprintf(stderr, "size of ret vector: %zu. b: %u, nbuckets(): %u. cest: %lf\n", ret.core_.size(), b, unsigned(core_ref.size()), cest);
+    //std::fprintf(stderr, "size of ret vector: %zu. b: %u, nbuckets(): %u. cest: %lf\n", ret.core_.size(), b, unsigned(core_ref.size()), cest);
     using FinalType = typename FinalDivBBitMinHash::value_type;
     assert(ret.core_.size() % b == 0);
     assert(core_ref.size() % 64 == 0);
-    std::fprintf(stderr, "core size: %zu being collapsed into b (%d)-bit samples in core of size %zu\n", core_ref.size(), int(b), ret.core_.size());
+    //std::fprintf(stderr, "core size: %zu being collapsed into b (%d)-bit samples in core of size %zu\n", core_ref.size(), int(b), ret.core_.size());
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b == 64) {
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
@@ -1052,6 +1065,8 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
             for(size_t ind = pow2 / (sizeof(type) * CHAR_BIT);ind < core_ref.size() / (sizeof(type) * CHAR_BIT);++ind) {\
                 auto main_ptr = ret.core_.data() + ind * sizeof(type) / sizeof(FinalType) * b;\
                 auto core_ptr = core_ref.data() + ind * sizeof(type) * CHAR_BIT;\
+                /* std::fprintf(stderr, "main ptr is %zd away from the end of the main thing\n", (ret.core_.data() + ret.core_.size()) - main_ptr); */\
+                /* std::fprintf(stderr, "core ptr is %zd away from the end of the core thing\n", (core_ref.data() + core_ref.size()) - core_ptr); */\
                 for(auto _b = 0u; _b < b; ++_b) {\
                     auto ptr = main_ptr + (_b * sizeof(type)/sizeof(FinalType));\
                     for(size_t i = 0u; i < sizeof(type) * CHAR_BIT; ++i) {\

@@ -12,7 +12,7 @@ int main() {
             mh::SuperMinHash<policy::SizeDivPolicy> smh2(1 << 12);
             hll::hll_t h1(i), h2(i);
             mh::BBitMinHasher<uint64_t> b1(i, b), b2(i, b), b3(i, b);
-            mh::DivBBitMinHasher<uint64_t> db1(2000 * i, b), db2(2000 * i, b), db3(2000 * i, b);
+            mh::DivBBitMinHasher<uint64_t> db1(2048 * i, b), db2(2048 * i, b), db3(2048 * i, b);
             //mh::DivBBitMinHasher<uint64_t> fb(i, b);
             mh::CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(i, b);
             DefaultRNGType gen(137);
@@ -40,7 +40,7 @@ int main() {
             std::fprintf(stderr, "Estimate (median) b1:%lf/b2:%lf]\n", b1.cardinality_estimate(MEDIAN), b2.cardinality_estimate(MEDIAN));
             std::fprintf(stderr, "Estimate geometic mean [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(GEOMETRIC_MEAN), b2.cardinality_estimate(GEOMETRIC_MEAN));
             std::fprintf(stderr, "JI for f3 and f2: %lf\n", f1.jaccard_index(f2));
-            std::fprintf(stderr, "JI for fdb1 and fdb2: %lf\n", fdb2.jaccard_index(fdb1));
+            std::fprintf(stderr, "JI for fdb1 and fdb2: %lf, where nmin = %zu and b = %d\n", fdb2.jaccard_index(fdb1), i, b);
             std::fprintf(stderr, "equal blocks: %zu\n", size_t(f2.equal_bblocks(f3)));
             std::fprintf(stderr, "f1, f2, and f3 cardinalities: %lf, %lf, %lf\n", f1.est_cardinality_, f2.est_cardinality_, f3.est_cardinality_);
             //auto cb13res = cb1.finalize().histogram_sums(cb3.finalize());
