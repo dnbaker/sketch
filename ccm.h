@@ -462,22 +462,13 @@ public:
                 ++seedind;
             }
             end:
-#if !NDEBUG
-            size_t max_ind = 0;
-            for(const auto ind: indices) {
-                assert(ind < data_.size());
-                max_ind = std::max(size_t(ind), max_ind);
-            }
-#define ACC at
-#else
-#define ACC operator[]
-#endif
+#define DATA_ACC operator[]
             //std::fprintf(stderr, "Now get best\n");
             best_indices.push_back(indices[0]);
-            ssize_t minval = data_.ACC(indices[0]);
+            ssize_t minval = data_.DATA_ACC(indices[0]);
             for(size_t i(1); i < indices.size(); ++i) {
                 unsigned score;
-                if((score = data_.ACC(indices[i])) == minval) {
+                if((score = data_.DATA_ACC(indices[i])) == minval) {
                     best_indices.push_back(indices[i]);
                 } else if(score < minval) {
                     best_indices.clear();
@@ -494,7 +485,7 @@ public:
             while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
                 Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
                     for(unsigned k(0); k < nperhash64;) {
-                        auto ref = data_.ACC(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
+                        auto ref = data_.DATA_ACC(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
                         updater_(ref, 1u << nbits_);
                         ret = std::min(ret, ssize_t(ref));
                     }
@@ -504,7 +495,7 @@ public:
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind++]);
                 for(unsigned k(0), e = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); k != e;) {
-                    auto ref = data_.ACC(((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
+                    auto ref = data_.DATA_ACC(((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
                     updater_(ref, 1u << nbits_);
                     ret = std::min(ret, ssize_t(ref));
                 }
@@ -523,7 +514,7 @@ public:
         uint64_t count = std::numeric_limits<uint64_t>::max();
         while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
             Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](const uint64_t subval){
-                for(unsigned k = 0; k < nperhash64; count = std::min(count, uint64_t(data_.ACC(((subval >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++))));
+                for(unsigned k = 0; k < nperhash64; count = std::min(count, uint64_t(data_.DATA_ACC(((subval >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++))));
             });
             seedind += Space::COUNT;
         }
@@ -533,7 +524,7 @@ public:
             for(unsigned k = 0, e = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); k != e; ++k) {
                 uint32_t index = ((hv >> (k * nbitsperhash)) & mask_) + nhdone * subtbl_sz_;
                 assert(index < data_.size());
-                count = std::min(count, uint64_t(data_.ACC(index)));
+                count = std::min(count, uint64_t(data_.DATA_ACC(index)));
                 if(++nhdone == nhashes_) goto end;
             }
         }
@@ -784,6 +775,7 @@ using ccm_t = ccmbase_t<>;
 using cmm_t = cmmbase_t<>;
 using cs_t = csbase_t<>;
 using pccm_t = ccmbase_t<update::PowerOfTwo>;
+#undef DATA_ACC
 
 } // namespace cm
 } // namespace sketch
