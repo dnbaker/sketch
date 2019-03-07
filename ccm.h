@@ -14,16 +14,35 @@ template<typename T, typename AllocatorType=typename T::allocator>
 static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
     alloca_wrap<double> mem(nhashes);
     double *ptr = mem.get();
+#if OPTIMIZE_SQRL2
+//#error("This is broken")
     using VT = typename vec::SIMDTypes<T>::VType;
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
+    static constexpr size_t ct = VS::COUNT;
+#define asvt(x) reinterpret_cast<const VT *>(x)
     for(size_t i = 0; i < nhashes; ++i) {
-        const VT *p = reinterpret_cast<const VT *>(&v[i << l2sz]), *pe= reinterpret_cast<const VT *>(&v[(i + 1) << l2sz]);
-        sum = VS::add(sum, VS::mul(*p, *p));
-        while(++p < pe) 
-            sum = VS::add(sum, VS::mul(*p, *p));
-        ptr[i] = std::sqrt(sum.sum());
+        //const VT *p = reinterpret_cast<const VT *>(&v[i << l2sz]), *pe= reinterpret_cast<const VT *>(&v[(i + 1) << l2sz]);
+        const T *p1 = &v[i << l2sz], *p2 = &v[(i+1)<<l2sz];
+        while(p2 - p1 > ct) {
+            sum = VS::add(sum, VS::mul(*asvt(p1), *asvt(*p1)));
+            p1 += ct;
+        }
+        T full_sum = 0;
+        while(p1 < p2) {
+            full_sum += *p1++;
+        }
+        ptr[i] = std::sqrt(sum.sum() + full_sum);
     }
+#else
+    for(size_t i = 0; i < nhashes; ++i) {
+        T sum = 0;
+        for(size_t ind = i << l2sz, e = (i + 1) << l2sz; ind != e; ++ind) {
+            sum += v[ind] * v[ind];
+        }
+        ptr[i] = std::sqrt(sum);
+    }
+#endif
     common::sort::insertion_sort(ptr, ptr + nhashes);
     double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
     return ret;
