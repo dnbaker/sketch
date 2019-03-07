@@ -86,7 +86,7 @@ namespace sketch {
 namespace common {
 
 #if __AES__
-using DefaultRNGType = aes::AesCtr<uint64_t, 8>;
+using DefaultRNGType = aes::AesCtr<uint64_t, 2>;
 #else
 using DefaultRNGType = std::mt19937_64;
 #endif

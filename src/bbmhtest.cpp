@@ -5,7 +5,7 @@ using namespace common;
 
 int main() {
     static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
-    for(size_t i = 7; i < 20; ++i) {
+    for(size_t i = 7; i < 20; i += 3) {
         for(const auto b: {7u, 13u, 14u, 17u, 9u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             mh::SuperMinHash<policy::SizePow2Policy> smh(12);
@@ -17,7 +17,7 @@ int main() {
             mh::CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(i, b);
             DefaultRNGType gen(137);
             size_t shared = 0, b1c = 0, b2c = 0;
-            for(size_t i = 50000000; --i;) {
+            for(size_t i = 5000000; --i;) {
                 auto v = gen();
                 switch(v & 0x3uL) {
                     case 0:

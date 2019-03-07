@@ -7,7 +7,7 @@
 using namespace sketch::cm;
 
 int main(int argc, char *argv[]) {
-    int nbits = 8, l2sz = 16, nhashes = 8, c;
+    int nbits = 10, l2sz = 16, nhashes = 8, c;
     //if(argc == 1) goto usage;
     while((c = getopt(argc, argv, "n:l:b:h")) >= 0) {
         switch(c) {
@@ -23,44 +23,48 @@ int main(int argc, char *argv[]) {
             case 'l': l2sz = std::atoi(optarg); break;
         }
     }
-    pccm_t thing(nbits >> 1, l2sz, nhashes);
-    ccm_t thingexact(nbits, l2sz, nhashes);
-    sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, sketch::common::WangHash, false> thingwithnonminmal(nbits, l2sz, nhashes);
-    sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, sketch::common::WangHash, false> thingwithfloats(nbits, l2sz, nhashes);
-    cs_t thingcs(l2sz, nhashes);
+    pccm_t cms(nbits >> 1, l2sz, nhashes);
+    ccm_t cmsexact(nbits, l2sz, nhashes);
+    sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, sketch::common::WangHash, false> cmswithnonminmal(nbits, l2sz, nhashes);
+    sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, sketch::common::WangHash, false> cmswithfloats(nbits, l2sz, nhashes);
+    cs_t cmscs(l2sz, nhashes * 4);
     sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
 #if __cplusplus >= 201703L
-    auto [x, y] = thing.est_memory_usage();
+    auto [x, y] = cms.est_memory_usage();
 #else
-    auto p = thing.est_memory_usage();
+    auto p = cms.est_memory_usage();
     auto x = p.first; auto y = p.second;
 #endif
     std::fprintf(stderr, "probabilistic method stack space: %zu\theap space:%zu\n", x, y);
-    std::tie(x, y) = thingexact.est_memory_usage();
+    std::tie(x, y) = cmsexact.est_memory_usage();
     std::fprintf(stderr, "exact method stack space: %zu\theap space:%zu\n", x, y);
     size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 100000;
     std::vector<uint64_t> items;
     std::mt19937_64 mt;
     while(items.size() < nitems) items.emplace_back(mt());
-    for(const auto el: thing.ref()) {
+    for(const auto el: cms.ref()) {
         assert(unsigned(el) == 0);
     }
     //for(size_t i = 0; i < 10;++i)
-    for(const auto item: items) thing.addh(item), thingexact.addh(item), thingcs.addh(item);
-    for(size_t i = 100; i--;thingcs.addh(137), thingexact.addh(137));
+    items.emplace_back(137);
+    for(const auto item: items) cmsexact.addh(item), cms.addh(item), cmscs.addh(item), cmswithnonminmal.addh(item);
+    for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137));
     std::fprintf(stderr, "All inserted\n");
     std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs;
     size_t missing = 0;
     size_t tot = 0;
     for(const auto j: items) {
-        //std::fprintf(stderr, "est count: %zu\n", size_t(thing.est_count(j)));
-        ++histapprox[thing.est_count(j)];
-        ++histexact[thingexact.est_count(j)];
-        ++histcs[thingcs.est_count(j)];
-        missing += thingcs.est_count(j) == 0;
+        if(j == 137) {
+            std::fprintf(stderr, "approx: %i, exact %i, histcs %i\n", int(cms.est_count(137)), int(cmsexact.est_count(137)), int(cmscs.est_count(137)));
+        }
+        //std::fprintf(stderr, "est count: %zu\n", size_t(cms.est_count(j)));
+        ++histapprox[cms.est_count(j)];
+        ++histexact[cmsexact.est_count(j)];
+        ssize_t csest = cmscs.est_count(j);
+        ++histcs[csest];
+        missing += csest == 0;
         ++tot;
     }
-    std::fprintf(stderr, "Missing %zu/%zu\n", missing, tot);
     std::vector<int64_t> hset;
     for(const auto &pair: histexact) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
@@ -68,7 +72,7 @@ int main(int argc, char *argv[]) {
         std::fprintf(stderr, "Exact %" PRIi64 "\t%" PRIu64 "\n", k, histexact[k]);
     }
     hset.clear();
-    std::fprintf(stderr, "Did th hset thing\n");
+    std::fprintf(stderr, "Did th hset cms\n");
     for(const auto &pair: histapprox) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
     for(const auto k: hset) {
@@ -78,19 +82,22 @@ int main(int argc, char *argv[]) {
     for(const auto &pair: histcs) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
     for(const auto k: hset) {
-        std::fprintf(stderr, "Count sketch %" PRIi64 "\t%" PRIu64 "\n", k, histcs[k]);
+        std::fprintf(stderr, "Count sketch %" PRIi64 "\t%s\n", k, std::to_string(size_t(histcs[k])).data());
     }
-    std::fprintf(stderr, "Estimated count for 137: %d\n", thingcs.est_count(137));
+    std::fprintf(stderr, "Estimated count for 137: %d\n", cmscs.est_count(137));
     KWiseIndependentPolynomialHash<4> hf; // Just to test compilation
-    double nonmin = thingwithnonminmal.l2est();
+    std::fprintf(stderr, "l2 join size needs further debugging, not doing\n");
+    double nonmin = cmswithnonminmal.l2est();
+    std::fprintf(stderr, "nonminimal update info l2 join size: %lf\n", nonmin);
+#if 0
     double nonmin_man = 0;
-    thingwithnonminmal.for_each_register([&](const auto &x) {nonmin_man += x * x;});
+    cmswithnonminmal.for_each_register([&](const auto &x) {nonmin_man += x * x;});
     nonmin_man = std::sqrt(nonmin_man);
-    std::fprintf(stderr, "nonmin: %lf. man: %lf\n", nonmin, nonmin_man);
-    double twf = thingwithfloats.l2est();
+    double twf = cmswithfloats.l2est();
     nonmin_man = 0;
-    thingwithfloats.for_each_register([&](const auto &x) {nonmin_man += x * x;});
+    cmswithfloats.for_each_register([&](const auto &x) {nonmin_man += x * x;});
     nonmin_man = std::sqrt(nonmin_man);
     std::fprintf(stderr, "float: %lf. man: %lf\n", twf, nonmin_man);
-    std::fprintf(stderr, "thingexact: %lf\n", thingexact.l2est());
+    std::fprintf(stderr, "cmsexact: %lf\n", cmsexact.l2est());
+#endif
 }
