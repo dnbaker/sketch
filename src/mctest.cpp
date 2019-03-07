@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
         assert(unsigned(el) == 0);
     }
     //for(size_t i = 0; i < 10;++i)
-    for(const auto item: items) thing.addh(item), thingexact.addh(item), thingcs.addh(item);
+    for(const auto item: items) thingexact.addh(item), thing.addh(item), thingcs.addh(item);
     for(size_t i = 100; i--;thingcs.addh(137), thingexact.addh(137));
     std::fprintf(stderr, "All inserted\n");
     std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs;
@@ -82,7 +82,7 @@ int main(int argc, char *argv[]) {
     }
     std::fprintf(stderr, "Estimated count for 137: %d\n", thingcs.est_count(137));
     KWiseIndependentPolynomialHash<4> hf; // Just to test compilation
-    std::fprintf(stderr, "l2 join size needs further debugging.\n");
+    std::fprintf(stderr, "l2 join size needs further debugging, not doing\n");
 #if 0
     double nonmin = thingwithnonminmal.l2est();
     double nonmin_man = 0;
