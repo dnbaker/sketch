@@ -11,7 +11,8 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
 		 -pedantic -Wunused-variable -Wno-attributes -Wno-ignored-attributes
 FLAGS=-O3 -funroll-loops -pipe -march=native -msse2 -mavx2 -Ivec/blaze -Ivec -I. -fpic -Wall $(WARNINGS) \
-     -fno-strict-aliasing -Wreorder \
+     -fno-strict-aliasing \
+    -Wreorder -DXXH_INLINE_ALL  \
 	-Wno-attributes -Wno-pragmas # -fsanitize=address -fsanitize=undefined # -Wsuggest-attribute=malloc
 
 ifeq ($(shell uname),Darwin)

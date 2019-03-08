@@ -12,7 +12,8 @@ int main() {
             mh::SuperMinHash<policy::SizeDivPolicy> smh2(1 << 12);
             hll::hll_t h1(i), h2(i);
             mh::BBitMinHasher<uint64_t> b1(i, b), b2(i, b), b3(i, b);
-            mh::DivBBitMinHasher<uint64_t> db1(2048 * i, b), db2(2048 * i, b), db3(2048 * i, b);
+            size_t dbval = 15u << (i - 3);
+            mh::DivBBitMinHasher<uint64_t> db1(dbval, b), db2(dbval, b), db3(dbval, b);
             //mh::DivBBitMinHasher<uint64_t> fb(i, b);
             mh::CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(i, b);
             DefaultRNGType gen(137);

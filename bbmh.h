@@ -81,21 +81,15 @@ inline int densifybin(Container &hashes) {
 
 template<typename T, typename Allocator>
 static inline double harmonic_cardinality_estimate_impl(const std::vector<T, Allocator> &minvec) {
-    const double num = (minvec.size() & (minvec.size() - 1)) == 0 ? std::ldexp(1., double(sizeof(T) * CHAR_BIT) - std::log2(minvec.size()))
-                                                                  : double(UINT64_C(-1)) / minvec.size();
-    double sum = 0.;
-    for(const auto v: minvec)
-        sum += double(v) / num;
-    return std::pow(minvec.size(), 2) / sum;
+    const double num = is_pow2(minvec.size()) ? std::ldexp(1., sizeof(T) * CHAR_BIT - ilog2(minvec.size()))
+                                              : double(UINT64_C(-1)) / minvec.size();
+    return std::pow(minvec.size(), 2) / std::accumulate(minvec.begin(), minvec.end(), 0., [num](double sum, const auto v) {return sum + v / num;});
     // TODO: this could be accelerated with pre-inverting num, std::accumulate, _mm{,256,512}_add_epi*T, and _mm512_reduce_add_epi*T
 }
 
 template<typename T, typename Allocator>
 static inline double harmonic_cardinality_estimate_diffmax_impl(const std::vector<T, Allocator> &minvec, const double num) {
-    double sum = 0.;
-    for(const auto v: minvec)
-        sum += double(v) / num;
-    return std::pow(minvec.size(), 2) / sum;
+    return std::pow(minvec.size(), 2) / std::accumulate(minvec.begin(), minvec.end(), 0., [num](double sum, const auto v) {return sum + v / num;});
     // TODO: this could be accelerated with pre-inverting num, std::accumulate, _mm{,256,512}_add_epi*T, and _mm512_reduce_add_epi*T
 }
 
@@ -503,7 +497,6 @@ class DivBBitMinHasher {
     std::vector<T> core_;
     uint32_t b_;
     schism::Schismatic<T> div_;
-    __uint128_t M_; // Cached for fastmod64
     Hasher hf_;
 public:
     using final_type = FinalDivBBitMinHash;
@@ -951,7 +944,6 @@ INLINE double jaccard_index(const FinalBBitMinHash &a, const FinalBBitMinHash &b
         case num:\
             for(size_t _b = 0; _b < b; ++_b) {\
                 auto ptr = ret.core_.data() + (_b * sizeof(type)/sizeof(FinalType));\
-                assert(core_ref.size() == (sizeof(type) * CHAR_BIT));\
                 for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
                     setnthbit(ptr, i, getnthbit(core_ref[i], _b));\
             }\
