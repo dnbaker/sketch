@@ -72,11 +72,15 @@ public:
         return std::make_pair(sizeof(*this),
                               core_.size() * sizeof(core_[0]) + seeds_.size() * sizeof(seeds_[0]));
     }
-    uint64_t m() const {return p() << OFFSET;}
+    uint64_t m() const {return core_.size() << OFFSET;}
     uint64_t p() const {return np_ + OFFSET;}
     auto nhashes() const {return nh_;}
     uint64_t mask() const {return m() - UINT64_C(1);}
     bool is_empty() const {return np_ == OFFSET;}
+    double cardinality_estimate() const {
+        const int ldv = -(int32_t(np_) + OFFSET);
+        return std::log1p(-std::ldexp(this->popcnt(), ldv)) / ((nh_) * std::log1p(std::ldexp(-1., ldv)));
+    }
 
     // Constructor
     template<typename... Args>
@@ -91,6 +95,9 @@ public:
 #endif
     }
     explicit bfbase_t(size_t l2sz=OFFSET): bfbase_t(l2sz, 1, std::rand()) {}
+    explicit bfbase_t(const std::string &path) {
+        read(path);
+    }
     void reseed(uint64_t seedseed=0) {
         if(seedseed == 0) seedseed = seedseed_;
         std::mt19937_64 mt(seedseed);
@@ -513,6 +520,9 @@ public:
         ret += gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0]));
         return ret;
     }
+    ssize_t write(const std::string &path, int compression=6) const {
+        write(path.data(), compression);
+    }
     ssize_t write(const char *path, int compression=6) const {
         char buf[5];
         std::sprintf(buf, "wb%d", compression % 10);
@@ -521,6 +531,14 @@ public:
         ssize_t ret = write(fp);
         gzclose(fp);
         return ret;
+    }
+    ssize_t read(const std::string &path) {
+        gzFile fp = gzopen(path.data(), "rb");
+        if(fp == nullptr) {
+            throw std::runtime_error(std::string("Could not open file at ") + path);
+        }
+        read(fp);
+        gzclose(fp);
     }
     ssize_t read(gzFile fp) {
         uint8_t arr[3] {0};

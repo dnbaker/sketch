@@ -16,7 +16,7 @@ using namespace sketch;
 using namespace mh;
 
 int main(int argc, char *argv[]) {
-    size_t nelem = argc == 1 ? 100000: size_t(std::strtoull(argv[1], nullptr, 10));
+    size_t nelem = argc == 1 ? 1000000: size_t(std::strtoull(argv[1], nullptr, 10));
     double olap_frac = argc < 3 ? 0.1: std::atof(argv[2]);
     size_t ss = argc < 4 ? 10: size_t(std::strtoull(argv[3], nullptr, 10));
     RangeMinHash<uint64_t> rm1(1 << ss), rm2(1 << ss);
@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
     assert(f1.histogram_intersection(f2) == f2.histogram_intersection(f1) && f1.histogram_intersection(f2) == crhm.histogram_intersection(crhm2));
     assert(crhm.histogram_intersection(crhm2) ==  f1.tf_idf(f2));
     std::fprintf(stderr, "tf-idf with equal weights: %lf\n", f1.tf_idf(f2));
-    std::fprintf(stderr, "est cardinality: %lf\n", f1.cardinality());
+    std::fprintf(stderr, "est cardinality: %lf\n", f1.cardinality_estimate());
     auto m1 = rm1.finalize(), m2 = rm2.finalize();
-    std::fprintf(stderr, "jaccard between finalized MH sketches: %lf, card %lf\n", m1.jaccard_index(m2), m1.cardinality());
+    std::fprintf(stderr, "jaccard between finalized MH sketches: %lf, card %lf\n", m1.jaccard_index(m2), m1.cardinality_estimate());
 }

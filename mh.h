@@ -139,6 +139,20 @@ public:
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
     }
+    void read(const std::string &s) {
+        throw NotImplementedError("This hasn't been implemented, but you should be serializing FinalRMinHash anyhow");
+    }
+    double cardinality_estimate() const {
+         const auto sz = minimizers_.size();
+         common::detail::alloca_wrap<T> mem(sz - 1);
+         T *diffs = mem.get(), *p = diffs;
+         for(auto i1 = minimizers_.begin(), i2 = i1; ++i2 != minimizers_.end();++i1) {
+             *p++ = *i1 > *i2 ? *i1 - *i2: *i2 - *i1;
+         }
+         sort::insertion_sort(diffs, p);
+         const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
+         return ret;
+    }
     RangeMinHash(gzFile fp) {
         if(!fp) throw std::runtime_error("Null file handle!");
         this->read(fp);
@@ -148,6 +162,17 @@ public:
         this->read(fp);
         gzclose(fp);
     }
+    void write(const std::string &s) const {
+        gzFile fp = gzopen(s.data(), "wb");
+        if(!fp) throw 1;
+        this->write(fp);
+        gzclose(fp);
+    }
+#if 0
+    void write(gzFile fp) const {
+        this->finalize().write(fp);
+    }
+#endif
     void read(gzFile fp) {
         gzread(fp, this, sizeof(*this));
         std::memset(&minimizers_, 0, sizeof(minimizers_));
@@ -168,6 +193,10 @@ public:
     auto rbegin() const {return minimizers_.rbegin();}
     auto rbegin() {return minimizers_.rbegin();}
     T max_element() const {
+#if 0
+        for(const auto e: *this)
+            assert(*begin() >= e);
+#endif
         return *begin();
     }
     T min_element() const {
@@ -181,7 +210,17 @@ public:
         if(minimizers_.size() == this->ss_) {
             if(cmp_(max_element(), val)) {
                 minimizers_.insert(val);
-                if(minimizers_.size() > this->ss_) minimizers_.erase(minimizers_.begin());
+                if(minimizers_.size() > this->ss_) {
+#if 0
+                    auto el = *minimizers_.begin();
+                    bool gt = true, lt = true;
+                    for(const auto e: minimizers_)
+                        gt &= (el >= e), lt &= (el <= e);
+                    //std::fprintf(stderr, "Element is greater than all in the set: %d. lt: %d\n", int(gt), int(lt));
+#else
+                    minimizers_.erase(minimizers_.begin());
+#endif
+                }
             }
         } else minimizers_.insert(val);
     }
@@ -247,16 +286,16 @@ struct FinalRMinHash {
         double is = intersection_size(o);
         return is / ((size() << 1) - is);
     }
-    double cardinality() const {
-        const auto sz = first.size();
-        common::detail::alloca_wrap<T> mem(sz - 1);
-        T *diffs = mem.get(), *p = diffs;
-        for(auto i1 = first.begin(), i2 = i1; ++i2 != first.end();++i1) {
-            *p++ = (*i1 - *i2);
-        }
-        sort::insertion_sort(diffs, p);
-        const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
-        return ret;
+    double cardinality_estimate() const {
+         const auto sz = first.size();
+         common::detail::alloca_wrap<T> mem(sz - 1);
+         T *diffs = mem.get(), *p = diffs;
+         for(auto i1 = first.begin(), i2 = i1; ++i2 != first.end();++i1) {
+             *p++ = (*i1 - *i2);
+         }
+         sort::insertion_sort(diffs, p);
+         const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
+         return ret;
     }
 #define I1DF if(++i1 == lsz) break
 #define I2DF if(++i2 == lsz) break
@@ -281,11 +320,38 @@ struct FinalRMinHash {
         }
         return num / denom;
     }
+    void free() {
+        decltype(first) tmp; std::swap(tmp, first);
+    }
     FinalRMinHash(std::vector<T> &&first): first(std::move(first)), cmp() {}
     FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)), cmp(std::move(o.cmp)) {}
+    void write(const std::string &path, int comp=6) const {
+        write(path.data(), comp);
+    }
+    void read(const char *path) {
+        gzFile fp = gzopen(path, "rb");
+        if(!fp) throw std::runtime_error(std::string("could not open file at ") + path);
+        uint64_t sz;
+        gzread(fp, &sz, sizeof(sz));
+        first.resize(sz);
+        gzread(fp, first.data(), first.size() * sizeof(first[0]));
+        gzclose(fp);
+    }
+    void write(const char *path, int comp=6) const {
+        gzFile fp = gzopen(path, "wb");
+        if(!fp) throw std::runtime_error(std::string("could not open file at ") + path);
+        uint64_t sz = this->size();
+        gzwrite(fp, &sz, sizeof(sz));
+        gzwrite(fp, first.data(), first.size() * sizeof(first[0]));
+        gzclose(fp);
+    }
     template<typename Hasher>
     FinalRMinHash(RangeMinHash<T, Cmp, Hasher> &&prefinal): FinalRMinHash(std::move(prefinal.finalize())) {
         prefinal.clear();
+    }
+    FinalRMinHash(const std::string &s): FinalRMinHash(s.data()) {}
+    FinalRMinHash(const char *infname) {
+        this->read(infname);
     }
     size_t size() const {return first.size();}
 protected:
@@ -333,6 +399,20 @@ public:
     auto rend() {return minimizers_.rend();}
     auto rend() const {return minimizers_.rend();}
     CountingRangeMinHash(size_t n, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()): AbstractMinHash<T, Cmp>(n), hf_(std::move(hf)), cmp_(std::move(cmp)) {}
+    void read(const std::string &s) {
+        throw NotImplementedError("This hasn't been implemented. You should probably be using FinalCRMinHash instead if you're serializing.");
+    }
+    double cardinality_estimate() const {
+         const auto sz = minimizers_.size();
+         common::detail::alloca_wrap<T> mem(sz - 1);
+         T *diffs = mem.get(), *p = diffs;
+         for(auto i1 = minimizers_.begin(), i2 = i1; ++i2 != minimizers_.end();++i1) {
+             *p++ = i1->first > i2->first ? i1->first - i2->first: i2->first - i1->first;
+         }
+         sort::insertion_sort(diffs, p);
+         const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
+         return ret;
+    }
     INLINE void add(T val) {
         if(minimizers_.size() == this->ss_) {
             if(cmp_(begin()->first, val)) {
@@ -436,6 +516,15 @@ public:
 template<typename T, typename Cmp, typename CountType>
 struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     std::vector<CountType> second;
+    FinalCRMinHash(const std::string &path): FinalCRMinHash(path.data()) {}
+    FinalCRMinHash(const char *path) {
+        this->read(path);
+    }
+    void free() {
+        FinalRMinHash<T, Cmp>::free();
+        std::vector<CountType> tmp;
+        std::swap(tmp, second);
+    }
     size_t countsum() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {sz += sz2;});}
     double histogram_intersection(const FinalCRMinHash &o) const {
         assert(o.size() == this->size());
@@ -457,7 +546,23 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         }
         return static_cast<double>(num) / denom;
     }
-    ssize_t write(const char *fn) {
+    void read(const std::string &fn) {this->read(fn.data());}
+    void read(const char *s) {
+        gzFile fp = gzopen(s, "rb");
+        if(!fp) throw 1;
+        this->read(fp);
+        gzclose(fp);
+    }
+    void read(gzFile fp) {
+        uint64_t nelem;
+        gzread(fp, &nelem, sizeof(nelem));
+        this->first.resize(nelem);
+        gzread(fp, this->first.data(), sizeof(this->first[0]) * nelem);
+        this->second.resize(nelem);
+        gzread(fp, this->second.data(), sizeof(this->second[0]) * nelem);
+    }
+    ssize_t write(const std::string &fn) const {return write(fn.data());}
+    ssize_t write(const char *fn) const {
         gzFile fp = gzopen(fn, "wb");
         if(!fp) throw std::runtime_error("could not open file.");
         ssize_t ret = this->write(fp);
@@ -465,7 +570,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         return ret;
     }
     ssize_t write(gzFile fp) const {
-        size_t nelem = second.size();
+        uint64_t nelem = second.size();
         ssize_t ret = gzwrite(fp, &nelem, sizeof(nelem));
         ret += gzwrite(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         ret += gzwrite(fp, this->second.data(), sizeof(this->second[0]) * nelem);
@@ -515,6 +620,9 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     template<typename Hasher>
     FinalCRMinHash(CountingRangeMinHash<T, Cmp, Hasher, CountType> &&prefinal): FinalCRMinHash(static_cast<const CountingRangeMinHash<T, Cmp, Hasher, CountType> &>(prefinal)) {
         prefinal.clear();
+    }
+    double cardinality_estimate() const {
+        return FinalRMinHash<T, Cmp>::cardinality_estimate();
     }
 };
 
@@ -860,6 +968,11 @@ public:
 };
 template<typename T, typename Hasher>
 void swap(HyperMinHash<T,Hasher> &a, HyperMinHash<T,Hasher> &b) {a.swap(b);}
+
+template<typename T>
+double jaccard_index(const T &a, const T &b) {
+    return a.jaccard_index(b);
+}
 
 
 } // namespace minhash
