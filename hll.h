@@ -691,12 +691,11 @@ public:
     double relative_error() const {return 1.03896 / std::sqrt(static_cast<double>(m()));}
     // Constructor
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE,
-                       JointEstimationMethod jestim=ERTL_JOINT_MLE,
-                       int nthreads=-1): hllbase_t(np, ERTL_MLE, ERTL_JOINT_MLE, nthreads, false) {}
+                       JointEstimationMethod jestim=ERTL_JOINT_MLE): hllbase_t(np, ERTL_MLE, ERTL_JOINT_MLE, 1) {}
     template<typename... Args>
     explicit hllbase_t(size_t np, EstimationMethod estim,
                        JointEstimationMethod jestim,
-                       int nthreads, bool clamp, Args &&... args):
+                       int nthreads, Args &&... args):
         core_(static_cast<uint64_t>(1) << np),
         value_(0.), np_(np), is_calculated_(0),
         nthreads_(nthreads > 0 ? nthreads: 1),
@@ -714,7 +713,7 @@ public:
     template<typename... Args>
     hllbase_t(const std::string &path, Args &&... args): hllbase_t(path.data(), std::forward<Args>(args)...) {}
     template<typename... Args>
-    hllbase_t(gzFile fp, Args &&... args): hllbase_t(0, ERTL_MLE, ERTL_JOINT_MLE, -1, clamp, std::forward<Args>(args)...) {this->read(fp);}
+    hllbase_t(gzFile fp, Args &&... args): hllbase_t(0, ERTL_MLE, ERTL_JOINT_MLE, -1, std::forward<Args>(args)...) {this->read(fp);}
 
     // Call sum to recalculate if you have changed contents.
     void sum() {
@@ -868,7 +867,7 @@ public:
         // I might later add support for doubling, c/o https://research.neustar.biz/2013/04/30/doubling-the-size-of-an-hll-dynamically-extra-bits/
         if(new_np == np_) return hllbase_t(*this);
         if(new_np > np_) throw std::runtime_error(std::string("Can't compress to a larger size. Current: ") + std::to_string(np_) + ". Requested new size: " + std::to_string(new_np));
-        hllbase_t<HashStruct> ret(new_np, get_estim(), get_jestim(), nthreads_, clamp());
+        hllbase_t<HashStruct> ret(new_np, get_estim(), get_jestim(), nthreads_);
         size_t ratio = static_cast<size_t>(1) << (np_ - new_np);
         size_t b = 0;
         for(size_t i(0); i < (1ull << new_np); ++i) {
@@ -1002,7 +1001,7 @@ public:
     }
     void write(gzFile fp) const {
 #define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
-        uint32_t bf[]{is_calculated_, clamp(), estim_, jestim_, nthreads_};
+        uint32_t bf[]{is_calculated_, estim_, jestim_, nthreads_};
         CW(fp, bf, sizeof(bf));
         CW(fp, &np_, sizeof(np_));
         CW(fp, &value_, sizeof(value_));
@@ -1025,12 +1024,12 @@ public:
     void write(const std::string &path, bool write_gz=false) const {write(path.data(), write_gz);}
     void read(gzFile fp) {
 #define CR(fp, dst, len) do {if(static_cast<uint64_t>(gzread(fp, dst, len)) != len) throw std::runtime_error("Error reading from file.");} while(0)
-        uint32_t bf[5];
+        uint32_t bf[4];
         CR(fp, bf, sizeof(bf));
         is_calculated_ = bf[0];
-        estim_  = static_cast<EstimationMethod>(bf[2]);
-        jestim_ = static_cast<JointEstimationMethod>(bf[3]);
-        nthreads_ = bf[4];
+        estim_  = static_cast<EstimationMethod>(bf[1]);
+        jestim_ = static_cast<JointEstimationMethod>(bf[2]);
+        nthreads_ = bf[3];
         CR(fp, &np_, sizeof(np_));
         CR(fp, &value_, sizeof(value_));
         core_.resize(m());
@@ -1047,7 +1046,7 @@ public:
         read(path.data());
     }
     void write(int fileno) const {
-        uint32_t bf[]{is_calculated_, clamp(), estim_, jestim_, nthreads_};
+        uint32_t bf[]{is_calculated_, estim_, jestim_, nthreads_};
 #define CHWR(fn, obj, sz) if(__builtin_expect(::write(fn, (obj), (sz)) != ssize_t(sz), 0)) throw std::runtime_error(std::string("Failed to write to disk in ") + __PRETTY_FUNCTION__)
         CHWR(fileno, bf, sizeof(bf));
         CHWR(fileno, &np_, sizeof(np_));
@@ -1056,13 +1055,13 @@ public:
 #undef CHWR
     }
     void read(int fileno) {
-        uint32_t bf[5];
+        uint32_t bf[4];
 #define CHRE(fn, obj, sz) if(__builtin_expect(::read(fn, (obj), (sz)) != ssize_t(sz), 0)) throw std::runtime_error(std::string("Failed to read from fd in ") + __PRETTY_FUNCTION__)
         CHRE(fileno, bf, sizeof(bf));
         is_calculated_ = bf[0];
-        estim_         = static_cast<EstimationMethod>(bf[2]);
-        jestim_        = static_cast<JointEstimationMethod>(bf[3]);
-        nthreads_      = bf[4];
+        estim_         = static_cast<EstimationMethod>(bf[1]);
+        jestim_        = static_cast<JointEstimationMethod>(bf[2]);
+        nthreads_      = bf[3];
         CHRE(fileno, &np_, sizeof(np_));
         CHRE(fileno, &value_, sizeof(value_));
         core_.resize(m());
@@ -1134,8 +1133,6 @@ public:
         return std::max(0., ret);
     }
     size_t size() const {return size_t(m());}
-    static constexpr bool clamp() {return false;}
-    void set_clamp(bool val) {std::fprintf(stderr, "clamp has been deprecated. This does nothing\n");}
     static constexpr unsigned min_size() {
         return ilog2(sizeof(detail::SIMDHolder));
     }
@@ -1167,10 +1164,6 @@ static inline double union_size(const HllType &h1, const HllType &h2) {return h1
 
 template<typename HllType>
 static inline double intersection_size(const HllType &h1, const HllType &h2) {
-    if(h1.clamp()) {
-        const auto us = union_size(h1, h2), is = h1.creport() + h2.creport() - us;
-        return is < h1.relative_error() * us ? 0.: is;
-    } // else
     return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
 }
 

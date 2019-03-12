@@ -18,8 +18,8 @@ class fhllbase_t {
     unsigned threshold_;
 public:
     fhllbase_t(unsigned np_, size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval,
-               unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool clamp=true):
-        cbf_(nbfs, l2sz, nhashes, seedseedseedval), hll_(np_, estim, jestim, -1, clamp), threshold_(threshold) {
+               unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE):
+        cbf_(nbfs, l2sz, nhashes, seedseedseedval), hll_(np_, estim, jestim, -1), threshold_(threshold) {
         if(threshold > (1u << (nbfs - 1))) throw std::runtime_error("Count threshold must be countable-to");
     }
     void addh(uint64_t val) {
@@ -66,9 +66,9 @@ class pcbfhllbase_t {
     uint64_t     seedseedseedval_;
 public:
     pcbfhllbase_t(unsigned filternp_, unsigned subnp_, size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval,
-                  unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=true, bool clamp=true):
+                  unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=true):
             pcb_(nbfs, l2sz, nhashes, seedseedseedval, subnp_, estim, jestim, shrinkpow2),
-            hll_(filternp_, estim, jestim, -1, clamp), threshold_{threshold}, seedseedseedval_(seedseedseedval)
+            hll_(filternp_, estim, jestim, -1), threshold_{threshold}, seedseedseedval_(seedseedseedval)
     {
         if(threshold > (1u << (pcb_.size() - 1))) throw std::runtime_error("Count threshold must be countable-to");
     }
