@@ -286,16 +286,35 @@ struct FinalRMinHash {
         double is = intersection_size(o);
         return is / ((size() << 1) - is);
     }
-    double cardinality_estimate() const {
-         const auto sz = first.size();
-         common::detail::alloca_wrap<T> mem(sz - 1);
-         T *diffs = mem.get(), *p = diffs;
-         for(auto i1 = first.begin(), i2 = i1; ++i2 != first.end();++i1) {
-             *p++ = (*i1 - *i2);
-         }
-         sort::insertion_sort(diffs, p);
-         const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
-         return ret;
+    void print_all_cards() const {
+        for(const auto x: {HARMONIC_MEAN, ARITHMETIC_MEAN, MEDIAN}) {
+            std::fprintf(stderr, "cardest with x = %d is %lf\n", int(x), cardinality_estimate(x));
+        }
+    }
+    double cardinality_estimate(MHCardinalityMode mode=MEDIAN) const {
+        switch(mode) {
+            case ARITHMETIC_MEAN: {
+                double sum = 0.;
+                T last = 0;
+                for(size_t i =0 ; i < first.size(); ++i) {
+                    sum += (std::numeric_limits<T>::max()) / (first[i] + 1);
+                    //last = first[i]; // And the first shall be last.
+                }
+                sum /= first.size();
+                return sum;
+            }
+            default: std::fprintf(stderr, "Warning: unsupported case. Falling back to median\n");
+            case MEDIAN: {
+                const auto sz = first.size();
+                common::detail::alloca_wrap<T> mem(sz - 1);
+                T *diffs = mem.get(), *p = diffs;
+                for(auto i1 = first.begin(), i2 = i1; ++i2 != first.end();++i1) {
+                    *p++ = (*i1 - *i2);
+                }
+                sort::insertion_sort(diffs, p);
+                return double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
+             }
+        }
     }
 #define I1DF if(++i1 == lsz) break
 #define I2DF if(++i2 == lsz) break
@@ -402,7 +421,7 @@ public:
     void read(const std::string &s) {
         throw NotImplementedError("This hasn't been implemented. You should probably be using FinalCRMinHash instead if you're serializing.");
     }
-    double cardinality_estimate() const {
+    double cardinality_estimate(MHCardinalityMode mode=MEDIAN) const {
          const auto sz = minimizers_.size();
          common::detail::alloca_wrap<T> mem(sz - 1);
          T *diffs = mem.get(), *p = diffs;
@@ -621,8 +640,8 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     FinalCRMinHash(CountingRangeMinHash<T, Cmp, Hasher, CountType> &&prefinal): FinalCRMinHash(static_cast<const CountingRangeMinHash<T, Cmp, Hasher, CountType> &>(prefinal)) {
         prefinal.clear();
     }
-    double cardinality_estimate() const {
-        return FinalRMinHash<T, Cmp>::cardinality_estimate();
+    double cardinality_estimate(MHCardinalityMode mode=MEDIAN) const {
+        return FinalRMinHash<T, Cmp>::cardinality_estimate(mode);
     }
 };
 
