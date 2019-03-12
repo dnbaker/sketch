@@ -521,7 +521,7 @@ public:
         return ret;
     }
     ssize_t write(const std::string &path, int compression=6) const {
-        write(path.data(), compression);
+        return write(path.data(), compression);
     }
     ssize_t write(const char *path, int compression=6) const {
         char buf[5];
@@ -537,8 +537,9 @@ public:
         if(fp == nullptr) {
             throw std::runtime_error(std::string("Could not open file at ") + path);
         }
-        read(fp);
+        auto ret = read(fp);
         gzclose(fp);
+        return ret;
     }
     ssize_t read(gzFile fp) {
         uint8_t arr[3] {0};
