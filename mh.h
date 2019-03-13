@@ -300,12 +300,12 @@ struct FinalRMinHash {
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         switch(mode) {
+            default:
             case ARITHMETIC_MEAN: {
                 // KMV estimate
                 double sum = (std::numeric_limits<T>::max() / double(this->max_element()) * first.size());
                 return sum;
             }
-            default: std::fprintf(stderr, "Warning: unsupported case. Falling back to median\n");
             case MEDIAN: {
                 const auto sz = first.size();
                 common::detail::alloca_wrap<T> mem(sz - 1);
@@ -428,7 +428,7 @@ public:
         throw NotImplementedError("This hasn't been implemented. You should probably be using FinalCRMinHash instead if you're serializing.");
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
-        return double(std::numeric_limits<T>::max()) / *std::max_element(minimizers_.begin(), minimizers_.end(), [](auto x, auto y) {return x->first < y->first;}) * minimizers_.size();
+        return double(std::numeric_limits<T>::max()) / std::max_element(minimizers_.begin(), minimizers_.end(), [](auto x, auto y) {return x.first < y.first;})->first * minimizers_.size();
     }
     INLINE void add(T val) {
         if(minimizers_.size() == this->ss_) {
