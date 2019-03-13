@@ -404,6 +404,7 @@ class KWiseIndependentPolynomialHash {
     static_assert(k, "k must be positive");
     const std::array<int96_t, k> coeffs_;
 	static constexpr uint64_t mod = (uint64_t(1) << 61) - 1;
+    static constexpr bool is_kwise_independent(size_t val) {return val <= k;}
 public:
     KWiseIndependentPolynomialHash(uint64_t seedseed=137): coeffs_(make_coefficients<k>(seedseed)) {
     }
@@ -432,6 +433,19 @@ public:
         }
         return ret.simd_;
     }
+};
+template<size_t k>
+struct KWiseHasherSet {
+    std::vector<KWiseIndependentPolynomialHash<k>> hashers_;
+    KWiseHasherSet(size_t nh, uint64_t seedseed=137) {
+        std::mt19937_64 mt(seedseed);
+        while(hashers_.size() < nh)
+            hashers_.emplace_back(mt());
+    }
+    uint64_t operator()(uint64_t v, unsigned ind) const {
+        return hashers_[ind](v);
+    }
+    uint64_t operator()(uint64_t v) const {throw NotImplementedError("Should not be called.");}
 };
 
 namespace lut {
