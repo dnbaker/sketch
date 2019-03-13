@@ -682,6 +682,27 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     }
 };
 
+template<typename T, typename Cmp=std::greater<T>>
+class KthMinHash {
+public:
+    using MHType = RangeMinHash<T, Cmp>;
+    std::vector<MHType> minhashes_;
+    KthMinHash(size_t k, size_t nelem) {
+        minhashes_.reserve(k);
+        while(minhashes_.size() < k) minhashes_.emplace_back(nelem);
+    }
+    void addh(uint64_t hv) {
+        for(auto &h: minhashes_) h.addh(hv);
+    }
+    std::vector<T> finalize() const {
+        std::vector<T> ret;
+        ret.reserve(minhashes_.size());
+        for(const auto &el: minhashes_)
+            ret.push_back(el.max_element());
+        return ret;
+    }
+};
+
 template<typename T=uint64_t, typename Hasher=WangHash>
 class HyperMinHash {
     uint64_t seeds_ [2] __attribute__ ((aligned (sizeof(uint64_t) * 2)));

@@ -21,6 +21,7 @@ int main(int argc, char *argv[]) {
     size_t ss = argc < 4 ? 11: size_t(std::strtoull(argv[3], nullptr, 10));
     RangeMinHash<uint64_t> rm1(1 << ss), rm2(1 << ss);
     CountingRangeMinHash<uint64_t> crhm(1 << ss), crhm2(1 << ss);
+    KthMinHash<uint64_t> kmh(30, 100);
     std::mt19937_64 mt(1337);
     size_t olap_n = (olap_frac * nelem);
     double true_ji = double(olap_n ) / (nelem * 2 - olap_n);
@@ -31,6 +32,7 @@ int main(int argc, char *argv[]) {
     for(size_t i = 0; i < olap_n; ++i) {
         auto v = mt();
         v = WangHash()(v);
+        kmh.addh(v);
         z.insert(v);
         rm1.add(v); rm2.add(v);
     }
@@ -71,5 +73,6 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "f2 est cardinality: %lf\n", f1.cardinality_estimate());
     std::fprintf(stderr, "f2 est cardinality: %lf\n", f1.cardinality_estimate(ARITHMETIC_MEAN));
     auto m1 = rm1.finalize(), m2 = rm2.finalize();
+    auto kmf = kmh.finalize();
     std::fprintf(stderr, "jaccard between finalized MH sketches: %lf, card %lf\n", m1.jaccard_index(m2), m1.cardinality_estimate());
 }
