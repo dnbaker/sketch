@@ -682,10 +682,52 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     }
 };
 
-template<typename T, typename Cmp=std::greater<T>>
+template<typename T>
+class FinalKthMinHash: public std::vector<T, Allocator<T>> {
+public:
+    FinalKthMinHash(std::vector<T, Allocator<T>> &&vec): std::vector<T, Allocator<T>>(vec) {}
+    FinalKthMinHash(const FinalKthMinHash &o) = default;
+    FinalKthMinHash(FinalKthMinHash &&o)      = default;
+    FinalKthMinHash &operator+=(const FinalKthMinHash &o) {
+        if(size() != o.size()) throw "a fit";
+        auto it = this->begin(), oit = o.begin();
+        while(it != this->end()) { // Unroll?
+            *it = std::min(*it, *oit);
+            ++it, ++oit;
+        }
+    }
+    FinalKthMinHash operator+(const FinalKthMinHash &o) {
+        auto tmp = *this;
+        tmp += o;
+        return tmp;
+    }
+    double union_size(const FinalKthMinHash &o) const {
+        if(size() != o.size()) throw "a fit";
+        common::detail::alloca_wrap<T> tmp(size());
+        auto ptr = tmp.get();
+        for(size_t i = 0; i < size(); ++i)
+            *ptr++ = std::min(this->operator[](i), o[i]);
+        sort::insertion_sort(tmp.get(), ptr);
+        if(size() & 1) return double(std::numeric_limits<T>::max()) / tmp[size() >> 1] * size();
+        return 0.5 * (double(std::numeric_limits<T>::max()) / tmp[size() >> 1] + double(std::numeric_limits<T>::max()) / tmp[(size() >> 1)-1]);
+    }
+    auto size() const {return std::vector<T, Allocator<T>>::size();}
+    double cardinality_estimate() const {
+        common::detail::alloca_wrap<T> tmp(size());
+        auto ptr = tmp.get();
+        for(const auto v: *this)
+            *ptr++ = v;
+        sort::insertion_sort(tmp.get(), ptr);
+        if(size() & 1) return double(std::numeric_limits<T>::max()) / tmp[size() >> 1] * size();
+        return 0.5 * (double(std::numeric_limits<T>::max()) / tmp[size() >> 1] + double(std::numeric_limits<T>::max()) / tmp[(size() >> 1)-1]);
+    }
+};
+
+template<typename T>
 class KthMinHash {
 public:
-    using MHType = RangeMinHash<T, Cmp>;
+    using MHType = RangeMinHash<T, std::greater<T>>;
+    using final_type = FinalKthMinHash<T>;
     std::vector<MHType> minhashes_;
     KthMinHash(size_t k, size_t nelem) {
         minhashes_.reserve(k);
@@ -694,12 +736,12 @@ public:
     void addh(uint64_t hv) {
         for(auto &h: minhashes_) h.addh(hv);
     }
-    std::vector<T> finalize() const {
-        std::vector<T> ret;
+    FinalKthMinHash<T> finalize() const {
+        std::vector<T, Allocator<T>> ret;
         ret.reserve(minhashes_.size());
         for(const auto &el: minhashes_)
             ret.push_back(el.max_element());
-        return ret;
+        return FinalKthMinHash<T>(std::move(ret));
     }
 };
 
