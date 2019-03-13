@@ -422,7 +422,11 @@ INLINE __uint128_t mod127(__uint128_t x) {
 }
 
 INLINE __uint128_t mod61(__uint128_t x) {
-	return x % ((size_t(1) << 61) - 1);
+    static constexpr uint64_t mod = (__uint128_t(1) << 61) - 1;
+    do x = (x >> 61) + (x & mod); while(x > mod * 2);
+
+    if(x > mod) x -= mod;
+    return x;
 }
 
 template<size_t n>
