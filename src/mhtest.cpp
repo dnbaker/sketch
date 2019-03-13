@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "is/jaccard: %zu/%lf. hist intersect: %lf.\n", size_t(crhm.intersection_size(crhm2)), crhm.jaccard_index(crhm2), crhm.histogram_intersection(crhm2));
     auto f1 = crhm.finalize();
     auto f2 = crhm2.finalize();
-    std::fprintf(stderr, "rmh1 b: %zu. rmh1 rb: %zu. max: %zu. min: %zu\n", size_t(*rm1.begin()), size_t(*rm2.rbegin()), rm1.max_element(), rm1.min_element());
+    std::fprintf(stderr, "rmh1 b: %zu. rmh1 rb: %zu. max: %zu. min: %zu\n", size_t(*rm1.begin()), size_t(*rm2.rbegin()), size_t(rm1.max_element()), size_t(rm1.min_element()));
     assert(f1.histogram_intersection(f2) == f2.histogram_intersection(f1) && f1.histogram_intersection(f2) == crhm.histogram_intersection(crhm2));
     assert(crhm.histogram_intersection(crhm2) ==  f1.tf_idf(f2));
     std::fprintf(stderr, "tf-idf with equal weights: %lf\n", f1.tf_idf(f2));

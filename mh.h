@@ -298,13 +298,30 @@ struct FinalRMinHash {
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
         return std::numeric_limits<T>::max() / double(std::max(this->max_element(), o.max_element())) * this->size();
     }
+    double stupid_fast_jaccard(const FinalRMinHash &o) const {
+        double us = union_size(o);
+        double sz1 = cardinality_estimate(ARITHMETIC_MEAN);
+        double sz2 = o.cardinality_estimate(ARITHMETIC_MEAN);
+        double is = sz1 + sz1 - us;
+        return is / us;
+    }
+    double stupid_fast_containment(const FinalRMinHash &o) const {
+        double us = union_size(o);
+        double sz1 = cardinality_estimate();
+        double sz2 = o.cardinality_estimate();
+        double is = sz1 + sz1 - us;
+        return is / sz1;
+    }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
+#if 0
         switch(mode) {
             default:
             case ARITHMETIC_MEAN: {
+#endif
                 // KMV estimate
                 double sum = (std::numeric_limits<T>::max() / double(this->max_element()) * first.size());
                 return sum;
+#if 0
             }
             case MEDIAN: {
                 const auto sz = first.size();
@@ -317,6 +334,7 @@ struct FinalRMinHash {
                 return double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
              }
         }
+#endif
     }
 #define I1DF if(++i1 == lsz) break
 #define I2DF if(++i2 == lsz) break
@@ -644,6 +662,20 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     template<typename Hasher>
     FinalCRMinHash(CountingRangeMinHash<T, Cmp, Hasher, CountType> &&prefinal): FinalCRMinHash(static_cast<const CountingRangeMinHash<T, Cmp, Hasher, CountType> &>(prefinal)) {
         prefinal.clear();
+    }
+    double stupid_fast_jaccard(const FinalCRMinHash &o) const {
+        double us = union_size(o);
+        double sz1 = cardinality_estimate(ARITHMETIC_MEAN);
+        double sz2 = o.cardinality_estimate(ARITHMETIC_MEAN);
+        double is = sz1 + sz1 - us;
+        return is / us;
+    }
+    double stupid_fast_containment(const FinalCRMinHash &o) const {
+        double us = union_size(o);
+        double sz1 = cardinality_estimate();
+        double sz2 = o.cardinality_estimate();
+        double is = sz1 + sz1 - us;
+        return is / sz1;
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         return FinalRMinHash<T, Cmp>::cardinality_estimate(mode);
