@@ -296,7 +296,7 @@ struct FinalRMinHash {
     }
     double union_size(const FinalRMinHash &o) const {
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
-        return std::numeric_limits<T>::max() / double(std::max(this->max_element(), o.max_element())) * this->size();
+        return std::numeric_limits<T>::max() / double(std::min(this->max_element(), o.max_element())) * this->size();
     }
     double stupid_fast_jaccard(const FinalRMinHash &o) const {
         double us = union_size(o);
@@ -609,7 +609,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     }
     double union_size(const FinalCRMinHash &o) const {
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
-        return std::numeric_limits<T>::max() / double(std::max(this->max_element(), o.max_element())) * this->size();
+        return std::numeric_limits<T>::max() / double(std::min(this->max_element(), o.max_element())) * this->size();
     }
     ssize_t write(gzFile fp) const {
         uint64_t nelem = second.size();
