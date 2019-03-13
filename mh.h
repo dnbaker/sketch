@@ -281,7 +281,9 @@ struct EqualWeight {
 
 template<typename T, typename Cmp>
 struct FinalRMinHash {
+    static_assert(std::is_unsigned<T>::value, "must be unsigned btw");
     std::vector<T> first;
+    using container_type = decltype(first);
     Cmp cmp;
     size_t intersection_size(const FinalRMinHash &o) const {
         return minhash::intersection_size(first, o.first, Cmp());
@@ -297,6 +299,33 @@ struct FinalRMinHash {
     }
     double union_size(const FinalRMinHash &o) const {
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
+        size_t n_in_sketch = 0;
+        auto i1 = this->rbegin(), ie = this->rend(), i2 = o.rbegin();
+        while(n_in_sketch < first.size() - 3) {
+            if(*i1 == *i2) {
+                ++n_in_sketch;
+            } else {
+                n_in_sketch += 2;
+            }
+            ++i1, ++i2;
+        }
+        T mv;
+        if(first.size() - n_in_sketch == 1) {
+            goto end;
+        }
+        if(first.size() - n_in_sketch == 3) {
+            if(*i1 == *i2) ++i1, ++i2;
+            else {
+                if(cmp(*i1, *i2)) ++i2;
+                else              ++i1;
+                if(*i1 == *i2) ++i1, ++i2;
+            }
+        } else if(first.size() - n_in_sketch == 2) {
+            if(*i1 == *i2)
+                ++i1, ++i2;
+        } // else: == 1 -- do nothing
+        mv = cmp(*i1, *i2) ? *i1: *i2;
+        return double(std::numeric_limits<T>::max()) / (mv) * this->size();
         return std::numeric_limits<T>::max() / double(std::min(this->max_element(), o.max_element())) * this->size();
     }
     double stupid_fast_jaccard(const FinalRMinHash &o) const {
@@ -359,6 +388,18 @@ struct FinalRMinHash {
             }
         }
         return num / denom;
+    }
+    typename container_type::const_iterator begin() {
+        return first.cbegin();
+    }
+    typename container_type::const_iterator end() {
+        return first.cend();
+    }
+    typename container_type::const_iterator rbegin() {
+        return first.crbegin();
+    }
+    typename container_type::const_iterator rend() {
+        return first.crend();
     }
     void free() {
         decltype(first) tmp; std::swap(tmp, first);
@@ -664,14 +705,14 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     FinalCRMinHash(CountingRangeMinHash<T, Cmp, Hasher, CountType> &&prefinal): FinalCRMinHash(static_cast<const CountingRangeMinHash<T, Cmp, Hasher, CountType> &>(prefinal)) {
         prefinal.clear();
     }
-    double stupid_fast_jaccard(const FinalCRMinHash &o) const {
+    double jaccard_index(const FinalCRMinHash &o) const {
         double us = union_size(o);
         double sz1 = cardinality_estimate(ARITHMETIC_MEAN);
         double sz2 = o.cardinality_estimate(ARITHMETIC_MEAN);
         double is = sz1 + sz1 - us;
         return is / us;
     }
-    double stupid_fast_containment(const FinalCRMinHash &o) const {
+    double containment_index(const FinalCRMinHash &o) const {
         double us = union_size(o);
         double sz1 = cardinality_estimate();
         double sz2 = o.cardinality_estimate();
@@ -684,6 +725,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
 };
 
 
+#if 0
 template<typename T>
 class FinalKthMinHash: public fixed::vector<T, VECTOR_WIDTH> {
 //class FinalKthMinHash: public std::vector<T, Allocator<T>> {
@@ -748,6 +790,7 @@ public:
         return ret; // implicit constructor
     }
 };
+#endif
 
 template<typename T=uint64_t, typename Hasher=WangHash>
 class HyperMinHash {

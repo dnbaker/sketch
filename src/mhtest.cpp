@@ -12,16 +12,28 @@ void pc(const T &x, const char *s="unspecified") {
     std::fprintf(stderr, "Container %s contains: %s\n", s, t.data());
 }
 
+template<typename T>
+bool forward_sorted(T i1, T i2) {
+    auto tmp = *i1++;
+    int ret = -1;
+    start:
+    if(tmp == *i1) throw "a party";
+    if(tmp < *i1) {if(ret >= 0 && ret != 1) throw std::runtime_error("ZOMG"); ret = 1;}
+    else  {if(ret >= 0 && ret != 0) throw std::runtime_error("ZOMG"); ret = 0;}
+    if(++i1 != i2) goto start;
+    if(ret < 0) throw "up";
+    return ret;
+}
 using namespace sketch;
 using namespace mh;
 
 int main(int argc, char *argv[]) {
-    size_t nelem = argc == 1 ? 10000000: size_t(std::strtoull(argv[1], nullptr, 10));
+    size_t nelem = argc == 1 ? 1000000: size_t(std::strtoull(argv[1], nullptr, 10));
     double olap_frac = argc < 3 ? 0.1: std::atof(argv[2]);
     size_t ss = argc < 4 ? 11: size_t(std::strtoull(argv[3], nullptr, 10));
     RangeMinHash<uint64_t> rm1(1 << ss), rm2(1 << ss);
     CountingRangeMinHash<uint64_t> crhm(1 << ss), crhm2(1 << ss);
-    KthMinHash<uint64_t> kmh(30, 100);
+    //KthMinHash<uint64_t> kmh(30, 100);
     std::mt19937_64 mt(1337);
     size_t olap_n = (olap_frac * nelem);
     double true_ji = double(olap_n ) / (nelem * 2 - olap_n);
@@ -32,7 +44,7 @@ int main(int argc, char *argv[]) {
     for(size_t i = 0; i < olap_n; ++i) {
         auto v = mt();
         v = WangHash()(v);
-        kmh.addh(v);
+        //kmh.addh(v);
         z.insert(v);
         rm1.add(v); rm2.add(v);
     }
@@ -73,6 +85,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "f2 est cardinality: %lf\n", f1.cardinality_estimate());
     std::fprintf(stderr, "f2 est cardinality: %lf\n", f1.cardinality_estimate(ARITHMETIC_MEAN));
     auto m1 = rm1.finalize(), m2 = rm2.finalize();
-    auto kmf = kmh.finalize();
+    std::fprintf(stderr, "m1 is %s-sorted\n", forward_sorted(m1.begin(), m1.end()) ? "forward": "reverse");
+    //auto kmf = kmh.finalize();
     std::fprintf(stderr, "jaccard between finalized MH sketches: %lf, card %lf\n", m1.jaccard_index(m2), m1.cardinality_estimate());
 }

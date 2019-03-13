@@ -325,34 +325,95 @@ struct WangHash {
 #endif
 };
 
+using int96_t = std::array<uint32_t, 3>;
+
 template<size_t N>
-static std::array<uint64_t, N> make_coefficients(uint64_t seedseed) {
-    std::array<uint64_t, N> ret;
+static auto make_coefficients(uint64_t seedseed) {
+    std::array<int96_t, N> ret;
     std::mt19937_64 mt(seedseed);
-    for(auto &e: ret) e = mt();
+    for(auto &e: ret) {
+        e[0] = mt();
+        e[1] = mt();
+        e[2] = mt();
+	}
     return ret;
+}
+
+namespace siam {
+
+// From Tabulation Based 5-Universal Hashing and Linear Probing
+//
+
+static constexpr uint64_t Prime89_0  = (((uint64_t)1)<<32)-1;
+static constexpr uint64_t Prime89_1  = (((uint64_t)1)<<32)-1;
+static constexpr uint64_t Prime89_2  = (((uint64_t)1)<<25)-1;
+static constexpr uint64_t Prime89_21 = (((uint64_t)1)<<57)-1;
+
+inline uint64_t Mod64Prime89(const int96_t r) {
+    uint64_t r0, r1, r2; //r2r1r0 = r&Prime89 + r>>89
+    r2 = r[2];
+    r1 = r[1];
+    r0 = r[0] + (r2>>25);
+    r2 &= Prime89_2;
+    return (r2 == Prime89_2 && r1 == Prime89_1 && r0 >= Prime89_0) ?(r0 - Prime89_0) : (r0 + (r1<<32));
+}/*Computes a 96-bit r such thatr mod Prime89 == (ax+b) mod Prime89exploiting the structure of Prime89.*/
+
+uint64_t HIGH(uint64_t x) {return x >> 32;}
+uint64_t LOW(uint64_t x) {return x & 0x00000000FFFFFFFFull;}
+inline void MultAddPrime89(int96_t & r, uint64_t x, const int96_t &a, const int96_t &b)
+{
+    uint64_t x1, x0, c21, c20, c11, c10, c01, c00;
+    uint64_t d0, d1, d2, d3;
+	uint64_t s0, s1, carry;
+    x1 = HIGH(x);
+    x0 = LOW(x);
+    c21 = a[2]*x1;
+    c20 = a[2]*x0;
+    c11 = a[1]*x1; 
+    c10 = a[1]*x0;
+    c01 = a[0]*x1; 
+    c00 = a[0]*x0;
+    d0 = (c20>>25)+(c11>>25)+(c10>>57)+(c01>>57);
+    d1 = (c21<<7);
+    d2 = (c10&Prime89_21) + (c01&Prime89_21);
+    d3 = (c20&Prime89_2) +(c11&Prime89_2) + (c21>>57);
+    s0 = b[0] + LOW(c00) + LOW(d0) + LOW(d1);
+    r[0] = LOW(s0);
+    carry = HIGH(s0);
+    s1 = b[1] + HIGH(c00) + HIGH(d0) +HIGH(d1) + LOW(d2) + carry;
+    r[1] = LOW(s1);
+    carry = HIGH(s1);
+    r[2] = b[2] + HIGH(d2) + d3 + carry;
+}
+// CWtrick64 for 64-bit key x (Prime = 2ˆ89-1)
+template<size_t k>
+inline uint64_t CWtrick64(uint64_t x, const std::array<int64_t, k> &keys) {
+	static_assert(k > 2, "If you only need 2, don't use this function.");
+    int96_t r;
+    MultAddPrime89(r,x,keys[0],keys[1]);
+	for(size_t i = 2; i < k; ++i)
+    	MultAddPrime89(r,x,r,keys[i]);
+    //MultAddPrime89(r,x,r,E); We don't need this
+    return Mod64Prime89(r);
+}
+
 }
 
 template<size_t k>
 class KWiseIndependentPolynomialHash {
-    const std::array<uint64_t, k> coeffs_;
-    static constexpr uint64_t mod = 9223372036854775807ull;
+    static_assert(k, "k must be positive");
+    const std::array<int96_t, k> coeffs_;
+	static constexpr uint64_t mod = (uint64_t(1) << 61) - 1;
 public:
     KWiseIndependentPolynomialHash(uint64_t seedseed=137): coeffs_(make_coefficients<k>(seedseed)) {
-        static_assert(k, "k must be nonzero");
     }
     uint64_t operator()(uint64_t val) const {
-        uint64_t ret = coeffs_[0];
-        uint64_t exp = val;
-        for(size_t i = 1; i < k; ++i) {
-            ret = (ret + (exp * coeffs_[i] % mod)) % mod;
-            exp = (val * exp) % mod;
-        }
-        return ret;
+		return siam::CWtrick64<k>(val, coeffs_);
     }
     Type operator()(VType val) const {
+		throw std::runtime_error("NotImplemented.");
         // Data parallel across same coefficients.
-        VType ret = Space::set1(coeffs_[0]);
+        VType ret = Space::set1(coeffs_[0][0]);
         VType exp = val;
         for(size_t i = 1; i < k; ++i) {
 #if HAS_AVX_512
