@@ -86,6 +86,11 @@
 
 namespace sketch {
 namespace common {
+class NotImplementedError: public std::runtime_error {
+public:
+    template<typename... Args>
+    NotImplementedError(Args &&...args): std::runtime_error(std::forward<Args>(args)...) {}
+};
 
 #if __AES__
 using DefaultRNGType = aes::AesCtr<uint64_t, 2>;
@@ -412,7 +417,7 @@ public:
 		return siam::CWtrick64<k>(val, coeffs_);
     }
     Type operator()(VType val) const {
-		throw std::runtime_error("NotImplemented.");
+        throw NotImplementedError("Should not be called... yet. TODO: this")
         // Data parallel across same coefficients.
         VType ret = Space::set1(coeffs_[0][0]);
         VType exp = val;
@@ -900,11 +905,6 @@ struct DoNothing {
     template<typename T>void operator()(const T &x)const{}
 };
 
-class NotImplementedError: public std::runtime_error {
-public:
-    template<typename... Args>
-    NotImplementedError(Args &&...args): std::runtime_error(std::forward<Args>(args)...) {}
-};
 namespace detail {
 // Overloads for setting memory to 0 for either compact vectors
 // or std::vectors
