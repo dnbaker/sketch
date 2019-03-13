@@ -2,6 +2,7 @@
 #include <mutex>
 //#include <queue>
 #include "hll.h" // For common.h and clz functions
+#include "fixed_vector.h"
 
 /*
  * TODO: support minhash using sketch size and a variable number of hashes.
@@ -682,10 +683,13 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     }
 };
 
+
 template<typename T>
-class FinalKthMinHash: public std::vector<T, Allocator<T>> {
+class FinalKthMinHash: public fixed::vector<T, VECTOR_WIDTH> {
+//class FinalKthMinHash: public std::vector<T, Allocator<T>> {
+    using super = fixed::vector<T, VECTOR_WIDTH>;
 public:
-    FinalKthMinHash(std::vector<T, Allocator<T>> &&vec): std::vector<T, Allocator<T>>(vec) {}
+    FinalKthMinHash(super &&vec): super(vec) {}
     FinalKthMinHash(const FinalKthMinHash &o) = default;
     FinalKthMinHash(FinalKthMinHash &&o)      = default;
     FinalKthMinHash &operator+=(const FinalKthMinHash &o) {
@@ -711,7 +715,7 @@ public:
         if(size() & 1) return double(std::numeric_limits<T>::max()) / tmp[size() >> 1] * size();
         return 0.5 * (double(std::numeric_limits<T>::max()) / tmp[size() >> 1] + double(std::numeric_limits<T>::max()) / tmp[(size() >> 1)-1]);
     }
-    auto size() const {return std::vector<T, Allocator<T>>::size();}
+    auto size() const {return super::size();}
     double cardinality_estimate() const {
         common::detail::alloca_wrap<T> tmp(size());
         auto ptr = tmp.get();
@@ -737,11 +741,11 @@ public:
         for(auto &h: minhashes_) h.addh(hv);
     }
     FinalKthMinHash<T> finalize() const {
-        std::vector<T, Allocator<T>> ret;
-        ret.reserve(minhashes_.size());
+        fixed::vector<T, VECTOR_WIDTH> ret(minhashes_.size());
+        auto ptr = ret.begin();
         for(const auto &el: minhashes_)
-            ret.push_back(el.max_element());
-        return FinalKthMinHash<T>(std::move(ret));
+            *ptr++ = el.max_element();
+        return ret; // implicit constructor
     }
 };
 

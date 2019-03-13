@@ -76,10 +76,12 @@
 #  define NO_ADDRESS
 #endif
 
+#ifndef CONST_IF
 #if __cplusplus >= 201703L
 #define CONST_IF if constexpr
 #else
 #define CONST_IF if
+#endif
 #endif
 
 namespace sketch {
