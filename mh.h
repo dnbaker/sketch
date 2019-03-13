@@ -595,13 +595,14 @@ public:
 
 template<typename T, typename Cmp, typename CountType>
 struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
+    using super = FinalRMinHash<T, Cmp>;
     std::vector<CountType> second;
     FinalCRMinHash(const std::string &path): FinalCRMinHash(path.data()) {}
     FinalCRMinHash(const char *path) {
         this->read(path);
     }
     void free() {
-        FinalRMinHash<T, Cmp>::free();
+        super::free();
         std::vector<CountType> tmp;
         std::swap(tmp, second);
     }
@@ -651,6 +652,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     }
     double union_size(const FinalCRMinHash &o) const {
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
+        return super::union_size(o);
         return std::numeric_limits<T>::max() / double(std::min(this->max_element(), o.max_element())) * this->size();
     }
     ssize_t write(gzFile fp) const {
