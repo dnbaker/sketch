@@ -25,9 +25,12 @@ bool forward_sorted(T i1, T i2) {
     return ret;
 }
 using namespace sketch;
+using namespace common;
 using namespace mh;
 
 int main(int argc, char *argv[]) {
+    KWiseHasherSet<4> zomg(100);
+    std::fprintf(stderr, "hv for 133: %zu\n", size_t(zomg(133, 1)));
     size_t nelem = argc == 1 ? 1000000: size_t(std::strtoull(argv[1], nullptr, 10));
     double olap_frac = argc < 3 ? 0.1: std::atof(argv[2]);
     size_t ss = argc < 4 ? 11: size_t(std::strtoull(argv[3], nullptr, 10));

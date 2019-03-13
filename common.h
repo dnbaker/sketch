@@ -392,7 +392,7 @@ inline void MultAddPrime89(int96_t & r, uint64_t x, const int96_t &a, const int9
 }
 // CWtrick64 for 64-bit key x (Prime = 2ˆ89-1)
 template<size_t k>
-inline uint64_t CWtrick64(uint64_t x, const std::array<int64_t, k> &keys) {
+inline uint64_t CWtrick64(uint64_t x, const std::array<int96_t, k> &keys) {
 	static_assert(k > 2, "If you only need 2, don't use this function.");
     int96_t r;
     MultAddPrime89(r,x,keys[0],keys[1]);
@@ -417,7 +417,7 @@ public:
 		return siam::CWtrick64<k>(val, coeffs_);
     }
     Type operator()(VType val) const {
-        throw NotImplementedError("Should not be called... yet. TODO: this")
+        throw NotImplementedError("Should not be called... yet. TODO: this");
         // Data parallel across same coefficients.
         VType ret = Space::set1(coeffs_[0][0]);
         VType exp = val;
