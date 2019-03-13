@@ -756,6 +756,126 @@ const
     }
 #endif
 };
+template<typename CounterType=int32_t, typename=typename std::enable_if<std::is_signed<CounterType>::value>::type>
+class cs4wbase_t {
+    /*
+     * Commentary: because of chance, one can end up with a negative number as an estimate.
+     * Either the item collided with another item which was quite large and it was outweighed
+     * or it and others in the bucket were not heavy enough and by chance it did
+     * not weigh over the other items with the opposite sign. Treat these as 0s.
+    */
+    std::vector<CounterType, Allocator<CounterType>> core_;
+    uint32_t np_, nh_;
+    uint64_t mask_;
+    const KWiseHasherSet<4> hf_;
+#if !NDEBUG
+    size_t sign_plus = 0, sign_minus = 0;
+#endif
+public:
+    template<typename...Args>
+    cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
+        core_(uint64_t(nh) << np), np_(np), nh_(nh), hf_(seedseed),
+        mask_((1ull << np_) - 1)
+    {
+    }
+    double l2est() const {
+        return sqrl2(core_, nh_, np_);
+    }
+    CounterType addh_val(uint64_t val) {
+        alloca_wrap<CounterType> counts(nh_);
+        auto cptr = counts.get();
+        for(unsigned added = 0; added < nh_; ++added) {
+            *cptr++ = add(val, added);
+        }
+        sort::insertion_sort(counts.get(), cptr);
+        cptr = counts.get();
+        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
+    }
+    void addh(uint64_t val) {
+        for(unsigned added = 0; added < nh_; ++added) {
+            add(val, added);
+        }
+    }
+    void subh(uint64_t val) {
+        for(unsigned added = 0; added < nh_; ++added) {
+            sub(val, added);
+        }
+    }
+    auto subh_val(uint64_t val) {
+        alloca_wrap<CounterType> counts(nh_);
+        auto cptr = counts.get();
+        for(unsigned added = 0; added < nh_; ++added) {
+            *cptr++ = sub(val, added);
+        }
+        sort::insertion_sort(counts.get(), cptr);
+        cptr = counts.get();
+        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
+    }
+    INLINE size_t index(uint64_t hv, unsigned subidx) const noexcept {
+        return (hv & mask_) + (subidx << np_);
+    }
+    INLINE auto add(uint64_t hv, unsigned subidx) noexcept {
+        hv = hf_(hv, subidx);
+        return at_pos(hv, subidx) += sign(hv);
+    }
+    INLINE auto sub(uint64_t hv, unsigned subidx) noexcept {
+        hv = hf_(hv, subidx);
+        return at_pos(hv, subidx) -= sign(hv);
+    }
+    INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
+        assert(index(hv, subidx) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
+        return core_[index(hv, subidx)];
+    }
+    INLINE auto at_pos(uint64_t hv, unsigned subidx) const noexcept {
+        assert((hv & mask_) + (subidx << np_) < core_.size());
+        return core_[index(hv, subidx)];
+    }
+    INLINE int sign(uint64_t hv)
+#if !NDEBUG
+#else
+const noexcept
+#endif
+{
+#if !NDEBUG
+        if ( hv & (1ul << np_)) ++sign_plus;
+        else                    ++sign_minus;
+#endif
+        return hv & (1ul << np_) ? 1: -1;
+    }
+    INLINE void subh(Space::VType hv) noexcept {
+        hv.for_each([&](auto x) {for(size_t i = 0; i < nh_; sub(x, i++));});
+    }
+    INLINE void addh(Space::VType hv) noexcept {
+        hv.for_each([&](auto x) {for(size_t i = 0; i < nh_; add(x, i++));});
+    }
+    CounterType est_count(uint64_t val) 
+#if !NDEBUG
+#else
+const
+#endif
+{
+        common::detail::alloca_wrap<CounterType> mem(nh_);
+        CounterType *ptr = mem.get(), *p = ptr;
+        for(unsigned i = 0; i < nh_; ++i) {
+            auto v = hf_(val, i);
+            *p++ = at_pos(v, i) * sign(v);
+        }
+        if(nh_ > 1) {
+            sort::insertion_sort(ptr, ptr + nh_);
+            CounterType start1 = ptr[(nh_ - 1)>>1];
+            start1 += ptr[(nh_-1)>>1];
+            return start1 >> 1;
+        } else {
+            return ptr[0];
+        }
+    }
+#if !NDEBUG
+    ~cs4wbase_t() {
+        std::fprintf(stderr, "Sign counts: %zu/%zu (-1,+1)\n", sign_plus, sign_minus);
+    }
+#endif
+};
+
 
 template<typename VectorType=DefaultCompactVectorType,
          typename HashStruct=common::WangHash>
@@ -798,6 +918,7 @@ public:
 using ccm_t = ccmbase_t<>;
 using cmm_t = cmmbase_t<>;
 using cs_t = csbase_t<>;
+using cs4w_t = cs4wbase_t<>;
 using pccm_t = ccmbase_t<update::PowerOfTwo>;
 #undef DATA_ACC
 

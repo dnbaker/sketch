@@ -28,6 +28,7 @@ int main(int argc, char *argv[]) {
     sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, sketch::common::WangHash, false> cmswithnonminmal(nbits, l2sz, nhashes);
     sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, sketch::common::WangHash, false> cmswithfloats(nbits, l2sz, nhashes);
     cs_t cmscs(l2sz, nhashes * 4);
+    cs4w_t cmscs4w(l2sz, nhashes * 4);
     sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
 #if __cplusplus >= 201703L
     auto [x, y] = cms.est_memory_usage();
@@ -47,7 +48,7 @@ int main(int argc, char *argv[]) {
     }
     //for(size_t i = 0; i < 10;++i)
     items.emplace_back(137);
-    for(const auto item: items) cmsexact.addh(item), cms.addh(item), cmscs.addh(item), cmswithnonminmal.addh(item);
+    for(const auto item: items) cmsexact.addh(item), cms.addh(item), cmscs.addh(item), cmswithnonminmal.addh(item), cmscs4w.addh(item);
     for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137));
     std::fprintf(stderr, "All inserted\n");
     std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs;
