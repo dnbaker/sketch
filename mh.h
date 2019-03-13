@@ -143,6 +143,8 @@ public:
         throw NotImplementedError("This hasn't been implemented, but you should be serializing FinalRMinHash anyhow");
     }
     double cardinality_estimate() const {
+        return double(std::numeric_limits<T>::max()) / this->max_element() * minimizers_.size();
+#if 0
          const auto sz = minimizers_.size();
          common::detail::alloca_wrap<T> mem(sz - 1);
          T *diffs = mem.get(), *p = diffs;
@@ -152,6 +154,7 @@ public:
          sort::insertion_sort(diffs, p);
          const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
          return ret;
+#endif
     }
     RangeMinHash(gzFile fp) {
         if(!fp) throw std::runtime_error("Null file handle!");
@@ -291,16 +294,15 @@ struct FinalRMinHash {
             std::fprintf(stderr, "cardest with x = %d is %lf\n", int(x), cardinality_estimate(x));
         }
     }
-    double cardinality_estimate(MHCardinalityMode mode=MEDIAN) const {
+    double union_size(const FinalRMinHash &o) const {
+        if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
+        return std::numeric_limits<T>::max() / double(std::max(this->max_element(), o.max_element())) * this->size();
+    }
+    double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         switch(mode) {
             case ARITHMETIC_MEAN: {
-                double sum = 0.;
-                T last = 0;
-                for(size_t i =0 ; i < first.size(); ++i) {
-                    sum += (std::numeric_limits<T>::max()) / (first[i] + 1);
-                    //last = first[i]; // And the first shall be last.
-                }
-                sum /= first.size();
+                // KMV estimate
+                double sum = (std::numeric_limits<T>::max() / double(this->max_element()) * first.size());
                 return sum;
             }
             default: std::fprintf(stderr, "Warning: unsupported case. Falling back to median\n");
@@ -364,6 +366,10 @@ struct FinalRMinHash {
         gzwrite(fp, first.data(), first.size() * sizeof(first[0]));
         gzclose(fp);
     }
+    auto max_element() const {
+        assert(std::accumulate(first.begin(), first.end(), true, [&](bool t, auto v) {return t && *first.begin() >= v;}));
+        return *first.begin();
+    }
     template<typename Hasher>
     FinalRMinHash(RangeMinHash<T, Cmp, Hasher> &&prefinal): FinalRMinHash(std::move(prefinal.finalize())) {
         prefinal.clear();
@@ -421,16 +427,8 @@ public:
     void read(const std::string &s) {
         throw NotImplementedError("This hasn't been implemented. You should probably be using FinalCRMinHash instead if you're serializing.");
     }
-    double cardinality_estimate(MHCardinalityMode mode=MEDIAN) const {
-         const auto sz = minimizers_.size();
-         common::detail::alloca_wrap<T> mem(sz - 1);
-         T *diffs = mem.get(), *p = diffs;
-         for(auto i1 = minimizers_.begin(), i2 = i1; ++i2 != minimizers_.end();++i1) {
-             *p++ = i1->first > i2->first ? i1->first - i2->first: i2->first - i1->first;
-         }
-         sort::insertion_sort(diffs, p);
-         const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
-         return ret;
+    double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
+        return double(std::numeric_limits<T>::max()) / *std::max_element(minimizers_.begin(), minimizers_.end(), [](auto x, auto y) {return x->first < y->first;}) * minimizers_.size();
     }
     INLINE void add(T val) {
         if(minimizers_.size() == this->ss_) {
@@ -446,6 +444,9 @@ public:
     INLINE void addh(T val) {
         val = hf_(val);
         this->add(val);
+    }
+    auto max_element() const {
+        return minimizers_.begin()->first;
     }
     double histogram_intersection(const CountingRangeMinHash &o) const {
         assert(o.size() == size());
@@ -588,6 +589,10 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         gzclose(fp);
         return ret;
     }
+    double union_size(const FinalCRMinHash &o) const {
+        if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
+        return std::numeric_limits<T>::max() / double(std::max(this->max_element(), o.max_element())) * this->size();
+    }
     ssize_t write(gzFile fp) const {
         uint64_t nelem = second.size();
         ssize_t ret = gzwrite(fp, &nelem, sizeof(nelem));
@@ -640,7 +645,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     FinalCRMinHash(CountingRangeMinHash<T, Cmp, Hasher, CountType> &&prefinal): FinalCRMinHash(static_cast<const CountingRangeMinHash<T, Cmp, Hasher, CountType> &>(prefinal)) {
         prefinal.clear();
     }
-    double cardinality_estimate(MHCardinalityMode mode=MEDIAN) const {
+    double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         return FinalRMinHash<T, Cmp>::cardinality_estimate(mode);
     }
 };
