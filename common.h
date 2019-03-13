@@ -334,13 +334,18 @@ using int96_t = std::array<uint32_t, 3>;
 
 template<size_t N>
 static auto make_coefficients(uint64_t seedseed) {
-    std::array<int96_t, N> ret;
     std::mt19937_64 mt(seedseed);
+#if USE_SIAM
+    std::array<int96_t, N> ret;
     for(auto &e: ret) {
         e[0] = mt();
         e[1] = mt();
         e[2] = mt();
 	}
+#else
+	std::array<uint64_t, N> ret;
+    for(auto &e: ret) e = mt();
+#endif
     return ret;
 }
 
@@ -374,9 +379,9 @@ inline void MultAddPrime89(int96_t & r, uint64_t x, const int96_t &a, const int9
     x0 = LOW(x);
     c21 = a[2]*x1;
     c20 = a[2]*x0;
-    c11 = a[1]*x1; 
+    c11 = a[1]*x1;
     c10 = a[1]*x0;
-    c01 = a[0]*x1; 
+    c01 = a[0]*x1;
     c00 = a[0]*x0;
     d0 = (c20>>25)+(c11>>25)+(c10>>57)+(c01>>57);
     d1 = (c21<<7);
@@ -404,17 +409,69 @@ inline uint64_t CWtrick64(uint64_t x, const std::array<int96_t, k> &keys) {
 
 }
 
+namespace nosiam {
+INLINE __uint128_t mod127(__uint128_t x) {
+    static constexpr __uint128_t mod = (__uint128_t(1) << 127) - 1;
+    x = (x >> 127) + (x & mod);
+    if(__builtin_expect(x == __uint128_t(-1), 0)) {
+        return mod + 3;
+        // = (x >> 127) + (x & mod);
+    }
+    if(x > mod) x -= mod;
+    return x;
+}
+
+INLINE __uint128_t mod61(__uint128_t x) {
+	return x % ((size_t(1) << 61) - 1);
+}
+
+template<size_t n>
+inline uint64_t i61hash(uint64_t x, const std::array<uint64_t, n> & keys) {
+	__uint128_t sum = __uint128_t(x * keys[1]) + keys[0];
+	sum = mod61(sum);
+    __uint128_t xp = __uint128_t(x) * x;
+    for(size_t i = 2; i < n; ++i) {
+        xp = mod61(xp);
+        sum = mod61(sum + mod61(xp * keys[i]));
+        xp *= x;
+    }
+	return sum;
+}
+
+template<size_t k>
+inline uint64_t i128hash(uint64_t x, const std::array<uint64_t, k> & keys) {
+    // Use 2**127
+    __uint128_t sum = mod127(mod127(x * keys[1]) + keys[0]);
+    __uint128_t xp = x * x;
+    for(size_t i = 2; i < k; ++i) {
+        xp = mod127(xp);
+        sum = mod127(sum + mod127(xp * keys[i]));
+        xp *= x;
+    }
+    return sum;
+}
+
+} // nosiam
+
 template<size_t k>
 class KWiseIndependentPolynomialHash {
     static_assert(k, "k must be positive");
+#if USE_SIAM
     const std::array<int96_t, k> coeffs_;
+#else
+    const std::array<uint64_t, k> coeffs_;
+#endif
 	static constexpr uint64_t mod = (uint64_t(1) << 61) - 1;
     static constexpr bool is_kwise_independent(size_t val) {return val <= k;}
 public:
     KWiseIndependentPolynomialHash(uint64_t seedseed=137): coeffs_(make_coefficients<k>(seedseed)) {
     }
     uint64_t operator()(uint64_t val) const {
+#if USE_SIAM
 		return siam::CWtrick64<k>(val, coeffs_);
+#else
+		return nosiam::i61hash<k>(val, coeffs_);
+#endif
     }
     Type operator()(VType val) const {
         throw NotImplementedError("Should not be called... yet. TODO: this");
