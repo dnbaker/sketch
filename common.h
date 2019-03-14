@@ -338,13 +338,13 @@ static auto make_coefficients(uint64_t seedseed) {
 #if USE_SIAM
     std::array<int96_t, N> ret;
     for(auto &e: ret) {
-        e[0] = mt();
+        e[0] = mt() % ((1u << 25) - 1);
         e[1] = mt();
-        e[2] = mt();
+        e[2] = mt() % ((1u << 25) - 1);
 	}
 #else
 	std::array<uint64_t, N> ret;
-    for(auto &e: ret) e = mt();
+    for(auto &e: ret) e = mt() % ((1ull << 61) - 1);
 #endif
     return ret;
 }
@@ -421,25 +421,35 @@ INLINE __uint128_t mod127(__uint128_t x) {
     return x;
 }
 
+
 INLINE __uint128_t mod61(__uint128_t x) {
     static constexpr uint64_t mod = (__uint128_t(1) << 61) - 1;
     do x = (x >> 61) + (x & mod); while(x > mod * 2);
-
-    if(x > mod) x -= mod;
+    if(x >= mod) x -= mod;
     return x;
+}
+INLINE uint64_t mod61(uint64_t x) {
+    static constexpr uint64_t mod = (uint64_t(1) << 61) - 1;
+    do x = (x >> 61) + (x & mod); while(x > mod * 2);
+    if(x >= mod) x -= mod;
+    return x;
+}
+INLINE uint64_t mulmod61(uint64_t x1, uint64_t x2) {
+    __uint128_t tmp = x1; tmp *= x2;
+    return mod61(tmp);
 }
 
 template<size_t n>
 inline uint64_t i61hash(uint64_t x, const std::array<uint64_t, n> & keys) {
-	__uint128_t sum = __uint128_t(x * keys[1]) + keys[0];
-	sum = mod61(sum);
-    __uint128_t xp = __uint128_t(x) * x;
+    uint64_t tsum = mulmod61(x, keys[1]);
+    tsum += keys[0];
+    uint64_t xp = x;
     for(size_t i = 2; i < n; ++i) {
-        xp = mod61(xp);
-        sum = mod61(sum + mod61(xp * keys[i]));
-        xp *= x;
+        if(i % 8 == 0) tsum = mod61(tsum);
+        xp = mulmod61(xp, x);
+        tsum += mulmod61(xp, keys[i]);
     }
-	return sum;
+	return mod61(tsum);
 }
 
 template<size_t k>
