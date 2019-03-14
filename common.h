@@ -368,8 +368,8 @@ inline uint64_t Mod64Prime89(const int96_t r) {
     return (r2 == Prime89_2 && r1 == Prime89_1 && r0 >= Prime89_0) ?(r0 - Prime89_0) : (r0 + (r1<<32));
 }/*Computes a 96-bit r such thatr mod Prime89 == (ax+b) mod Prime89exploiting the structure of Prime89.*/
 
-uint64_t HIGH(uint64_t x) {return x >> 32;}
-uint64_t LOW(uint64_t x) {return x & 0x00000000FFFFFFFFull;}
+static constexpr uint64_t HIGH(uint64_t x) {return x >> 32;}
+static constexpr uint64_t LOW(uint64_t x) {return x & 0x00000000FFFFFFFFull;}
 inline void MultAddPrime89(int96_t & r, uint64_t x, const int96_t &a, const int96_t &b)
 {
     uint64_t x1, x0, c21, c20, c11, c10, c01, c00;
