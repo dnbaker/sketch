@@ -99,6 +99,7 @@ std::string counts2str(const std::array<uint64_t, 64> &arr) {
     ret.pop_back();
     return ret;
 }
+
 template<typename HllType>
 std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
     using detail::ertl_ml_estimate;
@@ -187,7 +188,7 @@ static double calculate_estimate(const CountArrType &counts,
 #endif
         assert(estim != ERTL_MLE);
         double sum = counts[0];
-        for(unsigned i = 1; i < 64 - p; ++i) sum += counts[i] * (1. / (1ull << i)); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        for(unsigned i = 1; i < 64 - p; ++i) sum += std::ldexp(counts[i], i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         double value(alpha * m * m / sum);
         if(value < detail::small_range_correction_threshold(m)) {
             if(counts[0]) {
@@ -1637,6 +1638,10 @@ public:
 };
 
 } // namespace hll
+
+namespace whll {
+static constexpr double WH_EXP = 1.19083085156781;
+}
 } // namespace sketch
 
 #endif // #ifndef HLL_H_
