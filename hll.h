@@ -2,7 +2,6 @@
 #define HLL_H_
 #include "common.h"
 
-// Miscellaneous math utilities
 namespace sketch { namespace hll { namespace detail {
 
 // Based off https://github.com/oertl/hyperloglog-sketch-estimation-paper/blob/master/c%2B%2B/cardinality_estimation.hpp
@@ -1640,7 +1639,9 @@ public:
 } // namespace hll
 
 namespace whll {
-static constexpr double WH_EXP = 1.19083085156781;
+static constexpr double WH_EXP = 1.1908308515678845;
+//static constexpr long double WH_EXPL = 0x9.86d253546a47cfp-3L;
+static constexpr long double WH_EXPL = 0x9.86d253546a47cf1p-3L;
 }
 } // namespace sketch
 
