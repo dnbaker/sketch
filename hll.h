@@ -1641,7 +1641,11 @@ public:
 namespace whll {
 static constexpr double WH_EXP = 1.1908308515678845;
 //static constexpr long double WH_EXPL = 0x9.86d253546a47cfp-3L;
+#if __cplusplus < 201703L
+static const long double WH_EXPL = []() -> long double {uint8_t arr[]{241,124,164,70,53,37,109,152,255,63,0,0,0,0,0,0,}; long double ret = 0; std::memcpy(&ret, arr, sizeof(arr)); return ret;}();
+#else
 static constexpr long double WH_EXPL = 0x9.86d253546a47cf1p-3L;
+#endif
 }
 } // namespace sketch
 
