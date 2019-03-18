@@ -443,6 +443,7 @@ struct SuperMinHash {
     , inner_loop_count_(0)
 #endif
     {
+        // std::fprintf(stderr, "size of a %zu, q: %zu, p: %zu, b: %zu. h %zu\n", a_, q_.size(), p_.size(), b_.size(), h_.size());
         b_.back() = m_;
         assert(m_ <= std::numeric_limits<CountType>::max());
     }

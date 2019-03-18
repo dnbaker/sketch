@@ -10,9 +10,9 @@ int main() {
         for(const auto b: {7u, 13u, 14u, 17u, 9u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             SuperMinHash<policy::SizePow2Policy> smhp2(1 << i);
-            SuperMinHash<policy::SizeDivPolicy>  smhdp(1 << 12);
+            SuperMinHash<policy::SizeDivPolicy>  smhdp(1 << i);
             SuperMinHash<policy::SizePow2Policy> smhp21(1 << i);
-            SuperMinHash<policy::SizeDivPolicy>  smhdp1(1 << 12);
+            SuperMinHash<policy::SizeDivPolicy>  smhdp1(1 << i);
             hll::hll_t h1(i), h2(i);
             BBitMinHasher<uint64_t> b1(i, b), b2(i, b), b3(i, b);
             size_t dbval = 15u << (i - 3);
@@ -30,12 +30,15 @@ int main() {
                             b3.addh(v);
                             db1.addh(v); db2.addh(v);
                             smhp2.addh(v); smhp21.addh(v);
+                            smhdp.addh(v); smhdp1.addh(v);
                     /*fb.addh(v);*/
                     break;
                     case 2: h1.addh(v); b1.addh(v); ++b1c; b3.addh(v); cb3.addh(v); db1.addh(v);
                             smhp2.addh(v);
+                            smhdp.addh(v);
                     break;
                     case 3: h2.addh(v); b2.addh(v); ++b2c; cb1.addh(v); db2.addh(v);
+                            smhdp1.addh(v);
                             smhp21.addh(v);
                     break;
                 }
@@ -48,7 +51,9 @@ int main() {
             auto fdb2 = db2.finalize();
             //std::fprintf(stderr, "About to finalize with %zu for i and %u for b\n", i, b);
             auto smh1 = smhp2.finalize(16), smh2 = smhp21.finalize(16);
+            auto smhd1 = smhdp.finalize(16), smhd2 = smhdp1.finalize(16);
             std::fprintf(stderr, "with ss=%zu, smh1 and itself: %lf. 2 and 2/1 jaccard? %lf/%lf\n", size_t(1) << i, double(smh1.jaccard_index(smh1)), double(smh2.jaccard_index(smh1)), smh1.jaccard_index(smh2));
+            std::fprintf(stderr, "with ss=%zu, smhd1 and itself: %lf. 2 and 2/1 jaccard? %lf/%lf\n", size_t(1) << i, double(smhd1.jaccard_index(smhd1)), double(smhd2.jaccard_index(smhd1)), smhd1.jaccard_index(smhd2));
             //auto fdb3 = db3.finalize();
             std::fprintf(stderr, "Expected Cardinality [shared:%zu/b1:%zu/b2:%zu]\n", shared, b1c, b2c);
             std::fprintf(stderr, "h1 est %lf, h2 est: %lf\n", h1.report(), h2.report());
