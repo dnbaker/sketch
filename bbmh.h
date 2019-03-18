@@ -107,7 +107,7 @@ static inline double harmonic_cardinality_estimate(std::vector<T, Allocator> &mi
 template<typename T, typename Allocator>
 static inline double harmonic_cardinality_estimate(const std::vector<T, Allocator> &minvec) {
     if(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) != minvec.end()) {
-        std::vector<T> tmp = minvec; // copy
+        std::vector<T, Allocator> tmp = minvec; // copy
         detail::densifybin(tmp);
         return harmonic_cardinality_estimate_impl(tmp);
     } // Else don't worry about it, just do the thing.
@@ -185,7 +185,7 @@ public:
         core_((value_type(b) * nbuckets_) / 64 + (nbuckets_ * value_type(b) % (sizeof(value_type) * CHAR_BIT) != 0))
     {
         assert(core_.size() % b == 0);
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, nbuckets, core_.size(), core_.size() * 64);
 #endif
     }
@@ -421,13 +421,28 @@ struct SuperMinHash {
     using BType = typename std::make_signed<CountType>::type;
     uint64_t a_, i_;
     uint32_t m_;
+#if NOT_THREADSAFE
+    uint64_t count_;
+#if !NDEBUG
+    size_t inner_loop_count_;
+#endif
+#else
+    std::atomic<uint64_t> count_;
+#if !NDEBUG
+    std::atomic<size_t> inner_loop_count_;
+#endif
+#endif
+
     std::vector<CountType>                       p_;
     std::vector<uint64_t, Allocator<uint64_t>>   h_;
     std::vector<CountType>                       q_;
     std::vector<BType>                           b_;
     SuperMinHash(size_t arg): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
-        p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg), 0) {
-        //std::fprintf(stderr, "Size allocated: %zu\n", pol_.arg2vecsize(arg));
+        p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg)), count_(0)
+#if !NDEBUG
+    , inner_loop_count_(0)
+#endif
+    {
         b_.back() = m_;
         assert(m_ <= std::numeric_limits<CountType>::max());
     }
@@ -437,36 +452,49 @@ struct SuperMinHash {
     size_t needed_bits() const {
         return std::ceil(32 + std::log2(m_));
     }
+#if !NDEBUG
+    ~SuperMinHash() {
+        std::fprintf(stderr, "%zu for total count, %zu for inner loop count for a ratio of %lf currently\n", size_t(count_), inner_loop_count_.load(), count_ ? float(inner_loop_count_) / count_: -1.);
+    }
+#endif
     void addh(uint64_t item) {
+        ++count_;
         PCGen gen(item);
         uint64_t j = 0;
-        while(j < a_) {
+        while(j <= a_) {
+#if !NDEBUG
+            ++inner_loop_count_;
+
+#endif
             uint32_t r = gen();
-            uint32_t k = pol_.mod(gen());
+            uint32_t k = gen() % m_;
+            //uint32_t k = pol_.mod(gen());
+            assert(k < m_);
             if(q_[j] != i_) {
                 q_[j] = i_;
                 p_[j] = j;
             }
             if(q_[k] != i_) {
                 q_[k] = i_;
-                p_[k] = j;
+                p_[k] = k;
             }
             std::swap(p_[k], p_[j]);
-            auto crj = join_cmp(j, r);
+            auto crj = (uint64_t(j) << 32) | r;
             if(crj < h_[p_[j]]) {
                 auto jprime = std::min(m_ - 1, uint32_t(h_[p_[j]] >> 32));
                 h_[p_[j]] = crj;
                 if(j < jprime) {
                     --b_[jprime];
                     ++b_[j];
-                    while(b_[a_] == 0) --a_;
+                    while(b_[a_] == 0)
+                        --a_;
                 }
             }
             ++j;
         }
         ++i_;
     }
-    FinalDivBBitMinHash finalize(uint32_t b) const {
+    FinalDivBBitMinHash finalize(uint32_t b=32) const {
         assert(b < (32 + ilog2(h_.size())));
         const auto *ptr = &h_;
         decltype(h_) tmp;
@@ -505,9 +533,11 @@ public:
         core_(((nbuckets + sizeof(T) * CHAR_BIT - 1) / (sizeof(T) * CHAR_BIT) * sizeof(T) * CHAR_BIT), detail::default_val<T>()),
         b_(b), div_(core_.size()), hf_(std::forward<Args>(args)...)
     {
+#if VERBOSE_AF
         if(nbuckets % 64) {
             std::fprintf(stderr, "Warning: rounded n buckets from %u for %u so that it's convenient for our comparison strategy.\n", nbuckets, unsigned(div_.d_));
         }
+#endif
         assert(core_.size() % 64 == 0);
         if(b_ < 1 || b_ > 64) throw "a party";
     }
@@ -720,7 +750,7 @@ public:
     FinalBBitMinHash(unsigned p, unsigned b, double est): est_cardinality_(est), b_(b), p_(p),
         core_((value_type(b) << p) >> 6)
     {
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, p, core_.size(), core_.size() * 64);
 #endif
     }
@@ -1050,7 +1080,7 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
 #endif
         }
         if(pow2 == core_ref.size()) {
-            LOG_DEBUG("All packed\n");
+            //LOG_DEBUG("All packed\n");
         } else {
             assert(is_pow2(core_ref.size() - (core_ref.size() & ((1ull << l2szfloor) - 1))));
 #define LEFTOVERS(type)\
