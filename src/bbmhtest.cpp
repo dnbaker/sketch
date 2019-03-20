@@ -66,7 +66,9 @@ int main() {
             std::fprintf(stderr, "JI for fdb1 and fdb2: %lf, where nmin = %zu and b = %d\n", fdb2.jaccard_index(fdb1), i, b);
             //std::fprintf(stderr, "equal blocks: %zu\n", size_t(f2.equal_bblocks(f3)));
             std::fprintf(stderr, "f1, f2, and f3 cardinalities: %lf, %lf, %lf\n", f1.est_cardinality_, f2.est_cardinality_, f3.est_cardinality_);
-            //auto cb13res = cb1.finalize().histogram_sums(cb3.finalize());
+            auto fcb1 = cb1.finalize(), fcb2 = cb3.finalize();
+            //auto cb13res = fcb1.histogram_sums(fcb2);
+            //assert(sizeof(cb13res) == sizeof(uint64_t) * 4);
             //std::fprintf(stderr, "cb13res %lf, %lf\n", cb13res.weighted_jaccard_index(), cb13res.jaccard_index());
             cb1.finalize().write("ZOMG.cb");
         }

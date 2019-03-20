@@ -468,8 +468,7 @@ struct SuperMinHash {
 
 #endif
             uint32_t r = gen();
-            uint32_t k = gen() % m_;
-            //uint32_t k = pol_.mod(gen());
+            uint32_t k = pol_.mod(gen());
             assert(k < m_);
             if(q_[j] != i_) {
                 q_[j] = i_;
@@ -507,9 +506,6 @@ struct SuperMinHash {
         double cest = detail::harmonic_cardinality_estimate_diffmax_impl(*ptr, h_.size() << 32);
         return div_bbit_finalize(b, *ptr, cest);
     }
-    // TODO: pack this into Final{Div,}BBitMinHashers or FinalHashers.
-    // TODO: cardinality estimates
-    //       this would be harder because of the way we pack values
 };
 
 
@@ -1141,7 +1137,7 @@ template<typename CountingType, typename>
 struct FinalCountingBBitMinHash: public FinalBBitMinHash {
     std::vector<CountingType, Allocator<CountingType>> counters_;
     FinalCountingBBitMinHash(FinalBBitMinHash &&tmp, const std::vector<CountingType, Allocator<CountingType>> &counts): FinalBBitMinHash(std::move(tmp)), counters_(counts) {}
-    FinalCountingBBitMinHash(unsigned p, unsigned b, double est): FinalBBitMinHash(b, p, est), counters_(size_t(1) << this->p_) {}
+    FinalCountingBBitMinHash(unsigned p, unsigned b, double est): FinalBBitMinHash(p, b, est), counters_(size_t(1) << this->p_) {}
     void write(gzFile fp) const {
         FinalBBitMinHash::write(fp);
         gzwrite(fp, counters_.data(), counters_.size() * sizeof(counters_[0]));
@@ -1176,24 +1172,36 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
         double weighted_jaccard_index() const {
             return static_cast<double>(matched_sum_) / total_sum_;
         }
+        void print(std::FILE *fp=stderr) const {
+            std::fprintf(fp, "Matched sum: %zu, total sum: %zu. matched bits: %zu. total bits: %zu.\n", matched_sum_, total_sum_, matched_bits_, total_bits_);
+            std::fprintf(fp, "ji: %lf. wji: %lf\n",  jaccard_index(), weighted_jaccard_index());
+        }
     };
     template<typename=typename std::enable_if<std::is_same<CountingType, uint32_t>::value>::type> // Only finished for uint32_t currently
     HistResult histogram_sums(const FinalCountingBBitMinHash &o) const {
         if(!std::is_same<CountingType, uint32_t>::value) throw NotImplementedError("histogram_sums only available for uint32_t");
         assert(o.core_.size() == core_.size() || !std::fprintf(stderr, "Mismatched sizes: %zu, %zu\n", core_.size(), o.core_.size()));
         const uint64_t *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
-        assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
+        std::fprintf(stderr, "b_: %u. p_: %u\n", unsigned(b_), p_);
+        assert(b_ <= 64 || !std::fprintf(stderr, "b_: %u\n", b_) || (7 < 64)); // b_ > 64 not yet supported, though it could be done with a larger hash
         size_t offset = 0;
         uint64_t matched_sum = 0;
         __m128i total_sum = _mm_set1_epi32(0);
         uint64_t pc_sum = 0;
-        for(size_t i = 0; i < 1u << (p_ - 7); ++i) {
-            auto match = ~(*p1++ ^ *p2++);
-            while(p1 != pe) match &= ~(*p1++ ^ *p2++);
+        const __m128i *vp1 = (const __m128i *)p1,
+                      *vp2 = (const __m128i *)p2;
+        for(size_t oi = 0; oi < 1u << (p_ - 7); ++oi) {
+            auto match = ~(*vp1++ ^ *vp2++);
+            for(auto _b(b_); --_b; match &= ~(*vp1++ ^ *vp2++));
             pc_sum += popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
-            for(size_t i = 0; i < 32; ++i) {
-                auto maskv = match & 0x3u;
-#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
+            __m128i maskv;
+            std::memcpy(&maskv, &match, sizeof(maskv));
+            if(maskv == 0) continue; // No matches, do nothing
+            for(size_t i = 0; i < sizeof(match) * CHAR_BIT / 2; ++i) {
+                auto maskvv = maskv & 0x3u;
+                maskv >>= 2;
+#if 0
+//#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
                 // Can this be masked with ~(v-1) somehow?
                 void **labels[4] = {&&zero, &&one, &&two, &&three};
                 goto *labels[maskv];
@@ -1203,24 +1211,29 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 three: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]);
                 end: ;
 #else
-                switch(maskv) {
+                assert((i * 2) < o.counters_.size());
+
+                switch(maskvv) {
                     case 0: break;
-                    case 1: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); break;
-                    case 2: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); break;
-                    case 3: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]); break;
+                    case 1: matched_sum += std::min(o.counters_[offset +i*2], counters_[offset +i*2]); break;
+                    case 2: matched_sum += std::min(o.counters_[offset +i*2 + 1], counters_[offset +i*2 + 1]); break;
+                    case 3: matched_sum += std::min(o.counters_[offset +i*2 + 1], counters_[offset +i*2 + 1]); matched_sum += std::min(o.counters_[offset +i*2], counters_[offset +i*2]); break;
                 }
 #endif
-                total_sum = _mm_add_epi32(total_sum, _mm_max_epi32(*((__m128i *)o.counters_.data() + 2 * i), *((__m128i *)counters_.data() + 2 * i)));
+                total_sum = _mm_add_epi32(total_sum, _mm_max_epi32(*(reinterpret_cast<const __m128i *>(o.counters_.data() + 2 * i)), *(reinterpret_cast<const __m128i *>(counters_.data()) + 2 * i)));
             }
+            offset += sizeof(match) * CHAR_BIT;
         }
 
-        return {matched_sum, common::sum_of_u64s(total_sum), pc_sum, core_.size() * sizeof(core_[0]) * sizeof(char)};
+        HistResult ret{matched_sum, common::sum_of_u64s(total_sum), pc_sum, core_.size() * sizeof(core_[0]) * sizeof(char)};
+        //ret.print();
     }
 };
 
 template<typename T, typename CountingType, typename Hasher>
 FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
     auto bbm = BBitMinHasher<T, Hasher>::finalize(b, mode);
+    std::fprintf(stderr, "Finalized portions\n");
     return FinalCountingBBitMinHash<CountingType>(std::move(bbm), this->counters_);
 }
 
