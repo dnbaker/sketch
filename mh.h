@@ -607,17 +607,38 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     using super = FinalRMinHash<T, Cmp>;
     std::vector<CountType> second;
     uint64_t count_sum_;
+    double count_sum_sq_;
     FinalCRMinHash(const std::string &path): FinalCRMinHash(path.data()) {}
     FinalCRMinHash(const char *path) {
         this->read(path);
-        count_sum_ = countsum();
     }
     void free() {
         super::free();
         std::vector<CountType> tmp;
         std::swap(tmp, second);
     }
-    size_t countsum() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {sz += sz2;});}
+    size_t countsum() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2;});}
+    size_t countsumsq() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2 * sz2;});}
+    double cosine_distance(const FinalCRMinHash &o) const {
+        return dot(o) / count_sum_sq_ / o.count_sum_sq_;
+    }
+    double dot(const FinalCRMinHash &o) const {
+        assert(o.size() == this->size());
+        const size_t lsz = this->size();
+        size_t denom = 0, num = 0;
+        for(size_t i1 = 0, i2 = 0;;) {
+            if(this->cmp(this->first[i1], o.first[i2])) {
+                I1DF;
+            } else if(this->cmp(o.first[i2], this->first[i1])) {
+                I2DF;
+            } else {
+                const auto v1 = o.second[i2], v2 = second[i1];
+                num += std::min(v1, v2);
+                I1DF; I2DF;
+            }
+        }
+        return static_cast<double>(num) / denom;
+    }
     double histogram_intersection(const FinalCRMinHash &o) const {
         assert(o.size() == this->size());
         const size_t lsz = this->size();
@@ -650,6 +671,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         gzread(fp, &nelem, sizeof(nelem));
         this->first.resize(nelem);
         gzread(fp, &count_sum_, sizeof(count_sum_));
+        gzread(fp, &count_sum_sq_, sizeof(count_sum_sq_));
         gzread(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         this->second.resize(nelem);
         gzread(fp, this->second.data(), sizeof(this->second[0]) * nelem);
@@ -671,6 +693,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         uint64_t nelem = second.size();
         ssize_t ret = gzwrite(fp, &nelem, sizeof(nelem));
         ret += gzwrite(fp, &count_sum_, sizeof(count_sum_));
+        ret += gzwrite(fp, &count_sum_sq_, sizeof(count_sum_sq_));
         ret += gzwrite(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         ret += gzwrite(fp, this->second.data(), sizeof(this->second[0]) * nelem);
         return ret;
@@ -715,6 +738,8 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
             this->first.insert(this->first.end(), prefinal.sketch_size(), std::numeric_limits<T>::max());
             this->second.insert(this->second.end(), prefinal.sketch_size(), 0);
         }
+        count_sum_ = countsum();
+        count_sum_sq_ = std::sqrt(countsumsq());
     }
     template<typename Hasher>
     FinalCRMinHash(CountingRangeMinHash<T, Cmp, Hasher, CountType> &&prefinal): FinalCRMinHash(static_cast<const CountingRangeMinHash<T, Cmp, Hasher, CountType> &>(prefinal)) {
