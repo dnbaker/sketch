@@ -71,6 +71,8 @@ int main() {
             //assert(sizeof(cb13res) == sizeof(uint64_t) * 4);
             //std::fprintf(stderr, "cb13res %lf, %lf\n", cb13res.weighted_jaccard_index(), cb13res.jaccard_index());
             cb1.finalize().write("ZOMG.cb");
+            auto whl = b1.make_whll();
+            std::fprintf(stderr, "whl card: %lf/%zu vs expected %zu\n", whl.cardinality_estimate(), whl.core_.size(), b1c);
         }
     }
 }

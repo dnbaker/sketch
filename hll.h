@@ -1639,13 +1639,37 @@ public:
 } // namespace hll
 
 namespace whll {
-static constexpr double WH_EXP = 1.1908308515678845;
-//static constexpr long double WH_EXPL = 0x9.86d253546a47cfp-3L;
+    static constexpr double WH_EXP = 1.1908308515678845;
+    //static constexpr long double WH_EXPL = 0x9.86d253546a47cfp-3L;
 #if __cplusplus < 201703L
-static const long double WH_EXPL = []() -> long double {uint8_t arr[]{241,124,164,70,53,37,109,152,255,63,0,0,0,0,0,0,}; long double ret = 0; std::memcpy(&ret, arr, sizeof(arr)); return ret;}();
+    static const long double WH_EXPL = []() -> long double {uint8_t arr[]{241,124,164,70,53,37,109,152,255,63,0,0,0,0,0,0,}; long double ret = 0; std::memcpy(&ret, arr, sizeof(arr)); return ret;}();
+    static const long double WH_LOG_EXPL = std::log(WH_EXPL);
 #else
-static constexpr long double WH_EXPL = 0x9.86d253546a47cf1p-3L;
+    static constexpr long double WH_EXPL = 0x9.86d253546a47cf1p-3L;
+    static const long double WH_LOG_EXPL = std::log(0x9.86d253546a47cf1p-3L);
 #endif
+using common::Allocator;
+struct wh119_t {
+    std::vector<uint8_t, Allocator<uint8_t>> core_;
+    wh119_t(std::vector<uint8_t, Allocator<uint8_t>> &s): core_(std::move(s)) {}
+    wh119_t(const std::vector<uint8_t, Allocator<uint8_t>> &s): core_(s) {}
+    double cardinality_estimate() const {
+        std::array<uint32_t, 256> counts;
+        std::memset(counts.data(), 0, sizeof(counts));
+        for(const auto v: core_)
+            ++counts[v];
+        return std::pow(core_.size(), 2) / std::accumulate(counts.begin(), counts.end(), 0.L, [](long double sum, auto v) {return sum + 1.L / std::pow(WH_EXPL, v);});
+    }
+    double union_size(const wh119_t &o) const {return union_size(o.core_);}
+    double union_size(const std::vector<uint8_t, Allocator<uint8_t>> &o) const {
+        std::array<uint32_t, 256> counts;
+        std::memset(counts.data(), 0, sizeof(counts));
+        for(size_t i = 0; i < core_.size(); ++i) {
+            counts[std::max(core_[i], o[i])];
+        }
+        return std::pow(core_.size(), 2) / std::accumulate(counts.begin(), counts.end(), 0.L, [](long double sum, auto v) {return sum + 1.L / std::pow(WH_EXPL, v);});
+    }
+};
 }
 } // namespace sketch
 

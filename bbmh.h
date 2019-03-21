@@ -706,6 +706,16 @@ public:
 
     }
     FinalBBitMinHash finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
+    whll::wh119_t make_whll(long double base=whll::WH_LOG_EXPL) const {
+        std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size());
+        long double d = 1.L/ base;
+        uint8_t maxv = 256 - std::log(core_.size()) * d;
+        for(size_t i = 0; i < core_.size(); ++i) {
+            long double v = core_[i];
+            retvec[i] = maxv - std::ceil(std::log(v) * d); // Effectively 'rounding up'
+        }
+        return whll::wh119_t(retvec);
+    }
 };
 template<typename T, typename Hasher=common::WangHash>
 void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {

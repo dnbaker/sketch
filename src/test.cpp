@@ -62,6 +62,16 @@ int main(int argc, char *argv[]) {
         tmf.csum();
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
                 val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false", ertl_ml_estimate(t), std::abs(ertl_ml_estimate(t) - val));
+        t.not_ready();
+        t.set_estim(hll::ORIGINAL);
+        t.csum();
+        fprintf(stderr, "ORIGINAL Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
+                val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false", ertl_ml_estimate(t), std::abs(ertl_ml_estimate(t) - val));
+        t.set_estim(hll::ERTL_JOINT_MLE);
+        t.not_ready();
+        t.csum();
+        fprintf(stderr, "JMLE Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
+                val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false", ertl_ml_estimate(t), std::abs(ertl_ml_estimate(t) - val));
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
                 val, tmf.report(), tmf.est_err(), std::abs(val - tmf.report()), tmf.est_err() >= std::abs(val - tmf.report()) ? "true": "false", ertl_ml_estimate(tmf), std::abs(ertl_ml_estimate(tmf) - val));
         hll::VType tmpv = static_cast<uint64_t>(1337);
