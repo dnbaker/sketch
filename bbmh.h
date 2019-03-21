@@ -240,6 +240,7 @@ public:
         if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != ssize_t(core_.size() * sizeof(core_[0])), 0)) throw std::runtime_error("Could not write to file");
     }
     double frac_equal(const FinalDivBBitMinHash &o) const {
+        // TODO: needs more dragons
         return double(equal_bblocks(o)) / nbuckets_;
     }
     uint64_t nmin() const {
@@ -295,7 +296,7 @@ public:
                 // Process each 'b' remainder block in
                 const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
                 auto lsum = detail::matching_bits(vp1, vp2, b_);
-                for(size_t i = 1; i < (size_t(1) << (l2szfloor - 9_)); ++i) {
+                for(size_t i = 1; i < (size_t(1) << (l2szfloor - 9u)); ++i) {
                     vp1 += b_;
                     vp2 += b_;
                     lsum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), lsum);
@@ -339,7 +340,6 @@ public:
 #endif
         } // switch(l2szfloor)
         /* Now handle the rest of the bits.
-         * For simplicity, do SSE2 until 64
          */
         const value_type *const pf = &core_[core_.size()];
         if(pe == pf) {
@@ -883,7 +883,7 @@ public:
                 // Process each 'b' remainder block in
                 const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
                 auto sum = detail::matching_bits(vp1, vp2, b_);
-                for(size_t i = 1; i < (size_t(1) << (p_ - 9_)); ++i) {
+                for(size_t i = 1; i < (size_t(1) << (p_ - 9u)); ++i) {
                     vp1 += b_;
                     vp2 += b_;
                     sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
@@ -1177,6 +1177,12 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
             std::fprintf(fp, "ji: %lf. wji: %lf\n",  jaccard_index(), weighted_jaccard_index());
         }
     };
+    template<typename TT>
+    void twobit_range(TT v, unsigned offset) {
+        for(size_t i = 0; i < sizeof(v) * CHAR_BIT; i += 2) {
+            
+        }
+    }
     template<typename=typename std::enable_if<std::is_same<CountingType, uint32_t>::value>::type> // Only finished for uint32_t currently
     HistResult histogram_sums(const FinalCountingBBitMinHash &o) const {
         if(!std::is_same<CountingType, uint32_t>::value) throw NotImplementedError("histogram_sums only available for uint32_t");
@@ -1186,47 +1192,84 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
         assert(b_ <= 64 || !std::fprintf(stderr, "b_: %u\n", b_) || (7 < 64)); // b_ > 64 not yet supported, though it could be done with a larger hash
         size_t offset = 0;
         uint64_t matched_sum = 0;
-        __m128i total_sum = _mm_set1_epi32(0);
-        uint64_t pc_sum = 0;
-        const __m128i *vp1 = (const __m128i *)p1,
-                      *vp2 = (const __m128i *)p2;
-        for(size_t oi = 0; oi < 1u << (p_ - 7); ++oi) {
-            auto match = ~(*vp1++ ^ *vp2++);
-            for(auto _b(b_); --_b; match &= ~(*vp1++ ^ *vp2++));
-            pc_sum += popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
-            __m128i maskv;
-            std::memcpy(&maskv, &match, sizeof(maskv));
-            if(maskv == 0) continue; // No matches, do nothing
-            for(size_t i = 0; i < sizeof(match) * CHAR_BIT / 2; ++i) {
-                auto maskvv = maskv & 0x3u;
-                maskv >>= 2;
-#if 0
-//#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
-                // Can this be masked with ~(v-1) somehow?
-                void **labels[4] = {&&zero, &&one, &&two, &&three};
-                goto *labels[maskv];
-                zero: goto end;
-                one: matched_sum += std::min(o.counters_[i*2], counters_[i*2]); goto end;
-                two: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); goto end;
-                three: matched_sum += std::min(o.counters_[i*2 + 1], counters_[i*2 + 1]); matched_sum += std::min(o.counters_[i*2], counters_[i*2]);
-                end: ;
-#else
-                assert((i * 2) < o.counters_.size());
-
-                switch(maskvv) {
-                    case 0: break;
-                    case 1: matched_sum += std::min(o.counters_[offset +i*2], counters_[offset +i*2]); break;
-                    case 2: matched_sum += std::min(o.counters_[offset +i*2 + 1], counters_[offset +i*2 + 1]); break;
-                    case 3: matched_sum += std::min(o.counters_[offset +i*2 + 1], counters_[offset +i*2 + 1]); matched_sum += std::min(o.counters_[offset +i*2], counters_[offset +i*2]); break;
-                }
-#endif
-                total_sum = _mm_add_epi32(total_sum, _mm_max_epi32(*(reinterpret_cast<const __m128i *>(o.counters_.data() + 2 * i)), *(reinterpret_cast<const __m128i *>(counters_.data()) + 2 * i)));
+        assert(o.core_.size() == core_.size());
+        assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
+        auto l2szfloor = p_;
+        uint64_t sum, total_sum = 0;
+        switch(l2szfloor) {
+            case 6: {
+                auto match = ~(*p1++ ^ *p2++);
+                while(p1 != pe) match &= ~(*p1++ ^ *p2++);
+                sum = popcount(match);
+                break;
             }
-            offset += sizeof(match) * CHAR_BIT;
-        }
-
-        HistResult ret{matched_sum, common::sum_of_u64s(total_sum), pc_sum, core_.size() * sizeof(core_[0]) * sizeof(char)};
-        //ret.print();
+            case 7: {
+                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
+                __m128i match = ~(*vp1++ ^ *vp2++);
+                while(vp1 != vpe)
+                    match &= ~(*vp1++ ^ *vp2++);
+                sum = popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
+                break;
+            }
+#if __AVX2__
+            case 8: {
+                sum = common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_));
+                break;
+            }
+#  if HAS_AVX_512
+            case 9: {
+                sum = common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_));
+                break;
+            }
+            default: {
+                // Process each 'b' remainder block in
+                const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
+                auto lsum = detail::matching_bits(vp1, vp2, b_);
+                for(size_t i = 1; i < (size_t(1) << (l2szfloor - 9u)); ++i) {
+                    vp1 += b_;
+                    vp2 += b_;
+                    lsum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), lsum);
+                }
+                assert((value_type*)vp1 == &core_[core_.size()]);
+                sum = common::sum_of_u64s(lsum);
+                break;
+            }
+#    else /* has avx2 not not 512 */
+            default: {
+                const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2);
+#if !NDEBUG
+                const __m256i *vpe = reinterpret_cast<const __m256i *>(pe);
+#endif
+                auto lsum = detail::matching_bits(vp1, vp2, b_);
+                for(size_t i = 1; i < 1ull << (l2szfloor - 8u); ++i) {
+                    vp1 += b_;
+                    vp2 += b_;
+                    lsum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), lsum);
+                    assert(vp1 <= vpe);
+                }
+                sum = common::sum_of_u64s(lsum);
+                break;
+            }
+#  endif /* avx512 or avx2 */
+#else /* assume SSE2 */
+            default: {
+                // Process each 'b' remainder block in
+                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
+                __m128i match = ~(*vp1++ ^ *vp2++);
+                for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
+                auto lsum = common::sum_of_u64s(match);
+                while((uint64_t *)vp1 + 2 <= (uint64_t *)vpe) {
+                    match = ~(*vp1++ ^ *vp2++);
+                    for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
+                    lsum += common::sum_of_u64s(match);
+                }
+                sum = lsum;
+                break;
+            }
+#endif
+        } // switch(l2szfloor)
+        HistResult ret{matched_sum, common::sum_of_u64s(total_sum), sum, core_.size() * sizeof(core_[0]) * sizeof(char)};
+        return ret;
     }
 };
 

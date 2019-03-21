@@ -606,9 +606,11 @@ template<typename T, typename Cmp, typename CountType>
 struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     using super = FinalRMinHash<T, Cmp>;
     std::vector<CountType> second;
+    uint64_t count_sum_;
     FinalCRMinHash(const std::string &path): FinalCRMinHash(path.data()) {}
     FinalCRMinHash(const char *path) {
         this->read(path);
+        count_sum_ = countsum();
     }
     void free() {
         super::free();
@@ -647,6 +649,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         uint64_t nelem;
         gzread(fp, &nelem, sizeof(nelem));
         this->first.resize(nelem);
+        gzread(fp, &count_sum_, sizeof(count_sum_));
         gzread(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         this->second.resize(nelem);
         gzread(fp, this->second.data(), sizeof(this->second[0]) * nelem);
@@ -667,6 +670,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     ssize_t write(gzFile fp) const {
         uint64_t nelem = second.size();
         ssize_t ret = gzwrite(fp, &nelem, sizeof(nelem));
+        ret += gzwrite(fp, &count_sum_, sizeof(count_sum_));
         ret += gzwrite(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         ret += gzwrite(fp, this->second.data(), sizeof(this->second[0]) * nelem);
         return ret;
