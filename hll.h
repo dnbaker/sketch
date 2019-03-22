@@ -1676,7 +1676,11 @@ struct wh119_t {
         for(size_t i = 0; i < core_.size(); ++i) {
             ++counts[std::max(core_[i], o[i])];
         }
-        throw common::NotImplementedError("NotImplemented");
+        double tmp = 0.;
+        for(size_t i = 0; i < counts.size(); ++i) {
+            tmp += double(counts[i]) / (std::pow(wh_base_, i));
+        }
+        return (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
     }
 };
 }
