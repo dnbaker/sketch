@@ -765,8 +765,11 @@ public:
         return *this;
     }
     FinalBBitMinHash finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
+    double wh_base() const {
+        return std::pow((long double)(1uL << (64 - p_)), 1.L/254);
+    }
     whll::wh119_t make_whll() const {
-        long double base = std::pow((long double)(1uL << (64 - p_)), 1.L/254);
+        long double base = wh_base();
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size());
         long double d = 1.L/ std::log(base);
         uint8_t maxv = 255;
