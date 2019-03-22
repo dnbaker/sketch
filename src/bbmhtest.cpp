@@ -72,7 +72,7 @@ int main() {
             //std::fprintf(stderr, "cb13res %lf, %lf\n", cb13res.weighted_jaccard_index(), cb13res.jaccard_index());
             cb1.finalize().write("ZOMG.cb");
             auto whl = b1.make_whll();
-            std::fprintf(stderr, "whl card: %lf/%zu vs expected %zu\n", whl.cardinality_estimate(), whl.core_.size(), b1c);
+            std::fprintf(stderr, "whl card: %lf/%zu vs expected %lf/%lf\n", whl.cardinality_estimate(), whl.core_.size(), f1.est_cardinality_, h1.report());
         }
     }
 }

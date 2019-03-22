@@ -55,7 +55,7 @@ inline int densifybin(Container &hashes) {
         min = std::min(min, v);
         max = std::max(max, v);
     }
-    if (max == empty_val) {
+    if (max != empty_val) {
 #if VERBOSE_AF
         LOG_DEBUG("Full sketch, no densification needed\n");
 #endif
@@ -67,7 +67,7 @@ inline int densifybin(Container &hashes) {
 #endif
         return -1; // Empty sketch
     }
-#if VERBOSE_AF
+#if !NDEBUG
     LOG_DEBUG("Densifying\n");
 #endif
     for (uint64_t i = 0; i < hashes.size(); i++) {
@@ -81,9 +81,12 @@ inline int densifybin(Container &hashes) {
 
 template<typename T, typename Allocator>
 static inline double harmonic_cardinality_estimate_impl(const std::vector<T, Allocator> &minvec) {
+    assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
     const double num = is_pow2(minvec.size()) ? std::ldexp(1., sizeof(T) * CHAR_BIT - ilog2(minvec.size()))
                                               : double(UINT64_C(-1)) / minvec.size();
-    return std::pow(minvec.size(), 2) / std::accumulate(minvec.begin(), minvec.end(), 0., [num](double sum, const auto v) {return sum + v / num;});
+    const double s = std::accumulate(minvec.begin(), minvec.end(), 0., [num](double sum, const auto v) {return sum + v / num;});
+    std::fprintf(stderr, "Sum: %lf\n", s);
+    return std::pow(minvec.size(), 2) / s;
     // TODO: this could be accelerated with pre-inverting num, std::accumulate, _mm{,256,512}_add_epi*T, and _mm512_reduce_add_epi*T
 }
 
@@ -108,9 +111,12 @@ template<typename T, typename Allocator>
 static inline double harmonic_cardinality_estimate(const std::vector<T, Allocator> &minvec) {
     if(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) != minvec.end()) {
         std::vector<T, Allocator> tmp = minvec; // copy
-        detail::densifybin(tmp);
+        int ret = detail::densifybin(tmp);
+        assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
+        assert(ret == 0);
         return harmonic_cardinality_estimate_impl(tmp);
     } // Else don't worry about it, just do the thing.
+    assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
     return harmonic_cardinality_estimate_impl(minvec);
 }
 
@@ -706,15 +712,16 @@ public:
 
     }
     FinalBBitMinHash finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
-    whll::wh119_t make_whll(long double base=whll::WH_LOG_EXPL) const {
+    whll::wh119_t make_whll() const {
+        long double base = std::pow((long double)(1uL << (64 - p_)), 1.L/254);
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size());
-        long double d = 1.L/ base;
-        uint8_t maxv = 256 - std::log(core_.size()) * d;
+        long double d = 1.L/ std::log(base);
+        uint8_t maxv = 256;
         for(size_t i = 0; i < core_.size(); ++i) {
             long double v = core_[i];
-            retvec[i] = maxv - std::ceil(std::log(v) * d); // Effectively 'rounding up'
+            retvec[i] = maxv - ceil(std::log(v) * d) - 1;
         }
-        return whll::wh119_t(retvec);
+        return whll::wh119_t(retvec, base);
     }
 };
 template<typename T, typename Hasher=common::WangHash>
@@ -993,10 +1000,13 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
     const std::vector<T> *ptr = &core_;
     if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
         tmp = core_;
-        detail::densifybin(tmp);
+        int ret = detail::densifybin(tmp);
+        //if(ret) throw std::runtime_error((std::string("Error code ") + std::to_string(ret)).data());
+        assert(std::find(tmp.begin(), tmp.end(), detail::default_val<T>()) == tmp.end());
         ptr = &tmp;
     }
     const std::vector<T> &core_ref = *ptr;
+    assert(std::find(core_ref.begin(), core_ref.end(), detail::default_val<T>()) == core_ref.end());
     double cest = detail::harmonic_cardinality_estimate_impl(core_ref);
     using detail::getnthbit;
     using detail::setnthbit;
@@ -1286,7 +1296,6 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
 template<typename T, typename CountingType, typename Hasher>
 FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
     auto bbm = BBitMinHasher<T, Hasher>::finalize(b, mode);
-    std::fprintf(stderr, "Finalized portions\n");
     return FinalCountingBBitMinHash<CountingType>(std::move(bbm), this->counters_);
 }
 

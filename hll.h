@@ -1651,23 +1651,32 @@ namespace whll {
 using common::Allocator;
 struct wh119_t {
     std::vector<uint8_t, Allocator<uint8_t>> core_;
-    wh119_t(std::vector<uint8_t, Allocator<uint8_t>> &s): core_(std::move(s)) {}
-    wh119_t(const std::vector<uint8_t, Allocator<uint8_t>> &s): core_(s) {}
+    double wh_base_;
+    wh119_t(std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(std::move(s)), wh_base_(base)
+    {
+        assert(!(core_.size() & (core_.size() - 1)));
+    }
+    wh119_t(const std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(s), wh_base_(base) {}
     double cardinality_estimate() const {
-        std::array<uint32_t, 256> counts;
-        std::memset(counts.data(), 0, sizeof(counts));
+        std::array<uint32_t, 256> counts{0};
         for(const auto v: core_)
             ++counts[v];
-        return std::pow(core_.size(), 2) / std::accumulate(counts.begin(), counts.end(), 0.L, [](long double sum, auto v) {return sum + 1.L / std::pow(WH_EXPL, v);});
+#if !NDEBUG
+#endif
+        double tmp = 0.;
+        for(size_t i = 0; i < counts.size(); ++i) {
+            tmp += double(counts[i]) / (std::pow(wh_base_, i));
+        }
+        return (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
     }
     double union_size(const wh119_t &o) const {return union_size(o.core_);}
     double union_size(const std::vector<uint8_t, Allocator<uint8_t>> &o) const {
         std::array<uint32_t, 256> counts;
         std::memset(counts.data(), 0, sizeof(counts));
         for(size_t i = 0; i < core_.size(); ++i) {
-            counts[std::max(core_[i], o[i])];
+            ++counts[std::max(core_[i], o[i])];
         }
-        return std::pow(core_.size(), 2) / std::accumulate(counts.begin(), counts.end(), 0.L, [](long double sum, auto v) {return sum + 1.L / std::pow(WH_EXPL, v);});
+        throw common::NotImplementedError("NotImplemented");
     }
 };
 }
