@@ -67,7 +67,7 @@ inline int densifybin(Container &hashes) {
 #endif
         return -1; // Empty sketch
     }
-#if !NDEBUG
+#if VERBOSE_AF
     LOG_DEBUG("Densifying\n");
 #endif
     for (uint64_t i = 0; i < hashes.size(); i++) {
@@ -85,7 +85,6 @@ static inline double harmonic_cardinality_estimate_impl(const std::vector<T, All
     const double num = is_pow2(minvec.size()) ? std::ldexp(1., sizeof(T) * CHAR_BIT - ilog2(minvec.size()))
                                               : double(UINT64_C(-1)) / minvec.size();
     const double s = std::accumulate(minvec.begin(), minvec.end(), 0., [num](double sum, const auto v) {return sum + v / num;});
-    std::fprintf(stderr, "Sum: %lf\n", s);
     return std::pow(minvec.size(), 2) / s;
     // TODO: this could be accelerated with pre-inverting num, std::accumulate, _mm{,256,512}_add_epi*T, and _mm512_reduce_add_epi*T
 }
@@ -602,7 +601,7 @@ public:
     }
     using final_type = FinalBBitMinHash;
     template<typename... Args>
-    BBitMinHasher(unsigned p, unsigned b, Args &&... args):
+    BBitMinHasher(unsigned p, unsigned b=8, Args &&... args):
         core_(size_t(1) << p, detail::default_val<T>()), b_(b), p_(p), hf_(std::forward<Args>(args)...)
     {
         if(b_ + p_ > sizeof(T) * CHAR_BIT) {
@@ -732,7 +731,6 @@ public:
         }
 #else /* no avx512f */
 #    if __AVX2__
-#    pragma message("operator+= with avx2")
         CONST_IF(sizeof(T) == 4) {
             __m256i *p1 = reinterpret_cast<__m256i *>(core_.data());
             const __m256i *p2 = reinterpret_cast<const __m256i *>(o.core_.data());
@@ -771,10 +769,10 @@ public:
         long double base = std::pow((long double)(1uL << (64 - p_)), 1.L/254);
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size());
         long double d = 1.L/ std::log(base);
-        uint8_t maxv = 256;
+        uint8_t maxv = 255;
         for(size_t i = 0; i < core_.size(); ++i) {
             long double v = core_[i];
-            retvec[i] = maxv - ceil(std::log(v) * d) - 1;
+            retvec[i] = maxv - ceil(std::log(v) * d) /*- 1*/;
         }
         return whll::wh119_t(retvec, base);
     }
@@ -789,6 +787,9 @@ public:
     WideHyperLogLogHasher(Args &&...args): BBitMinHasher<uint64_t, HashStruct>(std::forward<Args>(args)...) {
     }
     whll::wh119_t finalize() const {return super::make_whll();}
+    double cardinality_estimate() const {
+        return finalize().cardinality_estimate();
+    }
 };
 
 template<typename T, typename Hasher=common::WangHash>

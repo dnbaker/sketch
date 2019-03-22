@@ -777,6 +777,8 @@ public:
         csum();
         return creport();
     }
+    double cardinality_estimate() const { return creport();}
+    double cardinality_estimate() noexcept { return report();}
 
     // Returns error estimate
     double cest_err() const {
