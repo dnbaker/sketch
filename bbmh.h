@@ -708,8 +708,63 @@ public:
         }
         return sum;
     }
+    size_t size() const {return core_.size();}
     BBitMinHasher &operator+=(const BBitMinHasher &o) {
-
+        if(size() != o.size()) throw std::runtime_error("Wrong sizes");
+        if(size() == 0) throw std::runtime_error("Empty sketches");
+        std::fprintf(stderr, "Size: %zu\n", size());
+#if __AVX512F__
+        __m512i *p1 = reinterpret_cast<__m512i *>(core_.data());
+        const __m512i *p2 = reinterpret_cast<const __m512i *>(o.core_.data());
+        size_t i = 0;
+        CONST_IF(sizeof(T) == 8) {
+            for(; i < core_.size() / (sizeof(__m512i) / sizeof(T)); ++i) {
+                _mm512_storeu_si512(p1 + i, _mm512_min_epu64(_mm512_loadu_si512(p1 + i), _mm512_loadu_si512(p2 + i)));
+            }
+        } else CONST_IF(sizeof(T) == 4) {
+            for(; i < core_.size() / (sizeof(__m512i) / sizeof(T)); ++i) {
+                _mm512_storeu_si512(p1 + i, _mm512_min_epu32(_mm512_loadu_si512(p1 + i), _mm512_loadu_si512(p2 + i)));
+            }
+        }
+        if(unlikely(i == 0)) {
+            while(i < core_.size())
+                core_[i] = std::min(core_[i], o.core_[i]), ++i;
+        }
+#else /* no avx512f */
+#    if __AVX2__
+#    pragma message("operator+= with avx2")
+        CONST_IF(sizeof(T) == 4) {
+            __m256i *p1 = reinterpret_cast<__m256i *>(core_.data());
+            const __m256i *p2 = reinterpret_cast<const __m256i *>(o.core_.data());
+            size_t i;
+            for(i = 0; i < core_.size() / (sizeof(__m256i) / sizeof(T)); ++i) {
+                _mm256_storeu_si256(p1 + i, _mm256_min_epu32(_mm256_loadu_si256(p1 + i), _mm256_loadu_si256(p2 + i)));
+            }
+            if(unlikely(i == 0)) {
+                while(i < core_.size())
+                    core_[i] = std::min(core_[i], o.core_[i]), ++i;
+            }
+        } else {
+           for(size_t i = 0; i < core_.size();core_[i] = std::min(core_[i], o.core_[i]), ++i);
+        }
+#    elif __SSE2__
+        CONST_IF(sizeof(T) == 4) {
+            __m128i *p1 = reinterpret_cast<__m128i *>(core_.data());
+            const __m128i *p2 = reinterpret_cast<const __m128i *>(o.core_.data());
+            size_t i;
+            for(i = 0; i < core_.size() / (sizeof(__m128i) / sizeof(uint64_t)); ++i) {
+                _mm_storeu_si128(p1 + i, _mm_min_epu32(_mm_loadu_si128(p1 + i), _mm_loadu_si128(p2 + i)));
+            }
+            if(unlikely(i == 0)) {
+                while(i < core_.size())
+                    core_[i] = std::min(core_[i], o.core_[i]), ++i;
+            }
+        } else {
+           for(size_t i = 0; i < core_.size();core_[i] = std::min(core_[i], o.core_[i]), ++i);
+        }
+#    endif
+#endif
+        return *this;
     }
     FinalBBitMinHash finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
     whll::wh119_t make_whll() const {
@@ -724,6 +779,18 @@ public:
         return whll::wh119_t(retvec, base);
     }
 };
+
+template<typename HashStruct=WangHash>
+class WideHyperLogLogHasher: public BBitMinHasher<uint64_t, HashStruct> {
+public:
+    using super = BBitMinHasher<uint64_t, HashStruct>;
+    using final_type = whll::wh119_t;
+    template<typename... Args>
+    WideHyperLogLogHasher(Args &&...args): BBitMinHasher<uint64_t, HashStruct>(std::forward<Args>(args)...) {
+    }
+    whll::wh119_t finalize() const {return super::make_whll();}
+};
+
 template<typename T, typename Hasher=common::WangHash>
 void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
     a.swap(b);

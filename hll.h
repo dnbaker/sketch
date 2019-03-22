@@ -1649,6 +1649,9 @@ namespace whll {
     static const long double WH_LOG_EXPL = std::log(0x9.86d253546a47cf1p-3L);
 #endif
 using common::Allocator;
+enum WHLL {
+    WH119 = 0,
+};
 struct wh119_t {
     std::vector<uint8_t, Allocator<uint8_t>> core_;
     double wh_base_;
@@ -1668,14 +1671,16 @@ struct wh119_t {
 #else
         for(const auto v: core_) ++counts[v];
 #endif
-        double sum = 0.;
-        for(size_t i = 0; i < counts.size(); ++i) {
-            sum += double(counts[i]) / (std::pow(wh_base_, i));
+        long double sum = counts[0];
+        for(ssize_t i = 1; i < ssize_t(counts.size()); ++i) {
+            sum += static_cast<long double>(counts[i]) * (std::pow(wh_base_, -i));
         }
-        return (std::pow(core_.size(), 2) / sum) / std::sqrt(wh_base_);
+        return static_cast<long double>(std::pow(core_.size(), 2) / sum) / std::sqrt(wh_base_);
     }
+    size_t size() const {return core_.size();}
     double union_size(const wh119_t &o) const {return union_size(o.core_);}
     double union_size(const std::vector<uint8_t, Allocator<uint8_t>> &o) const {
+        if(o.size() != size()) throw std::runtime_error("Non-matching parameters for wh119_t");
         std::array<uint32_t, 256> counts;
         std::memset(counts.data(), 0, sizeof(counts));
         size_t i;
@@ -1685,14 +1690,15 @@ struct wh119_t {
             hll::detail::SIMDHolder tmp = hll::detail::SIMDHolder::max_fn(*p1++, *p2++);
             tmp.inc_counts(counts);
         }
+#if 0
         i *= sizeof(*p1);
         for(; i < core_.size(); ++i) {
             ++counts[std::max(core_[i], o[i])];
         }
-        double tmp = 0.;
-        for(size_t i = 0; i < counts.size(); ++i) {
-            tmp += double(counts[i]) / (std::pow(wh_base_, i));
-        }
+#endif
+        long double tmp = counts[0];
+        for(ssize_t i = 1; i < ssize_t(counts.size()); ++i)
+            tmp += static_cast<long double>(counts[i]) * (std::pow(wh_base_, -i));
         return (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
     }
 };

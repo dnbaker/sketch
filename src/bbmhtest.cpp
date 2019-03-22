@@ -47,6 +47,8 @@ int main() {
             b1.densify();
             b2.densify();
             auto f1 = b1.finalize(), f2 = b2.finalize(), f3 = b3.finalize();
+            b1 += b2;
+            auto f12 = b1.finalize();
             auto fdb1 = db1.finalize();
             auto fdb2 = db2.finalize();
             //std::fprintf(stderr, "About to finalize with %zu for i and %u for b\n", i, b);
