@@ -347,7 +347,7 @@ public:
     u64arr val64s;
     template<typename T>
     void inc_counts(T &arr) const {
-        static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
+        //static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
         unroller<T, 0, nels> ur;
         ur(*this, arr);
     }
@@ -1659,21 +1659,34 @@ struct wh119_t {
     wh119_t(const std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(s), wh_base_(base) {}
     double cardinality_estimate() const {
         std::array<uint32_t, 256> counts{0};
-        for(const auto v: core_)
-            ++counts[v];
-#if !NDEBUG
+        if(core_.size() & (core_.size() - 1)) throw 1;
+        if(core_.size() < sizeof(hll::detail::SIMDHolder)) throw 1;
+#if 1
+        hll::detail::SIMDHolder tmp, *ptr = (hll::detail::SIMDHolder*)core_.data();
+        for(size_t i = 0; i < core_.size() / sizeof(tmp); ++i)
+            (*ptr++).inc_counts(counts);
+#else
+        for(const auto v: core_) ++counts[v];
 #endif
-        double tmp = 0.;
+        double sum = 0.;
         for(size_t i = 0; i < counts.size(); ++i) {
-            tmp += double(counts[i]) / (std::pow(wh_base_, i));
+            sum += double(counts[i]) / (std::pow(wh_base_, i));
         }
-        return (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
+        return (std::pow(core_.size(), 2) / sum) / std::sqrt(wh_base_);
     }
     double union_size(const wh119_t &o) const {return union_size(o.core_);}
     double union_size(const std::vector<uint8_t, Allocator<uint8_t>> &o) const {
         std::array<uint32_t, 256> counts;
         std::memset(counts.data(), 0, sizeof(counts));
-        for(size_t i = 0; i < core_.size(); ++i) {
+        size_t i;
+        using space = vec::SIMDTypes<uint8_t>;
+        const space::Type *p1 = (const space::Type *)core_.data(), *p2 = (const space::Type *)o.data();
+        for(i = 0; i < core_.size() / sizeof(*p1); ++i) {
+            hll::detail::SIMDHolder tmp = hll::detail::SIMDHolder::max_fn(*p1++, *p2++);
+            tmp.inc_counts(counts);
+        }
+        i *= sizeof(*p1);
+        for(; i < core_.size(); ++i) {
             ++counts[std::max(core_[i], o[i])];
         }
         double tmp = 0.;
