@@ -437,20 +437,54 @@ struct SuperMinHash {
     std::atomic<size_t> inner_loop_count_;
 #endif
 #endif
+    uint64_t seed_;
 
     std::vector<CountType>                       p_;
     std::vector<uint64_t, Allocator<uint64_t>>   h_;
     std::vector<CountType>                       q_;
     std::vector<BType>                           b_;
-    SuperMinHash(size_t arg): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
+    SuperMinHash(size_t arg, uint64_t seed=0): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
         p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg)), count_(0)
 #if !NDEBUG
     , inner_loop_count_(0)
 #endif
+    , seed_(seed)
     {
         // std::fprintf(stderr, "size of a %zu, q: %zu, p: %zu, b: %zu. h %zu\n", a_, q_.size(), p_.size(), b_.size(), h_.size());
         b_.back() = m_;
         assert(m_ <= std::numeric_limits<CountType>::max());
+    }
+    SuperMinHash(SuperMinHash &&o):
+        pol_(o.pol_), a_(o.a_), i_(o.i_), m_(o.m_),
+#if NOT_THREADSAFE
+    count_(o.count_),
+#  if !NDEBUG
+    inner_loop_count_(o.inner_loop_count_),
+#  endif
+#else
+    count_{o.count_.load()},
+#  if !NDEBUG
+    inner_loop_count_(o.inner_loop_count_.load()),
+#  endif
+#endif
+        seed_(o.seed_), p_(std::move(o.p_)), h_(std::move(o.h_)), q_(std::move(o.q_)), b_(std::move(o.b_))
+    {
+    }
+    SuperMinHash(const SuperMinHash &o):
+        pol_(o.pol_), a_(o.a_), i_(o.i_), m_(o.m_),
+#if NOT_THREADSAFE
+    count_(o.count_),
+#  if !NDEBUG
+    inner_loop_count_(o.inner_loop_count_),
+#  endif
+#else
+    count_{o.count_.load()},
+#  if !NDEBUG
+    inner_loop_count_(o.inner_loop_count_.load()),
+#  endif
+#endif
+        seed_(o.seed_), p_(o.p_), h_(o.h_), q_(o.q_), b_(o.b_)
+    {
     }
     static constexpr uint64_t join_cmp(uint32_t i, uint32_t r) {
         return (uint64_t(i) << 32) | r;
@@ -465,7 +499,7 @@ struct SuperMinHash {
 #endif
     void addh(uint64_t item) {
         ++count_;
-        PCGen gen(item);
+        PCGen gen(item ^ seed_);
         uint64_t j = 0;
         while(j <= a_) {
 #if !NDEBUG
