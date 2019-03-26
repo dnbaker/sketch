@@ -166,6 +166,17 @@ public:
         for(ssize_t read; (read = gzread(fp, &v, sizeof(v))) == sizeof(v);minimizers_.insert(v), ret += read);
         return ret;
     }
+    RangeMinHash &operator+=(const RangeMinHash &o) {
+        minimizers_.insert(o.begin(), o.end());
+        while(minimizers_.size() > this->ss_)
+            minimizers_.erase(minimizers_.begin());
+        return *this;
+    }
+    RangeMinHash operator+(const RangeMinHash &o) const {
+        RangeMinHash ret(*this);
+        ret += o;
+        return ret;
+    }
     ssize_t write(gzFile fp) const {
         if(!fp) throw std::runtime_error("Null file handle!");
         char tmp[sizeof(*this)];
@@ -197,17 +208,8 @@ public:
         if(minimizers_.size() == this->ss_) {
             if(cmp_(max_element(), val)) {
                 minimizers_.insert(val);
-                if(minimizers_.size() > this->ss_) {
-#if 0
-                    auto el = *minimizers_.begin();
-                    bool gt = true, lt = true;
-                    for(const auto e: minimizers_)
-                        gt &= (el >= e), lt &= (el <= e);
-                    //std::fprintf(stderr, "Element is greater than all in the set: %d. lt: %d\n", int(gt), int(lt));
-#else
+                if(minimizers_.size() > this->ss_)
                     minimizers_.erase(minimizers_.begin());
-#endif
-                }
             }
         } else minimizers_.insert(val);
     }
@@ -280,57 +282,48 @@ struct FinalRMinHash {
             std::fprintf(stderr, "cardest with x = %d is %lf\n", int(x), cardinality_estimate(x));
         }
     }
+    FinalRMinHash &operator+=(const FinalRMinHash &o) {
+        std::vector<T> newfirst; newfirst.reserve(o.size());
+        if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
+        auto i1 = this->rbegin(), i2 = o.rbegin();
+        while(newfirst.size() < first.size()) {
+            if(cmp(*i1, *i2)) {
+                newfirst.push_back(*i2);
+                ++i2;
+            } else if(cmp(*i2, *i1)) {
+                newfirst.push_back(*i1);
+                ++i1;
+            } else newfirst.push_back(*i1), ++i1, ++i2;
+        }
+        std::swap(newfirst, first);
+        return *this;
+    }
+    FinalRMinHash operator+(const FinalRMinHash &o) const {
+        auto tmp = *this;
+        tmp += o;
+        return tmp;
+    }
     double union_size(const FinalRMinHash &o) const {
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
         size_t n_in_sketch = 0;
         auto i1 = this->rbegin(), i2 = o.rbegin();
-#if !NDEBUG
-        auto ie = this->rend();
-#endif
-        while(n_in_sketch < first.size() - 3) {
-            n_in_sketch += 1 + (*i1++ == *i2++);
-            assert(i1 != ie);
-        }
         T mv;
-        if(first.size() - n_in_sketch == 3) {
-            if(*i1 == *i2) ++i1, ++i2;
-            else {
-                if(cmp(*i1, *i2)) ++i2;
-                else              ++i1;
-                if(*i1 == *i2) ++i1, ++i2;
-            }
-        } else if(first.size() - n_in_sketch == 2) {
-            if(*i1 == *i2)
-                ++i1, ++i2;
-        } // else: == 1 -- do nothing
-        mv = cmp(*i1, *i2) ? *i1: *i2;
-        assert(i1 < ie);
+        while(n_in_sketch < first.size() - 1) {
+            if(cmp(*i1, *i2))
+                ++i2;
+            else if(cmp(*i2, *i1))
+                ++i1;
+            else ++i1, ++i2;
+            ++n_in_sketch;
+        }
+        mv = cmp(*i1, *i2) ? *i2: *i1;
+        assert(i1 < this->rend());
         return double(std::numeric_limits<T>::max()) / (mv) * this->size();
-        return std::numeric_limits<T>::max() / double(std::min(this->max_element(), o.max_element())) * this->size();
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
-#if 0
-        switch(mode) {
-            default:
-            case ARITHMETIC_MEAN: {
-#endif
-                // KMV estimate
-                double sum = (std::numeric_limits<T>::max() / double(this->max_element()) * first.size());
-                return sum;
-#if 0
-            }
-            case MEDIAN: {
-                const auto sz = first.size();
-                common::detail::alloca_wrap<T> mem(sz - 1);
-                T *diffs = mem.get(), *p = diffs;
-                for(auto i1 = first.begin(), i2 = i1; ++i2 != first.end();++i1) {
-                    *p++ = (*i1 - *i2);
-                }
-                sort::insertion_sort(diffs, p);
-                return double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
-             }
-        }
-#endif
+        // KMV estimate
+        double sum = (std::numeric_limits<T>::max() / double(this->max_element()) * first.size());
+        return sum;
     }
 #define I1DF if(++i1 == lsz) break
 #define I2DF if(++i2 == lsz) break
@@ -416,6 +409,8 @@ struct FinalRMinHash {
     size_t size() const {return first.size();}
 protected:
     FinalRMinHash() {}
+    FinalRMinHash(const FinalRMinHash &o) = default;
+    FinalRMinHash &operator=(const FinalRMinHash &o) = default;
 };
 
 template<typename T, typename Cmp, typename CountType> struct FinalCRMinHash; // Forward
@@ -641,7 +636,6 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     double union_size(const FinalCRMinHash &o) const {
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
         return super::union_size(o);
-        return std::numeric_limits<T>::max() / double(std::min(this->max_element(), o.max_element())) * this->size();
     }
     ssize_t write(gzFile fp) const {
         uint64_t nelem = second.size();
