@@ -504,9 +504,12 @@ public:
         return static_cast<double>(num) / denom;
     }
     template<typename Handle>
-    void write(Handle handle) const {
-        this->finalize().write(handle);
+    ssize_t write(Handle handle) const {
+        return this->finalize().write(handle);
     }
+    template<typename Handle>
+    ssize_t read(Handle handle) {throw NotImplementedError();return -1;}
+
     void clear() {
         decltype(minimizers_) tmp;
         std::swap(tmp, minimizers_);

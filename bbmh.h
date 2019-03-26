@@ -595,6 +595,9 @@ struct SuperMinHash {
         double cest = detail::harmonic_cardinality_estimate_diffmax_impl(*ptr, h_.size() << 32);
         return div_bbit_finalize(b, *ptr, cest);
     }
+    void clear() {
+        SuperMinHash tmp(std::move(*this));
+    }
     DBSKETCH_WRITE_STRING_MACROS
     DBSKETCH_READ_STRING_MACROS
     using final_type = FinalDivBBitMinHash;

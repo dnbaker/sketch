@@ -114,6 +114,8 @@ class NotImplementedError: public std::runtime_error {
 public:
     template<typename... Args>
     NotImplementedError(Args &&...args): std::runtime_error(std::forward<Args>(args)...) {}
+
+    NotImplementedError(): std::runtime_error("NotImplemented.") {}
 };
 
 #if __AES__
