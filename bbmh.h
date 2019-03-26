@@ -443,16 +443,20 @@ struct SuperMinHash {
     std::vector<uint64_t, Allocator<uint64_t>>   h_;
     std::vector<CountType>                       q_;
     std::vector<BType>                           b_;
-    SuperMinHash(size_t arg, uint64_t seed=0): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
-        p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg)), count_(0)
+    unsigned                                 bbits_;
+    SuperMinHash(size_t arg, unsigned bbits=0, uint64_t seed=0): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
+        count_(0), seed_(seed),
+        p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg))
 #if !NDEBUG
     , inner_loop_count_(0)
 #endif
-    , seed_(seed)
+    , bbits_(bbits ? bbits: unsigned(needed_bits()))
     {
         // std::fprintf(stderr, "size of a %zu, q: %zu, p: %zu, b: %zu. h %zu\n", a_, q_.size(), p_.size(), b_.size(), h_.size());
         b_.back() = m_;
         assert(m_ <= std::numeric_limits<CountType>::max());
+        if(bbits_ == 0)
+            bbits_ = needed_bits();
     }
     SuperMinHash(SuperMinHash &&o):
         pol_(o.pol_), a_(o.a_), i_(o.i_), m_(o.m_),
@@ -504,7 +508,6 @@ struct SuperMinHash {
         while(j <= a_) {
 #if !NDEBUG
             ++inner_loop_count_;
-
 #endif
             uint32_t r = gen();
             uint32_t k = pol_.mod(gen());
@@ -533,7 +536,8 @@ struct SuperMinHash {
         }
         ++i_;
     }
-    FinalDivBBitMinHash finalize(uint32_t b=32) const {
+    FinalDivBBitMinHash finalize(uint32_t b=0) const {
+        b = b ? b: bbits_;
         assert(b < (32 + ilog2(h_.size())));
         const auto *ptr = &h_;
         decltype(h_) tmp;
@@ -545,6 +549,7 @@ struct SuperMinHash {
         double cest = detail::harmonic_cardinality_estimate_diffmax_impl(*ptr, h_.size() << 32);
         return div_bbit_finalize(b, *ptr, cest);
     }
+    using final_type = FinalDivBBitMinHash;
 };
 
 
@@ -1106,6 +1111,9 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
     if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
         tmp = core_;
         int ret = detail::densifybin(tmp);
+        if(ret < 0) {
+            throw std::runtime_error("Could not densify empty sketch");
+        }
         //if(ret) throw std::runtime_error((std::string("Error code ") + std::to_string(ret)).data());
         assert(std::find(tmp.begin(), tmp.end(), detail::default_val<T>()) == tmp.end());
         ptr = &tmp;
