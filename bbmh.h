@@ -111,8 +111,10 @@ static inline double harmonic_cardinality_estimate(const std::vector<T, Allocato
     if(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) != minvec.end()) {
         std::vector<T, Allocator> tmp = minvec; // copy
         int ret = detail::densifybin(tmp);
+        if(ret < 0) {
+            throw std::runtime_error("Could not densify empty sketch.");
+        }
         assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
-        assert(ret == 0);
         return harmonic_cardinality_estimate_impl(tmp);
     } // Else don't worry about it, just do the thing.
     assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
@@ -174,6 +176,8 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
 } // namespace detail
 
 
+template<template<typename> typename Policy, typename CountType>
+struct SuperMinHash;
 struct FinalBBitMinHash;
 template<typename T, typename Hasher>
 class DivBBitMinHasher;
@@ -205,6 +209,10 @@ public:
     }
     FinalDivBBitMinHash(FinalDivBBitMinHash &&o) = default;
     FinalDivBBitMinHash(const FinalDivBBitMinHash &o) = default;
+    template<template<typename> typename Policy, typename CountType>
+    FinalDivBBitMinHash(SuperMinHash<Policy, CountType> &&o): FinalDivBBitMinHash(o.finalize()) {}
+    template<template<typename> typename Policy, typename CountType>
+    FinalDivBBitMinHash(const SuperMinHash<Policy, CountType> &o): FinalDivBBitMinHash(o.finalize()) {}
     template<typename T, typename Hasher=common::WangHash>
     FinalDivBBitMinHash(DivBBitMinHasher<T, Hasher> &&o): FinalDivBBitMinHash(std::move(o.finalize())) {
 #if VERBOSE_AF
@@ -224,20 +232,23 @@ public:
         core_.resize(b_ * nbuckets_ / 64 + (b_ * nbuckets_ % 64 != 0));
         gzread(fp, core_.data(), sizeof(core_[0]) * core_.size());
     }
-    void read(const char *path) {
-        gzFile fp = gzopen(path, "rb");
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
-        read(fp);
-        gzclose(fp);
+#define WRITE_STRING_MACROS \
+    void write(const std::string &path, int compression=6) const {write(path.data(), compression);}\
+    void write(const char *path, int compression=6) const {\
+        std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");\
+        gzFile fp = gzopen(path, mode.data());\
+        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);\
+        write(fp);\
+        gzclose(fp);\
+    }\
+    void read(const std::string &path) {read(path.data());}\
+    void read(const char *path) {\
+        gzFile fp = gzopen(path, "rb");\
+        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);\
+        read(fp);\
+        gzclose(fp);\
     }
-    void write(const std::string &path, int compression=6) const {write(path.data(), compression);}
-    void write(const char *path, int compression=6) const {
-        std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");
-        gzFile fp = gzopen(path, mode.data());
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
-        write(fp);
-        gzclose(fp);
-    }
+    WRITE_STRING_MACROS
     void write(gzFile fp) const {
         uint64_t arr[] {b_, nbuckets_};
         if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
@@ -422,22 +433,21 @@ struct SuperMinHash {
     // is 32 + log2(m_).
     // Best of all, because our sketch only needs mod in CountType space,
     // our mods are 5 instructions vs 16-19 on x86 for fastmod.
-    const Policy<CountType> pol_;
+    Policy<CountType> pol_;
     using BType = typename std::make_signed<CountType>::type;
     uint64_t a_, i_;
     uint32_t m_;
 #if NOT_THREADSAFE
     uint64_t count_;
-#if !NDEBUG
-    size_t inner_loop_count_;
-#endif
 #else
     std::atomic<uint64_t> count_;
+#endif
 #if !NDEBUG
     std::atomic<size_t> inner_loop_count_;
 #endif
-#endif
+
     uint64_t seed_;
+
 
     std::vector<CountType>                       p_;
     std::vector<uint64_t, Allocator<uint64_t>>   h_;
@@ -536,6 +546,50 @@ struct SuperMinHash {
         }
         ++i_;
     }
+    size_t write(gzFile fp) const {
+        size_t ret = h_.size();
+        ret = gzwrite(fp, &ret, sizeof(ret));
+        char buf[sizeof(*this)];
+#define CLEAR_CON(x) std::memset(buf + offsetof(SuperMinHash, x), 0, sizeof(x))
+        CLEAR_CON(p_);
+        CLEAR_CON(q_);
+        CLEAR_CON(h_);
+        CLEAR_CON(b_);
+#undef CLEAR_CON
+        std::memcpy(buf, this, sizeof(*this));
+        ret += gzwrite(fp, buf, sizeof(buf));
+        ret += gzwrite(fp, p_.data(), sizeof(p_[0]) * p_.size());
+        ret += gzwrite(fp, h_.data(), sizeof(h_[0]) * h_.size());
+        ret += gzwrite(fp, q_.data(), sizeof(q_[0]) * q_.size());
+        ret += gzwrite(fp, b_.data(), sizeof(b_[0]) * b_.size());
+        return ret;
+    }
+    size_t read(gzFile fp) {
+        size_t nelem;
+        size_t ret = gzread(fp, &nelem, sizeof(nelem));
+        ret += gzread(fp, this, sizeof(*this));
+        pol_ = Policy<CountType>(nelem);
+        p_.resize(nelem);
+        ret += gzread(fp, p_.data(), sizeof(p_[0]) * p_.size());
+        h_.resize(nelem);
+        ret += gzread(fp, h_.data(), sizeof(h_[0]) * h_.size());
+        q_.resize(nelem);
+        ret += gzread(fp, q_.data(), sizeof(q_[0]) * q_.size());
+        b_.resize(nelem);
+        ret += gzread(fp, b_.data(), sizeof(b_[0]) * b_.size());
+        return ret;
+    }
+    double cardinality_estimate() const {
+        const auto *ptr = &h_;
+        decltype(h_) tmp;
+        if(std::find(h_.begin(), h_.end(), UINT64_C(-1)) != h_.end()) {
+            tmp = h_;
+            detail::densifybin(tmp);
+            ptr = &tmp;
+        }
+        double cest = detail::harmonic_cardinality_estimate_diffmax_impl(*ptr, h_.size() << 32);
+        return cest;
+    }
     FinalDivBBitMinHash finalize(uint32_t b=0) const {
         b = b ? b: bbits_;
         assert(b < (32 + ilog2(h_.size())));
@@ -549,6 +603,7 @@ struct SuperMinHash {
         double cest = detail::harmonic_cardinality_estimate_diffmax_impl(*ptr, h_.size() << 32);
         return div_bbit_finalize(b, *ptr, cest);
     }
+    WRITE_STRING_MACROS
     using final_type = FinalDivBBitMinHash;
 };
 
