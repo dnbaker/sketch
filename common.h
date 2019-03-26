@@ -84,6 +84,30 @@
 #endif
 #endif
 
+
+#ifndef DBSKETCH_WRITE_STRING_MACROS
+#define DBSKETCH_WRITE_STRING_MACROS \
+    ssize_t write(const std::string &path, int compression=6) const {return write(path.data(), compression);}\
+    ssize_t write(const char *path, int compression=6) const {\
+        std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");\
+        gzFile fp = gzopen(path, mode.data());\
+        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);\
+        auto ret = write(fp);\
+        gzclose(fp);\
+        return ret;\
+    }
+
+#define DBSKETCH_READ_STRING_MACROS \
+    ssize_t read(const std::string &path) {read(path.data());}\
+    ssize_t read(const char *path) {\
+        gzFile fp = gzopen(path, "rb");\
+        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);\
+        ssize_t ret = read(fp);\
+        gzclose(fp);\
+        return ret;\
+    }
+#endif
+
 namespace sketch {
 namespace common {
 class NotImplementedError: public std::runtime_error {

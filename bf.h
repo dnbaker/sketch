@@ -510,6 +510,8 @@ public:
         ret += std::to_string(seeds_.back());
         return ret;
     }
+    DBSKETCH_WRITE_STRING_MACROS
+    DBSKETCH_READ_STRING_MACROS
     ssize_t write(gzFile fp) const {
         uint8_t arr[] {np_, nh_, uint8_t(seeds_.size())};
         ssize_t ret = gzwrite(fp, arr, sizeof(arr));
@@ -518,27 +520,6 @@ public:
         ret += gzwrite(fp, &mask_, sizeof(mask_));
         ret += gzwrite(fp, seeds_.data(), seeds_.size() * sizeof(seeds_[0]));
         ret += gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0]));
-        return ret;
-    }
-    ssize_t write(const std::string &path, int compression=6) const {
-        return write(path.data(), compression);
-    }
-    ssize_t write(const char *path, int compression=6) const {
-        char buf[5];
-        std::sprintf(buf, "wb%d", compression % 10);
-        gzFile fp = gzopen(path, buf);
-        if(!fp) throw std::runtime_error(std::string("Could not open file ") + path + " for writing");
-        ssize_t ret = write(fp);
-        gzclose(fp);
-        return ret;
-    }
-    ssize_t read(const std::string &path) {
-        gzFile fp = gzopen(path.data(), "rb");
-        if(fp == nullptr) {
-            throw std::runtime_error(std::string("Could not open file at ") + path);
-        }
-        auto ret = read(fp);
-        gzclose(fp);
         return ret;
     }
     ssize_t read(gzFile fp) {

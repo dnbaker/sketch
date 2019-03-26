@@ -127,7 +127,7 @@ template<typename T,
          typename Cmp=std::greater<T>,
          typename Hasher=common::WangHash
         >
-class RangeMinHash: public AbstractMinHash<T, Cmp> {
+struct RangeMinHash: public AbstractMinHash<T, Cmp> {
 protected:
     Hasher hf_;
     Cmp cmp_;
@@ -139,9 +139,6 @@ public:
     RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()):
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
-    }
-    void read(const std::string &s) {
-        throw NotImplementedError("This hasn't been implemented, but you should be serializing FinalRMinHash anyhow");
     }
     double cardinality_estimate() const {
         return double(std::numeric_limits<T>::max()) / this->max_element() * minimizers_.size();
@@ -161,38 +158,24 @@ public:
         if(!fp) throw std::runtime_error("Null file handle!");
         this->read(fp);
     }
-    RangeMinHash(const char *infname) {
-        gzFile fp = gzopen(infname, "rb");
-        this->read(fp);
-        gzclose(fp);
-    }
-    void write(const std::string &s) const {
-        gzFile fp = gzopen(s.data(), "wb");
-        if(!fp) throw 1;
-        this->write(fp);
-        gzclose(fp);
-    }
-#if 0
-    void write(gzFile fp) const {
-        this->finalize().write(fp);
-    }
-#endif
-    void read(gzFile fp) {
-        gzread(fp, this, sizeof(*this));
-        std::memset(&minimizers_, 0, sizeof(minimizers_));
+    DBSKETCH_READ_STRING_MACROS
+    DBSKETCH_WRITE_STRING_MACROS
+    ssize_t read(gzFile fp) {
+        ssize_t ret = gzread(fp, this, sizeof(*this));
         T v;
-        for(ssize_t read; (read = gzread(fp, &v, sizeof(v))) == read;minimizers_.insert(v));
+        for(ssize_t read; (read = gzread(fp, &v, sizeof(v))) == sizeof(v);minimizers_.insert(v), ret += read);
+        return ret;
     }
-    void write(const char *path) const {
-        gzFile fp = gzopen(path, "wb");
-        this->write(fp);
-        gzclose(fp);
-    }
-    void write(gzFile fp) const {
+    ssize_t write(gzFile fp) const {
         if(!fp) throw std::runtime_error("Null file handle!");
-        gzwrite(fp, this, sizeof(*this));
+        char tmp[sizeof(*this)];
+        std::memcpy(tmp, this, sizeof(*this));
+        // Hacky, non-standard-layout-type alternative to offsetof
+        std::memset(tmp + (reinterpret_cast<const char *>(&minimizers_) - reinterpret_cast<const char *>(this)), 0, sizeof(minimizers_));
+        ssize_t ret = gzwrite(fp, tmp, sizeof(tmp));
         for(const auto v: minimizers_)
-            gzwrite(fp, &v, sizeof(v));
+            ret += gzwrite(fp, &v, sizeof(v));
+        return ret;
     }
     auto rbegin() const {return minimizers_.rbegin();}
     auto rbegin() {return minimizers_.rbegin();}
@@ -325,20 +308,6 @@ struct FinalRMinHash {
         return double(std::numeric_limits<T>::max()) / (mv) * this->size();
         return std::numeric_limits<T>::max() / double(std::min(this->max_element(), o.max_element())) * this->size();
     }
-    double stupid_fast_jaccard(const FinalRMinHash &o) const {
-        double us = union_size(o);
-        double sz1 = cardinality_estimate(ARITHMETIC_MEAN);
-        double sz2 = o.cardinality_estimate(ARITHMETIC_MEAN);
-        double is = sz1 + sz1 - us;
-        return is / us;
-    }
-    double stupid_fast_containment(const FinalRMinHash &o) const {
-        double us = union_size(o);
-        double sz1 = cardinality_estimate();
-        double sz2 = o.cardinality_estimate();
-        double is = sz1 + sz1 - us;
-        return is / sz1;
-    }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
 #if 0
         switch(mode) {
@@ -415,26 +384,23 @@ struct FinalRMinHash {
     }
     FinalRMinHash(std::vector<T> &&first): first(std::move(first)), cmp() {}
     FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)), cmp(std::move(o.cmp)) {}
-    void write(const std::string &path, int comp=6) const {
-        write(path.data(), comp);
-    }
-    void read(const char *path) {
-        gzFile fp = gzopen(path, "rb");
-        if(!fp) throw std::runtime_error(std::string("could not open file at ") + path);
+    ssize_t read(gzFile fp) {
         uint64_t sz;
-        gzread(fp, &sz, sizeof(sz));
+        if(gzread(fp, &sz, sizeof(sz)) != sizeof(sz)) throw std::runtime_error("Failed to read");
         first.resize(sz);
-        gzread(fp, first.data(), first.size() * sizeof(first[0]));
-        gzclose(fp);
+        ssize_t ret = sizeof(sz), nb = first.size() * sizeof(first[0]);
+        if(gzread(fp, first.data(), nb) != nb) throw std::runtime_error("Failed to read");
+        ret += nb;
+        return ret;
     }
-    void write(const char *path, int comp=6) const {
-        gzFile fp = gzopen(path, "wb");
-        if(!fp) throw std::runtime_error(std::string("could not open file at ") + path);
+    ssize_t write(gzFile fp) const {
         uint64_t sz = this->size();
-        gzwrite(fp, &sz, sizeof(sz));
-        gzwrite(fp, first.data(), first.size() * sizeof(first[0]));
-        gzclose(fp);
+        ssize_t ret = gzwrite(fp, &sz, sizeof(sz));
+        ret += gzwrite(fp, first.data(), first.size() * sizeof(first[0]));
+        return ret;
     }
+    DBSKETCH_READ_STRING_MACROS
+    DBSKETCH_WRITE_STRING_MACROS
     auto max_element() const {
         assert(std::accumulate(first.begin(), first.end(), true, [&](bool t, auto v) {return t && *first.begin() >= v;}));
         return *first.begin();
@@ -493,9 +459,6 @@ public:
     auto rend() {return minimizers_.rend();}
     auto rend() const {return minimizers_.rend();}
     CountingRangeMinHash(size_t n, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()): AbstractMinHash<T, Cmp>(n), hf_(std::move(hf)), cmp_(std::move(cmp)) {}
-    void read(const std::string &s) {
-        throw NotImplementedError("This hasn't been implemented. You should probably be using FinalCRMinHash instead if you're serializing.");
-    }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         return double(std::numeric_limits<T>::max()) / std::max_element(minimizers_.begin(), minimizers_.end(), [](auto x, auto y) {return x.first < y.first;})->first * minimizers_.size();
     }
@@ -659,29 +622,17 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         }
         return static_cast<double>(num) / denom;
     }
-    void read(const std::string &fn) {this->read(fn.data());}
-    void read(const char *s) {
-        gzFile fp = gzopen(s, "rb");
-        if(!fp) throw 1;
-        this->read(fp);
-        gzclose(fp);
-    }
-    void read(gzFile fp) {
+    DBSKETCH_READ_STRING_MACROS
+    DBSKETCH_WRITE_STRING_MACROS
+    ssize_t read(gzFile fp) {
         uint64_t nelem;
-        gzread(fp, &nelem, sizeof(nelem));
+        ssize_t ret = gzread(fp, &nelem, sizeof(nelem));
         this->first.resize(nelem);
-        gzread(fp, &count_sum_, sizeof(count_sum_));
-        gzread(fp, &count_sum_sq_, sizeof(count_sum_sq_));
-        gzread(fp, this->first.data(), sizeof(this->first[0]) * nelem);
+        ret += gzread(fp, &count_sum_, sizeof(count_sum_));
+        ret += gzread(fp, &count_sum_sq_, sizeof(count_sum_sq_));
+        ret += gzread(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         this->second.resize(nelem);
-        gzread(fp, this->second.data(), sizeof(this->second[0]) * nelem);
-    }
-    ssize_t write(const std::string &fn) const {return write(fn.data());}
-    ssize_t write(const char *fn) const {
-        gzFile fp = gzopen(fn, "wb");
-        if(!fp) throw std::runtime_error("could not open file.");
-        ssize_t ret = this->write(fp);
-        gzclose(fp);
+        ret += gzread(fp, this->second.data(), sizeof(this->second[0]) * nelem);
         return ret;
     }
     double union_size(const FinalCRMinHash &o) const {

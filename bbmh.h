@@ -7,8 +7,6 @@
 #endif
 
 
-namespace sketch {
-
 #ifndef LOG_DEBUG
 #    define UNDEF_LDB
 #    if !NDEBUG
@@ -26,7 +24,7 @@ static int log_debug(const char *func, const char *filename, int line, const cha
 #    endif
 #endif
 
-
+namespace sketch {
 namespace minhash {
 using namespace common;
 
@@ -223,37 +221,31 @@ public:
     }
     template<typename T, typename Hasher=common::WangHash>
     FinalDivBBitMinHash(const DivBBitMinHasher<T, Hasher> &o): FinalDivBBitMinHash(std::move(o.finalize())) {}
-    void read(gzFile fp) {
+    ssize_t read(gzFile fp) {
         uint64_t arr[2];
         if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw std::runtime_error("Could not read from file.");
+        ssize_t ret = sizeof(arr);
         b_ = arr[0];
         nbuckets_ = arr[1];
         if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw std::runtime_error("Could not read from file.");
+        ret += sizeof(est_cardinality_);
         core_.resize(b_ * nbuckets_ / 64 + (b_ * nbuckets_ % 64 != 0));
         gzread(fp, core_.data(), sizeof(core_[0]) * core_.size());
+        ret += sizeof(core_[0]) * core_.size();
+        return ret;
     }
-#define WRITE_STRING_MACROS \
-    void write(const std::string &path, int compression=6) const {write(path.data(), compression);}\
-    void write(const char *path, int compression=6) const {\
-        std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");\
-        gzFile fp = gzopen(path, mode.data());\
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);\
-        write(fp);\
-        gzclose(fp);\
-    }\
-    void read(const std::string &path) {read(path.data());}\
-    void read(const char *path) {\
-        gzFile fp = gzopen(path, "rb");\
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);\
-        read(fp);\
-        gzclose(fp);\
-    }
-    WRITE_STRING_MACROS
-    void write(gzFile fp) const {
+    DBSKETCH_WRITE_STRING_MACROS
+    DBSKETCH_READ_STRING_MACROS
+    ssize_t write(gzFile fp) const {
         uint64_t arr[] {b_, nbuckets_};
+        ssize_t ret;
         if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
+        ret += sizeof(arr);
         if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
+        ret += sizeof(est_cardinality_);
         if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != ssize_t(core_.size() * sizeof(core_[0])), 0)) throw std::runtime_error("Could not write to file");
+        ret += sizeof(core_[0]) * core_.size();
+        return ret;
     }
     double frac_equal(const FinalDivBBitMinHash &o) const {
         // TODO: needs more dragons
@@ -603,7 +595,8 @@ struct SuperMinHash {
         double cest = detail::harmonic_cardinality_estimate_diffmax_impl(*ptr, h_.size() << 32);
         return div_bbit_finalize(b, *ptr, cest);
     }
-    WRITE_STRING_MACROS
+    DBSKETCH_WRITE_STRING_MACROS
+    DBSKETCH_READ_STRING_MACROS
     using final_type = FinalDivBBitMinHash;
 };
 
@@ -705,9 +698,10 @@ public:
             throw std::runtime_error(buf);
         }
     }
-    void read(const std::string &path) {read(path.data());}
-    void read(const char *path) {
+    DBSKETCH_READ_STRING_MACROS
+    ssize_t read(gzFile fp) {
         throw NotImplementedError("NotImplemented function. This is likely an error, as you probabyl don't mean to call this.");
+        return -1;
     }
     void addh(T val) {val = hf_(val);add(val);}
     void clear() {
@@ -959,34 +953,27 @@ public:
         auto rm1p = std::pow(rm1, std::ldexp(1., b_) - 1);
         return _r * rm1p / (1. - (rm1p * rm1));
     }
-    void read(gzFile fp) {
+    ssize_t read(gzFile fp) {
         uint32_t arr[2];
         if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw std::runtime_error("Could not read from file.");
         b_ = arr[0];
         p_ = arr[1];
         if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw std::runtime_error("Could not read from file.");
         core_.resize((value_type(b_) << p_) >> 6);
-        gzread(fp, core_.data(), sizeof(core_[0]) * core_.size());
+        const size_t nb = sizeof(core_[0]) * core_.size();
+        if(gzread(fp, core_.data(), nb) != ssize_t(nb)) throw std::runtime_error("Could not read data vector from file");
+        return nb + sizeof(arr) + sizeof(est_cardinality_);
     }
-    void read(const char *path) {
-        gzFile fp = gzopen(path, "rb");
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
-        read(fp);
-        gzclose(fp);
-    }
-    void write(const std::string &path, int compression=6) const {write(path.data(), compression);}
-    void write(const char *path, int compression=6) const {
-        std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");
-        gzFile fp = gzopen(path, mode.data());
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
-        write(fp);
-        gzclose(fp);
-    }
-    void write(gzFile fp) const {
+    DBSKETCH_READ_STRING_MACROS
+    DBSKETCH_WRITE_STRING_MACROS
+    ssize_t write(gzFile fp) const {
         uint32_t arr[] {b_, p_};
         if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
         if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
-        if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != ssize_t(core_.size() * sizeof(core_[0])), 0)) throw std::runtime_error("Could not write to file");
+        const size_t nb = sizeof(core_[0]) * core_.size();
+        if(__builtin_expect(gzwrite(fp, core_.data(), nb) != ssize_t(nb), 0)) throw std::runtime_error("Could not write to file");
+        ssize_t ret = sizeof(arr) + sizeof(est_cardinality_) + nb;
+        return ret;
     }
 #if HAS_AVX_512
     template<typename Func1, typename Func2>
@@ -1326,28 +1313,22 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
     std::vector<CountingType, Allocator<CountingType>> counters_;
     FinalCountingBBitMinHash(FinalBBitMinHash &&tmp, const std::vector<CountingType, Allocator<CountingType>> &counts): FinalBBitMinHash(std::move(tmp)), counters_(counts) {}
     FinalCountingBBitMinHash(unsigned p, unsigned b, double est): FinalBBitMinHash(p, b, est), counters_(size_t(1) << this->p_) {}
-    void write(gzFile fp) const {
-        FinalBBitMinHash::write(fp);
-        gzwrite(fp, counters_.data(), counters_.size() * sizeof(counters_[0]));
+    ssize_t write(gzFile fp) const {
+        ssize_t ret = FinalBBitMinHash::write(fp);
+        ssize_t nb = counters_.size() * sizeof(counters_[0]);
+        if(gzwrite(fp, counters_.data(), nb) != nb) throw std::runtime_error("reading from file failed");
+        ret += nb;
+        return ret;
     }
-    void read(gzFile fp) {
-        FinalBBitMinHash::read(fp);
+    ssize_t read(gzFile fp) {
+        ssize_t ret = FinalBBitMinHash::read(fp);
         counters_.resize(size_t(1) << this->p_);
-        gzread(fp, counters_.data(), counters_.size() * sizeof(counters_[0]));
+        ssize_t nb = counters_.size() * sizeof(counters_[0]);
+        if(gzread(fp, counters_.data(), nb) != nb) throw std::runtime_error("reading from file failed");
+        ret += nb;
+        return ret;
     }
-    void write(const char *path, int compression=6) const {
-        std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");
-        gzFile fp = gzopen(path, mode.data());
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
-        write(fp);
-        gzclose(fp);
-    }
-    void read(const char *path) {
-        gzFile fp = gzopen(path, "rb");
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);
-        read(fp);
-        gzclose(fp);
-    }
+    DBSKETCH_WRITE_STRING_MACROS
 
     struct HistResult {
         uint64_t matched_sum_,
