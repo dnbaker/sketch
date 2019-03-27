@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
     sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, sketch::common::WangHash, false> cmswithnonminmal(nbits, l2sz, nhashes);
     sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, sketch::common::WangHash, false> cmswithfloats(nbits, l2sz, nhashes);
     cs_t cmscs(l2sz, nhashes * 4);
-    cs4w_t cmscs4w(l2sz, nhashes * 4);
+    cs4w_t cmscs4w(l2sz, nhashes * 4), cmscs4w2(l2sz, nhashes * 4);
     sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
 #if __cplusplus >= 201703L
     auto [x, y] = cms.est_memory_usage();
@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
     for(const auto item: items) cmsexact.addh(item), cms.addh(item),  cmscs.addh(item), cmswithnonminmal.addh(item), cmscs4w.addh(item), cmsexact2.addh(item);
     for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137), cmsexact2.addh(137));
     auto items2 = items;
-    for(auto &i: items2) i = mt(), cmsexact2.addh(i);
+    for(auto &i: items2) i = mt(), cmsexact2.addh(i), cmscs4w2.addh(i);
     size_t true_is = items.size() + 1000;
     size_t true_us = items.size() * 2 + 1000;
     std::fprintf(stderr, "All inserted\n");
@@ -95,6 +95,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "l2 join size needs further debugging, not doing\n");
     double nonmin = cmswithnonminmal.l2est();
     std::fprintf(stderr, "nonminimal update info l2 join size: %lf\n", nonmin);
+    auto composed4w = cmscs4w + cmscs4w2;
 #if 0
     double nonmin_man = 0;
     cmswithnonminmal.for_each_register([&](const auto &x) {nonmin_man += x * x;});

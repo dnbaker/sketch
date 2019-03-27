@@ -26,6 +26,7 @@ static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhas
             sum = VS::add(sum, VS::mul(*asvt(p1), *asvt(*p1)));
             p1 += ct;
         }
+#undef asvt
         T full_sum = 0;
         while(p1 < p2) {
             full_sum += *p1++;
@@ -786,6 +787,16 @@ const
             return ptr[0];
         }
     }
+    csbase_t &operator+=(const csbase_t &o) {
+        for(size_t i = 0; i < core_.size(); ++i)
+            core_[i] += o.core_[i];
+        return *this;
+    }
+    csbase_t operator+(const csbase_t &o) const {
+        auto tmp = *this;
+        tmp += o;
+        return tmp;
+    }
 #if !NDEBUG
     ~csbase_t() {
         std::fprintf(stderr, "Sign counts: %zu/%zu (-1,+1)\n", sign_plus, sign_minus);
@@ -816,6 +827,16 @@ public:
     }
     double l2est() const {
         return sqrl2(core_, nh_, np_);
+    }
+    cs4wbase_t &operator+=(const cs4wbase_t &o) {
+        for(size_t i = 0; i < core_.size(); ++i)
+            core_[i] += o.core_[i];
+        return *this;
+    }
+    cs4wbase_t operator+(const cs4wbase_t &o) const {
+        auto tmp = *this;
+        tmp += o;
+        return tmp;
     }
     CounterType addh_val(uint64_t val) {
         alloca_wrap<CounterType> counts(nh_);
