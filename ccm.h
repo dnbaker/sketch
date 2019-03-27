@@ -233,8 +233,8 @@ struct PowerOfTwo {
         return std::max(i_, j_) + (i == j);
     }
     PowerOfTwo(uint64_t seed=0): rng_(seed), gen_(rng_()), nbits_(64) {}
-    static uint64_t est_count(uint64_t val) {
-        return uint64_t(1) << (val - 1);
+    static constexpr uint64_t est_count(uint64_t val) {
+        return val ? uint64_t(1) << (val - 1): 0;
     }
 };
 
@@ -316,6 +316,42 @@ public:
     }
     uint64_t subhash(uint64_t val, uint64_t seedind) const {
         return hash(((val ^ seeds_[seedind]) & mask_) + (val & mask_));
+    }
+    double wj_est(const ccmbase_t &o) const {
+        std::fprintf(stderr, "[%s:%s:%d] Warning: This function should not be used.\n");
+#if WJMETH0
+        alloca_wrap<double> counts(nhashes_);
+        auto p = counts.get();
+#elif MINMETH
+        double minest = std::numeric_limits<double>::max();
+#else
+        double minest = 0.;
+#endif
+        for(size_t i = 0; i < nhashes_; ++i) {
+            uint64_t n = 0, d = 0;
+            uint64_t d1, d2;
+            for(size_t j = (i << l2sz_), e = (i + 1) << l2sz_; j < e; ++j) {
+                d1 = data_[j] > 0 ? data_[i]: -data_[i], d2 = o.data_[j] >0 ? o.data_[j]: -o.data_[j];
+                n += std::min(d1, d2); d += std::max(d1, d2);
+            }
+#if WJMETH0
+            *p++ = double(n) / d;
+#elif MINMETH
+            minest = std::min(double(n) / d, minest);
+#else
+            minest += double(n) / d;
+#endif
+        }
+#if WJMETH0
+        auto cptr = counts.get();
+        sort::insertion_sort(cptr, p);
+        return (cptr[(nhashes_ >> 1)] + cptr[(nhashes_ - 1 ) >> 1]) * .5;
+#elif MINMETH
+        return minest;
+#else
+#pragma message("averaging")
+        return minest / nhashes_;
+#endif
     }
     uint64_t mask() const {return mask_;}
     auto np() const {return l2sz_;}

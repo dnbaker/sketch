@@ -7,7 +7,7 @@
 using namespace sketch::cm;
 
 int main(int argc, char *argv[]) {
-    int nbits = 10, l2sz = 16, nhashes = 8, c;
+    int nbits = 10, l2sz = 16, nhashes = 24, c;
     //if(argc == 1) goto usage;
     while((c = getopt(argc, argv, "n:l:b:h")) >= 0) {
         switch(c) {
@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
         }
     }
     pccm_t cms(nbits >> 1, l2sz, nhashes);
-    ccm_t cmsexact(nbits, l2sz, nhashes);
+    ccm_t cmsexact(nbits, l2sz, nhashes), cmsexact2(nbits, l2sz, nhashes);
     sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, sketch::common::WangHash, false> cmswithnonminmal(nbits, l2sz, nhashes);
     sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, sketch::common::WangHash, false> cmswithfloats(nbits, l2sz, nhashes);
     cs_t cmscs(l2sz, nhashes * 4);
@@ -48,8 +48,12 @@ int main(int argc, char *argv[]) {
     }
     //for(size_t i = 0; i < 10;++i)
     items.emplace_back(137);
-    for(const auto item: items) cmsexact.addh(item), cms.addh(item), cmscs.addh(item), cmswithnonminmal.addh(item), cmscs4w.addh(item);
-    for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137));
+    for(const auto item: items) cmsexact.addh(item), cms.addh(item),  cmscs.addh(item), cmswithnonminmal.addh(item), cmscs4w.addh(item), cmsexact2.addh(item);
+    for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137), cmsexact2.addh(137));
+    auto items2 = items;
+    for(auto &i: items2) i = mt(), cmsexact2.addh(i);
+    size_t true_is = items.size() + 1000;
+    size_t true_us = items.size() * 2 + 1000;
     std::fprintf(stderr, "All inserted\n");
     std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs;
     size_t missing = 0;
@@ -79,6 +83,7 @@ int main(int argc, char *argv[]) {
     for(const auto k: hset) {
         std::fprintf(stderr, "Approx %" PRIi64 "\t%" PRIu64 "\n", k, histapprox[k]);
     }
+    std::fprintf(stderr, "Total of false positives from item2: %zu/%zu\n", std::accumulate(items2.begin(), items2.end(), size_t(0), [&](size_t s, auto x) {return s + (cms.est_count(x) != 0);}), size_t(nitems));
     hset.clear();
     for(const auto &pair: histcs) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
