@@ -2,6 +2,7 @@
 #define SKETCH_BB_MINHASH_H__
 #include "common.h"
 #include "hll.h"
+#include "aesctr/wy.h"
 #if !NDEBUG
 #include <cstdarg>
 #endif
@@ -174,7 +175,7 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
 } // namespace detail
 
 
-template<template<typename> typename Policy, typename CountType>
+template<template<typename> typename Policy, typename RNGType, typename CountType>
 struct SuperMinHash;
 struct FinalBBitMinHash;
 template<typename T, typename Hasher>
@@ -207,10 +208,10 @@ public:
     }
     FinalDivBBitMinHash(FinalDivBBitMinHash &&o) = default;
     FinalDivBBitMinHash(const FinalDivBBitMinHash &o) = default;
-    template<template<typename> typename Policy, typename CountType>
-    FinalDivBBitMinHash(SuperMinHash<Policy, CountType> &&o): FinalDivBBitMinHash(o.finalize()) {}
-    template<template<typename> typename Policy, typename CountType>
-    FinalDivBBitMinHash(const SuperMinHash<Policy, CountType> &o): FinalDivBBitMinHash(o.finalize()) {}
+    template<template<typename> typename Policy, typename RNG, typename CountType>
+    FinalDivBBitMinHash(SuperMinHash<Policy, RNG, CountType> &&o): FinalDivBBitMinHash(o.finalize()) {}
+    template<template<typename> typename Policy, typename RNG, typename CountType>
+    FinalDivBBitMinHash(const SuperMinHash<Policy, RNG, CountType> &o): FinalDivBBitMinHash(o.finalize()) {}
     template<typename T, typename Hasher=common::WangHash>
     FinalDivBBitMinHash(DivBBitMinHasher<T, Hasher> &&o): FinalDivBBitMinHash(std::move(o.finalize())) {
 #if VERBOSE_AF
@@ -413,7 +414,7 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
 
 
 
-template<template<typename> typename Policy=policy::SizePow2Policy, typename CountType=uint32_t>
+template<template<typename> typename Policy=policy::SizePow2Policy, typename RNGType=wy::WyHash<uint32_t, 1>, typename CountType=uint32_t>
 struct SuperMinHash {
     // Note:
     // Instead of maintaining real and integral portions of a hash in floating point,
@@ -505,7 +506,7 @@ struct SuperMinHash {
 #endif
     void addh(uint64_t item) {
         ++count_;
-        PCGen gen(item ^ seed_);
+        RNGType gen(item ^ seed_);
         uint64_t j = 0;
         while(j <= a_) {
 #if !NDEBUG
