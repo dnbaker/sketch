@@ -98,7 +98,7 @@
     }
 
 #define DBSKETCH_READ_STRING_MACROS \
-    ssize_t read(const std::string &path) {read(path.data());}\
+    ssize_t read(const std::string &path) {return read(path.data());}\
     ssize_t read(const char *path) {\
         gzFile fp = gzopen(path, "rb");\
         if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);\
