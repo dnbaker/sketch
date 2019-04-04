@@ -254,6 +254,9 @@ public:
 // (the *epu8_mask version over the *epu8_mask)
 #if HAS_AVX_512
     using SType    = __m512i;
+    DEC_MAX16(_mm512_max_epu16);
+    DEC_MAX32(_mm512_max_epu32);
+    DEC_MAX64(_mm512_max_epu64);
 #  if __AVX512BW__
     DEC_MAX(_mm512_max_epu8);
     using MaskType = __mmask64;
