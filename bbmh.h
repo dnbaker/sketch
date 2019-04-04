@@ -1234,6 +1234,7 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
     } else {
         const auto l2szfloor = ilog2(core_ref.size());
         const auto pow2 = 1ull << l2szfloor;
+        if(l2szfloor < 6) throw std::runtime_error("FinalDivBBitMinHash currently requires at least 64 minimizers.");
         switch(l2szfloor) {
         case 6:
                 for(size_t _b = 0; _b < b; ++_b)
