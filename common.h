@@ -926,8 +926,8 @@ static INLINE uint64_t sum_of_u64s(const T val) {
     return sum;
 }
 #if defined(__AVX512F__) || defined(__KNCNI__)
-template<typename T>
-static INLINE uint64_t sum_of_u64s(const __m512i val) {
+template<>
+INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) {
     return _mm512_reduce_add_epi64(val);
 }
 #endif
