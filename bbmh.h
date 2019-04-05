@@ -192,14 +192,15 @@ public:
     FinalDivBBitMinHash(unsigned nbuckets, unsigned b, double est): est_cardinality_(est), nbuckets_(nbuckets), b_(b),
         core_((value_type(b) * nbuckets_) / 64 + (nbuckets_ * value_type(b) % (sizeof(value_type) * CHAR_BIT) != 0))
     {
-        assert(core_.size() % b == 0);
-#if VERBOSE_AF
-        std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, nbuckets, core_.size(), core_.size() * 64);
-#endif
+       //assert(core_.size() % b == 0 || !std::fprintf(stderr, "Failed initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, nbuckets, core_.size(), core_.size() * 64));
     }
     void free() {
         decltype(core_) tmp;
         std::swap(tmp, core_);
+    }
+    bool operator==(const FinalDivBBitMinHash &o) const {
+#define H(x) (this->x == o.x)
+        return H(nbuckets_) && H(core_);// Removed b_ and est_cardinality_, since the sets are the same, and that's what really matters.
     }
     FinalDivBBitMinHash(const std::string &path): FinalDivBBitMinHash(path.data()) {}
     FinalDivBBitMinHash(const char *path) {
@@ -240,7 +241,7 @@ public:
     ssize_t write(gzFile fp) const {
         uint64_t arr[] {b_, nbuckets_};
         ssize_t ret;
-        if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
+        if(__builtin_expect((ret = gzwrite(fp, arr, sizeof(arr))) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
         ret += sizeof(arr);
         if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
         ret += sizeof(est_cardinality_);
@@ -435,7 +436,7 @@ struct SuperMinHash {
 #else
     std::atomic<uint64_t> count_;
 #endif
-#if !NDEBUG
+#if VERBOSE_AF
     std::atomic<size_t> inner_loop_count_;
 #endif
 
@@ -450,12 +451,12 @@ struct SuperMinHash {
     SuperMinHash(size_t arg, unsigned bbits=0, uint64_t seed=0): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
         count_(0), seed_(seed),
         p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg))
-#if !NDEBUG
+#if VERBOSE_AF
     , inner_loop_count_(0)
 #endif
     , bbits_(bbits ? bbits: unsigned(needed_bits()))
     {
-        // std::fprintf(stderr, "size of a %zu, q: %zu, p: %zu, b: %zu. h %zu\n", a_, q_.size(), p_.size(), b_.size(), h_.size());
+        std::fprintf(stderr, "[%s:%d:%s] size of a %zu, q: %zu, p: %zu, b: %zu. h %zu\n", __FILE__, __LINE__, __PRETTY_FUNCTION__, size_t(a_), q_.size(), p_.size(), b_.size(), h_.size());
         b_.back() = m_;
         assert(m_ <= std::numeric_limits<CountType>::max());
         if(bbits_ == 0)
@@ -465,12 +466,12 @@ struct SuperMinHash {
         pol_(o.pol_), a_(o.a_), i_(o.i_), m_(o.m_),
 #if NOT_THREADSAFE
     count_(o.count_),
-#  if !NDEBUG
+#  if VERBOSE_AF
     inner_loop_count_(o.inner_loop_count_),
 #  endif
 #else
     count_{o.count_.load()},
-#  if !NDEBUG
+#  if VERBOSE_AF
     inner_loop_count_(o.inner_loop_count_.load()),
 #  endif
 #endif
@@ -481,12 +482,12 @@ struct SuperMinHash {
         pol_(o.pol_), a_(o.a_), i_(o.i_), m_(o.m_),
 #if NOT_THREADSAFE
     count_(o.count_),
-#  if !NDEBUG
+#  if VERBOSE_AF
     inner_loop_count_(o.inner_loop_count_),
 #  endif
 #else
     count_{o.count_.load()},
-#  if !NDEBUG
+#  if VERBOSE_AF
     inner_loop_count_(o.inner_loop_count_.load()),
 #  endif
 #endif
@@ -499,7 +500,7 @@ struct SuperMinHash {
     size_t needed_bits() const {
         return std::ceil(32 + std::log2(m_));
     }
-#if !NDEBUG
+#if VERBOSE_AF
     ~SuperMinHash() {
         std::fprintf(stderr, "%zu for total count, %zu for inner loop count for a ratio of %lf currently\n", size_t(count_), inner_loop_count_.load(), count_ ? float(inner_loop_count_) / count_: -1.);
     }
@@ -509,7 +510,7 @@ struct SuperMinHash {
         RNGType gen(item ^ seed_);
         uint64_t j = 0;
         while(j <= a_) {
-#if !NDEBUG
+#if VERBOSE_AF
             ++inner_loop_count_;
 #endif
             uint32_t r = gen();
@@ -540,6 +541,9 @@ struct SuperMinHash {
         ++i_;
     }
     size_t write(gzFile fp) const {
+        return this->finalize().write(fp);
+    }
+    size_t write_unfinalized(gzFile fp) const {
         size_t ret = h_.size();
         ret = gzwrite(fp, &ret, sizeof(ret));
         char buf[sizeof(*this)];
@@ -585,7 +589,6 @@ struct SuperMinHash {
     }
     FinalDivBBitMinHash finalize(uint32_t b=0) const {
         b = b ? b: bbits_;
-        assert(b < (32 + ilog2(h_.size())));
         const auto *ptr = &h_;
         decltype(h_) tmp;
         double cest;
@@ -600,6 +603,16 @@ struct SuperMinHash {
             decltype(tmp) t2(h_);
             for(auto &e: t2) e &= 0xFFFFFFFFu;
             cest = detail::harmonic_cardinality_estimate_diffmax_impl(t2, 1ull<<32);
+        }
+        if(b > 32 + ilog2(h_.size())) {
+            if(ptr == &h_) {
+                tmp = h_;
+                ptr = &tmp;
+            }
+            for(auto &e: tmp) {
+                RNGType gen(e);
+                e = gen();
+            }
         }
         return div_bbit_finalize(b, *ptr, cest);
     }
