@@ -350,7 +350,6 @@ public:
 #elif MINMETH
         return minest;
 #else
-#pragma message("averaging")
         return minest / nhashes_;
 #endif
     }

@@ -55,6 +55,7 @@ int main() {
             auto smh1 = smhp2.finalize(16), smh2 = smhp21.finalize(16);
             auto smhd1 = smhdp.finalize(16), smhd2 = smhdp1.finalize(16);
             std::fprintf(stderr, "with ss=%zu, smh1 and itself: %lf. 2 and 2/1 jaccard? %lf/%lf\n", size_t(1) << i, double(smh1.jaccard_index(smh1)), double(smh2.jaccard_index(smh1)), smh1.jaccard_index(smh2));
+            std::fprintf(stderr, "smh1 card %lf, smh2 %lf\n", smh1.est_cardinality_, smh2.est_cardinality_);
             std::fprintf(stderr, "with ss=%zu, smhd1 and itself: %lf. 2 and 2/1 jaccard? %lf/%lf\n", size_t(1) << i, double(smhd1.jaccard_index(smhd1)), double(smhd2.jaccard_index(smhd1)), smhd1.jaccard_index(smhd2));
             //auto fdb3 = db3.finalize();
             std::fprintf(stderr, "Expected Cardinality [shared:%zu/b1:%zu/b2:%zu]\n", shared, b1c, b2c);

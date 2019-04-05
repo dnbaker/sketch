@@ -588,12 +588,19 @@ struct SuperMinHash {
         assert(b < (32 + ilog2(h_.size())));
         const auto *ptr = &h_;
         decltype(h_) tmp;
+        double cest;
         if(std::find(h_.begin(), h_.end(), UINT64_C(-1)) != h_.end()) {
             tmp = h_;
+            decltype(tmp) t2(tmp);
+            for(auto &e: t2) e &= 0xFFFFFFFFu;
+            cest = detail::harmonic_cardinality_estimate_diffmax_impl(t2, 1ull<<32);
             detail::densifybin(tmp);
             ptr = &tmp;
+        } else {
+            decltype(tmp) t2(h_);
+            for(auto &e: t2) e &= 0xFFFFFFFFu;
+            cest = detail::harmonic_cardinality_estimate_diffmax_impl(t2, 1ull<<32);
         }
-        double cest = detail::harmonic_cardinality_estimate_diffmax_impl(*ptr, h_.size() << 32);
         return div_bbit_finalize(b, *ptr, cest);
     }
     void clear() {
