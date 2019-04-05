@@ -359,7 +359,7 @@ public:
         }
 #if HAS_AVX_512
         {
-            __m512i lsum = _mm256_set1_epi64(0);
+            __m512i lsum = _mm512_set1_epi64(0);
             const __m512i *vp1 = reinterpret_cast<const __m512i *>(pe), *vp2 = reinterpret_cast<const __m512i *>(o.core_.data() +  b_ * (1ull << l2szfloor) / 64);
             while(vp1 + b_ <= reinterpret_cast<const __m512i *>(pf)) {
                 __m512i match = ~(*vp1++ ^ *vp2++);
