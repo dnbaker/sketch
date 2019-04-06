@@ -947,7 +947,7 @@ INLINE auto popcnt_fn(Type val) {
 // This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
 #define FUNCTION_CALL popcnt256(val)
 #elif __SSE2__
-#define FUNCTION_CALL _mm_set_epi64x(_mm_cvtsi128_si64(val), _mm_cvtsi128_si64(_mm_unpackhi_epi64(val, val)))
+#define FUNCTION_CALL _mm_set_epi64x(popcount(_mm_cvtsi128_si64(val)), popcount(_mm_cvtsi128_si64(_mm_unpackhi_epi64(val, val))))
 #else
 #  error("Need SSE2. TODO: make this work for non-SIMD architectures")
 #endif
