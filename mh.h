@@ -439,6 +439,7 @@ class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {
     };
     Hasher hf_;
     Cmp cmp_;
+    CountType cached_sum_sq_ = 0, cached_sum_ = 0;
     std::set<VType> minimizers_; // using std::greater<T> so that we can erase from begin()
 public:
     const auto &min() const {return minimizers_;}
@@ -475,6 +476,10 @@ public:
     auto max_element() const {
         return minimizers_.begin()->first;
     }
+    auto sum_sq() {return cached_sum_sq_ ? cached_sum_sq_: (cached_sum_sq_ = std::accumulate(std::next(this->begin()), this->end(), this->begin()->second * this->begin()->second, [](auto s, const VType &x) {return s + x.second * x.second;}));}
+    auto sum_sq() const {return cached_sum_sq_;}
+    auto sum() {return cached_sum_ ? cached_sum_ : (cached_sum_ = std::accumulate(std::next(this->begin()), this->end(), this->begin()->second, [](auto s, const VType &x) {return s + x.second;}));}
+    auto sum() const {return cached_sum_;}
     double histogram_intersection(const CountingRangeMinHash &o) const {
         assert(o.size() == size());
         size_t denom = 0, num = 0;
@@ -586,7 +591,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     double dot(const FinalCRMinHash &o) const {
         assert(o.size() == this->size());
         const size_t lsz = this->size();
-        size_t denom = 0, num = 0;
+        size_t num = 0;
         for(size_t i1 = 0, i2 = 0;;) {
             if(this->cmp(this->first[i1], o.first[i2])) {
                 I1DF;
@@ -594,11 +599,11 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
                 I2DF;
             } else {
                 const auto v1 = o.second[i2], v2 = second[i1];
-                num += std::min(v1, v2);
+                num += v1 * v2;
                 I1DF; I2DF;
             }
         }
-        return static_cast<double>(num) / denom;
+        return static_cast<double>(num);
     }
     double histogram_intersection(const FinalCRMinHash &o) const {
         assert(o.size() == this->size());
