@@ -443,11 +443,11 @@ struct SuperMinHash {
     uint64_t seed_;
 
 
-    std::vector<CountType>                       p_;
-    std::vector<uint64_t, Allocator<uint64_t>>   h_;
-    std::vector<CountType>                       q_;
-    std::vector<BType>                           b_;
-    unsigned                                 bbits_;
+    std::vector<CountType>  p_;
+    std::vector<uint64_t>   h_;
+    std::vector<CountType>  q_;
+    std::vector<BType>      b_;
+    unsigned            bbits_;
     SuperMinHash(size_t arg, unsigned bbits=0, uint64_t seed=0): pol_(arg), a_(pol_.arg2vecsize(arg) - 1), i_(0), m_(pol_.arg2vecsize(arg)),
         count_(0), seed_(seed),
         p_(m_), h_(pol_.arg2vecsize(arg), uint64_t(-1)), q_(pol_.arg2vecsize(arg), -1), b_(pol_.arg2vecsize(arg))
@@ -477,7 +477,7 @@ struct SuperMinHash {
     inner_loop_count_(o.inner_loop_count_.load()),
 #  endif
 #endif
-        seed_(o.seed_), p_(std::move(o.p_)), h_(std::move(o.h_)), q_(std::move(o.q_)), b_(std::move(o.b_))
+        seed_(o.seed_), p_(std::move(o.p_)), h_(std::move(o.h_)), q_(std::move(o.q_)), b_(std::move(o.b_)),bbits_(o.bbits_)
     {
     }
     SuperMinHash(const SuperMinHash &o):
@@ -493,7 +493,7 @@ struct SuperMinHash {
     inner_loop_count_(o.inner_loop_count_.load()),
 #  endif
 #endif
-        seed_(o.seed_), p_(o.p_), h_(o.h_), q_(o.q_), b_(o.b_)
+        seed_(o.seed_), p_(o.p_), h_(o.h_), q_(o.q_), b_(o.b_), bbits_(o.bbits_)
     {
     }
     static constexpr uint64_t join_cmp(uint32_t i, uint32_t r) {
@@ -590,10 +590,10 @@ struct SuperMinHash {
         return cest;
     }
     FinalDivBBitMinHash finalize(uint32_t b=0) const {
-        b = b ? b: bbits_;
+        if(b == 0) b = bbits_;
         const auto *ptr = &h_;
         decltype(h_) tmp;
-        double cest;
+        double cest = -1;
         if(std::find(h_.begin(), h_.end(), UINT64_C(-1)) != h_.end()) {
             tmp = h_;
             decltype(tmp) t2(tmp);
@@ -602,11 +602,11 @@ struct SuperMinHash {
             detail::densifybin(tmp);
             ptr = &tmp;
         } else {
-            decltype(tmp) t2(h_);
-            for(auto &e: t2) e &= 0xFFFFFFFFu;
+            std::vector<uint64_t> t2; t2.reserve(h_.size());
+            for(const auto e: h_) t2.push_back(e & 0xFFFFFFFFu);
             cest = detail::harmonic_cardinality_estimate_diffmax_impl(t2, 1ull<<32);
         }
-        if(b > 32 + ilog2(h_.size())) {
+        if(b > needed_bits()) {
             if(ptr == &h_) {
                 tmp = h_;
                 ptr = &tmp;
@@ -1256,7 +1256,10 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
     } else {
         const auto l2szfloor = ilog2(core_ref.size());
         const auto pow2 = 1ull << l2szfloor;
-        if(l2szfloor < 6) throw std::runtime_error("FinalDivBBitMinHash currently requires at least 64 minimizers.");
+        if(l2szfloor < 6) {
+            std::fprintf(stderr, "l2sz: %u\n", l2szfloor);
+            throw std::runtime_error("FinalDivBBitMinHash currently requires at least 64 minimizers.");
+        }
         switch(l2szfloor) {
         case 6:
                 for(size_t _b = 0; _b < b; ++_b)
