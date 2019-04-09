@@ -304,7 +304,10 @@ public:
             }
             default: {
                 // Process each 'b' remainder block in
-                const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
+                const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2);
+#if !NDEBUG
+                const auto vpe = reinterpret_cast<const __m512i *>(pe);
+#endif
                 auto lsum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < (size_t(1) << (l2szfloor - 9u)); ++i) {
                     vp1 += b_;
@@ -1076,7 +1079,7 @@ public:
             case 9: return common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_));
             default: {
                 // Process each 'b' remainder block in
-                const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
+                const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2);
                 auto sum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < (size_t(1) << (p_ - 9u)); ++i) {
                     vp1 += b_;
