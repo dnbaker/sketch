@@ -145,7 +145,7 @@ public:
             return bf_t(l2szs[bfs_.size()], nhashes, rng_());
         });
         std::generate_n(std::back_inserter(hlls_), l2szs.size(), [&](){
-            return hll_t(rng_(), hllps[hlls_.size()], estim, jestim, 1);
+            return hll_t(rng_(), hllps[hlls_.size()], estim, jestim);
         });
     }
     explicit pcbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes,

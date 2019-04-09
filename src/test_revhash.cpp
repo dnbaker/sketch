@@ -24,7 +24,7 @@ int main() {
     std::vector<uint64_t> vec(1 << 20);
     hll::hllbase_t<XorMultiplyN<20>> h1(10);
     hll::hllbase_t<XorMultiplyN<1000>> h2(10);
-    hll::hllbase_t<XorMultiplyNVec> h3(10, ERTL_MLE, ERTL_JOINT_MLE, 1, false, 10);
+    hll::hllbase_t<XorMultiplyNVec> h3(10, ERTL_MLE, ERTL_JOINT_MLE, false, 10);
     //hll::hllbase_t<XorMultiplyNVec> h2(10, ERTL_MLE, ERTL_JOINT_MLE, 1, false, 1000);
     XorMultiplyN<2> xm;
     //XorMultiplyNVec xm2(1000);

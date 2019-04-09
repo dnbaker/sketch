@@ -819,9 +819,8 @@ public:
         p_(p), r_(r),
         hf_(std::forward<Args>(args)...)
     {
-        std::fprintf(stderr, "Pointer for data: %p\n", static_cast<void *>(core_.get()));
         common::detail::zero_memory(core_); // Second parameter is a dummy for interface compatibility with STL
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr, "p: %u. r: %u\n", p, r);
         print_params();
 #endif

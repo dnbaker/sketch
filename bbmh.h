@@ -456,7 +456,9 @@ struct SuperMinHash {
 #endif
     , bbits_(bbits ? bbits: unsigned(needed_bits()))
     {
+#if VERBOSE_AF
         std::fprintf(stderr, "[%s:%d:%s] size of a %zu, q: %zu, p: %zu, b: %zu. h %zu\n", __FILE__, __LINE__, __PRETTY_FUNCTION__, size_t(a_), q_.size(), p_.size(), b_.size(), h_.size());
+#endif
         b_.back() = m_;
         assert(m_ <= std::numeric_limits<CountType>::max());
         if(bbits_ == 0)
