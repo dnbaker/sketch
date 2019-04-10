@@ -394,6 +394,57 @@ public:
         return *this;
     }
 
+    bfbase_t &operator^=(const bfbase_t &other) {
+        if(!same_params(other)) {
+            char buf[256];
+            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
+            throw std::runtime_error(buf);
+        }
+        unsigned i;
+        VType *els(reinterpret_cast<VType *>(core_.data()));
+        const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
+        if(core_.size() / Space::COUNT >= 8) {
+            for(i = 0; i < (core_.size() / (Space::COUNT));) {
+#define AND_ITER els[i].simd_ = Space::xor_fn(els[i].simd_, oels[i].simd_); ++i;
+                REPEAT_8(AND_ITER)
+#undef AND_ITER
+            }
+        } else
+            for(i = 0; i < (core_.size() / Space::COUNT); ++i)
+                els[i].simd_ = Space::xor_fn(els[i].simd_, oels[i].simd_);
+        return *this;
+    }
+
+    bfbase_t &operator|=(const bfbase_t &other) {
+        if(!same_params(other)) {
+            char buf[256];
+            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
+            throw std::runtime_error(buf);
+        }
+        unsigned i;
+        VType *els(reinterpret_cast<VType *>(core_.data()));
+        const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
+        if(core_.size() / Space::COUNT >= 8) {
+            for(i = 0; i < (core_.size() / (Space::COUNT));) {
+#define AND_ITER els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_); ++i;
+                REPEAT_8(AND_ITER)
+#undef AND_ITER
+            }
+        } else
+            for(i = 0; i < (core_.size() / Space::COUNT); ++i)
+                els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_);
+        return *this;
+    }
+#define DEFOP(opchar)\
+    bfbase_t operator opchar(const bfbase_t &other) const {\
+        bfbase_t ret(*this);\
+        ret opchar##= other;\
+        return ret;\
+    }
+    DEFOP(&)
+    DEFOP(|)
+    DEFOP(^)
+#undef DEFOP
     // Clears, allows reuse with different np.
     void resize(size_t new_size) {
         new_size = roundup(new_size);
