@@ -824,7 +824,7 @@ public:
         ssize_t ret = std::fputc('[', fp) > 0;
         for(size_t i = 0; i < core_.size() - 1; ++i)
             ret += std::fprintf(fp, "%d, ", int(core_[i]));
-        return ret += std::fprintf(stderr, "%d]", int(core_.back()));
+        return ret += std::fprintf(fp, "%d]", int(core_.back()));
     }
     std::string sprintf() const {
         std::fprintf(stderr, "Core size: %zu. to string: %s\n", core_.size(), to_string().data());
