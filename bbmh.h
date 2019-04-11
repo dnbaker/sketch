@@ -510,6 +510,7 @@ struct SuperMinHash {
         std::fprintf(stderr, "%zu for total count, %zu for inner loop count for a ratio of %lf currently\n", size_t(count_), inner_loop_count_.load(), count_ ? float(inner_loop_count_) / count_: -1.);
     }
 #endif
+    void add(uint64_t item) {addh(item);}
     void addh(uint64_t item) {
         ++count_;
         RNGType gen(item ^ seed_);

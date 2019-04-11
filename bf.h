@@ -300,6 +300,7 @@ public:
         return olap / union_est;
     }
 
+    INLINE void add(const uint64_t element) {addh(element);}
     INLINE void addh(const uint64_t element) {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
