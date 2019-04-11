@@ -722,51 +722,7 @@ public:
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
-    void csum() {
-        if(!is_calculated_) sum();
-    }
-    void load_binary(const char *fn, bool use_gz=true, int chunk_size_in_bytes=8) {
-#define EXECUTE_LOAD(name, fp_type, getc_fn, open_fn, close_fn) do { \
-            fp_type fp = open_fn(fn, "rb");\
-            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + fn);\
-            if(chunk_size_in_bytes > sizeof(uint64_t)) throw std::runtime_error("Chunks of > 8 bytes each not yet supported.");\
-            if(chunk_size_in_bytes > 4) {\
-                const uint64_t mask = (uint64_t(1) << (chunk_size_in_bytes * CHAR_BIT)) - 1;\
-                uint64_t val = 0;\
-                for(unsigned i(0); i < chunk_size_in_bytes; ++i) {\
-                    int c; \
-                    if((c = getc_fn(fp)) < 0) { \
-                        std::fprintf(stderr, "[W:%s:%s:%d] File smaller than chunk size.", __FILE__, __PRETTY_FUNCTION__, __LINE__);\
-                        goto name##end;\
-                    } \
-                    val = (val << 1) | c;\
-                } \
-                this->addh(val);\
-                for(int c; (c = getc_fn(fp)) >= 0; val = ((val << CHAR_BIT) | c) & mask, this->addh(val));\
-            } else {\
-                const uint32_t mask = (uint64_t(1) << (chunk_size_in_bytes * CHAR_BIT)) - 1;\
-                uint32_t val;\
-                for(unsigned i(0); i < chunk_size_in_bytes; ++i) {\
-                    int c; \
-                    if((c = getc_fn(fp)) < 0) { \
-                        std::fprintf(stderr, "[W:%s:%s:%d] File smaller than chunk size.", __FILE__, __PRETTY_FUNCTION__, __LINE__);\
-                        goto name##end;\
-                    } \
-                    val = (val << 1) | c;\
-                } \
-                this->addh(val);\
-                for(int c; (c = getc_fn(fp)) >= 0; val = ((val << CHAR_BIT) | c) & mask, this->addh(val));\
-            }\
-            name##end:\
-            close_fn(fp); \
-        } while(0)
-        if(use_gz) {
-            EXECUTE_LOAD(gz, gzFile, gzgetc, gzopen, gzclose);
-        } else {
-            EXECUTE_LOAD(fp, std::FILE *, getc_unlocked, fopen, fclose);
-        }
-#undef EXECUTE_LOAD
-    }
+    void csum() {if(!is_calculated_) sum();}
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const {
@@ -864,6 +820,21 @@ public:
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
+    ssize_t printf(std::FILE *fp) const {
+        ssize_t ret = std::fputc('[', fp) > 0;
+        for(size_t i = 0; i < core_.size() - 1; ++i)
+            ret += std::fprintf(fp, "%d, ", int(core_[i]));
+        return ret += std::fprintf(stderr, "%d]", int(core_.back()));
+    }
+    std::string sprintf() const {
+        std::fprintf(stderr, "Core size: %zu. to string: %s\n", core_.size(), to_string().data());
+        std::string ret = "[";
+        for(size_t i = 0; i < core_.size() - 1; ++i)
+            ret += std::to_string(core_[i]), ret += ", ";
+        ret += std::to_string(core_.back());
+        ret += ']';
+        return ret;
+    }
     hllbase_t<HashStruct> compress(size_t new_np) const {
         // See Algorithm 3 in https://arxiv.org/abs/1702.01284
         // This is not very optimized.
@@ -922,7 +893,7 @@ public:
     hllbase_t &operator+=(const hllbase_t &other) {
         if(other.np_ != np_) {
             char buf[256];
-            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
+            std::sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
             throw std::runtime_error(buf);
         }
         unsigned i;

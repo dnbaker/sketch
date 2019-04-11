@@ -9,6 +9,11 @@ class hll(_hll):
         else:
             self.addh_(int(item))
 
+    def get_registers(self):
+        s = self.sprintf().strip()
+        return str(s)
+
+
 
 __doc__ = "HyperLogLog module"
 __all__ = [hll]
