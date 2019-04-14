@@ -815,7 +815,7 @@ public:
             // exp(1/p * [log(num) * len(minimizers) - sum(log(x) for x in minimizers)])
             // Then, times the number of minimizers, because we've partitioned the data into that many streams.
         case HLL_METHOD: {
-            std::array<uint64_t, 64> arr{0};
+            std::array<uint32_t, 64> arr{0};
             auto diff = p_ - 1;
             for(const auto v: (*ptr))
                 ++arr[v == detail::default_val<T>() ? 0: hll::clz(v) - diff];

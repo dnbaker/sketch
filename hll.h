@@ -74,11 +74,14 @@ static const char *EST_STRS [] {
 #  endif
 #endif
 
+
+using CountArrayType = std::array<uint32_t, 64>;
+
 namespace detail {
 template<typename T>
 static double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr=1e-2); // forward declaration
 template<typename Container>
-inline std::array<uint64_t, 64> sum_counts(const Container &con);
+inline std::array<uint32_t, 64> sum_counts(const Container &con);
 }
 #if VERIFY_SIMD_JOINT
 /*
@@ -89,7 +92,8 @@ inline std::array<uint64_t, 64> sum_counts(const Container &con);
  * size of the union is [0] + [1] + [2]
  * size of the intersection is [2]
  */
-std::string counts2str(const std::array<uint64_t, 64> &arr) {
+template<typename IType, size_t N, typename=typename std::enable_if<std::is_integral<IType>::value>::type>
+std::string counts2str(const std::array<IType, N> &arr) {
     std::string ret;
     for(const auto el: arr) {
         ret += std::to_string(el);
@@ -114,9 +118,9 @@ std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
     //const double cBX = hl2.creport();
     auto tmph = h1 + h2;
     const double cABX = tmph.report();
-    std::array<uint64_t, 64> countsAXBhalf{0}, countsBXAhalf{0};
+    std::array<uint32_t, 64> countsAXBhalf{0}, countsBXAhalf{0};
     countsAXBhalf[q] = countsBXAhalf[q] = h1.m();
-    std::array<uint64_t, 64> cg1{0}, cg2{0}, ceq{0};
+    std::array<uint32_t, 64> cg1{0}, cg2{0}, ceq{0};
     {
         const auto &core1(h1.core()), &core2(h2.core());
         for(uint64_t i(0); i < core1.size(); ++i) {
@@ -176,7 +180,6 @@ template<typename CountArrType>
 static double calculate_estimate(const CountArrType &counts,
                                  EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) {
     assert(estim <= 3 && estim >= 0);
-    static_assert(std::is_same<std::decay_t<decltype(counts[0])>, uint64_t>::value, "Counts must be a container for uint64_ts.");
 #if ENABLE_COMPUTED_GOTO
     static constexpr void *arr [] {&&ORREST, &&ERTL_IMPROVED_EST, &&ERTL_MLE_EST};
     goto *arr[estim];
@@ -378,24 +381,37 @@ public:
         void op32(const SIMDHolder &ref, T &arr) const {}
         void op64(const SIMDHolder &ref, T &arr) const {}
     };
+#define DEC_INC(nbits)\
+    template<typename T>\
+    void inc_counts##nbits (T &arr) const {\
+        static_assert(std::is_integral<std::decay_t<decltype(arr[0])>>::value, "Counts must be integral.");\
+        unroller<T, 0, nel##nbits##s> ur;\
+        ur.op##nbits(*this, arr);\
+    }
+    DEC_INC(16)
+    DEC_INC(32)
+    DEC_INC(64)
+#if 0
     template<typename T>
     void inc_counts16(T &arr) const {
-        static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
+        static_assert(std::is_integral<std::decay_t<decltype(arr[0])>>::value, "Counts must be integral.");
         unroller<T, 0, nel16s> ur;
         ur.op16(*this, arr);
     }
     template<typename T>
-    void inc_counts32(T &arr) const {
-        static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
+    void inc_arr32(T &arr) const {
+        static_assert(std::is_integral<std::decay_t<decltype(arr[0])>>::value, "Counts must be integral.");
         unroller<T, 0, nel32s> ur;
         ur.op32(*this, arr);
     }
     template<typename T>
-    void inc_counts64(T &arr) const {
-        static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
+    void inc_arr64(T &arr) const {
+        static_assert(std::is_integral<std::decay_t<decltype(arr[0])>>::value, "Counts must be integral.");
         unroller<T, 0, nel64s> ur;
         ur.op64(*this, arr);
     }
+#endif
+#undef DEC_INC
     static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
 };
 
@@ -465,7 +481,7 @@ struct joint_unroller {
 
 template<typename T>
 inline void inc_counts(T &counts, const SIMDHolder *p, const SIMDHolder *pend) {
-    static_assert(std::is_same<std::decay_t<decltype(counts[0])>, uint64_t>::value, "Counts must contain 64-bit integers.");
+    static_assert(std::is_integral<std::decay_t<decltype(counts[0])>>::value, "Counts must be integral.");
     SIMDHolder tmp;
     do {
         tmp = *p++;
@@ -473,19 +489,19 @@ inline void inc_counts(T &counts, const SIMDHolder *p, const SIMDHolder *pend) {
     } while(p < pend);
 }
 
-static inline std::array<uint64_t, 64> sum_counts(const SIMDHolder *p, const SIMDHolder *pend) {
+static inline std::array<uint32_t, 64> sum_counts(const SIMDHolder *p, const SIMDHolder *pend) {
     // Should add Contiguous Container requirement.
-    std::array<uint64_t, 64> counts{0};
+    std::array<uint32_t, 64> counts{0};
     inc_counts(counts, p, pend);
     return counts;
 }
 
 template<typename Container>
-inline std::array<uint64_t, 64> sum_counts(const Container &con) {
+inline std::array<uint32_t, 64> sum_counts(const Container &con) {
     //static_assert(std::is_same<std::decay_t<decltype(con[0])>, uint8_t>::value, "Container must contain 8-bit unsigned integers.");
     return sum_counts(reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
 }
-inline std::array<uint64_t, 64> sum_counts(const DefaultCompactVectorType &con) {
+inline std::array<uint32_t, 64> sum_counts(const DefaultCompactVectorType &con) {
     // TODO: add a check to make sure that it's doing it right
     return sum_counts(reinterpret_cast<const SIMDHolder *>(con.get()), reinterpret_cast<const SIMDHolder *>(con.get() + con.bytes()));
 }
@@ -601,15 +617,15 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     using detail::ertl_ml_estimate;
     auto p = h1.p();
     auto q = h1.q();
-    std::array<uint64_t, 64> c1{0}, c2{0}, cu{0}, ceq{0}, cg1{0}, cg2{0};
+    std::array<uint32_t, 64> c1{0}, c2{0}, cu{0}, ceq{0}, cg1{0}, cg2{0};
     detail::joint_unroller ju;
     ju.sum_arrays(h1.core(), h2.core(), c1, c2, cu, cg1, cg2, ceq);
     const double cAX = h1.get_is_ready() ? h1.creport() : ertl_ml_estimate(c1, h1.p(), h1.q());
     const double cBX = h2.get_is_ready() ? h2.creport() : ertl_ml_estimate(c2, h2.p(), h2.q());
     const double cABX = ertl_ml_estimate(cu, h1.p(), h1.q());
     // std::fprintf(stderr, "Made initials: %lf, %lf, %lf\n", cAX, cBX, cABX);
-    std::array<uint64_t, 64> countsAXBhalf;
-    std::array<uint64_t, 64> countsBXAhalf;
+    std::array<uint32_t, 64> countsAXBhalf;
+    std::array<uint32_t, 64> countsBXAhalf;
     countsAXBhalf[q] = h1.m();
     countsBXAhalf[q] = h1.m();
     for(unsigned _q = 0; _q < q; ++_q) {
@@ -718,7 +734,7 @@ public:
 
     // Call sum to recalculate if you have changed contents.
     void sum() {
-        const auto counts(detail::sum_counts(core_)); // std::array<uint64_t, 64>
+        const auto counts(detail::sum_counts(core_)); // std::array<uint32_t, 64>
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
@@ -1059,7 +1075,7 @@ public:
     double union_size(const hllbase_t &other) const {
         if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) {
             assert(m() == other.m());
-            std::array<uint64_t, 64> counts{0};
+            std::array<uint32_t, 64> counts{0};
             // We can do this because we use an aligned allocator.
             // We also have found that wider vectors than SSE2 don't matter
             const __m128i *p1(reinterpret_cast<const __m128i *>(data())), *p2(reinterpret_cast<const __m128i *>(other.data()));
@@ -1461,7 +1477,7 @@ public:
     // Attempt strength borrowing across hlls with different seeds
     double chunk_report() const {
         if(__builtin_expect((size() & (size() - 1)) == 0, 1)) {
-            std::array<uint64_t, 64> counts{0};
+            std::array<uint32_t, 64> counts{0};
             for(const auto &hll: hlls_) detail::inc_counts(counts, hll.core());
             const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz(uint32_t(size())) - 1);
             const auto new_p = hlls_[0].p() + diff;
@@ -1595,7 +1611,7 @@ public:
 #if NON_POW2
         if((size() & (size() - 1)) == 0) {
 #endif
-        std::array<uint64_t, 64> counts{0};
+        std::array<uint32_t, 64> counts{0};
         detail::inc_counts(counts, core_);
         //const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz((uint32_t)size()) - 1); Maybe do this instead of storing l2ns_?
         return detail::calculate_estimate(counts, estim_, core_.size(),

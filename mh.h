@@ -888,12 +888,12 @@ public:
         assert(min <= max_mhval());
         return (uint64_t(lzc) << r_) | min;
     }
-    std::array<uint64_t, 64> sum_counts() const {
+    std::array<uint32_t, 64> sum_counts() const {
         using hll::detail::SIMDHolder;
         // TODO: this
         // Note: we have whip out more complicated vectorized maxes for
         // widths of 16, 32, or 64
-        std::array<uint64_t, 64> ret{0};
+        std::array<uint32_t, 64> ret{0};
         if(core_.bytes() >= sizeof(SIMDHolder)) {
             switch(simd_policy()) {
 #define CASE_U(cse, func, msk)\
