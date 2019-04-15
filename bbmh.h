@@ -305,9 +305,6 @@ public:
             default: {
                 // Process each 'b' remainder block in
                 const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2);
-#if !NDEBUG
-                const auto vpe = reinterpret_cast<const __m512i *>(pe);
-#endif
                 auto lsum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < (size_t(1) << (l2szfloor - 9u)); ++i) {
                     vp1 += b_;

@@ -66,7 +66,7 @@ public:
     FType decay_rate() const {return scale_;}
     void addh(uint64_t val, FType inc=1.) {this->add(val, inc);}
     template<typename...Args>
-    realccm_t(FType scale_prod, Args &&...args): scale_(scale_prod), scale_inv_(1./scale_prod), scale_cur_(scale_prod), super(std::forward<Args>(args)...) {
+    realccm_t(FType scale_prod, Args &&...args): super(std::forward<Args>(args)...), scale_(scale_prod), scale_inv_(1./scale_prod), scale_cur_(scale_prod) {
         total_added_.store(0);
         assert(scale_ >= 0. && scale_ <= 1.);
     }
@@ -77,7 +77,7 @@ public:
         auto eptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data() + this->data_.size());
         auto mul = FSpace::set1(scale_div);
         while(eptr > ptr) {
-            *ptr = Space::mul(ptr->simd_, mul);
+            *ptr = Space::mullo(ptr->simd_, mul);
             ++ptr;
         }
         FType *rptr = reinterpret_cast<FType *>(ptr);

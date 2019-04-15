@@ -821,8 +821,9 @@ class cs4wbase_t {
 public:
     template<typename...Args>
     cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
-        core_(uint64_t(nh) << np), np_(np), nh_(nh), hf_(seedseed),
-        mask_((1ull << np_) - 1)
+        core_(uint64_t(nh) << np), np_(np), nh_(nh),
+        mask_((1ull << np_) - 1),
+        hf_(seedseed)
     {
     }
     double l2est() const {

@@ -1032,32 +1032,24 @@ public:
         std::memcpy(&arr[0], &hashval, sizeof(hashval));
         const uint64_t index(reinterpret_cast<uint64_t *>(&hashval)[0] >> (64 - p())),
                          lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
-        //std::fprintf(stderr, "Calling hash on thing. Size of core: %zu. Index: %zu\n", index, core_.size());
-        //std::fprintf(stderr, "Calling hash on %zu\n", size_t(core_[index]));
         const uint64_t inserted_val = encode_register(lzt, reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval());
-        //std::fprintf(stderr, "lzc: %d. oval: %zu. full val: %zu\n", int(get_lzc(inserted_val)), get_mhr(inserted_val), size_t(inserted_val));
         assert(get_lzc(inserted_val) == lzt);
         assert((reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) == get_mhr(inserted_val));
-        //const uint64_t inserted_val = (reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) | (lzt << r_);
-        //uint64_t oind = core_[index];
-        //std::fprintf(stderr, "oind: %" PRIu64 "\n", oind);
         if(core_[index] < inserted_val) { // Consider other functions for specific register sizes.
             core_[index] = inserted_val;
             assert(encode_register(lzt, get_mhr(inserted_val)) == inserted_val);
             assert(lzt == get_lzc(inserted_val));
-            //std::fprintf(stderr, "Register is now set to %zu with clz %d, which should match %d from other clz\n", size_t(core_[index]), int(get_lzc(inserted_val)), int(lzt));
         }
-        //std::fprintf(stderr, "Register is now the same at%zu with clz %d, \n", size_t(core_[index]), int(get_lzc(core_[index])));
     }
     double jaccard_index(const HyperMinHash &o) const {
         size_t C = 0, N = 0;
         std::fprintf(stderr, "core size: %zu\n", core_.size());
         switch(simd_policy()) { // This can be accelerated for specific sizes
             default: //[[fallthrough]];
-            U8:      //[[fallthrough]]; // 2-bit minimizers. TODO: write this
-            U16:     //[[fallthrough]]; // 10-bit minimizers. TODO: write this
-            U32:     //[[fallthrough]]; // 26-bit minimizers. TODO: write this
-            U64:     //[[fallthrough]]; // 58-bit minimizers. TODO: write this
+            //U8:      //[[fallthrough]]; // 2-bit minimizers. TODO: write this
+            //U16:     //[[fallthrough]]; // 10-bit minimizers. TODO: write this
+            //U32:     //[[fallthrough]]; // 26-bit minimizers. TODO: write this
+            //U64:     //[[fallthrough]]; // 58-bit minimizers. TODO: write this
             Manual:
                 for(size_t i = 0; i < core_.size(); ++i) {
                     C += core_[i] && (get_lzc(core_[i]) == get_lzc(o.core_[i]));

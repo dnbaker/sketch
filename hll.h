@@ -338,6 +338,9 @@ public:
 #undef DEC_MAX
 #undef DEC_GT
 #undef DEC_EQ
+#undef DEC_MAX16
+#undef DEC_MAX32
+#undef DEC_MAX64
 
     SIMDHolder() {} // empty constructor
     SIMDHolder(SType val_) {val = val_;}
