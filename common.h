@@ -331,9 +331,13 @@ static INLINE uint64_t sum_of_u64s(const T val) {
         sum += vatpos(val, i);
     return sum;
 }
-#if __AVX512F__ || __KNCNI__
+#if defined(__AVX512F__) || defined(__KNCNI__)
+#  if (__clang__ &&__clang_major__ >= 4) || (__GNUC__ && __GNUC__ >= 7)
 template<>
-INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) {return _mm512_reduce_add_epi64(val);}
+INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) {
+    return _mm512_reduce_add_epi64(val);
+}
+#  endif
 #endif
 template<typename T>
 INLINE auto popcnt_fn(T val);
