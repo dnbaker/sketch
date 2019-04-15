@@ -1,8 +1,9 @@
 #pragma once
-#include "common.h"
 #include <ctime>
 #include <deque>
 #include <queue>
+#include "common.h"
+#include "hash.h"
 
 namespace sketch {
 

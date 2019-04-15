@@ -1,6 +1,7 @@
 #ifndef HLL_H_
 #define HLL_H_
 #include "common.h"
+#include "hash.h"
 
 namespace sketch { namespace hll { namespace detail {
 
@@ -47,6 +48,11 @@ enum EstimationMethod: uint8_t {
     ERTL_IMPROVED  = 1,
     ERTL_MLE       = 2
 };
+
+using hash::Type;
+using hash::VType;
+using hash::WangHash;
+using hash::MurFinHash;
 
 enum JointEstimationMethod: uint8_t {
     //ORIGINAL       = 0,

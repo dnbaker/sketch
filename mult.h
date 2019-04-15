@@ -1,6 +1,5 @@
 #ifndef DNB_SKETCH_MULTIPLICITY_H__
 #define DNB_SKETCH_MULTIPLICITY_H__
-
 #include "blaze/Math.h"
 #include <random>
 #include "ccm.h" // Count-min sketch

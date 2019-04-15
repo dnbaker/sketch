@@ -1,6 +1,7 @@
 #ifndef CRUEL_BLOOM_H__
 #define CRUEL_BLOOM_H__
 #include "common.h"
+#include "hash.h"
 
 
 #ifdef INCLUDE_CLHASH_H_
