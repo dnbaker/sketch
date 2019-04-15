@@ -870,7 +870,7 @@ public:
         size_t ratio = static_cast<size_t>(1) << (np_ - new_np);
         size_t new_size = 1ull << new_np;
         size_t b = 0;
-        for(size_t i(0); i < (1ull << new_np); ++i) {
+        for(size_t i(0); i < new_size; ++i) {
             size_t j(0);
             while(j < ratio && core_[j + b] == 0) ++j;
             if(j != ratio)

@@ -1,8 +1,10 @@
 #ifndef DNB_SKETCH_MULTIPLICITY_H__
 #define DNB_SKETCH_MULTIPLICITY_H__
-#include "blaze/Math.h"
 #include <random>
 #include "ccm.h" // Count-min sketch
+#if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
+#include "blaze/Math.h"
+#endif
 #include <cstdarg>
 #include <mutex>
 
@@ -28,6 +30,7 @@ static int log_debug(const char *func, const char *filename, int line, const cha
 
 namespace cws {
 
+#if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
 template<typename FType=float>
 struct CWSamples {
     using MType = blaze::DynamicMatrix<float>;
@@ -45,6 +48,7 @@ struct CWSamples {
         }
     }
 };
+#endif
 
 template<typename FType=float, typename HashStruct=common::WangHash, bool decay=false, bool conservative=false>
 class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
