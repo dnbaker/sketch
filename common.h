@@ -39,6 +39,8 @@
 #include "aesctr/aesctr.h"
 #endif
 
+#include "hash.h"
+
 #ifndef HAS_AVX_512
 #  define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__ || __AVX512__)
 #endif
@@ -110,6 +112,7 @@
 
 namespace sketch {
 namespace common {
+using namespace hash;
 class NotImplementedError: public std::runtime_error {
 public:
     template<typename... Args>
