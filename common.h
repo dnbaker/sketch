@@ -331,11 +331,9 @@ static INLINE uint64_t sum_of_u64s(const T val) {
         sum += vatpos(val, i);
     return sum;
 }
-#if defined(__AVX512F__) || defined(__KNCNI__)
+#if __AVX512F__ || __KNCNI__
 template<>
-INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) {
-    return _mm512_reduce_add_epi64(val);
-}
+INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) {return _mm512_reduce_add_epi64(val);}
 #endif
 template<typename T>
 INLINE auto popcnt_fn(T val);
@@ -344,7 +342,7 @@ INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::Type val) {
 
 #define VAL_AS_ARR(ind) reinterpret_cast<const uint64_t *>(&val)[ind]
 #if HAS_AVX_512
-#  if defined(__AVX512VPOPCNTDQ__)
+#  if __AVX512VPOPCNTDQ__
 #    define FUNCTION_CALL ::_mm512_popcnt_epi64(val)
 #  else
 #    define FUNCTION_CALL popcnt512(val)

@@ -1682,14 +1682,7 @@ struct wh119_t {
         const space::Type *p1 = (const space::Type *)core_.data(), *p2 = (const space::Type *)o.data();
         for(i = 0; i < core_.size() / sizeof(*p1); ++i) {
             hll::detail::SIMDHolder(hll::detail::SIMDHolder::max_fn(*p1++, *p2++)).inc_counts(counts);
-            //tmp.inc_counts(counts);
         }
-#if 0
-        i *= sizeof(*p1);
-        for(; i < core_.size(); ++i) {
-            ++counts[std::max(core_[i], o[i])];
-        }
-#endif
         long double tmp = counts[0];
         for(ssize_t i = 1; i < ssize_t(counts.size()); ++i)
             tmp += static_cast<long double>(counts[i]) * (std::pow(wh_base_, -i));
