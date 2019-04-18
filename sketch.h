@@ -14,7 +14,8 @@
 #include "sparse.h"
 
 namespace sketch {
-    // Flatten all classes to global namespace.
+    // Flatten all classes to global sketch namespace.
+    // Subnamespaces can still be subsampled
     using namespace hll;
     using namespace bf;
     using namespace minhash;

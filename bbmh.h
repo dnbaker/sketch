@@ -7,24 +7,6 @@
 #include <cstdarg>
 #endif
 
-
-#ifndef LOG_DEBUG
-#    define UNDEF_LDB
-#    if !NDEBUG
-#        define LOG_DEBUG(...) log_debug(__PRETTY_FUNCTION__, __FILE__, __LINE__, ##__VA_ARGS__)
-static int log_debug(const char *func, const char *filename, int line, const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    int ret(std::fprintf(stderr, "[D:%s:%s:%d] ", func, filename, line));
-    ret += std::vfprintf(stderr, fmt, args);
-    va_end(args);
-    return ret;
-}
-#    else
-#        define LOG_DEBUG(...)
-#    endif
-#endif
-
 namespace sketch {
 namespace minhash {
 using namespace common;
@@ -55,20 +37,11 @@ inline int densifybin(Container &hashes) {
         max = std::max(max, v);
     }
     if (max != empty_val) {
-#if VERBOSE_AF
-        LOG_DEBUG("Full sketch, no densification needed\n");
-#endif
         return 0; // Full sketch
     }
     if (min == empty_val) {
-#if VERBOSE_AF
-        LOG_DEBUG("Can't densify empty sketch\n");
-#endif
         return -1; // Empty sketch
     }
-#if VERBOSE_AF
-    LOG_DEBUG("Densifying\n");
-#endif
     for (uint64_t i = 0; i < hashes.size(); i++) {
         uint64_t j = i, nattempts = 0;
         while(hashes[j] == empty_val)
@@ -215,10 +188,6 @@ public:
     FinalDivBBitMinHash(const SuperMinHash<Policy, RNG, CountType> &o): FinalDivBBitMinHash(o.finalize()) {}
     template<typename T, typename Hasher=common::WangHash>
     FinalDivBBitMinHash(DivBBitMinHasher<T, Hasher> &&o): FinalDivBBitMinHash(std::move(o.finalize())) {
-#if VERBOSE_AF
-        LOG_DEBUG("est card %lf\n", est_cardinality_);
-        LOG_DEBUG(stderr, "b: %u. nbuckets: %u. size of core: %zu\n", b_, nbuckets_, core_.size());
-#endif
         o.free();
     }
     template<typename T, typename Hasher=common::WangHash>
@@ -1193,9 +1162,6 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
     using detail::getnthbit;
     using detail::setnthbit;
     FinalBBitMinHash ret(p_, b, cest);
-#if VERBOSE_AF
-    LOG_DEBUG("size of ret vector: %zu. b_: %u, p_: %u. cest: %lf. this card: %lf\n", ret.core_.size(), b_, p_, cest, this->cardinality_estimate(HLL_METHOD));
-#endif
     using FinalType = typename FinalBBitMinHash::value_type;
 #if !NDEBUG
 #define CASE_6_TEST\
@@ -1282,9 +1248,7 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
         DEFAULT_SET_CASE(7u, __m128i, l2szfloor);
 #endif
         }
-        if(pow2 == core_ref.size()) {
-            //LOG_DEBUG("All packed\n");
-        } else {
+        if(pow2 != core_ref.size()) {
             assert(is_pow2(core_ref.size() - (core_ref.size() & ((1ull << l2szfloor) - 1))));
 #define LEFTOVERS(type)\
             for(size_t ind = pow2 / (sizeof(type) * CHAR_BIT);ind < core_ref.size() / (sizeof(type) * CHAR_BIT);++ind) {\
@@ -1483,9 +1447,5 @@ FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Ha
 namespace mh = minhash;
 } // namespace sketch
 
-#ifdef UNDEF_LDB
-#  undef LOG_DEBUG
-#  undef UNDEF_LDB
-#endif
 
 #endif /* #ifndef SKETCH_BB_MINHASH_H__*/

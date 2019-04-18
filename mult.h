@@ -10,23 +10,6 @@
 
 namespace sketch {
 using namespace common;
-#ifndef LOG_DEBUG
-#    define UNDEF_LDB
-#    if !NDEBUG
-#        define LOG_DEBUG(...) log_debug(__PRETTY_FUNCTION__, __FILE__, __LINE__, ##__VA_ARGS__)
-//#include <cstdarg>
-static int log_debug(const char *func, const char *filename, int line, const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    int ret(std::fprintf(stderr, "[D:%s:%s:%d] ", func, filename, line));
-    ret += std::vfprintf(stderr, fmt, args);
-    va_end(args);
-    return ret;
-}
-#    else
-#        define LOG_DEBUG(...)
-#    endif
-#endif
 
 namespace cws {
 
@@ -182,7 +165,9 @@ struct Card {
     Card(unsigned r, unsigned p, CounterType maxcnt, Args &&... args):
         core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p), maxcnt_(maxcnt) {
         total_added_.store(0);
-        LOG_DEBUG("size of sketch: %zu\n", core_.size());
+#if !NDEBUG
+        std::fprintf(stderr, "size of sketch: %zu\n", core_.size());
+#endif
     }
     template<typename...Args>
     Card(unsigned r, unsigned p): Card(r, p, std::numeric_limits<CounterType>::max()) {}
@@ -272,23 +257,31 @@ struct Card {
         const CounterType max_val = *std::max_element(core_.begin(), core_.end()),
                           nvals = max_val + 1;
         std::vector<unsigned> arr(2 * nvals);
-        LOG_DEBUG("Made arr with nvals = %zu\n", size_t(nvals));
+#if !NDEBUG
+        std::fprintf(stderr,"Made arr with nvals = %zu\n", size_t(nvals));
+#endif
         for(size_t i = 0; i < 2u; ++i) {
             size_t core_offset = i << r_;
             size_t arr_offset = nvals * i;
+#if !NDEBUG
             std::fprintf(stderr, "offset for arr: %zu. cfor core: %zu\n", arr_offset, core_offset);
+#endif
             for(size_t j = 0; j < size_t(1) << r_; ++j) {
                 ++arr.access(core_.access(j + core_offset) + arr_offset);
             }
         }
-        LOG_DEBUG("Filled arr with nvals = %zu\n", size_t(nvals));
+#if !NDEBUG
+        std::fprintf(stderr,"Filled arr with nvals = %zu\n", size_t(nvals));
+#endif
         std::vector<double> pmeans(nvals);
         for(size_t i = 0; i < nvals; ++i) {
             pmeans[i] = (arr[i] + arr[i + nvals]) * .5;
         }
         //std::free(arr);
         std::vector<float> f_i(nvals);
-        LOG_DEBUG("Made f_i arr\n");
+#if !NDEBUG
+        std::fprintf(stderr,"Made f_i arr\n");
+#endif
         //if(!f_i) throw std::bad_alloc();
         double logpm0 = std::log(pmeans[0]);
         double lpmml2r = logpm0 - r_ * l2;
@@ -316,8 +309,5 @@ struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, fi
 
 } // namespace sketch
 
-#ifdef UNDEF_LDB
-#undef LOG_DEBUG
-#endif
 
 #endif /* DNB_SKETCH_MULTIPLICITY_H__ */
