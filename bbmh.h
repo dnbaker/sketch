@@ -321,12 +321,8 @@ public:
         /* Now handle the rest of the bits.
          */
         const value_type *const pf = &core_[core_.size()];
-        if(pe == pf) {
-#if VERBOSE_AF
-            std::fprintf(stderr, "No remainder, we are done\n");
-#endif
+        if(pe == pf)
             return sum; // If there is no remainder, we're done
-        }
 #if HAS_AVX_512
         {
             __m512i lsum = _mm512_set1_epi64(0);
@@ -548,6 +544,7 @@ struct SuperMinHash {
         ret += gzread(fp, b_.data(), sizeof(b_[0]) * b_.size());
         return ret;
     }
+    size_t size() const {return h_.size();}
     double cardinality_estimate() const {
         const auto *ptr = &h_;
         decltype(h_) tmp;

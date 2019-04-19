@@ -1,7 +1,4 @@
 #include "pybind11/pybind11.h"
-#ifndef HLL_HEADER_ONLY
-#define HLL_HEADER_ONLY
-#endif
 #include "hll.h"
 namespace py = pybind11;
 using namespace sketch;

@@ -1,6 +1,3 @@
-#ifndef HLL_HEADER_ONLY
-#define HLL_HEADER_ONLY
-#endif
 #include "hll.h"
 #include "bbmh.h"
 #include <chrono>
@@ -56,9 +53,11 @@ int main(int argc, char *argv[]) {
         f_t fin1("tmp.dbb");
         std::system("rm tmp.dbb");
         std::system("rm SaveSketch.hll");
+        std::fprintf(stderr, "ji: %lf with %zu samples packed into %zu words and %zu bits per minimizer\n", fin1.jaccard_index(fino), smh1.size(), fin1.core_.size(), size_t(fin2.b_));
         assert(fin.jaccard_index(fin2) == 1.);
         assert(fin2.jaccard_index(fino) == fin.jaccard_index(fino));
         assert(fin == fin2);
         assert(fin == fin1);
+        assert(std::abs(fin1.jaccard_index(fino) - 0.33333333333) <= 0.02);
     }
 }
