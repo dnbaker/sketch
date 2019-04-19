@@ -1,5 +1,6 @@
 #include "hll.h"
 #include "bbmh.h"
+#include "aesctr/wy.h"
 #include <chrono>
 using namespace sketch;
 using namespace hll;
@@ -59,5 +60,27 @@ int main(int argc, char *argv[]) {
         assert(fin == fin2);
         assert(fin == fin1);
         assert(std::abs(fin1.jaccard_index(fino) - 0.33333333333) <= 0.02);
+    }
+    {
+        std::vector<hll::hll_t> hlls; for(size_t i = 0; i < 10; ++i) hlls.emplace_back(10);
+        wy::WyHash<> gen(1337);
+        for(size_t i = 0; i < 100000; ++i) {
+            if(i % 10 == 0) {
+                for(auto &h: hlls) h.addh(gen());
+            } else {
+                auto v = gen();
+                hlls[0].addh(v); hlls[i % 10].addh(v);
+            }
+        }
+        std::vector<hll::hll_t> ohlls; for(size_t i = 0; i < 10; ++i) ohlls.emplace_back(10);
+        gzFile fp = gzopen("10hlls.whooo", "wb");
+        if(!fp) throw "a party";
+        for(auto &h: hlls) h.write(fp);
+        gzclose(fp);
+        fp = gzopen("10hlls.whooo", "rb");
+        for(auto &h: ohlls) h.read(fp);
+        gzclose(fp);
+        std::system("rm 10hlls.whooo");
+        assert(std::equal(hlls.begin(), hlls.end(), ohlls.begin()));
     }
 }

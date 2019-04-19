@@ -429,6 +429,16 @@ struct SuperMinHash {
         if(bbits_ == 0)
             bbits_ = needed_bits();
     }
+    void reset() {
+        std::fill(p_.begin(), p_.end(), 0);
+        std::fill(h_.begin(), h_.end(), uint64_t(-1));
+        std::fill(q_.begin(), q_.end(), -1);
+        std::fill(b_.begin(), b_.end(), 0);
+        i_ = 0;
+        a_ = h_.size() - 1;
+        m_ = h_.size();
+        count_ = 0;
+    }
     SuperMinHash(SuperMinHash &&o):
         pol_(o.pol_), a_(o.a_), i_(o.i_), m_(o.m_),
 #if NOT_THREADSAFE
@@ -690,6 +700,9 @@ public:
                          __FILE__, __PRETTY_FUNCTION__, __LINE__, sizeof(T) * CHAR_BIT, int(b_), int(p_));
             throw std::runtime_error(buf);
         }
+    }
+    void reset() {
+        std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
     DBSKETCH_READ_STRING_MACROS
     ssize_t read(gzFile fp) {
@@ -1209,7 +1222,6 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
     using detail::setnthbit;
     const double cest = est_v ? est_v : detail::harmonic_cardinality_estimate(core_ref);
     FinalDivBBitMinHash ret(core_ref.size(), b, cest);
-    //std::fprintf(stderr, "size of ret vector: %zu. b: %u, nbuckets(): %u. cest: %lf\n", ret.core_.size(), b, unsigned(core_ref.size()), cest);
     using FinalType = typename FinalDivBBitMinHash::value_type;
     assert(ret.core_.size() % b == 0);
     assert(core_ref.size() % 64 == 0);

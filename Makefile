@@ -50,6 +50,9 @@ python: _hll.cpython.so
 %: src/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
+%: benchmark/%.cpp kthread.o $(HEADERS)
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DNDEBUG $< -o $@ -lz
+
 %_d: src/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 

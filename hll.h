@@ -712,10 +712,19 @@ public:
         return std::make_pair(sizeof(*this),
                               core_.size() * sizeof(core_[0]));
     }
+    void reset() {
+        std::fill(core_.begin(), core_.end(), 0);
+        value_ = 0;
+        is_calculated_ = false;
+    }
     uint64_t hash(uint64_t val) const {return hf_(val);}
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
     double alpha()          const {return make_alpha(m());}
     double relative_error() const {return 1.03896 / std::sqrt(static_cast<double>(m()));}
+    bool operator==(const hllbase_t &o) const {
+        return np_ == o.np_ &&
+               std::equal(core_.begin(), core_.end(), o.core_.begin());
+    }
     // Constructor
     //explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE,
     //                   JointEstimationMethod jestim=ERTL_JOINT_MLE): hllbase_t(np, ERTL_MLE, ERTL_JOINT_MLE) {}
@@ -1673,6 +1682,11 @@ struct wh119_t {
             sum += static_cast<long double>(counts[i]) * (std::pow(wh_base_, -i));
         }
         return static_cast<long double>(std::pow(core_.size(), 2) / sum) / std::sqrt(wh_base_);
+    }
+    double jaccard_index(const wh119_t &o) {
+        double us = union_size(o);
+        double mysz = cardinality_estimate(), osz = o.cardinality_estimate();
+        return (mysz + osz - us) / us;
     }
     size_t size() const {return core_.size();}
     double union_size(const wh119_t &o) const {return union_size(o.core_);}
