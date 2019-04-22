@@ -8,6 +8,8 @@ All have been accelerated with SIMD parallelism where possible, most are composa
     2. Estimates the cardinality of a set using log(log(cardinality)) bits.
     3. Threadsafe unless `-DNOT_THREADSAFE` is passed.
     4. Currently, `hll` is the only structure for which python bindings are available, but we intend to extend this in the future.
+2. HyperBitBit [hbb.h]
+    1. Better per-bit accuracy than HyperLogLogs, but, at least currently, limited to 128 bits/16 bytes in sketch size.
 3. Bloom Filter [bf.h]
     1. `bf_t`/`bfbase_t<HashStruct>`
     2. Naive bloom filter

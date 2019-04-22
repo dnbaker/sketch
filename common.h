@@ -194,6 +194,15 @@ constexpr INLINE unsigned clz(unsigned long x) {
 constexpr INLINE unsigned clz(unsigned x) {
     return __builtin_clz(x);
 }
+constexpr INLINE unsigned ctz(unsigned long long x) {
+    return __builtin_ctzll(x);
+}
+constexpr INLINE unsigned ctz(unsigned long x) {
+    return __builtin_ctzl(x);
+}
+constexpr INLINE unsigned ctz(unsigned x) {
+    return __builtin_ctz(x);
+}
 constexpr INLINE unsigned ffs(unsigned long long x) {
     return __builtin_ffsll(x);
 }

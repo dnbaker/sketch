@@ -7,6 +7,7 @@
 #include "hll.h"
 #include "mh.h"
 #include "ccm.h"
+#include "hbb.h"
 #include "kthread.h"
 
 
