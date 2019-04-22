@@ -255,12 +255,12 @@ class ccmbase_t {
 protected:
     VectorType        data_;
     UpdateStrategy updater_;
-    const unsigned nhashes_;
-    const unsigned l2sz_:16;
-    const unsigned nbits_:16;
-    const HashStruct hf_;
-    const uint64_t mask_;
-    const uint64_t subtbl_sz_;
+    unsigned nhashes_;
+    unsigned l2sz_:16;
+    unsigned nbits_:16;
+    HashStruct hf_;
+    uint64_t mask_;
+    uint64_t subtbl_sz_;
     std::vector<uint64_t, common::Allocator<uint64_t>> seeds_;
 
 public:
@@ -288,6 +288,12 @@ public:
         for(size_t i = 0; i < data_.size(); ++i)
             func(data_[i]);
     }
+    ccmbase_t(ccmbase_t &&o): data_(0, 0) {
+        char buf[sizeof(*this)]{0};
+        std::swap_ranges(buf, buf + sizeof(buf), reinterpret_cast<char *>(std::addressof(o)));
+        std::swap_ranges(buf, buf + sizeof(buf), reinterpret_cast<char *>(this));
+    }
+    ccmbase_t(const ccmbase_t &o) = delete;
     template<typename... Args>
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):
             data_(nbits, nhashes << l2sz),
