@@ -18,15 +18,10 @@ struct SparseHLL32: public SparseEncoding {
         return val >> 8;
     }
     static constexpr uint8_t get_value(uint32_t val) {return static_cast<uint8_t>(val);} // Implicitly truncated, but we add a cast for clarity
-    static constexpr encode_value(uint32_t index, uint8_t val) {
+    static constexpr uint32_t encode_value(uint32_t index, uint8_t val) {
         return (index << 8) | val;
     }
 };
-
-template<typename HashStruct>
-std::array<double, 3> get_counts(const hll::hllbase_t<HashStruct> &h) {
-    auto sc = hll::detail::sum_counts(h.core());
-}
 
 template<typename HashStruct=hash::WangHash>
 class SparseHLL {
