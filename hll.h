@@ -1129,7 +1129,7 @@ public:
     double containment_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
-            const auto ret = full_cmps[2] / full_cmps[0];
+            const auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[2]);
             return ret;
         }
         const double us = union_size(h2);
