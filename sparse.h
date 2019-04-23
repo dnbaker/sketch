@@ -72,6 +72,24 @@ public:
         auto &csum = count_sum();
         return v_ = hll::detail::ertl_ml_estimate(csum, p_, q());
     }
+    template<typename I>
+    void fill_from_pairs(I it1, I it2) {
+        while(it1 != it2) {
+            auto v = *it1++;
+            vals_.push_back(SparseHLL32::encode_value(v.first, v.second));
+        }
+    }
+    template<typename I>
+    void fill_from_packed(I it1, I it2) {
+        while(it1 != it2) {
+            auto v = *it1++;
+            vals_.push_back(v);
+        }
+    }
+    void clear() {
+        v_ = -1.;
+        vals_.clear();
+    }
     double report() const {
         if(v_ >= 0) return v_;
         auto lsum = sum();
