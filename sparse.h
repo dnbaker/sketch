@@ -90,14 +90,15 @@ public:
         auto lsum = sum();
         return hll::detail::ertl_ml_estimate(lsum, p_, q());
     }
-    std::array<double, 3> query(const hll::hllbase_t<HashStruct> &hll, std::array<uint32_t, 64> *a=nullptr) const {
+    std::array<double, 3> query(const hll::hllbase_t<HashStruct> &hll, const std::array<uint32_t, 64> *a=nullptr) const {
+        std::array<uint32_t, 64> *tmp = a ? nullptr: reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*a)));
         if(!a) {
-             a = reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*a)));
-            *a = hll::detail::sum_counts(hll.core());
+            *tmp = hll::detail::sum_counts(hll.core());
         }
+        const std::array<uint32_t, 64> &osum = a ? *a: *tmp;
         assert(is_sorted());
         auto it = vals_.begin();
-        std::array<uint32_t, 64> &lsum = *sum_, &osum = *a;
+        std::array<uint32_t, 64> &lsum = *sum_;
         std::array<uint32_t, 64> usum = osum;
         auto hcore = hll.core();
         for(const auto c: vals_) {
@@ -118,16 +119,41 @@ public:
         std::fprintf(stderr, "is: %lf. my size %lf o size %lf\n", is, myrep, orep);
         return ret;
     }
-    double jaccard_index(const hll::hllbase_t<HashStruct> &hll, std::array<uint32_t, 64> *a=nullptr) const {
+    double jaccard_index(const hll::hllbase_t<HashStruct> &hll, const std::array<uint32_t, 64> *a=nullptr) const {
         auto lq = query(hll, a);
         return lq[2] / (lq[0] + lq[1] + lq[2]);
     }
-    double containment_index(const hll::hllbase_t<HashStruct> &hll, std::array<uint32_t, 64> *a=nullptr) const {
+    double containment_index(const hll::hllbase_t<HashStruct> &hll, const std::array<uint32_t, 64> *a=nullptr) const {
         auto lq = query(hll, a);
         return lq[2] / (lq[0] + lq[2]);
     }
 
 };
+
+template<typename Container, typename HashStruct>
+inline std::array<double, 3> pair_query(const Container &con, const hll::hllbase_t<HashStruct> &hll, const std::array<uint32_t, 64> *a=nullptr) {
+    std::array<uint32_t, 64> *tmp = a ? nullptr: reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*a)));
+    if(!a) {
+        *tmp = hll::detail::sum_counts(hll.core());
+    }
+    const std::array<uint32_t, 64> &osum = a ? *a: *tmp;
+    std::array<uint32_t, 64> usum = osum;
+    std::array<uint32_t, 64> lsum{0};
+    const auto p = hll.p();
+    lsum[0] = (1ul << hll.p()) - con.size();
+    auto hcore = hll.core();
+    for(const auto &pair: con) {
+        const auto oval = hcore[pair.second];
+        if(hcore[pair.first] < pair.second)
+            --usum[oval], ++usum[pair.second];
+        ++lsum[pair.second];
+    }
+    double myrep = hll::detail::ertl_ml_estimate(lsum, p, 64 - p),
+            orep = hll.creport(),
+              us = hll::detail::ertl_ml_estimate(usum, p, 64 - p),
+              is = myrep + orep - us;
+    return std::array<double, 3>{myrep - is, orep - is, is};
+}
 
 } // sparse
 
