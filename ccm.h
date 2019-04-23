@@ -288,11 +288,7 @@ public:
         for(size_t i = 0; i < data_.size(); ++i)
             func(data_[i]);
     }
-    ccmbase_t(ccmbase_t &&o): data_(0, 0) {
-        char buf[sizeof(*this)]{0};
-        std::swap_ranges(buf, buf + sizeof(buf), reinterpret_cast<char *>(std::addressof(o)));
-        std::swap_ranges(buf, buf + sizeof(buf), reinterpret_cast<char *>(this));
-    }
+    ccmbase_t(ccmbase_t &&o) = default;
     ccmbase_t(const ccmbase_t &o) = delete;
     template<typename... Args>
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):
