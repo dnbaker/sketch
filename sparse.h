@@ -30,6 +30,22 @@ class SparseHLL {
     std::unique_ptr<std::array<uint32_t, 64>> sum_;
     double v_ = -1.;
 public:
+    SparseHLL(SparseHLL &&o) = default;
+    SparseHLL &operator=(SparseHLL &&o) = default;
+    SparseHLL &operator=(const SparseHLL &o) {
+        p_ = o.p_; vals_ = o.vals_; v_ = o.v_;
+        if(o.sum_) {
+            if(!sum_)
+                sum_.reset(new std::array<uint32_t, 64>);
+            *sum_ = o.sum_;
+        } else if(sum_) sum_.reset(nullptr);
+    }
+    SparseHLL(const SparseHLL &o): p_(o.p_), vals_(o.vals_), v_(o.v_) {
+        if(o.sum_) {
+            sum_.reset(new std::array<uint32_t, 64>);
+            *sum_ = *o.sum_;
+        }
+    }
     SparseHLL(const hll::hllbase_t<HashStruct> &hll): p_(hll.p()) {
         for(size_t i = 0; i < hll.core().size(); ++i) {
             if(hll.core()[i]) {
@@ -150,6 +166,43 @@ inline std::array<double, 3> pair_query(const Container &con, const hll::hllbase
     }
     double myrep = hll::detail::ertl_ml_estimate(lsum, p, 64 - p),
             orep = hll.creport(),
+              us = hll::detail::ertl_ml_estimate(usum, p, 64 - p),
+              is = myrep + orep - us;
+    return std::array<double, 3>{myrep - is, orep - is, is};
+}
+
+template<typename Container, typename HashStruct>
+inline std::array<double, 3> pair_query(const Container &con, const Container &c2, const int p) {
+    std::array<uint32_t, 64> lsum{0}, rsum{0}, usum{0};
+    lsum[0] = (1ul << p) - con.size();
+    rsum[0] = (1ul << p) - c2.size();
+    auto il = con.begin(), ir = c2.begin(), el = con.end(), er = c2.end();
+    while(il != el && ir != er) {
+        if(il->first > ir->first) {
+            ++rsum[ir->second];
+            ++usum[ir->second];
+            ++ir;
+        } else if(ir->first > il->first) {
+            ++rsum[il->second];
+            ++usum[il->second];
+            ++il;
+        } else {
+            ++lsum[il->second];
+            ++rsum[ir->second];
+            ++usum[std::max(il->second, ir->second)];
+            ++ir; ++il;
+        }
+    }
+    while(il != el) {
+        ++usum[il->second];
+        ++lsum[il->second];
+    }
+    while(ir != er) {
+        ++usum[ir->second];
+        ++rsum[ir->second];
+    }
+    double myrep = hll::detail::ertl_ml_estimate(lsum, p, 64 - p),
+            orep = hll::detail::ertl_ml_estimate(rsum, p, 64 - p),
               us = hll::detail::ertl_ml_estimate(usum, p, 64 - p),
               is = myrep + orep - us;
     return std::array<double, 3>{myrep - is, orep - is, is};

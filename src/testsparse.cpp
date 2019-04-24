@@ -12,7 +12,7 @@ int main() {
     }
     h1.report();
     h2.report();
-    SparseHLL<> h(h2);
+    SparseHLL<> h(h2), hh = h;
     std::fprintf(stderr, "h JI with h2: %lf\n", h.jaccard_index(h2));
     std::fprintf(stderr, "h JI with h1: %lf\n", h.jaccard_index(h1));
 }
