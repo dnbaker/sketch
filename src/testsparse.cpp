@@ -15,4 +15,11 @@ int main() {
     SparseHLL<> h(h2), hh = h;
     std::fprintf(stderr, "h JI with h2: %lf\n", h.jaccard_index(h2));
     std::fprintf(stderr, "h JI with h1: %lf\n", h.jaccard_index(h1));
+    hll_t uh = h1 + h2;
+    auto us = h2.union_size(h1);
+    std::fprintf(stderr, "Size 1: %lf. us from func: %lf\n", uh.report(), us);
+    assert(uh.report() == us);
+    std::fprintf(stderr, "h2 JI with h1: %lf\n", h2.jaccard_index(h1));
+    assert(h.jaccard_index(h2) == 1.);
+    assert(h.jaccard_index(h1) == h2.jaccard_index(h1));
 }

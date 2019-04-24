@@ -726,11 +726,9 @@ public:
                std::equal(core_.begin(), core_.end(), o.core_.begin());
     }
     // Constructor
-    //explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE,
-    //                   JointEstimationMethod jestim=ERTL_JOINT_MLE): hllbase_t(np, ERTL_MLE, ERTL_JOINT_MLE) {}
     template<typename... Args>
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE,
-                       JointEstimationMethod jestim=ERTL_JOINT_MLE,
+                       JointEstimationMethod jestim=static_cast<JointEstimationMethod>(ERTL_MLE),
                        Args &&... args):
         core_(static_cast<uint64_t>(1) << np),
         value_(0.), np_(np), is_calculated_(0),

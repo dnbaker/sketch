@@ -68,12 +68,12 @@ public:
         std::array<uint32_t, 64> ret{0};
         for(const auto v: vals_)
             ++ret[SparseHLL32::get_value(v)];
-        ret[0] += (1ull << p_) - vals_.size();
+        ret[0] = (1ull << p_) - vals_.size();
         return ret;
     }
     std::array<uint32_t, 64> &count_sum() {
         if(!sum_) {
-            sum_ = new std::array<uint32_t, 64>;
+            sum_.reset(new std::array<uint32_t, 64>);
             *sum_ = sum();
         }
         return *sum_;
@@ -107,14 +107,16 @@ public:
         return hll::detail::ertl_ml_estimate(lsum, p_, q());
     }
     std::array<double, 3> query(const hll::hllbase_t<HashStruct> &hll, const std::array<uint32_t, 64> *a=nullptr) const {
-        std::array<uint32_t, 64> *tmp = a ? nullptr: reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*a)));
+        std::array<uint32_t, 64> *tmp = a ? nullptr: reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*a))),
+                                 *tmp2 = sum_ ? sum_.get(): reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*tmp2)));
         if(!a) {
             *tmp = hll::detail::sum_counts(hll.core());
         }
         const std::array<uint32_t, 64> &osum = a ? *a: *tmp;
         assert(is_sorted());
         auto it = vals_.begin();
-        std::array<uint32_t, 64> &lsum = *sum_;
+        if(!sum_) *tmp2 = sum();
+        std::array<uint32_t, 64> &lsum = sum_ ? *sum_: *tmp2;
         std::array<uint32_t, 64> usum = osum;
         auto hcore = hll.core();
         for(const auto c: vals_) {
@@ -126,6 +128,9 @@ public:
                 ++usum[val];
             }
         }
+        assert(std::accumulate(osum.begin(), osum.end(), 0, std::plus<>()) == size_t(1) << p_);
+        assert(std::accumulate(lsum.begin(), lsum.end(), 0, std::plus<>()) == size_t(1) << p_);
+        assert(std::accumulate(usum.begin(), usum.end(), 0, std::plus<>()) == size_t(1) << p_);
         std::array<double, 3> ret;
         double myrep = this->report(), orep = hll.creport(), us = hll::detail::ertl_ml_estimate(usum, p_, q());
         double is = myrep + orep - us;
