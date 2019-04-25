@@ -57,7 +57,7 @@ public:
         common::sort::default_sort(vals_.begin(), vals_.end(), [](auto x, auto y) {return SparseHLL32::get_index(x) < SparseHLL32::get_index(y);});
     }
     bool is_sorted() const {
-        for(size_t i = 0; i < vals_.size() - 1; ++i) {
+        for(size_t i = 0; i < (vals_.size() ? vals_.size() - 1: 0); ++i) {
             if(SparseHLL32::get_index(vals_[i]) >= SparseHLL32::get_index(vals_[i + 1])) return false;
         }
         return true;
@@ -134,10 +134,12 @@ public:
         std::array<double, 3> ret;
         double myrep = this->report(), orep = hll.creport(), us = hll::detail::ertl_ml_estimate(usum, p_, q());
         double is = myrep + orep - us;
-        ret[0] = myrep - is;
-        ret[1] = orep - is;
-        ret[2] = is;
-        std::fprintf(stderr, "is: %lf. my size %lf o size %lf\n", is, myrep, orep);
+        ret[0] = std::max(myrep - is, 0.);
+        ret[1] = std::max(orep - is, 0.);
+        ret[2] = std::max(is, 0.);
+#if VERBOSE_AF
+        std::fprintf(stderr, "is: %lf. my size %lf o size %lf\n", ret[0], ret[1], ret[2]);
+#endif
         return ret;
     }
     double jaccard_index(const hll::hllbase_t<HashStruct> &hll, const std::array<uint32_t, 64> *a=nullptr) const {
@@ -169,11 +171,16 @@ inline std::array<double, 3> pair_query(const Container &con, const hll::hllbase
             --usum[oval], ++usum[pair.second];
         ++lsum[pair.second];
     }
+#if !NDEBUG
+    for(const auto &sum: {usum, osum, lsum}) {
+        assert(std::accumulate(sum.begin(), sum.end(), size_t(0)) == size_t(1) << p);
+    }
+#endif
     double myrep = hll::detail::ertl_ml_estimate(lsum, p, 64 - p),
             orep = hll.creport(),
               us = hll::detail::ertl_ml_estimate(usum, p, 64 - p),
               is = myrep + orep - us;
-    return std::array<double, 3>{myrep - is, orep - is, is};
+    return std::array<double, 3>{std::max(myrep - is, 0.), std::max(orep - is, 0.), std::max(is, 0.)};
 }
 
 template<typename Container, typename HashStruct>
@@ -210,7 +217,7 @@ inline std::array<double, 3> pair_query(const Container &con, const Container &c
             orep = hll::detail::ertl_ml_estimate(rsum, p, 64 - p),
               us = hll::detail::ertl_ml_estimate(usum, p, 64 - p),
               is = myrep + orep - us;
-    return std::array<double, 3>{myrep - is, orep - is, is};
+    return std::array<double, 3>{std::max(myrep - is, 0.), std::max(orep - is, 0.), std::max(is, 0.)};
 }
 
 } // sparse
