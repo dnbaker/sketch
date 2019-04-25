@@ -3,7 +3,7 @@
 #include <random>
 #include "ccm.h" // Count-min sketch
 #if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
-#include "blaze/Math.h"
+#include "./vec/blaze/blaze/Math.h"
 #endif
 #include <cstdarg>
 #include <mutex>
@@ -316,12 +316,7 @@ struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, fi
 namespace wj { // Weighted jaccard
 
 template<typename CoreSketch, typename CountingSketchType=cm::ccm_t>
-#if !NDEBUG
-class
-#else
-struct
-#endif
-WeightedSketcher {
+struct WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
     public:

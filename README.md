@@ -57,12 +57,13 @@ The following sketches are experimental or variations on prior structures
     1. `pcbf_t`/`pcbfbase_t<HashStruct>`
     2. An array each of bloom filters and hyperloglogs for approximate counting. The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation.
     3. Currently *not* threadsafe.
+8. Multiplicity Adapter
+    1. In `mult.h`, the WeightedSketch template class uses a point querying counting structure (by default, a count-min sketch).
+    2. You can find an example of an adapter providing a weighted jaccard HyperLogLog in `test/multtest.cpp`. This works for any of the structures working on unweighted sets.
 
 Future work
 1. Multiplicities
     1. Consistent Weighted Sampling, Improved CWS
-    2. BagMinHash for efficient weighted Jaccard
-    3. Multiplicative extensions of HLL
 2. Sampling algorithms and core-sets
 
 ### Test case
