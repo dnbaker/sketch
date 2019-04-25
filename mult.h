@@ -316,7 +316,12 @@ struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, fi
 namespace wj { // Weighted jaccard
 
 template<typename CoreSketch, typename CountingSketchType=cm::ccm_t>
-class WeightedSketcher {
+#if !NDEBUG
+class
+#else
+struct
+#endif
+WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
     public:
@@ -326,14 +331,16 @@ class WeightedSketcher {
     void add(uint64_t hash) {
         auto count = cst_.est_count(hash);
         auto newcount = cst_.addh(hash);
-        if(newcount > count) {
+        if(newcount != count) {
             std::array<uint64_t, 2> arr{hash, uint64_t(count)};
             sketch_.addh(XXH3_64bits(arr.data(), sizeof(arr)));
         }
     }
+    WeightedSketcher(const WeightedSketcher &) = default;
+    WeightedSketcher(WeightedSketcher &&) = default;
     template<typename...Args>
-    auto finalize(Args &&...args) const {
-        return sketch_.finalize(std::forward<Args>(args)...);
+    final_type finalize(Args &&...args) const {
+        return final_type(sketch_.finalize(std::forward<Args>(args)...));
     }
 };
 

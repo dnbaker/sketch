@@ -113,9 +113,11 @@ struct Increment {
     template<typename T, typename Container, typename IntType>
     void operator()(std::vector<T> &ref, Container &con, IntType nbits) const {
             unsigned count = con[ref[0]];
-            if(detail::range_check<typename detail::IndexedValue<Container>::Type>(nbits, ++count) == 0)
+            ++count;
+            if(detail::range_check<typename detail::IndexedValue<Container>::Type>(nbits, count) == 0) {
                 for(const auto el: ref)
                     con[el] = count;
+            }
     }
     template<typename... Args>
     Increment(Args &&... args) {}
@@ -202,23 +204,13 @@ struct PowerOfTwo {
     template<typename T, typename Container, typename IntType>
     void operator()(std::vector<T> &ref, Container &con, IntType nbits) {
         uint64_t val = con[ref[0]];
-#if !NDEBUG
-        //std::fprintf(stderr, "Value before incrementing: %zu\n", size_t(val));
-        //for(const auto i: ref) std::fprintf(stderr, "These should all be the same: %u\n", unsigned(con[i]));
-#endif
         if(val == 0) {
             for(const auto el: ref)
                 con[el] = 1;
         } else {
             if(__builtin_expect(nbits_ < val, 0)) gen_ = rng_(), nbits_ = 64;
-#if !NDEBUG
-            //std::fprintf(stderr, "bitmasked gen: %u. val: %u\n", unsigned((gen_ & (UINT64_C(-1) >> (64 - val)))), unsigned(val));
-#endif
             auto oldval = val;
             if((gen_ & (UINT64_C(-1) >> (64 - val))) == 0) {
-#if !NDEBUG
-            //std::fprintf(stderr, "We incremented a second time!\n");
-#endif
                 ++val;
                 if(detail::range_check(nbits, val) == 0)
                     for(const auto el: ref)
@@ -268,10 +260,12 @@ public:
     static constexpr bool supports_deletion() {
         return !conservative_update;
     }
+    size_t size() const {return data_.size();}
     std::pair<size_t, size_t> est_memory_usage() const {
         return std::make_pair(sizeof(*this),
                               seeds_.size() * sizeof(seeds_[0]) + data_.bytes());
     }
+    size_t seeds_size() const {return seeds_.size();}
     void clear() {
         common::detail::zero_memory(data_, ilog2(subtbl_sz_));
     }
@@ -288,9 +282,11 @@ public:
         for(size_t i = 0; i < data_.size(); ++i)
             func(data_[i]);
     }
-    ccmbase_t(ccmbase_t &&o): data_(std::move(o.data_)), updater_(std::move(updater_)), nhashes_(o.nhashes_), l2sz_(o.l2sz_),
-                              nbits_(o.nbits_), hf_(std::move(hf_)), mask_(o.mask_), subtbl_sz_(o.subtbl_sz_), seeds_(std::move(seeds_)) {}
-    ccmbase_t(const ccmbase_t &o) = delete;
+    //ccmbase_t(ccmbase_t &&o): data_(std::move(o.data_)), updater_(std::move(updater_)), nhashes_(o.nhashes_), l2sz_(o.l2sz_),
+    //                          nbits_(o.nbits_), hf_(std::move(hf_)), mask_(o.mask_), subtbl_sz_(o.subtbl_sz_), seeds_(std::move(o.seeds_)) {
+    //}
+    ccmbase_t(const ccmbase_t &o) = default;
+    ccmbase_t(ccmbase_t &&o) = default;
     template<typename... Args>
     ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):
             data_(nbits, nhashes << l2sz),
@@ -309,7 +305,7 @@ public:
         clear();
 #if !NDEBUG
         std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables. %zu is the number of 64-bit hashes with %u nhashesper64bitword\n", nbits, l2sz, nhashes, seeds_.size(), nperhash64);
-        std::fprintf(stderr, "Size of updater: %zu\n", sizeof(updater_));
+        std::fprintf(stderr, "Size of updater: %zu. seeds length: %zu\n", sizeof(updater_), seeds_.size());
 #endif
     }
     VectorType &ref() {return data_;}
@@ -477,6 +473,7 @@ public:
             }
             //std::fprintf(stderr, "Doing Leftover stuff\n");
             while(nhdone < nhashes_) {
+                assert(seeds_.data());
                 uint64_t hv = hash(val ^ seeds_[seedind]);
                 for(unsigned k(0), e = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); k < e;) {
                     const uint32_t index = ((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone;
@@ -530,7 +527,7 @@ public:
                 }
             }
         }
-        return ret;
+        return ret + std::is_same<UpdateStrategy, update::Increment>::value;
     }
     uint64_t est_count(uint64_t val) const {
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());

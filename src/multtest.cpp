@@ -16,6 +16,23 @@ int main () {
     auto vc3 = vc + vc2;
     auto zomg2 = vc.report();
     auto zomg3 = vc3.report();
-    wj::WeightedSketcher<hll::hll_t, cm::ccm_t> ws(cm::ccm_t(4, 10, 4), hll::hll_t(10));
-    auto v = ws.finalize();
+    wj::WeightedSketcher<hll::hll_t, cm::ccm_t> ws(cm::ccm_t(8, 16, 2), hll::hll_t(10));
+    wj::WeightedSketcher<hll::hll_t, cm::ccm_t> ws2(cm::ccm_t(4, 16, 2), hll::hll_t(10));
+    for(size_t i =0; i < 200; ++i) {
+        ws.addh(1);
+        auto v = gen(), c = gen() % 8;
+        for(size_t j = 0; j < c; ++j)
+            ws.addh(v), ws2.addh(v);
+        v = gen();
+        c = gen() % 4;
+        for(size_t j = 0; j < c; ++j)
+            ws2.addh(v);
+        v = gen();
+        for(size_t j = 0; j < c; ++j)
+            ws.addh(v);
+    }
+    hll::hll_t v1 = ws.finalize(), v2 = ws2.finalize();
+    v1.sum(); v2.sum();
+    std::fprintf(stderr, "v1 wji with v2 %lf\n", v1.jaccard_index(v2));
+    std::fprintf(stderr, "v1.str: %s. ws1 cardinality %lf\n", v1.to_string().data(), ws.sketch_.report());
 }

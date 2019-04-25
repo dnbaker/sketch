@@ -510,10 +510,12 @@ inline std::array<uint32_t, 64> sum_counts(const Container &con) {
     //static_assert(std::is_same<std::decay_t<decltype(con[0])>, uint8_t>::value, "Container must contain 8-bit unsigned integers.");
     return sum_counts(reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
 }
+
 inline std::array<uint32_t, 64> sum_counts(const DefaultCompactVectorType &con) {
     // TODO: add a check to make sure that it's doing it right
     return sum_counts(reinterpret_cast<const SIMDHolder *>(con.get()), reinterpret_cast<const SIMDHolder *>(con.get() + con.bytes()));
 }
+
 template<typename T, typename Container>
 inline void inc_counts(T &counts, const Container &con) {
     //static_assert(std::is_same<std::decay_t<decltype(con[0])>, uint8_t>::value, "Container must contain 8-bit unsigned integers.");
@@ -763,7 +765,7 @@ public:
                                                      " Try the report() function.");
         return value_;
     }
-    const auto &finalize() const {return *this;}
+    const auto finalize() const {return *this;}
     double report() noexcept {
         csum();
         return creport();
