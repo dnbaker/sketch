@@ -7,6 +7,12 @@
 #endif
 #include <cstdarg>
 #include <mutex>
+#include "./xxHash/xxh3.h"
+
+#ifdef NDEBUG
+#    undef NDEBUG
+#  define NDEBUG 1
+#endif
 
 namespace sketch {
 using namespace common;
@@ -306,6 +312,32 @@ struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, fi
 };
 
 } // namespace nt
+
+namespace wj { // Weighted jaccard
+
+template<typename CoreSketch, typename CountingSketchType=cm::ccm_t>
+class WeightedSketcher {
+    CountingSketchType cst_;
+    CoreSketch      sketch_;
+    public:
+    using final_type = typename CoreSketch::final_type;
+    WeightedSketcher(CountingSketchType &&cst, CoreSketch &&core): cst_(std::move(cst)), sketch_(std::move(core)) {}
+    void addh(uint64_t hash) {add(hash);}
+    void add(uint64_t hash) {
+        auto count = cst_.est_count(hash);
+        auto newcount = cst_.addh(hash);
+        if(newcount > count) {
+            std::array<uint64_t, 2> arr{hash, uint64_t(count)};
+            sketch_.addh(XXH3_64bits(arr.data(), sizeof(arr)));
+        }
+    }
+    template<typename...Args>
+    auto finalize(Args &&...args) const {
+        return sketch_.finalize(std::forward<Args>(args)...);
+    }
+};
+
+} // namespace wj
 
 } // namespace sketch
 

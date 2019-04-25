@@ -1,6 +1,9 @@
 #include "mult.h"
+#include "hll.h"
 using namespace sketch;
 using namespace cws;
+
+
 int main () {
     common::DefaultRNGType gen;
 #if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
@@ -13,4 +16,6 @@ int main () {
     auto vc3 = vc + vc2;
     auto zomg2 = vc.report();
     auto zomg3 = vc3.report();
+    wj::WeightedSketcher<hll::hll_t, cm::ccm_t> ws(cm::ccm_t(4, 10, 4), hll::hll_t(10));
+    auto v = ws.finalize();
 }

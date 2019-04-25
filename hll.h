@@ -703,6 +703,7 @@ protected:
     JointEstimationMethod jestim_;
     HashStruct                hf_;
 public:
+    using final_type = hllbase_t<HashStruct>;
     using HashType = HashStruct;
 #if LZ_COUNTER
     std::array<std::atomic<uint64_t>, 64> clz_counts_; // To check for bias in insertion
@@ -762,6 +763,7 @@ public:
                                                      " Try the report() function.");
         return value_;
     }
+    const auto &finalize() const {return *this;}
     double report() noexcept {
         csum();
         return creport();

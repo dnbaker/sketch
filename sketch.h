@@ -23,6 +23,7 @@ namespace sketch {
     using namespace common;
     using namespace cws;
     using namespace nt;
+    using namespace wj;
 }
 
 #endif /* SKETCH_SINGLE_HEADER_H__ */
