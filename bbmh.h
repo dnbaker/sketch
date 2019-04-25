@@ -253,14 +253,9 @@ public:
                 sum = popcount(match);
                 break;
             }
-            case 7: {
-                const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
-                __m128i match = ~(*vp1++ ^ *vp2++);
-                while(vp1 != vpe)
-                    match &= ~(*vp1++ ^ *vp2++);
-                sum = popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
+            case 7:
+                sum = detail::matching_bits(reinterpret_cast<const __m128i *>(p1), reinterpret_cast<const __m128i *>(p2), b_);
                 break;
-            }
 #if __AVX2__
             case 8: {
                 sum = common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_));
@@ -345,7 +340,6 @@ public:
             const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
             __m256i lsum = _mm256_set1_epi64x(0);
             while(vp1 + b_ <= reinterpret_cast<const __m256i *>(pf)) {
-                //std::fprintf(stderr, "I am %zu away from the end\n", reinterpret_cast<const __m256i *>(pf) - (vp1 + b_));
                 __m256i match = ~(*vp1++ ^ *vp2++);
                 for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
                 lsum = _mm256_add_epi64(lsum, popcnt256(match));
@@ -360,7 +354,8 @@ public:
         while(vp1 + b_ <= reinterpret_cast<const __m128i *>(pf)) {
             __m128i match = ~(*vp1++ ^ *vp2++);
             for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
-            sum += common::sum_of_u64s(match); // Since there's no faster popcount for __m128i currently.
+            sum += popcount(vatpos(match, 0)) + popcount(vatpos(match, 1));
+            // Since there's no faster popcount for __m128i currently.
         }
         p1 = reinterpret_cast<const uint64_t *>(vp1);
         p2 = reinterpret_cast<const uint64_t *>(vp2);
@@ -1430,11 +1425,11 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
                 __m128i match = ~(*vp1++ ^ *vp2++);
                 for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
-                auto lsum = common::sum_of_u64s(match);
+                auto lsum = popcount(vatpos(match, 0)) + popcount(vatpos(match, 1));
                 while((uint64_t *)vp1 + 2 <= (uint64_t *)vpe) {
                     match = ~(*vp1++ ^ *vp2++);
                     for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
-                    lsum += common::sum_of_u64s(match);
+                    lsum += popcount(vatpos(match, 0)) + popcount(vatpos(match, 1));
                 }
                 sum = lsum;
                 break;
