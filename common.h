@@ -161,12 +161,18 @@ using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
 using DefaultCompactVectorType = ::compact::vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
 
 template<size_t NBITS>
-using DefaultStaticCompactVectorType = ::compact::vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>;
+class DefaultStaticCompactVectorType: public ::compact::vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>> {
+public:
+    DefaultStaticCompactVectorType(size_t nb, size_t nelem): ::compact::vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>(nelem) {}
+};
 #else
 using DefaultCompactVectorType = ::compact::ts_vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
 
 template<size_t NBITS>
-using DefaultStaticCompactVectorType = ::compact::ts_vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>;
+class DefaultStaticCompactVectorType: public ::compact::ts_vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>> {
+public:
+    DefaultStaticCompactVectorType(size_t nb, size_t nelem): ::compact::ts_vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>(nelem) {}
+};
 #endif
 
 template<typename T>

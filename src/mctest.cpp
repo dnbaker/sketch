@@ -30,6 +30,7 @@ int main(int argc, char *argv[]) {
     cs_t cmscs(l2sz, nhashes * 4);
     cs4w_t cmscs4w(l2sz, nhashes * 4), cmscs4w2(l2sz, nhashes * 4);
     sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
+    ccmbase_t<update::Increment, DefaultStaticCompactVectorType<4>> static_cm(nbits, l2sz, nhashes);
 #if __cplusplus >= 201703L
     auto [x, y] = cms.est_memory_usage();
 #else

@@ -84,7 +84,7 @@ static constexpr IntType signarr []{static_cast<IntType>(-1), static_cast<IntTyp
 
 template<typename T>
 struct IndexedValue {
-    using Type = typename std::decay_t<decltype(*(T(100, 10).cbegin()))>;
+    using Type = typename std::decay_t<decltype(*(std::declval<T>().cbegin()))>;
 };
 template<typename T>
 static constexpr int range_check(unsigned nbits, T val) {
@@ -304,6 +304,7 @@ public:
         while(seeds_.size() * nperhash64 < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
         clear();
 #if !NDEBUG
+        std::fprintf(stderr, "size of data: %zu\n", data_.size());
         std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables. %zu is the number of 64-bit hashes with %u nhashesper64bitword\n", nbits, l2sz, nhashes, seeds_.size(), nperhash64);
         std::fprintf(stderr, "Size of updater: %zu. seeds length: %zu\n", sizeof(updater_), seeds_.size());
 #endif
