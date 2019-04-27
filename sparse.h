@@ -4,6 +4,7 @@
 namespace sketch {
 
 namespace sparse {
+using namespace common;
 
 // For HLL
 
@@ -33,6 +34,9 @@ class SparseHLL {
     std::unique_ptr<std::array<uint32_t, 64>> sum_;
     double v_ = -1.;
 public:
+    bool operator==(const SparseHLL &o) const {
+        return vals_ == o.vals_;
+    }
     SparseHLL(SparseHLL &&o) = default;
     SparseHLL &operator=(SparseHLL &&o) = default;
     SparseHLL &operator=(const SparseHLL &o) {
@@ -164,7 +168,6 @@ public:
         auto lq = query(hll, a);
         return lq[2] / (lq[0] + lq[2]);
     }
-#if 0
     template<typename Allocator>
     SparseHLL(const std::vector<uint32_t, Allocator> &a) {
         assert(vals_.size() == 0);
@@ -181,35 +184,26 @@ public:
         while(ind < nelem) {
             if(ind != nelem - 1) {
                 while(((buf[ind]>>6) == (buf[ind + 1]>>6))) {
+#if VERBOSE_AF
                     std::fprintf(stderr, "same index: %u\n", SparseHLL32::get_index(buf[ind]));
+#endif
                     ++ind; continue;
                 }
+#if VERBOSE_AF
                 std::fprintf(stderr, "saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), unsigned(SparseHLL32::get_value(buf[ind])), buf[ind]);
+#endif
                 assert(vals_.empty() || buf[ind] > vals_.back() || std::fprintf(stderr, "ind is %u\n", unsigned(ind)) == 0);
                 vals_.push_back(buf[ind++]);
             } else {
+#if VERBOSE_AF
                 std::fprintf(stderr, "ind is nelem - 1, and saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), unsigned(SparseHLL32::get_value(buf[ind])), buf[ind]);
+#endif
                 vals_.push_back(buf[ind++]); // Otherwise, 
             }
         }
-        for(size_t i = 0; i < vals_.size() - 1; ++i) {
-            auto cv = vals_[i];
-            auto ind = SparseHLL32::get_index(cv);
-            auto val = SparseHLL32::get_value(cv);
-            auto ncv = vals_[i];
-            auto nind = SparseHLL32::get_index(ncv);
-            auto nval = SparseHLL32::get_value(ncv);
-            //std::fprintf(stderr, "with i = %zu, cv %u, ind %u, val %u\n", i, cv, ind, val);
-            //std::fprintf(stderr, "with ni = %zu, ncv %u, nind %u, nval %u\n", i + 1, ncv, nind, nval);
-            assert(ind < SparseHLL32::get_index(vals_[i + 1]));
-            assert(cv < vals_[i + 1]);
-        }
-        assert(std::is_sorted(vals_.begin(), vals_.end()));
         assert(is_sorted());
         std::free(buf);
     }
-#endif
-
 };
 
 template<typename Container, typename HashStruct>
@@ -277,6 +271,29 @@ inline std::array<double, 3> pair_query(const Container &con, const Container &c
               us = hll::detail::ertl_ml_estimate(usum, p, 64 - p),
               is = myrep + orep - us;
     return std::array<double, 3>{std::max(myrep - is, 0.), std::max(orep - is, 0.), std::max(is, 0.)};
+}
+template<typename Allocator>
+void flatten(std::vector<uint32_t, Allocator> &a) {
+    size_t nfilled = 0;
+    const size_t nelem = a.size();
+    if(nelem > 64)
+        sort::default_sort(a.data(), a.data() + nelem);
+    else
+        sort::insertion_sort(a.data(), a.data() + nelem);
+    assert(std::is_sorted(a.data(), a.data() + nelem));
+    size_t ind = 0;
+    while(ind < nelem) {
+        if(ind != nelem - 1) {
+            while(((a[ind]>>6) == (a[ind + 1]>>6))) {
+                ++ind; continue;
+            }
+            a[nfilled++] = a[ind++];
+        } else {
+            a[nfilled++] = a[ind++];
+        }
+    }
+    a.resize(nfilled);
+    assert(std::is_sorted(a.begin(), a.end()));
 }
 
 } // sparse
