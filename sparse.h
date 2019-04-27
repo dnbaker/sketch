@@ -14,12 +14,15 @@ struct SparseEncoding {
 };
 
 struct SparseHLL32: public SparseEncoding {
+    static constexpr size_t SHIFT = 6;
+    static constexpr size_t MASK = (1 << SHIFT) - 1;
+    static constexpr size_t max_p() {return 32 - SHIFT;}
     static constexpr uint32_t get_index(uint32_t val) {
-        return val >> 8;
+        return val >> SHIFT;
     }
-    static constexpr uint8_t get_value(uint32_t val) {return static_cast<uint8_t>(val);} // Implicitly truncated, but we add a cast for clarity
+    static constexpr uint8_t get_value(uint32_t val) {return static_cast<uint8_t>(val & MASK);} // Implicitly truncated, but we add a cast for clarity
     static constexpr uint32_t encode_value(uint32_t index, uint8_t val) {
-        return (index << 8) | val;
+        return (index << SHIFT) | val;
     }
 };
 
@@ -41,17 +44,29 @@ public:
         } else if(sum_) sum_.reset(nullptr);
     }
     SparseHLL(const SparseHLL &o): p_(o.p_), vals_(o.vals_), v_(o.v_) {
+#if VERBOSE_AF
+        std::fprintf(stderr, "Copy constructor\n");
+#endif
         if(o.sum_) {
             sum_.reset(new std::array<uint32_t, 64>);
             *sum_ = *o.sum_;
         }
     }
-    SparseHLL(const hll::hllbase_t<HashStruct> &hll): p_(hll.p()) {
+    SparseHLL(const hll::hllbase_t<HashStruct> &hll): SparseHLL(hll.p()) {
+#if VERBOSE_AF
+        std::fprintf(stderr, "HLL constructor\n");
+#endif
         for(size_t i = 0; i < hll.core().size(); ++i) {
             if(hll.core()[i]) {
                 vals_.emplace_back(SparseHLL32::encode_value(i, hll.core()[i]));
             }
         }
+    }
+    SparseHLL(int p): p_(p) {
+        if(p > SparseHLL32::max_p()) throw std::runtime_error(std::string("p exceeds maximum ") + std::to_string(SparseHLL32::max_p()));
+#if VERBOSE_AF
+        std::fprintf(stderr, "p constructor p: %u\n", p_);
+#endif
     }
     void sort() {
         common::sort::default_sort(vals_.begin(), vals_.end(), [](auto x, auto y) {return SparseHLL32::get_index(x) < SparseHLL32::get_index(y);});
@@ -63,7 +78,6 @@ public:
         return true;
     }
     unsigned q() const {return 64 - p_;}
-    SparseHLL(int p): p_(p) {}
     std::array<uint32_t, 64> sum() const {
         std::array<uint32_t, 64> ret{0};
         for(const auto v: vals_)
@@ -150,6 +164,51 @@ public:
         auto lq = query(hll, a);
         return lq[2] / (lq[0] + lq[2]);
     }
+#if 0
+    template<typename Allocator>
+    SparseHLL(const std::vector<uint32_t, Allocator> &a) {
+        assert(vals_.size() == 0);
+        const size_t nelem = a.size(), nb = sizeof(uint32_t) * nelem;
+        auto buf = static_cast<uint32_t *>(std::malloc(nb));
+        if(!buf) throw std::bad_alloc();
+        std::memcpy(buf, a.data(), nb);
+        if(nelem > 64)
+            sort::default_sort(buf, buf + nelem);
+        else
+            sort::insertion_sort(buf, buf + nelem);
+        assert(std::is_sorted(buf, buf + nelem));
+        size_t ind = 0;
+        while(ind < nelem) {
+            if(ind != nelem - 1) {
+                while(((buf[ind]>>6) == (buf[ind + 1]>>6))) {
+                    std::fprintf(stderr, "same index: %u\n", SparseHLL32::get_index(buf[ind]));
+                    ++ind; continue;
+                }
+                std::fprintf(stderr, "saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), unsigned(SparseHLL32::get_value(buf[ind])), buf[ind]);
+                assert(vals_.empty() || buf[ind] > vals_.back() || std::fprintf(stderr, "ind is %u\n", unsigned(ind)) == 0);
+                vals_.push_back(buf[ind++]);
+            } else {
+                std::fprintf(stderr, "ind is nelem - 1, and saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), unsigned(SparseHLL32::get_value(buf[ind])), buf[ind]);
+                vals_.push_back(buf[ind++]); // Otherwise, 
+            }
+        }
+        for(size_t i = 0; i < vals_.size() - 1; ++i) {
+            auto cv = vals_[i];
+            auto ind = SparseHLL32::get_index(cv);
+            auto val = SparseHLL32::get_value(cv);
+            auto ncv = vals_[i];
+            auto nind = SparseHLL32::get_index(ncv);
+            auto nval = SparseHLL32::get_value(ncv);
+            //std::fprintf(stderr, "with i = %zu, cv %u, ind %u, val %u\n", i, cv, ind, val);
+            //std::fprintf(stderr, "with ni = %zu, ncv %u, nind %u, nval %u\n", i + 1, ncv, nind, nval);
+            assert(ind < SparseHLL32::get_index(vals_[i + 1]));
+            assert(cv < vals_[i + 1]);
+        }
+        assert(std::is_sorted(vals_.begin(), vals_.end()));
+        assert(is_sorted());
+        std::free(buf);
+    }
+#endif
 
 };
 
