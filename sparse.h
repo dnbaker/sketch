@@ -129,6 +129,7 @@ public:
                                  *tmp2 = sum_ ? sum_.get(): reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*tmp2)));
         if(!a) {
             *tmp = hll::detail::sum_counts(hll.core());
+            assert(std::accumulate(tmp->begin(), tmp->end(), 0, std::plus<>()) == size_t(1) << p_);
         }
         const std::array<uint32_t, 64> &osum = a ? *a: *tmp;
         assert(is_sorted());
@@ -201,6 +202,14 @@ public:
                 vals_.push_back(buf[ind++]); // Otherwise, 
             }
         }
+#if !NDEBUG
+        std::set<uint32_t> vs(vals_.begin(), vals_.end());
+        assert(vs.size() == vals_.size());
+        assert(std::equal(vs.begin(), vs.end(), vals_.begin()));
+        vs.clear();
+        for(const auto v: vals_) vs.insert(SparseHLL32::get_index(v));
+        assert(vs.size() == vals_.size());
+#endif
         assert(is_sorted());
         std::free(buf);
     }
@@ -315,6 +324,46 @@ void flattened_for_each(std::vector<uint32_t, Allocator> &a, const Functor &func
             func(a[ind++]);
         }
     }
+}
+
+template<typename Allocator, typename HashStruct>
+inline std::array<double, 3> flatten_and_query(std::vector<uint32_t, Allocator> &con, const hll::hllbase_t<HashStruct> &hll, const std::array<uint32_t, 64> *a=nullptr) {
+    std::array<uint32_t, 64> *tmp = a ? nullptr: reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*a)));
+    if(!a) {
+        *tmp = hll::detail::sum_counts(hll.core());
+    }
+    const std::array<uint32_t, 64> &osum = a ? *a: *tmp;
+    std::array<uint32_t, 64> usum = osum;
+    std::array<uint32_t, 64> lsum{0};
+    const auto p = hll.p();
+    flatten(con);
+    assert(con.size() <= 1ul << p);
+    lsum[0] = (1ul << p) - con.size();
+    auto hcore = hll.core();
+    assert(std::is_sorted(con.begin(), con.end()));
+#if VERBOSE_AF
+    std::fprintf(stderr, "FLATTENED IS THE END. size now: %zu\n", con.size());
+#endif
+    for(const auto v: con) {
+        const auto first = SparseHLL32::get_index(v);
+        const auto second = SparseHLL32::get_value(v);
+        assert(first < hcore.size());
+        const auto oval = hcore[first];
+        if(hcore[first] < second)
+            --usum[oval], ++usum[second];
+        ++lsum[second];
+    }
+#define __sum_check(x) \
+    assert(std::accumulate(std::begin(x), std::end(x), size_t(0)) == size_t(1) << p);
+    __sum_check(osum);
+    __sum_check(lsum);
+    __sum_check(usum);
+#undef __sum_check
+    double myrep = hll::detail::ertl_ml_estimate(lsum, p, 64 - p),
+            orep = hll::detail::ertl_ml_estimate(osum, p, 64 - p),
+              us = hll::detail::ertl_ml_estimate(usum, p, 64 - p),
+              is = myrep + orep - us;
+    return std::array<double, 3>{std::max(myrep - is, 0.), std::max(orep - is, 0.), std::max(is, 0.)};
 }
 
 } // sparse
