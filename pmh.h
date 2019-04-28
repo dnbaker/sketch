@@ -12,6 +12,72 @@ using namespace common;
 template<typename T>
 void maxify(T &x);
 
+template<typename T> class TD;
+
+template<typename T, typename Func>
+void for_each_nonzero(const T &x, const Func &func) {
+#if VERBOSE_AF
+    std::fprintf(stderr, "Using default %s\n", __PRETTY_FUNCTION__);
+#endif
+    size_t i = 0;
+    auto it = std::cbegin(x);
+    while(it != std::cend(x)) {
+        if(*it)
+            func(i, *it);
+        ++i; ++it;
+    }
+}
+
+template<typename T, typename Allocator, typename Func>
+void for_each_nonzero(const std::vector<T, Allocator> &x, const Func &func) {
+#if VERBOSE_AF
+    std::fprintf(stderr, "Using vector %s\n", __PRETTY_FUNCTION__);
+#endif
+    size_t i = 0;
+    for(size_t i = 0; i < x.size(); ++i)
+        if(x[i]) func(i, x[i]);
+}
+template<typename T, typename Func, template<typename, bool> typename MatrixType, bool SO, bool B1, bool B2, bool B3>
+void for_each_nonzero(const blaze::Row<MatrixType<T, SO>, B1, B2, B3> &x, const Func &func) {
+#if VERBOSE_AF
+    std::fprintf(stderr, "Using row %s\n", __PRETTY_FUNCTION__);
+#endif
+    size_t i = 0;
+    for(size_t i = 0; i < x.size(); ++i)
+        if(x[i]) func(i, x[i]);
+}
+
+template<typename T, typename Func, bool SO>
+void for_each_nonzero(const blaze::DynamicVector<T, SO> &x, const Func &func) {
+#if VERBOSE_AF
+    std::fprintf(stderr, "Using dv %s\n", __PRETTY_FUNCTION__);
+#endif
+    size_t i = 0;
+    for(size_t i = 0; i < x.size(); ++i)
+        if(x[i]) func(i, x[i]);
+}
+
+template<typename T, typename Func, bool SO>
+void for_each_nonzero(const blaze::CompressedVector<T, SO> &x, const Func &func) {
+#if VERBOSE_AF
+    std::fprintf(stderr, "Using blaze compressed matrix %s\n", __PRETTY_FUNCTION__);
+#endif
+    for(const auto &el: x) {
+        func(el.index(), el.value());
+    }
+}
+
+template<template<typename, typename> typename Map, typename K, typename V, typename Func>
+void for_each_nonzero(const Map<K, V> &x, const Func &func) {
+#if VERBOSE_AF
+    std::fprintf(stderr, "Using blaze compressed matrix %s\n", __PRETTY_FUNCTION__);
+#endif
+    for(const auto &el: x) {
+        func(el.first, el.second);
+    }
+}
+
+
 template<typename Hasher=common::WangHash>
 class PMinHasher {
     uint64_t *seeds_;
@@ -32,7 +98,7 @@ public:
     }
     ~PMinHasher() {std::free(seeds_);}
     template<typename T, typename FType=double>
-    auto operator()(T x, uint64_t seed) const {
+    auto hash(T x, uint64_t seed) const {
         if(!x) return FType(0);
         uint64_t newseed;
         static_assert(sizeof(x) >= 4, "must be at least 4 bytes");
@@ -49,15 +115,13 @@ public:
         for(auto &e: ret) e = n_; // To work with different containers
         std::vector<double> cvals;
         std::vector<uint32_t> nzs;
-        for(size_t i = 0; i < vec.size(); ++i) {
-            if(vec[i]) {
-                nzs.push_back(i);
-                cvals.resize(cvals.size() + n_);
-                for(size_t j = 0; j < n_; ++j) {
-                    cvals[(nzs.size() - 1) * n_ + j] = operator()(vec[i], seeds_[j]);
-                }
+        for_each_nonzero(vec, [&](auto index, auto value) {
+            nzs.push_back(index);
+            cvals.resize(cvals.size() + n_);
+            for(size_t j = 0; j < n_; ++j) {
+                cvals[(nzs.size() - 1) * n_ + j] = this->hash(value, seeds_[j]);
             }
-        }
+        });
         assert(cvals.size() == nzs.size() * n_);
         for(size_t i = 0; i < n_; ++i) {
             size_t minind = 0;
