@@ -183,12 +183,12 @@ public:
         assert(std::is_sorted(buf, buf + nelem));
         size_t ind = 0;
         while(ind < nelem) {
-            if(ind != nelem - 1) {
-                while(((buf[ind]>>6) == (buf[ind + 1]>>6))) {
+            if(ind < nelem - 1) {
+                while(ind < nelem - 1 && ((buf[ind]>>6) == (buf[ind + 1]>>6))) {
 #if VERBOSE_AF
                     std::fprintf(stderr, "same index: %u\n", SparseHLL32::get_index(buf[ind]));
 #endif
-                    ++ind; continue;
+                    ++ind;
                 }
 #if VERBOSE_AF
                 std::fprintf(stderr, "saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), unsigned(SparseHLL32::get_value(buf[ind])), buf[ind]);
@@ -293,8 +293,8 @@ void flatten(std::vector<uint32_t, Allocator> &a) {
     size_t ind = 0;
     while(ind < nelem) {
         if(ind != nelem - 1) {
-            while(((a[ind]>>6) == (a[ind + 1]>>6))) {
-                ++ind; continue;
+            while(ind < nelem - 1 && ((a[ind]>>6) == (a[ind + 1]>>6))) {
+                ++ind;
             }
             a[nfilled++] = a[ind++];
         } else {
@@ -316,8 +316,8 @@ void flattened_for_each(std::vector<uint32_t, Allocator> &a, const Functor &func
     size_t ind = 0;
     while(ind < nelem) {
         if(ind != nelem - 1) {
-            while(((a[ind]>>6) == (a[ind + 1]>>6))) {
-                ++ind; continue;
+            while(ind != nelem - 1 && ((a[ind]>>6) == (a[ind + 1]>>6))) {
+                ++ind;
             }
             func(a[ind++]);
         } else {
