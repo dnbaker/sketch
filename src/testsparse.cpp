@@ -1,4 +1,5 @@
 #include "sparse.h"
+#include <iostream>
 #include <map>
 using namespace sketch;
 using namespace hll;
@@ -7,13 +8,25 @@ using namespace sparse;
 #else
 static_assert(false, "WOO");
 #endif
+class Timer {
+    using TpType = std::chrono::system_clock::time_point;
+    std::string name_;
+    TpType start_, stop_;
+public:
+    Timer(std::string &&name=""): name_{std::move(name)}, start_(std::chrono::system_clock::now()) {}
+    void stop() {stop_ = std::chrono::system_clock::now();}
+    void restart() {start_ = std::chrono::system_clock::now();}
+    double report() {return std::chrono::duration_cast<std::chrono::nanoseconds>(stop_ - start_).count(); std::cerr << "Took " << std::chrono::duration_cast<std::chrono::nanoseconds>(stop_ - start_).count() << "ns for task '" << name_ << "'\n";}
+    ~Timer() {stop(); /* hammertime */ report();}
+    void rename(const char *name) {name_ = name;}
+};
 
 int main() {
-    hll_t h1(16), h2(16);
+    hll_t h1(20), h2(20);
     auto rshift = 64 - h1.p(), lshift = h1.p();
     std::map<uint32_t, uint8_t> tmp;
     std::vector<uint32_t> i1, i2;
-    for(size_t i = 0; i < 10000; ++i) {
+    for(size_t i = 0; i < 150; ++i) {
         const auto v = h1.hash(i);
         auto ind = v >> rshift;
         auto val = uint8_t(clz(v << lshift) + 1);
@@ -26,7 +39,7 @@ int main() {
         i1.push_back(encval);
         h1.addh(i);
     }
-    for(size_t i = 5000; i < 15000; ++i) {
+    for(size_t i = 140; i < 240; ++i) {
         const auto v = h2.hash(i);
         auto ind = v >> rshift;
         auto val = uint8_t(clz(v << lshift) + 1);
@@ -43,15 +56,41 @@ int main() {
     assert(hh.is_sorted());
     std::fprintf(stderr, "h JI with h2: %.16lf\n", h.jaccard_index(h2));
     std::fprintf(stderr, "h JI with h1: %.16lf\n", h.jaccard_index(h1));
-    std::fprintf(stderr, "h2 JI with h1: %.16lf\n", h2.jaccard_index(h1));
+    std::fprintf(stderr, "h2 JI with h1: %.16lf. (IL size %zu)\n", h2.jaccard_index(h1), i1.size());
     std::vector<uint32_t> i1copy = i1;
     flatten(i1copy);
-    auto flattened_vals = flatten_and_query(i1copy, h2);
+    double single_flattentime, single_maptime;
+    std::array<double, 3> flattened_vals;
+    {
+        Timer t("zomg");
+        flattened_vals = flatten_and_query(i1copy, h2, nullptr, true);
+        t.stop();
+        single_flattentime = t.report();
+        std::fprintf(stderr, "Single flatten and query, including sort time %zu\n", size_t(t.report()));
+        t.restart();
+        auto ovals = h.jaccard_index(h2);
+        for(size_t i = 99; i--;ovals = h.jaccard_index(h2));
+        t.stop();
+        std::fprintf(stderr, "Single dense HLL query %zu\n", size_t(t.report()));
+    }
+    {
+        Timer t("zomg");
+        for(size_t i = 0; i < 100; ++i) {
+            flattened_vals = flatten_and_query(i1copy, h2, nullptr, true);
+        }
+        t.stop();
+        std::fprintf(stderr, "time for 100 i1copy parses: %zu\n", size_t(t.report()));
+    }
     std::fprintf(stderr, "Flattened vals from i1: %lf/%lf/%f. ci: %lf. True ci: %lf\n", flattened_vals[0], flattened_vals[1], flattened_vals[2], flattened_vals[2] / (flattened_vals[0] + flattened_vals[2]), h1.containment_index(h2));
     i1copy = i2;
     flattened_vals = flatten_and_query(i2, h2);
     std::fprintf(stderr, "Flattened vals: %lf/%lf/%f. True: %lf\n", flattened_vals[0], flattened_vals[1], flattened_vals[2], h2.report());
+    Timer t("zomg");
     auto vals = pair_query(tmp, h1);
+    t.stop();
+    std::fprintf(stderr, "Time for pair query with map: %zu\n", size_t(t.report()));
+    single_maptime = t.report();
+    std::fprintf(stderr, "map is %lf as slow as vector\n", double(single_flattentime) / double(single_maptime));
     auto it = tmp.begin();
     size_t ind = 0;
     i1copy = i1;

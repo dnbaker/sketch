@@ -327,7 +327,7 @@ void flattened_for_each(std::vector<uint32_t, Allocator> &a, const Functor &func
 }
 
 template<typename Allocator, typename HashStruct>
-inline std::array<double, 3> flatten_and_query(std::vector<uint32_t, Allocator> &con, const hll::hllbase_t<HashStruct> &hll, const std::array<uint32_t, 64> *a=nullptr) {
+inline std::array<double, 3> flatten_and_query(std::vector<uint32_t, Allocator> &con, const hll::hllbase_t<HashStruct> &hll, const std::array<uint32_t, 64> *a=nullptr, bool is_already_flattened=false) {
     std::array<uint32_t, 64> *tmp = a ? nullptr: reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*a)));
     if(!a) {
         *tmp = hll::detail::sum_counts(hll.core());
@@ -336,7 +336,7 @@ inline std::array<double, 3> flatten_and_query(std::vector<uint32_t, Allocator> 
     std::array<uint32_t, 64> usum = osum;
     std::array<uint32_t, 64> lsum{0};
     const auto p = hll.p();
-    flatten(con);
+    if(!is_already_flattened) flatten(con);
     assert(con.size() <= 1ul << p);
     lsum[0] = (1ul << p) - con.size();
     auto hcore = hll.core();
