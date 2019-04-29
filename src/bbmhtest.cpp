@@ -4,6 +4,10 @@ using namespace sketch;
 using namespace common;
 using namespace mh;
 
+#ifndef SIMPLE_HASH
+#define SIMPLE_HASH 1
+#endif
+
 int main() {
     static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
     for(size_t i = 7; i <= 14; i += 2) {
@@ -15,7 +19,7 @@ int main() {
             SuperMinHash<policy::SizeDivPolicy>  smhdp1(1 << i);
             hll::hll_t h1(i), h2(i);
             uint64_t seed = h1.hash(h1.hash(i) ^ h1.hash(b));
-#if 1
+#if SIMPLE_HASH
             using HasherType = hash::XorMultiplyNVec;
 #else
             using HasherType = hash::MultiplyAddXoRotNVec<33>;
@@ -29,7 +33,11 @@ int main() {
             DefaultRNGType gen(137);
             size_t shared = 0, b1c = 0, b2c = 0;
             for(size_t i = 500000; --i;) {
+#if SIMPLE_HASH
+                auto v = i;
+#else
                 auto v = gen();
+#endif
                 switch(v & 0x3uL) {
                     case 0:
                     case 1: h1.addh(v); h2.addh(v);
