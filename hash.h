@@ -4,6 +4,7 @@
 #include <array>
 #include <type_traits>
 #include <vector>
+#include <climits>
 #include <memory>
 #include "vec/vec.h"
 
@@ -32,6 +33,7 @@ struct WangHash {
           key = key + (key << 31);
           return key;
     }
+    INLINE auto operator()(int64_t key) const {return operator()(uint64_t(key));}
     INLINE uint32_t operator()(uint32_t key) const {
         key += ~(key << 15);
         key ^=  (key >> 10);
@@ -41,6 +43,7 @@ struct WangHash {
         key ^=  (key >> 16);
         return key;
     }
+    INLINE auto operator()(int32_t key) const {return operator()(uint32_t(key));}
     INLINE Type operator()(Type element) const {
         VType key = Space::add(Space::slli(element, 21), ~element); // key = (~key) + (key << 21);
         key = Space::srli(key.simd_, 24) ^ key.simd_; //key ^ (key >> 24)
@@ -93,6 +96,7 @@ struct PCGen: pcg32_random_t {
 };
 using int96_t = std::array<uint32_t, 3>;
 
+#define NO_USE_SIAM 1
 template<size_t N>
 static auto make_coefficients(uint64_t seedseed) {
     std::mt19937_64 mt(seedseed);
@@ -451,17 +455,17 @@ struct InvLShiftXor {
 template<size_t n, bool left>
 struct Rot {
     template<typename T>
-    T constexpr operator()(T val) const {
+    INLINE T constexpr operator()(T val) const {
         static_assert(n < sizeof(T) * CHAR_BIT, "Can't shift more than the width of the type.");
         return left ? (val << n) ^ (val >> (64 - n))
                     : (val >> n) ^ (val << (64 - n));
     }
     template<typename T>
-    T constexpr inverse(T val) const {
+    INLINE T constexpr inverse(T val) const {
         return InverseOperation()(val);
     }
     template<typename T, typename T2>
-    T constexpr operator()(T val, const T2 &oval) const { // DO nothing
+    INLINE T constexpr operator()(T val, const T2 &oval) const { // DO nothing
         return this->operator()(val);
     }
     using InverseOperation = Rot<n, !left>;
@@ -484,19 +488,19 @@ struct InvH {
             seed_(seed | std::is_same<Operation, op::multiplies<uint64_t>>::value),
             inverse_(multinv::Inverse64<Operation>()(seed_)), op(), iop() {}
     // To ensure that it is actually reversible.
-    uint64_t inverse(uint64_t hv) const {
+    INLINE uint64_t inverse(uint64_t hv) const {
         hv = iop(hv, inverse_);
         return hv;
     }
-    VType inverse(VType hv) const {
+    INLINE VType inverse(VType hv) const {
         hv = iop(hv.simd_, Space::set1(inverse_));
         return hv;
     }
-    uint64_t operator()(uint64_t h) const {
+    INLINE uint64_t operator()(uint64_t h) const {
         h = op(h, seed_);
         return h;
     }
-    VType operator()(VType h) const {
+    INLINE VType operator()(VType h) const {
         const VType s = Space::set1(seed_);
         h = op(h, s);
         return h;
@@ -513,13 +517,13 @@ struct FusedReversible {
     FusedReversible(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL):
         op1(seed1), op2(seed2) {}
     template<typename T>
-    T operator()(T h) const {
+    INLINE T operator()(T h) const {
         h = op1(h);
         h = op2(h);
         return h;
     }
     template<typename T>
-    T inverse(T hv) const {
+    INLINE T inverse(T hv) const {
         hv = op1.inverse(op2.inverse(hv));
         return hv;
     }
@@ -532,11 +536,11 @@ struct FusedReversible3 {
     FusedReversible3(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL):
         op1(seed1), op2(seed2), op3((seed1 * seed2 + seed2) | 1) {}
     template<typename T>
-    T operator()(T h) const {
+    INLINE T operator()(T h) const {
         return op3(op2(op1(h)));
     }
     template<typename T>
-    T inverse(T hv) const {
+    INLINE T inverse(T hv) const {
         hv = op1.inverse(op2.inverse(op3.inverse(hv)));
         return hv;
     }
@@ -559,7 +563,7 @@ struct MultiplyAddXor: public FusedReversible3<InvMul,InvAdd,InvXor> {
 };
 template<size_t shift>
 struct MultiplyAddXoRot: public FusedReversible3<InvMul,InvXor,RotN<shift>> {
-    MultiplyAddXoRot(uint64_t seed1, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvXor, RotN<shift>>(seed1, seed2) {}
+    MultiplyAddXoRot(uint64_t seed1=1337, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvXor, RotN<shift>>(seed1, seed2) {}
 };
 
 template<typename HashType>

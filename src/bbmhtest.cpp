@@ -6,7 +6,7 @@ using namespace mh;
 
 int main() {
     static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
-    for(size_t i = 7; i < 20; i += 3) {
+    for(size_t i = 7; i <= 14; i += 2) {
         for(const auto b: {7u, 13u, 14u, 17u, 9u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             SuperMinHash<policy::SizePow2Policy> smhp2(1 << i);
@@ -14,14 +14,21 @@ int main() {
             SuperMinHash<policy::SizePow2Policy> smhp21(1 << i);
             SuperMinHash<policy::SizeDivPolicy>  smhdp1(1 << i);
             hll::hll_t h1(i), h2(i);
-            BBitMinHasher<uint64_t> b1(i, b), b2(i, b), b3(i, b);
-            size_t dbval = 15u << (i - 3);
+            uint64_t seed = h1.hash(h1.hash(i) ^ h1.hash(b));
+#if 1
+            using HasherType = hash::XorMultiplyNVec;
+#else
+            using HasherType = hash::MultiplyAddXoRotNVec<33>;
+            BBitMinHasher<uint64_t, hash::MultiplyAddXoRotNVec<33>> b1(i, b, 1, seed), b2(i, b, 1, seed), b3(i, b, 1, seed);
+#endif
+            BBitMinHasher<uint64_t, HasherType> b1(i, b, 1, seed), b2(i, b, 1, seed), b3(i, b, 1, seed);
+            size_t dbval = 1.5 * (size_t(1) << i);
             DivBBitMinHasher<uint64_t> db1(dbval, b), db2(dbval, b), db3(dbval, b);
             //DivBBitMinHasher<uint64_t> fb(i, b);
             CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(i, b);
             DefaultRNGType gen(137);
             size_t shared = 0, b1c = 0, b2c = 0;
-            for(size_t i = 5000000; --i;) {
+            for(size_t i = 500000; --i;) {
                 auto v = gen();
                 switch(v & 0x3uL) {
                     case 0:
