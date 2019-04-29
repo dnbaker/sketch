@@ -2,11 +2,12 @@
 #include "common.h"
 using namespace sketch;
 using namespace hash;
-#if 1
-#define ACC accum ^=
-#else
-#define ACC
-#endif
+
+// from Facebook's Folly
+template <typename T>
+void doNotOptimizeAway(const T& datum) {
+  asm volatile("" ::"r"(datum));
+}
 // Geoffrey Irving
 // https://naml.us/blog/tag/thomas-wang
 INLINE uint64_t irving_inv_hash(uint64_t key) {
@@ -52,7 +53,7 @@ int main() {
     uint64_t accum = 0;
     uint64_t nelem = 1000000000;
     for(uint64_t i = 0; i < nelem; ++i) {
-        ACC hash(uint64_t(i));
+        doNotOptimizeAway(hash(uint64_t(i)));
     }
     auto end = std::chrono::high_resolution_clock::now();
     arr[0] = size_t(std::chrono::nanoseconds(end - start).count());
@@ -61,7 +62,7 @@ int main() {
     start = std::chrono::high_resolution_clock::now();\
     accum = 0;\
     for(uint64_t i = 0; i < nelem; ++i) {\
-       ACC hasher(i);\
+       doNotOptimizeAway(hasher(i));\
     }\
     end = std::chrono::high_resolution_clock::now();\
     arr[ind] = size_t(std::chrono::nanoseconds(end - start).count());\
