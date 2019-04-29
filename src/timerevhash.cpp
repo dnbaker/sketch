@@ -1,3 +1,4 @@
+#define DUMMY_INVERSE
 #include "hash.h"
 #include "common.h"
 using namespace sketch;
@@ -52,7 +53,7 @@ int main() {
     uint64_t accum = 0;
     uint64_t nelem = 1000000000;
     for(uint64_t i = 0; i < nelem; ++i) {
-        ACC hash(uint64_t(i));
+ACC irving_inv_hash(hash(uint64_t(i)));
     }
     auto end = std::chrono::high_resolution_clock::now();
     arr[0] = size_t(std::chrono::nanoseconds(end - start).count());
@@ -61,7 +62,7 @@ int main() {
     start = std::chrono::high_resolution_clock::now();\
     accum = 0;\
     for(uint64_t i = 0; i < nelem; ++i) {\
-       ACC hasher(i);\
+       ACC hasher.inverse(hasher(i));\
     }\
     end = std::chrono::high_resolution_clock::now();\
     arr[ind] = size_t(std::chrono::nanoseconds(end - start).count());\

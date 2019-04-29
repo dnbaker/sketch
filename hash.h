@@ -272,6 +272,9 @@ public:
         }
         return ret.simd_;
     }
+#ifdef DUMMY_INVERSE
+    uint64_t inverse(uint64_t val) { return val;} // This is a lie for compatibility only
+#endif
 };
 template<size_t k>
 struct KWiseHasherSet {
@@ -298,6 +301,9 @@ struct MurFinHash {
         key ^= key >> 33;
         return key;
     }
+#ifdef DUMMY_INVERSE
+    INLINE uint64_t inverse(uint64_t key) const {return key;}
+#endif
     INLINE Type operator()(Type key) const {
         return this->operator()(*(reinterpret_cast<VType *>(&key)));
     }
@@ -454,6 +460,8 @@ struct InvLShiftXor {
 
 template<size_t n, bool left>
 struct Rot {
+    template<typename...Args>
+    Rot(Args &&...args) {}
     template<typename T>
     INLINE T constexpr operator()(T val) const {
         static_assert(n < sizeof(T) * CHAR_BIT, "Can't shift more than the width of the type.");
@@ -472,6 +480,23 @@ struct Rot {
 };
 template<size_t n> using RotL = Rot<n, true>;
 template<size_t n> using RotR = Rot<n, false>;
+struct BitFlip {
+    template<typename...Args>
+    BitFlip(Args &&...args) {}
+    template<typename T>
+    INLINE T constexpr operator()(T val) const {
+        return ~val;
+    }
+    template<typename T>
+    INLINE T constexpr inverse(T val) const {
+        return InverseOperation()(val);
+    }
+    template<typename T, typename T2>
+    INLINE T constexpr operator()(T val, const T2 &oval) const { // DO nothing
+        return this->operator()(val);
+    }
+    using InverseOperation = BitFlip;
+};
 
 using RotL33 = RotL<33>;
 using RotR33 = RotR<33>;
