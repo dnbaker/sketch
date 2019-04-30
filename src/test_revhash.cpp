@@ -25,16 +25,17 @@ int main() {
     std::vector<uint64_t> vec(1 << 20);
     hll::hll_t h1(10);
     hll::hllbase_t<XorMultiplyN<1000>> h2(10);
-    //hll::hllbase_t<XorMultiplyNVec> h3(10, ERTL_MLE, ERTL_JOINT_MLE, false, 10);
     hll::hllbase_t<MultiplyAddXoRotN<33, 2>> h3(10, ERTL_MLE, ERTL_JOINT_MLE);
     hll::hllbase_t<MultiplyAddXoRotN<16, 3>> h4(10);
     XorMultiplyN<2> xm;
-    //XorMultiplyNVec xm2(1000);
     XorMultiplyN<20> xm2;
     MultiplyAddXoRotN<33, 2> xm3;
-    // RotL<10> xm3;
     MultiplyAddXorN<10> xm5;
     MultiplyAddN<10> xm4;
+    LShiftXor<4> lsf;
+    InvLShiftXor<4> ilsf;
+    RShiftXor<4> rsf;
+    InvRShiftXor<4> irsf;
     for(auto &v: vec) {
         v = gen();
         assert(xm.inverse(xm(v)) == v);
@@ -42,6 +43,8 @@ int main() {
         assert(xm4.inverse(xm4(v)) == v);
         assert(xm5.inverse(xm5(v)) == v);
         assert(xm3.inverse(xm3(v)) == v);
+        assert(ilsf(lsf(v)) == v);
+        assert(irsf(rsf(v)) == v);
         v = xm3(v);
         h1.addh(v), h2.addh(v), h3.addh(v); h4.addh(v);
     }

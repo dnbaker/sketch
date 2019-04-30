@@ -421,9 +421,11 @@ template<size_t n>
 struct InvRShiftXor;
 template<size_t n>
 struct InvRShiftXor {
+    static constexpr size_t enditer = 64 / n;
     uint64_t constexpr operator()(uint64_t v) const {
-        uint64_t ret = v;
-        for(size_t i = 0; (i + 1) < 64 / n; ret ^= (v >> (n * ++i)));
+        uint64_t ret = v ^ v >> n;
+        for(size_t i = 1; i < enditer; ++i)
+            ret = v ^ ret >> n;
         return ret;
     }
     using InverseOperation = RShiftXor<n>;
@@ -449,11 +451,14 @@ struct LShiftXor {
 };
 template<size_t n>
 struct InvLShiftXor {
+    static constexpr size_t enditer = 64 / n;
     uint64_t constexpr operator()(uint64_t v) const {
-        uint64_t ret = v;
-        for(size_t i = 0; (i + 1) < 64 / n; ret ^= (v << (n * (++i))));
+        uint64_t ret = v ^ v << n;
+        for(size_t i = 1; i < enditer; ++i)
+            ret = v ^ ret << n;
         return ret;
     }
+    static constexpr uint64_t inverse(uint64_t v) {InverseOperation()(v);}
     using InverseOperation = LShiftXor<n>;
 };
 
