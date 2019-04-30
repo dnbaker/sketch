@@ -1,42 +1,20 @@
+#define DUMMY_INVERSE 1
 #include "hash.h"
 #include "common.h"
 using namespace sketch;
 using namespace hash;
 
 // from Facebook's Folly
-template <typename T>
-void doNotOptimizeAway(const T& datum) {
-  asm volatile("" ::"r"(datum));
-}
-// Geoffrey Irving
-// https://naml.us/blog/tag/thomas-wang
-INLINE uint64_t irving_inv_hash(uint64_t key) {
-  uint64_t tmp;
-  // Invert key = key + (key << 31)
-  tmp = key-(key<<31);
-  key = key-(tmp<<31);
-  // Invert key = key ^ (key >> 28)
-  tmp = key^key>>28;
-  key = key^tmp>>28;
-  // Invert key *= 21
-  key *= 14933078535860113213u;
-  // Invert key = key ^ (key >> 14)
-  tmp = key^key>>14;
-  tmp = key^tmp>>14;
-  tmp = key^tmp>>14;
-  key = key^tmp>>14;
-  // Invert key *= 265
-  key *= 15244667743933553977u;
-  // Invert key = key ^ (key >> 24)
-  tmp = key^key>>24;
-  key = key^tmp>>24;
-  // Invert key = (~key) + (key << 21)
-  tmp = ~key;
-  tmp = ~(key-(tmp<<21));
-  tmp = ~(key-(tmp<<21));
-  key = ~(key-(tmp<<21));
-  return key;
-}
+template <typename T> void doNotOptimizeAway(const T& datum) {asm volatile("" ::"r"(datum));}
+
+#if 1
+#define CALL_HASH(hasher, i) hasher(hasher.inverse(i))
+#elif 1
+#define CALL_HASH(hasher, i) hasher.inverse(i)
+#else
+#define CALL_HASH(hasher, i) hasher(i)
+#endif
+
 
 int main() {
     WangHash hash;
@@ -46,14 +24,17 @@ int main() {
     hash::XorMultiply gen3(seed1, hash(seed1));
     hash::FusedReversible3<InvMul, RotL33, MultiplyAddXoRot<16>> gen4(seed1, hash(seed1));
     XorMultiply gen5(seed1, hash(seed1));
+    hash::FusedReversible<RotL33, MultiplyAdd> gen__5(1337);
     hash::KWiseIndependentPolynomialHash<4> fivewise_gamgee;
+    hash::FusedReversible3<InvMul, InvRShiftXor<33>, MultiplyAddXoRot<13>> gen8(hash(hash(seed1)), hash(1337));
+    hash::FusedReversible<InvRShiftXor<33>, InvMul> gen9(hash(hash(seed1)), hash(1337));
     MurFinHash mfh;
-    std::array<size_t, 8> arr{0};
+    std::array<size_t, 10> arr{0};
     auto start = std::chrono::high_resolution_clock::now();
     uint64_t accum = 0;
-    uint64_t nelem = 1000000000;
+    uint64_t nelem = 100000000;
     for(uint64_t i = 0; i < nelem; ++i) {
-        doNotOptimizeAway(hash(uint64_t(i)));
+        doNotOptimizeAway(CALL_HASH(hash, i));
     }
     auto end = std::chrono::high_resolution_clock::now();
     arr[0] = size_t(std::chrono::nanoseconds(end - start).count());
@@ -62,7 +43,7 @@ int main() {
     start = std::chrono::high_resolution_clock::now();\
     accum = 0;\
     for(uint64_t i = 0; i < nelem; ++i) {\
-       doNotOptimizeAway(hasher(i));\
+       doNotOptimizeAway(CALL_HASH(hasher, i));\
     }\
     end = std::chrono::high_resolution_clock::now();\
     arr[ind] = size_t(std::chrono::nanoseconds(end - start).count());\
@@ -72,9 +53,12 @@ int main() {
     DO_THING(gen2, "mulyaddor", 2)
     DO_THING(gen3, "xormult", 3)
     DO_THING(gen4, "rotxorrot", 4)
-    DO_THING(fivewise_gamgee, "fivewise", 5)
+    DO_THING(gen__5, "xormltiply", 5)
+    //DO_THING(fivewise_gamgee, "fivewise", 5)
     DO_THING(gen5, "mul-bf-rrot31", 6)
     DO_THING(mfh, "murfinhash", 7)
+    DO_THING(gen8, "invmul, invrshift33, maxorot", 8)
+    DO_THING(gen9, "invmul, invrshift33, maxorot", 9)
     for(size_t i = 1; i < arr.size(); ++i)
         std::fprintf(stderr, "%zu is %lf as fast as WangHash\n", i, double(arr[0]) / arr[i]);
 }

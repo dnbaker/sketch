@@ -66,6 +66,34 @@ struct WangHash {
         return key;
     }
 #endif
+    INLINE uint64_t inverse(uint64_t key) const {
+        // https://naml.us/blog/tag/thomas-wang
+        uint64_t tmp;
+        // Invert key = key + (key << 31)
+        tmp = key-(key<<31);
+        key = key-(tmp<<31);
+        // Invert key = key ^ (key >> 28)
+        tmp = key^key>>28;
+        key = key^tmp>>28;
+        // Invert key *= 21
+        key *= UINT64_C(14933078535860113213);
+        // Invert key = key ^ (key >> 14)
+        tmp = key^key>>14;
+        tmp = key^tmp>>14;
+        tmp = key^tmp>>14;
+        key = key^tmp>>14;
+        // Invert key *= 265
+        key *= UINT64_C(15244667743933553977);
+        // Invert key = key ^ (key >> 24)
+        tmp = key^key>>24;
+        key = key^tmp>>24;
+        // Invert key = (~key) + (key << 21)
+        tmp = ~key;
+        tmp = ~(key-(tmp<<21));
+        tmp = ~(key-(tmp<<21));
+        key = ~(key-(tmp<<21));
+        return key;
+    }
 };
 
 // pcg32
@@ -302,7 +330,7 @@ struct MurFinHash {
         return key;
     }
 #ifdef DUMMY_INVERSE
-    INLINE uint64_t inverse(uint64_t key) const {return key;}
+    INLINE uint64_t inverse(uint64_t key) const {return this->operator()(key);}
 #endif
     INLINE Type operator()(Type key) const {
         return this->operator()(*(reinterpret_cast<VType *>(&key)));
@@ -421,6 +449,8 @@ template<size_t n>
 struct InvRShiftXor;
 template<size_t n>
 struct InvRShiftXor {
+    template<typename...Args>
+    InvRShiftXor(Args &&...args) {}
     static constexpr size_t enditer = 64 / n;
     uint64_t constexpr operator()(uint64_t v) const {
         uint64_t ret = v ^ v >> n;
@@ -428,14 +458,16 @@ struct InvRShiftXor {
             ret = v ^ ret >> n;
         return ret;
     }
-    uint64_t inverse(uint64_t x) {return InverseOperation()(x);}
+    uint64_t inverse(uint64_t x) const {return InverseOperation()(x);}
     using InverseOperation = RShiftXor<n>;
 };
 
 template<size_t n>
 struct RShiftXor {
+    template<typename...Args>
+    RShiftXor(Args &&...args) {}
     uint64_t constexpr operator()(uint64_t v) const {return v ^ (v >> n);}
-    uint64_t inverse(uint64_t x) {return InverseOperation()(x);}
+    uint64_t inverse(uint64_t x) const {return InverseOperation()(x);}
     using InverseOperation = InvRShiftXor<n>;
 };
 template<size_t n> using ShiftXor = RShiftXor<n>;
@@ -448,12 +480,16 @@ template<size_t n>
 struct InvLShiftXor;
 template<size_t n>
 struct LShiftXor {
+    template<typename...Args>
+    LShiftXor(Args &&...args) {}
     uint64_t constexpr operator()(uint64_t v) const {return v ^ (v << n);}
     uint64_t constexpr inverse(uint64_t v) const {return InverseOperation()(v);}
     using InverseOperation = InvLShiftXor<n>;
 };
 template<size_t n>
 struct InvLShiftXor {
+    template<typename...Args>
+    InvLShiftXor(Args &&...args) {}
     static constexpr size_t enditer = 64 / n;
     uint64_t constexpr operator()(uint64_t v) const {
         uint64_t ret = v ^ v << n;
@@ -461,7 +497,7 @@ struct InvLShiftXor {
             ret = v ^ ret << n;
         return ret;
     }
-    static constexpr uint64_t inverse(uint64_t v) {InverseOperation()(v);}
+    constexpr uint64_t inverse(uint64_t v) const {InverseOperation()(v);}
     using InverseOperation = LShiftXor<n>;
 };
 
