@@ -428,12 +428,14 @@ struct InvRShiftXor {
             ret = v ^ ret >> n;
         return ret;
     }
+    uint64_t inverse(uint64_t x) {return InverseOperation()(x);}
     using InverseOperation = RShiftXor<n>;
 };
 
 template<size_t n>
 struct RShiftXor {
     uint64_t constexpr operator()(uint64_t v) const {return v ^ (v >> n);}
+    uint64_t inverse(uint64_t x) {return InverseOperation()(x);}
     using InverseOperation = InvRShiftXor<n>;
 };
 template<size_t n> using ShiftXor = RShiftXor<n>;
@@ -447,6 +449,7 @@ struct InvLShiftXor;
 template<size_t n>
 struct LShiftXor {
     uint64_t constexpr operator()(uint64_t v) const {return v ^ (v << n);}
+    uint64_t constexpr inverse(uint64_t v) const {return InverseOperation()(v);}
     using InverseOperation = InvLShiftXor<n>;
 };
 template<size_t n>

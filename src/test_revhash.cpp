@@ -5,21 +5,6 @@ using namespace sketch::common;
 using namespace hll;
 using namespace hash;
 
-#if 0
-struct XorMultiplyN: public RecursiveReversibleHash<XorMultiply> {
-    XorMultiply(size_t n, uint64_t seed1=0xB0BAF377D00Dc001uLL):
-        RecursiveReversibleHash<XorMultiply>(n, seed1) {}
-}
-struct MultiplyAddN: public RecursiveReversibleHash<MultiplyAdd> {
-    MultiplyAdd(size_t n, uint64_t seed1=0xB0BAF377D00Dc001uLL):
-        RecursiveReversibleHash<MultiplyAdd>(n, seed1) {}
-}
-struct MultiplyAddXorN: public RecursiveReversibleHash<MultiplyAddXor> {
-    MultiplyAddXor(size_t n, uint64_t seed1=0xB0BAF377D00Dc001uLL):
-        RecursiveReversibleHash<MultiplyAddXor>(n, seed1) {}
-}
-#endif
-
 int main() {
     DefaultRNGType gen(137);
     std::vector<uint64_t> vec(1 << 20);
@@ -44,6 +29,7 @@ int main() {
         assert(xm5.inverse(xm5(v)) == v);
         assert(xm3.inverse(xm3(v)) == v);
         assert(ilsf(lsf(v)) == v);
+        assert(lsf.inverse(lsf(v)) == v);
         assert(irsf(rsf(v)) == v);
         v = xm3(v);
         h1.addh(v), h2.addh(v), h3.addh(v); h4.addh(v);
