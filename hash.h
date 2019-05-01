@@ -474,6 +474,14 @@ template<size_t n> using ShiftXor = RShiftXor<n>;
 template<size_t n> using ShiftXor = RShiftXor<n>;
 template<size_t n> using InvShiftXor = InvRShiftXor<n>;
 
+template<uint64_t XORVALUE=UINT64_C(0xe37e28c4271b5a2d)>
+struct XORConstantHasher {
+    uint64_t operator()(uint64_t h) const {
+        return h ^ XORVALUE;
+    }
+    uint64_t inverse(uint64_t h) const {return h ^ XORVALUE;}
+};
+
 template<size_t n>
 struct LShiftXor;
 template<size_t n>
@@ -497,7 +505,7 @@ struct InvLShiftXor {
             ret = v ^ ret << n;
         return ret;
     }
-    constexpr uint64_t inverse(uint64_t v) const {InverseOperation()(v);}
+    constexpr uint64_t inverse(uint64_t v) const {return InverseOperation()(v);}
     using InverseOperation = LShiftXor<n>;
 };
 
