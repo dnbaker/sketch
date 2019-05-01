@@ -19,15 +19,12 @@ static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhas
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
     static constexpr size_t ct = VS::COUNT;
-#define asvt(x) reinterpret_cast<const VT *>(x)
     for(size_t i = 0; i < nhashes; ++i) {
-        //const VT *p = reinterpret_cast<const VT *>(&v[i << l2sz]), *pe= reinterpret_cast<const VT *>(&v[(i + 1) << l2sz]);
         const T *p1 = &v[i << l2sz], *p2 = &v[(i+1)<<l2sz];
         while(p2 - p1 > ct) {
-            sum = VS::add(sum, VS::mul(*asvt(p1), *asvt(*p1)));
+            sum = VS::add(sum, VS::mul(*reinterpret_cast<const VT *>(p1), *reinterpret_cast<const VT *>(*p1)));
             p1 += ct;
         }
-#undef asvt
         T full_sum = 0;
         while(p1 < p2) {
             full_sum += *p1++;
@@ -489,13 +486,12 @@ public:
                 ++seedind;
             }
             end:
-#define DATA_ACC operator[]
             //std::fprintf(stderr, "Now get best\n");
             best_indices.push_back(indices[0]);
-            ssize_t minval = data_.DATA_ACC(indices[0]);
+            ssize_t minval = data_.operator[](indices[0]);
             for(size_t i(1); i < indices.size(); ++i) {
                 unsigned score;
-                if((score = data_.DATA_ACC(indices[i])) == minval) {
+                if((score = data_.operator[](indices[i])) == minval) {
                     best_indices.push_back(indices[i]);
                 } else if(score < minval) {
                     best_indices.clear();
@@ -512,7 +508,7 @@ public:
             while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
                 Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
                     for(unsigned k(0); k < nperhash64;) {
-                        auto ref = data_.DATA_ACC(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
+                        auto ref = data_.operator[](((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
                         updater_(ref, 1u << nbits_);
                         ret = std::min(ret, ssize_t(ref));
                     }
@@ -522,7 +518,7 @@ public:
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind++]);
                 for(unsigned k(0), e = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); k != e;) {
-                    auto ref = data_.DATA_ACC(((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
+                    auto ref = data_.operator[](((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
                     updater_(ref, 1u << nbits_);
                     ret = std::min(ret, ssize_t(ref));
                 }
@@ -541,7 +537,7 @@ public:
         uint64_t count = std::numeric_limits<uint64_t>::max();
         while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
             Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](const uint64_t subval){
-                for(unsigned k = 0; k < nperhash64; count = std::min(count, uint64_t(data_.DATA_ACC(((subval >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++))));
+                for(unsigned k = 0; k < nperhash64; count = std::min(count, uint64_t(data_.operator[](((subval >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++))));
             });
             seedind += Space::COUNT;
         }
@@ -551,7 +547,7 @@ public:
             for(unsigned k = 0, e = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); k != e; ++k) {
                 uint32_t index = ((hv >> (k * nbitsperhash)) & mask_) + nhdone * subtbl_sz_;
                 assert(index < data_.size());
-                count = std::min(count, uint64_t(data_.DATA_ACC(index)));
+                count = std::min(count, uint64_t(data_.operator[](index)));
                 if(++nhdone == nhashes_) goto end;
             }
         }
@@ -979,7 +975,6 @@ using cmm_t = cmmbase_t<>;
 using cs_t = csbase_t<>;
 using cs4w_t = cs4wbase_t<>;
 using pccm_t = ccmbase_t<update::PowerOfTwo>;
-#undef DATA_ACC
 
 } // namespace cm
 } // namespace sketch
