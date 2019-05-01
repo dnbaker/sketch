@@ -686,7 +686,7 @@ public:
     }
     using final_type = FinalBBitMinHash;
     template<typename... Args>
-    BBitMinHasher(unsigned p, unsigned b=8, Args &&... args):
+    BBitMinHasher(unsigned p, unsigned b, Args &&... args):
         core_(size_t(1) << p, detail::default_val<T>()), b_(b), p_(p), hf_(std::forward<Args>(args)...)
     {
         if(b_ + p_ > sizeof(T) * CHAR_BIT) {
@@ -696,6 +696,7 @@ public:
             throw std::runtime_error(buf);
         }
     }
+    BBitMinHasher(unsigned p): BBitMinHasher(p, 8) {}
     void reset() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }

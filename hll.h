@@ -730,8 +730,8 @@ public:
     }
     // Constructor
     template<typename... Args>
-    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE,
-                       JointEstimationMethod jestim=static_cast<JointEstimationMethod>(ERTL_MLE),
+    explicit hllbase_t(size_t np, EstimationMethod estim,
+                       JointEstimationMethod jestim,
                        Args &&... args):
         core_(static_cast<uint64_t>(1) << np),
         value_(0.), np_(np), is_calculated_(0),
@@ -743,6 +743,7 @@ public:
 #endif
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
+    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_JOINT_MLE) {}
     explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
     template<typename... Args>
     hllbase_t(const char *path, Args &&... args): hf_(std::forward<Args>(args)...) {read(path);}

@@ -476,6 +476,8 @@ template<size_t n> using InvShiftXor = InvRShiftXor<n>;
 
 template<uint64_t XORVALUE=UINT64_C(0xe37e28c4271b5a2d)>
 struct XORConstantHasher {
+    template<typename...Args>
+    XORConstantHasher(Args &&...args) {}
     uint64_t operator()(uint64_t h) const {
         return h ^ XORVALUE;
     }

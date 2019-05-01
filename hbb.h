@@ -28,7 +28,7 @@ public:
     void add(uint64_t hv) {
         auto r = __builtin_ctz(hv);
         if(r > logn_) {
-            const auto k = (hash >> (sizeof(hv) * CHAR_BIT - 6));
+            const auto k = (hv >> (sizeof(hv) * CHAR_BIT - 6));
             s1_ |= 1L << k;
             if (r > logn_ + 1) s2_ |= 1L << k;
             if(popcount(s1_) > 31) {
