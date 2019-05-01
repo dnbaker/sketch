@@ -148,7 +148,7 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
 } // namespace detail
 
 
-template<template<typename> typename Policy, typename RNGType, typename CountType>
+template<template<typename> class Policy, typename RNGType, typename CountType>
 struct SuperMinHash;
 struct FinalBBitMinHash;
 template<typename T, typename Hasher>
@@ -182,9 +182,9 @@ public:
     }
     FinalDivBBitMinHash(FinalDivBBitMinHash &&o) = default;
     FinalDivBBitMinHash(const FinalDivBBitMinHash &o) = default;
-    template<template<typename> typename Policy, typename RNG, typename CountType>
+    template<template<typename> class Policy, typename RNG, typename CountType>
     FinalDivBBitMinHash(SuperMinHash<Policy, RNG, CountType> &&o): FinalDivBBitMinHash(o.finalize()) {}
-    template<template<typename> typename Policy, typename RNG, typename CountType>
+    template<template<typename> class Policy, typename RNG, typename CountType>
     FinalDivBBitMinHash(const SuperMinHash<Policy, RNG, CountType> &o): FinalDivBBitMinHash(o.finalize()) {}
     template<typename T, typename Hasher=common::WangHash>
     FinalDivBBitMinHash(DivBBitMinHasher<T, Hasher> &&o): FinalDivBBitMinHash(std::move(o.finalize())) {
@@ -375,7 +375,7 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
 
 
 
-template<template<typename> typename Policy=policy::SizePow2Policy, typename RNGType=wy::WyHash<uint32_t, 1>, typename CountType=uint32_t>
+template<template<typename> class Policy=policy::SizePow2Policy, typename RNGType=wy::WyHash<uint32_t, 1>, typename CountType=uint32_t>
 struct SuperMinHash {
     // Note:
     // Instead of maintaining real and integral portions of a hash in floating point,
@@ -1359,7 +1359,6 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
         const uint64_t *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
         std::fprintf(stderr, "b_: %u. p_: %u\n", unsigned(b_), p_);
         assert(b_ <= 64 || !std::fprintf(stderr, "b_: %u\n", b_) || (7 < 64)); // b_ > 64 not yet supported, though it could be done with a larger hash
-        size_t offset = 0;
         uint64_t matched_sum = 0;
         assert(o.core_.size() == core_.size());
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash

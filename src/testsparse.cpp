@@ -30,7 +30,7 @@ int main() {
         std::vector<uint32_t> i1, i2;
         Timer zomg("");
         size_t zomgsum = 0, vtimesum = 0;
-        for(size_t i = 0; i < size; ++i) {
+        for(size_t i = 0; i < size_t(size); ++i) {
             const auto v = h1.hash(i);
             auto ind = v >> rshift;
             auto val = uint8_t(clz(v << lshift) + 1);

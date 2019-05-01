@@ -955,7 +955,7 @@ public:
     }
 };
 
-template<typename CMType, template<typename> typename QueueContainer=std::queue>
+template<typename CMType, template<typename> class QueueContainer=std::queue>
 class SlidingWindow {
     QueueContainer<uint64_t> hashes_;
 public:

@@ -977,6 +977,7 @@ public:
     double jaccard_index(const HyperMinHash &o) const {
         size_t C = 0, N = 0;
         std::fprintf(stderr, "core size: %zu\n", core_.size());
+#if 0
         switch(simd_policy()) { // This can be accelerated for specific sizes
             default: //[[fallthrough]];
             //U8:      //[[fallthrough]]; // 2-bit minimizers. TODO: write this
@@ -989,6 +990,12 @@ public:
                     N += (core_[i] || o.core_[i]);
                 }
             break;
+        }
+#else
+#endif
+        for(size_t i = 0; i < core_.size(); ++i) {
+            C += core_[i] && (get_lzc(core_[i]) == get_lzc(o.core_[i]));
+            N += (core_[i] || o.core_[i]);
         }
         const double n = this->report(), m = o.report(), ec = expected_collisions(n, m);
         std::fprintf(stderr, "C: %zu. ec: %lf. C / N: %lf\n", C, ec, static_cast<double>(C) / N);
