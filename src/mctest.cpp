@@ -53,8 +53,8 @@ int main(int argc, char *argv[]) {
     for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137), cmsexact2.addh(137));
     auto items2 = items;
     for(auto &i: items2) i = mt(), cmsexact2.addh(i), cmscs4w2.addh(i);
-    size_t true_is = items.size() + 1000;
-    size_t true_us = items.size() * 2 + 1000;
+    //size_t true_is = items.size() + 1000;
+    //size_t true_us = items.size() * 2 + 1000;
     std::fprintf(stderr, "All inserted\n");
     std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs;
     size_t missing = 0;

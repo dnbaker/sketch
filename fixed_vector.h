@@ -40,10 +40,9 @@ public:
     ~vector() {std::free(data_);}
     vector &operator=(const vector &o) = delete;
     vector &operator=(vector &&o) {
-        if(data_) {
-            std::free(data_);
-        }
-        data_ = o.data_; n = o.n_;
+        std::free(data_);
+        data_ = o.data_;
+        n_ = o.n_;
     }
     vector(vector &&o): n_(o.n_) {
         if(this == std::addressof(o)) return;
@@ -64,10 +63,10 @@ public:
     T       *data()       {return data_;}
 
     bool operator<(const vector &o) const {
-        return std::lexicographic_compare<T>(begin(), end(), o.begin(), o.end());
+        return std::lexicographical_compare<T>(begin(), end(), o.begin(), o.end());
     }
     bool operator>(const vector &o) const {
-        return std::lexicographic_compare<T>(begin(), end(), o.begin(), o.end(), std::greater<T>());
+        return std::lexicographical_compare<T>(begin(), end(), o.begin(), o.end(), std::greater<T>());
     }
 };
 
