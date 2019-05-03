@@ -23,6 +23,7 @@ using Space = vec::SIMDTypes<uint64_t>;
 // It a bijection within [0,1<<64)
 // and can be inverted with irving_inv_hash.
 struct WangHash {
+    template<typename...Args> WangHash(Args &&...args) {}
     INLINE auto operator()(uint64_t key) const {
           key = (~key) + (key << 21); // key = (key << 21) - key - 1;
           key = key ^ (key >> 24);
@@ -320,6 +321,7 @@ struct KWiseHasherSet {
 
 
 struct MurFinHash {
+    template<typename...Args> MurFinHash(Args &&...args) {}
     static constexpr uint64_t C1 = 0xff51afd7ed558ccduLL, C2 = 0xc4ceb9fe1a85ec53uLL;
     INLINE uint64_t operator()(uint64_t key) const {
         key ^= key >> 33;
@@ -362,6 +364,7 @@ struct MurFinHash {
         return key.simd_;
     }
 };
+
 static INLINE uint64_t finalize(uint64_t key) {
     return MurFinHash()(key);
 }
