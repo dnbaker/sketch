@@ -2,8 +2,10 @@
 #define DNB_SKETCH_MULTIPLICITY_H__
 #include <random>
 #include "ccm.h" // Count-min sketch
+#ifndef NO_BLAZE
 #if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
 #include "./vec/blaze/blaze/Math.h"
+#endif
 #endif
 #include <cstdarg>
 #include <mutex>
@@ -19,7 +21,7 @@ using namespace common;
 
 namespace cws {
 
-#if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
+#if !defined(NO_BLAZE) && (VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED)
 template<typename FType=float>
 struct CWSamples {
     using MType = blaze::DynamicMatrix<float>;
@@ -315,29 +317,41 @@ struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, fi
 
 namespace wj { // Weighted jaccard
 
-template<typename CoreSketch, typename CountingSketchType=cm::ccm_t>
+template<typename CoreSketch, typename CountingSketchType=cm::ccm_t, typename HashStruct=common::WangHash>
 struct WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
+    HashStruct          hf_;
     public:
     using final_type = typename CoreSketch::final_type;
-    WeightedSketcher(CountingSketchType &&cst, CoreSketch &&core): cst_(std::move(cst)), sketch_(std::move(core)) {}
-    void addh(uint64_t hash) {add(hash);}
-    void add(uint64_t hash) {
-        auto count = cst_.est_count(hash);
-        auto newcount = cst_.addh(hash);
-        if(newcount != count) {
-            std::array<uint64_t, 2> arr{hash, uint64_t(count)};
-            sketch_.addh(XXH3_64bits(arr.data(), sizeof(arr)));
-        }
+    using base_type  = CoreSketch;
+    using cm_type    = CountingSketchType;
+    WeightedSketcher(CountingSketchType &&cst, CoreSketch &&core,
+                     HashStruct &&hf=HashStruct())
+    : cst_(std::move(cst)), sketch_(std::move(core)), hf_(std::move(hf)) {}
+
+    void addh(uint64_t x) {add(x);}
+    void add(uint64_t x) {
+        const auto count = cst_.est_count(x);
+        if(cst_.addh(x) != count)
+            sketch_.add(XXH3_64bits_withSeed(&x, sizeof(x), count));
     }
+    uint64_t hash(uint64_t x) const {return hf_(x);}
     WeightedSketcher(const WeightedSketcher &) = default;
-    WeightedSketcher(WeightedSketcher &&) = default;
+    WeightedSketcher(WeightedSketcher &&)      = default;
+    WeightedSketcher &operator=(const WeightedSketcher &) = default;
+    WeightedSketcher &operator=(WeightedSketcher &&) = default;
     template<typename...Args>
     final_type finalize(Args &&...args) const {
         return final_type(sketch_.finalize(std::forward<Args>(args)...));
     }
 };
+
+template<typename T> struct is_weighted_sketch: std::false_type {};
+template<typename CoreSketch,
+         typename CountingSketch,
+         typename HashStruct>
+struct is_weighted_sketch<WeightedSketcher<CoreSketch, CountingSketch, HashStruct>>: std::true_type {};
 
 } // namespace wj
 
