@@ -69,6 +69,7 @@ public:
     static constexpr unsigned OFFSET = 6; // log2(CHAR_BIT * 8) == log2(64) == 6
     using HashType = HashStruct;
 
+    using final_type = bfbase_t;
     std::pair<size_t, size_t> est_memory_usage() const {
         return std::make_pair(sizeof(*this),
                               core_.size() * sizeof(core_[0]) + seeds_.size() * sizeof(seeds_[0]));

@@ -329,6 +329,8 @@ struct WeightedSketcher {
     WeightedSketcher(CountingSketchType &&cst, CoreSketch &&core,
                      HashStruct &&hf=HashStruct())
     : cst_(std::move(cst)), sketch_(std::move(core)), hf_(std::move(hf)) {}
+    WeightedSketcher(std::string path): cst_(0,0), sketch_(path) {throw common::NotImplementedError("");}
+    WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw common::NotImplementedError("");}
 
     void addh(uint64_t x) {add(x);}
     void add(uint64_t x) {
@@ -345,6 +347,14 @@ struct WeightedSketcher {
     final_type finalize(Args &&...args) const {
         return final_type(sketch_.finalize(std::forward<Args>(args)...));
     }
+    template<typename...Args>
+    auto write(Args &&...args) const {return sketch_.write(std::forward<Args>(args)...);}
+    template<typename...Args>
+    void read(Args &&...args) {throw common::NotImplementedError("");}
+    template<typename...Args> auto jaccard_index(Args &&...args) const {return sketch_.jaccard_index(std::forward<Args>(args)...);}
+    template<typename...Args> auto containment_index(Args &&...args) const {return sketch_.containment_index(std::forward<Args>(args)...);}
+    template<typename...Args> auto free(Args &&...args) {return sketch_.free(std::forward<Args>(args)...);}
+    template<typename...Args> auto cardinality_estimate(Args &&...args) const {return sketch_.cardinality_estimate(std::forward<Args>(args)...);}
 };
 
 template<typename T> struct is_weighted_sketch: std::false_type {};

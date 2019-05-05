@@ -140,6 +140,7 @@ public:
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
     }
+    RangeMinHash(std::string) {throw NotImplementedError("");}
     double cardinality_estimate() const {
         return double(std::numeric_limits<T>::max()) / this->max_element() * minimizers_.size();
 #if 0
@@ -455,6 +456,7 @@ public:
     auto rend() {return minimizers_.rend();}
     auto rend() const {return minimizers_.rend();}
     CountingRangeMinHash(size_t n, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()): AbstractMinHash<T, Cmp>(n), hf_(std::move(hf)), cmp_(std::move(cmp)) {}
+    CountingRangeMinHash(std::string s): CountingRangeMinHash(0) {throw NotImplementedError("");}
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         return double(std::numeric_limits<T>::max()) / std::max_element(minimizers_.begin(), minimizers_.end(), [](auto x, auto y) {return x.first < y.first;})->first * minimizers_.size();
     }

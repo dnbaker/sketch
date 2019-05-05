@@ -424,6 +424,13 @@ struct SuperMinHash {
         if(bbits_ == 0)
             bbits_ = needed_bits();
     }
+    void free() {
+        auto p(std::move(p_));
+        auto h(std::move(h_));
+        auto q(std::move(q_));
+        auto b(std::move(b_));
+    }
+    SuperMinHash(std::string s) {throw NotImplementedError("");}
     void reset() {
         std::fill(p_.begin(), p_.end(), 0);
         std::fill(h_.begin(), h_.end(), uint64_t(-1));
@@ -749,6 +756,12 @@ public:
             case 64: return .709;
             default: return 0.7213 / (1 + 1.079/m);
         }
+    }
+    double jaccard_index(const BBitMinHasher &o) const {
+        size_t ret = 0;
+        for(size_t i = 0; i < size(); ++i)
+            ret += core_[i] == o.core_[i];
+        return double(ret) / core_.size();
     }
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
         if(std::find_if(core_.begin(), core_.end(), [](auto x) {return x != detail::default_val<T>();}) == core_.end())

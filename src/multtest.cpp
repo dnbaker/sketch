@@ -1,3 +1,4 @@
+#include "vec/vec.h"
 #include "mult.h"
 #include "hll.h"
 using namespace sketch;
