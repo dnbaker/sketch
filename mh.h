@@ -505,6 +505,28 @@ public:
         }
         return static_cast<double>(num) / denom;
     }
+    double containment_index(const CountingRangeMinHash &o) const {
+        assert(o.size() == size());
+        size_t denom = 0, num = 0;
+        auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
+#define I1DM if(++i1 == minimizers_.end()) break
+#define I2DM if(++i2 == o.minimizers_.end()) break
+        for(;;) {
+            if(cmp_(i1->first, i2->first)) {
+                denom += i1->second;
+                I1DM;
+            } else if(cmp_(i2->first, i1->first)) {
+                I2DM;
+            } else {
+                const auto v1 = i1->second, v2 = i2->second;
+                denom += v1;
+                num += std::min(v1, v2);
+                I1DM;
+                I2DM;
+            }
+        }
+        return static_cast<double>(num) / denom;
+    }
     template<typename Handle>
     ssize_t write(Handle handle) const {
         return this->finalize().write(handle);
@@ -561,6 +583,9 @@ public:
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
         return minhash::intersection_size(o, *this, [&](auto &x, auto &y) {return cmp_(x.first, y.first);});
+    }
+    size_t intersection_size(const CountingRangeMinHash &o) const {
+        return  minhash::intersection_size(o, *this, [&](auto &x, auto &y) {return cmp_(x.first, y.first);});
     }
     template<typename C2>
     double jaccard_index(const C2 &o) const {

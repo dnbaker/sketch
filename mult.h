@@ -332,11 +332,17 @@ struct WeightedSketcher {
     WeightedSketcher(std::string path): cst_(0,0), sketch_(path) {throw common::NotImplementedError("");}
     WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw common::NotImplementedError("");}
 
+    operator final_type() {
+        return std::move(sketch_);
+    }
+    operator final_type() const {
+        return sketch_;
+    }
     void addh(uint64_t x) {add(x);}
     void add(uint64_t x) {
         const auto count = cst_.est_count(x);
-        if(cst_.addh(x) != count)
-            sketch_.add(XXH3_64bits_withSeed(&x, sizeof(x), count));
+        if(std::make_unsigned_t<std::decay_t<decltype(count)>>(cst_.addh(x)) != count)
+            sketch_.addh(XXH3_64bits_withSeed(&x, sizeof(x), count));
     }
     uint64_t hash(uint64_t x) const {return hf_(x);}
     WeightedSketcher(const WeightedSketcher &) = default;
@@ -351,17 +357,25 @@ struct WeightedSketcher {
     auto write(Args &&...args) const {return sketch_.write(std::forward<Args>(args)...);}
     template<typename...Args>
     void read(Args &&...args) {throw common::NotImplementedError("");}
+    auto jaccard_index(const base_type &o) const {return sketch_.jaccard_index(o);}
     template<typename...Args> auto jaccard_index(Args &&...args) const {return sketch_.jaccard_index(std::forward<Args>(args)...);}
     template<typename...Args> auto containment_index(Args &&...args) const {return sketch_.containment_index(std::forward<Args>(args)...);}
+    auto containment_index(const base_type &o) const {return sketch_.containment_index(o);}
     template<typename...Args> auto free(Args &&...args) {return sketch_.free(std::forward<Args>(args)...);}
     template<typename...Args> auto cardinality_estimate(Args &&...args) const {return sketch_.cardinality_estimate(std::forward<Args>(args)...);}
+#if 0
+    template<typename...Args> auto intersection_size(Args &&...args) const {return sketch_.intersection_size(std::forward<Args>(args)...);}
+    auto intersection_size(const base_type &o) const {return sketch_.intersection_size(o);}
+#endif
+    auto size() const {return sketch_.size();}
 };
 
-template<typename T> struct is_weighted_sketch: std::false_type {};
+template<typename T>
+static constexpr bool is_weighted_sketch() {return false;}
 template<typename CoreSketch,
          typename CountingSketch,
          typename HashStruct>
-struct is_weighted_sketch<WeightedSketcher<CoreSketch, CountingSketch, HashStruct>>: std::true_type {};
+static constexpr bool is_weighted_sketch() {return true;}
 
 } // namespace wj
 
