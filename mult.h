@@ -340,9 +340,13 @@ struct WeightedSketcher {
     }
     void addh(uint64_t x) {add(x);}
     void add(uint64_t x) {
-        const auto count = cst_.est_count(x);
-        if(std::make_unsigned_t<std::decay_t<decltype(count)>>(cst_.addh(x)) != count)
-            sketch_.addh(XXH3_64bits_withSeed(&x, sizeof(x), count));
+        auto count = cst_.est_count(x);
+        CONST_IF(std::is_unsigned<decltype(count)>::value) {
+            if(count < 0)
+                count = 0;
+        }
+        if(std::make_unsigned_t<std::decay_t<decltype(count)>>(cst_.addh(x)) > count)
+            sketch_.addh(uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count)));
     }
     uint64_t hash(uint64_t x) const {return hf_(x);}
     WeightedSketcher(const WeightedSketcher &) = default;
