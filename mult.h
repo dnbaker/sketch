@@ -317,11 +317,27 @@ struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, fi
 
 namespace wj { // Weighted jaccard
 
-template<typename CoreSketch, typename CountingSketchType=cm::ccm_t, typename HashStruct=common::WangHash>
+struct XXH3PairHasher {
+    template<typename CType>
+    uint64_t hash(uint64_t x, CType count) const {
+       return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
+};
+
+struct WangPairHasher: hash::WangHash {
+    template<typename CType>
+    uint64_t hash(uint64_t x, CType count) const {
+        return this->operator()(this->operator()(x) ^ count);
+    }
+};
+
+
+template<typename CoreSketch, typename CountingSketchType=cm::ccm_t, typename HashStruct=common::WangHash, typename PairHasher=WangPairHasher>
 struct WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
     HashStruct          hf_;
+    PairHasher   pair_hasher_;
     public:
     using final_type = typename CoreSketch::final_type;
     using base_type  = CoreSketch;
@@ -339,6 +355,8 @@ struct WeightedSketcher {
         return sketch_;
     }
     void addh(uint64_t x) {add(x);}
+    template<typename CType>
+    uint64_t hash(uint64_t x, CType count) const {return pair_hasher_.hash(x, count);}
     void add(uint64_t x) {
         auto count = cst_.est_count(x);
         CONST_IF(std::is_unsigned<decltype(count)>::value) {
@@ -346,7 +364,7 @@ struct WeightedSketcher {
                 count = 0;
         }
         if(std::make_unsigned_t<std::decay_t<decltype(count)>>(cst_.addh(x)) > count)
-            sketch_.addh(uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count)));
+            sketch_.addh(hash(x, count));
     }
     uint64_t hash(uint64_t x) const {return hf_(x);}
     WeightedSketcher(const WeightedSketcher &) = default;
