@@ -437,6 +437,7 @@ class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {
         }
         VType(T v, CountType c): first(v), second(c) {}
         VType(const VType &o): first(o.first), second(o.second) {}
+        VType(gzFile fp) {if(gzread(fp, this, sizeof(*this)) != sizeof(*this)) throw 1;}
     };
     Hasher hf_;
     Cmp cmp_;
@@ -509,8 +510,6 @@ public:
         assert(o.size() == size());
         size_t denom = 0, num = 0;
         auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
-#define I1DM if(++i1 == minimizers_.end()) break
-#define I2DM if(++i2 == o.minimizers_.end()) break
         for(;;) {
             if(cmp_(i1->first, i2->first)) {
                 denom += i1->second;
@@ -527,12 +526,23 @@ public:
         }
         return static_cast<double>(num) / denom;
     }
-    template<typename Handle>
-    ssize_t write(Handle handle) const {
-        return this->finalize().write(handle);
+    DBSKETCH_WRITE_STRING_MACROS
+    DBSKETCH_READ_STRING_MACROS
+    ssize_t write(gzFile fp) const {
+        uint64_t n = minimizers_.size();
+        if(gzwrite(fp, &n, sizeof(n)) != sizeof(n)) throw 1;
+        for(const auto &pair: minimizers_) {
+            if(gzwrite(fp, std::addressof(pair), sizeof(pair)) != sizeof(pair))
+                throw 2;
+        }
+        return sizeof(VType) * minimizers_.size();
     }
-    template<typename Handle>
-    ssize_t read(Handle handle) {throw NotImplementedError();return -1;}
+    ssize_t read(gzFile fp) {
+        uint64_t n;
+        if(gzread(fp, &n, sizeof(n)) != sizeof(n)) throw 1;
+        for(size_t i = n; i--; minimizers_.insert(VType(fp)));
+        return sizeof(n) + sizeof(VType) * n;
+    }
 
     void clear() {
         decltype(minimizers_) tmp;
@@ -730,14 +740,14 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         double sz1 = cardinality_estimate(ARITHMETIC_MEAN);
         double sz2 = o.cardinality_estimate(ARITHMETIC_MEAN);
         double is = sz1 + sz2 - us;
-        return is / us;
+        return std::max(0., is / us);
     }
     double containment_index(const FinalCRMinHash &o) const {
         double us = union_size(o);
         double sz1 = cardinality_estimate();
         double sz2 = o.cardinality_estimate();
         double is = sz1 + sz2 - us;
-        return is / sz1;
+        return std::max(0., is / us);
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         return FinalRMinHash<T, Cmp>::cardinality_estimate(mode);
