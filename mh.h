@@ -527,12 +527,25 @@ public:
         }
         return static_cast<double>(num) / denom;
     }
-    template<typename Handle>
-    ssize_t write(Handle handle) const {
-        return this->finalize().write(handle);
+    DBSKETCH_WRITE_STRING_MACROS
+    DBSKETCH_READ_STRING_MACROS
+    ssize_t write(gzFile fp) const {
+        uint64_t n = minimizers_.size();
+        if(gzwrite(fp, &n, sizeof(n)) != sizeof(n)) throw 1;
+        for(const auto &pair: minimizers_) {
+            if(gzwrite(fp, std::addressof(pair), sizeof(pair)) != sizeof(pair))
+                throw 2;
+        }
     }
-    template<typename Handle>
-    ssize_t read(Handle handle) {throw NotImplementedError();return -1;}
+    ssize_t read(gzFile fp) const {
+        uint64_t n;
+        if(gzread(fp, &n, sizeof(n)) != sizeof(n)) throw 1;
+        minimizers_.resize(n);
+        for(const auto &pair: minimizers_) {
+            if(gzread(fp, std::addressof(pair), sizeof(pair)) != sizeof(pair))
+                throw 2;
+        }
+    }
 
     void clear() {
         decltype(minimizers_) tmp;
