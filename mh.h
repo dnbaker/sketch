@@ -437,6 +437,7 @@ class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {
         }
         VType(T v, CountType c): first(v), second(c) {}
         VType(const VType &o): first(o.first), second(o.second) {}
+        VType(gzFile fp) {if(gzread(fp, this, sizeof(*this)) != sizeof(*this)) throw 1;}
     };
     Hasher hf_;
     Cmp cmp_;
@@ -536,15 +537,13 @@ public:
             if(gzwrite(fp, std::addressof(pair), sizeof(pair)) != sizeof(pair))
                 throw 2;
         }
+        return sizeof(VType) * minimizers_.size();
     }
-    ssize_t read(gzFile fp) const {
+    ssize_t read(gzFile fp) {
         uint64_t n;
         if(gzread(fp, &n, sizeof(n)) != sizeof(n)) throw 1;
-        minimizers_.resize(n);
-        for(const auto &pair: minimizers_) {
-            if(gzread(fp, std::addressof(pair), sizeof(pair)) != sizeof(pair))
-                throw 2;
-        }
+        for(size_t i = n; i--; minimizers_.insert(VType(fp)));
+        return sizeof(n) + sizeof(VType) * n;
     }
 
     void clear() {
