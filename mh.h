@@ -510,8 +510,6 @@ public:
         assert(o.size() == size());
         size_t denom = 0, num = 0;
         auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
-#define I1DM if(++i1 == minimizers_.end()) break
-#define I2DM if(++i2 == o.minimizers_.end()) break
         for(;;) {
             if(cmp_(i1->first, i2->first)) {
                 denom += i1->second;
@@ -742,14 +740,14 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         double sz1 = cardinality_estimate(ARITHMETIC_MEAN);
         double sz2 = o.cardinality_estimate(ARITHMETIC_MEAN);
         double is = sz1 + sz2 - us;
-        return is / us;
+        return std::max(0., is / us);
     }
     double containment_index(const FinalCRMinHash &o) const {
         double us = union_size(o);
         double sz1 = cardinality_estimate();
         double sz2 = o.cardinality_estimate();
         double is = sz1 + sz2 - us;
-        return is / sz1;
+        return std::max(0., is / us);
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         return FinalRMinHash<T, Cmp>::cardinality_estimate(mode);
