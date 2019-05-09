@@ -698,12 +698,12 @@ class hllbase_t {
 // Attributes
 protected:
     std::vector<uint8_t, Allocator<uint8_t>> core_;
-    double                 value_;
-    uint32_t                  np_;
-    uint8_t        is_calculated_:1;
-    EstimationMethod       estim_;
-    JointEstimationMethod jestim_;
-    HashStruct                hf_;
+    mutable double                          value_;
+    uint32_t                                   np_;
+    mutable uint8_t                 is_calculated_;
+    EstimationMethod                        estim_;
+    JointEstimationMethod                  jestim_;
+    HashStruct                                 hf_;
 public:
     using final_type = hllbase_t<HashStruct>;
     using HashType = HashStruct;
@@ -763,8 +763,11 @@ public:
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const {
-        if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report."
-                                                     " Try the report() function.");
+        if(!is_calculated_) {
+            const auto counts(detail::sum_counts(core_)); // std::array<uint32_t, 64>
+            value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
+            is_calculated_ = true;
+        }
         return value_;
     }
     const auto finalize() const {return *this;}

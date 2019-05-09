@@ -430,7 +430,7 @@ struct SuperMinHash {
         auto q(std::move(q_));
         auto b(std::move(b_));
     }
-    SuperMinHash(std::string s) {throw NotImplementedError("");}
+    SuperMinHash(std::string s) {throw NotImplementedError("SuperMinHash can't be made from std::string");}
     void reset() {
         std::fill(p_.begin(), p_.end(), 0);
         std::fill(h_.begin(), h_.end(), uint64_t(-1));
