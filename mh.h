@@ -316,8 +316,8 @@ struct FinalRMinHash {
             // Easier to branch-predict:  http://www.vldb.org/pvldb/vol8/p293-inoue.pdf
             if(*i1 != *i2) ++i1, ++i2;
             else {
-                i2 += cmp(*i1, *i2);
-                i1 += !cmp(*i1, *i2);
+                const int c = cmp(*i1, *i2);
+                i2 += c; i1 += !c;
             }
             ++n_in_sketch;
         }
