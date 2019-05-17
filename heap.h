@@ -2,6 +2,7 @@
 #define SKETCH_HEAP_H__
 #include "common.h"
 #include <mutex>
+#include <cstdarg>
 #include "flat_hash_map/flat_hash_map.hpp"
 
 namespace sketch {
