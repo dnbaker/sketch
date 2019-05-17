@@ -15,6 +15,8 @@ FLAGS=-O3 -funroll-loops -pipe -march=native -msse2 -mavx2 -Ivec/blaze -Ivec -I.
     -Wreorder -DXXH_INLINE_ALL  \
 	-Wno-attributes -Wno-pragmas # -fsanitize=address -fsanitize=undefined # -Wsuggest-attribute=malloc
 
+GPUFLAGS= -O3 -std=c++14
+
 ifeq ($(shell uname),Darwin)
     UNDEFSTR=-undefined dynamic_lookup
 else
@@ -22,6 +24,7 @@ else
 endif
 
 
+NVCC?=nvcc
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 all: $(EX)
 run_tests: $(EX) lztest
@@ -52,6 +55,12 @@ python: _hll.cpython.so
 
 %: src/%.cpp kthread.o $(HEADERS) sleef.h
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
+
+%: src/%.cu
+	$(NVCC) $< -o $@ $(GPUFLAGS)
+
+%.o: %.cu
+	$(NVCC) $< -c -o $@ $(GPUFLAGS)
 
 %: benchmark/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DNDEBUG=1 $< -o $@ -lz

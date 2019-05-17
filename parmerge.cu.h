@@ -18,10 +18,10 @@ struct Incrementer {
 };
 
 template<typename It1, typename It2, typename CountType=std::uint32_t>
-__host__ __device__ void count_intersection(It1 start1, It1 end1, It2 start2, It2 end2, CountType *ptr=nullptr {
+__host__ __device__
+void count_intersection(It1 start1, It1 end1, It2 start2, It2 end2, CountType *ptr=nullptr) {
     CountType val = 0;
-    Incrementer<CountType> inc(&val);
-    thrust::merge(start1, end, start2, end2, inc(&val));
+    thrust::merge(start1, end1, start2, end2, Incrementer<CountType>(&val));
     if(!ptr) std::fprintf(stderr, "Count: %zu\n", size_t(val));
     else *ptr = val;
 }
