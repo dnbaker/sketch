@@ -313,11 +313,12 @@ struct FinalRMinHash {
         auto i1 = this->rbegin(), i2 = o.rbegin();
         T mv;
         while(n_in_sketch < first.size() - 1) {
-            if(cmp(*i1, *i2))
-                ++i2;
-            else if(cmp(*i2, *i1))
-                ++i1;
-            else ++i1, ++i2;
+            // Easier to branch-predict:  http://www.vldb.org/pvldb/vol8/p293-inoue.pdf
+            if(*i1 != *i2) ++i1, ++i2;
+            else {
+                i2 += cmp(*i1, *i2);
+                i1 += !cmp(*i1, *i2);
+            }
             ++n_in_sketch;
         }
         mv = cmp(*i1, *i2) ? *i2: *i1;
