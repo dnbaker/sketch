@@ -10,7 +10,7 @@ int print(const T &x, const char *s) {
     return 0;
 }
 template<typename T>
-void sortfn(T &x) {std::sort(x.begin(), x.end());}
+void sortfn(T &x) {std::sort(x.begin(), x.end(), typename RangeMinHash<uint64_t>::Compare());}
 int main() {
     size_t nelem = 1000000, ss = 1024;
     RangeMinHash<uint64_t> s1(ss), s2(ss);
@@ -31,8 +31,8 @@ int main() {
     auto v3 = f1 + f2;
     auto csf1 = cs1.finalize(), csf2= cs2.finalize();
     std::fprintf(stderr, "csf2 union size: %lf\n", csf1.union_size(csf2));
-    std::vector<uint64_t> v1(s1.begin(), s1.end());
-    std::vector<uint64_t> v2(s2.begin(), s2.end());
+    decltype(f1.first) v1(s1.begin(), s1.end());
+    decltype(f1.first) v2(s2.begin(), s2.end());
     auto sf3v = sf3.first;
     sortfn(sf3v);
     assert(f1.first == v1);

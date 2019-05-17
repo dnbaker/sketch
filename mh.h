@@ -137,6 +137,7 @@ protected:
 
 public:
     using final_type = FinalRMinHash<T, Cmp, Allocator>;
+    using Compare = Cmp;
     RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()):
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
