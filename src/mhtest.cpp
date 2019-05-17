@@ -2,7 +2,7 @@
 #include <random>
 
 template<typename T>
-void pc(const T &x, const char *s="unspecified") {
+int pc(const T &x, const char *s="unspecified") {
     auto it = std::begin(x);
     std::string t = std::to_string(*it);
     while(++it != x.end()) {
@@ -10,6 +10,7 @@ void pc(const T &x, const char *s="unspecified") {
         t += std::to_string(*it);
     }
     std::fprintf(stderr, "Container %s contains: %s\n", s, t.data());
+    return 0;
 }
 
 template<typename T>
@@ -92,4 +93,23 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "m1 is %s-sorted\n", forward_sorted(m1.begin(), m1.end()) ? "forward": "reverse");
     //auto kmf = kmh.finalize();
     std::fprintf(stderr, "jaccard between finalized MH sketches: %lf, card %lf\n", m1.jaccard_index(m2), m1.cardinality_estimate());
+    {
+        // Part 2: verify merging of final sketches
+        size_t n = 10000;
+        RangeMinHash<uint64_t> rmh1(20), rmh2(20);
+        aes::AesCtr<uint64_t> gen1(13), gen2(1337);
+        for(size_t i = n; i--;) {
+            rmh1.addh(gen1());
+            rmh2.addh(gen2());
+        }
+        auto fmh1 = rmh1.finalize(), fmh2 = rmh2.finalize();
+        auto u = fmh1 + fmh2;
+        RangeMinHash<uint64_t> rmh3(20);
+        gen1.seed(13); gen2.seed(1337);
+        for(size_t i = n; i--;)
+            rmh3.addh(gen1()), rmh3.addh(gen2());
+        auto fmh3 = rmh3.finalize();
+        assert(fmh3.first == u.first || (pc(fmh3, "fmh3") || pc(u, "u")));
+    }
+
 }

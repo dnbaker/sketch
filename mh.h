@@ -118,14 +118,15 @@ public:
     SET_SKETCH(hashes_)
 };
 
-template<typename T, typename Cmp> struct FinalRMinHash; // Forward definition
+template<typename T, typename Cmp, typename Allocator> struct FinalRMinHash; // Forward definition
 /*
 The sketch is the set of minimizers.
 
 */
 template<typename T,
          typename Cmp=std::greater<T>,
-         typename Hasher=common::WangHash
+         typename Hasher=common::WangHash,
+         typename Allocator=common::Allocator<T>
         >
 struct RangeMinHash: public AbstractMinHash<T, Cmp> {
 protected:
@@ -135,7 +136,7 @@ protected:
     std::set<T, Cmp> minimizers_; // using std::greater<T> so that we can erase from begin()
 
 public:
-    using final_type = FinalRMinHash<T, Cmp>;
+    using final_type = FinalRMinHash<T, Cmp, Allocator>;
     RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()):
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
@@ -265,10 +266,10 @@ struct EqualWeight {
 };
 }
 
-template<typename T, typename Cmp>
+template<typename T, typename Cmp, typename Allocator=Allocator<T>>
 struct FinalRMinHash {
     static_assert(std::is_unsigned<T>::value, "must be unsigned btw");
-    std::vector<T> first;
+    std::vector<T, Allocator> first;
     using container_type = decltype(first);
     Cmp cmp;
     size_t intersection_size(const FinalRMinHash &o) const {
@@ -284,7 +285,7 @@ struct FinalRMinHash {
         }
     }
     FinalRMinHash &operator+=(const FinalRMinHash &o) {
-        std::vector<T> newfirst; newfirst.reserve(o.size());
+        std::vector<T, Allocator> newfirst; newfirst.reserve(o.size());
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
         auto i1 = this->rbegin(), i2 = o.rbegin();
         while(newfirst.size() < first.size()) {
@@ -296,6 +297,7 @@ struct FinalRMinHash {
                 ++i1;
             } else newfirst.push_back(*i1), ++i1, ++i2;
         }
+        std::reverse(newfirst.begin(), newfirst.end());
         std::swap(newfirst, first);
         return *this;
     }
@@ -376,7 +378,9 @@ struct FinalRMinHash {
     void free() {
         decltype(first) tmp; std::swap(tmp, first);
     }
-    FinalRMinHash(std::vector<T> &&first): first(std::move(first)), cmp() {}
+    template<typename Alloc>
+    FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(ofirst.size()), cmp() {std::copy(ofirst.begin(), ofirst.end(), first.begin());}
+    FinalRMinHash(std::vector<T, Allocator> &&first): first(std::move(first)), cmp() {}
     FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)), cmp(std::move(o.cmp)) {}
     ssize_t read(gzFile fp) {
         uint64_t sz;
