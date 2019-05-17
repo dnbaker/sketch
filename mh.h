@@ -266,7 +266,7 @@ struct EqualWeight {
 };
 }
 
-template<typename T, typename Cmp, typename Allocator=Allocator<T>>
+template<typename T, typename Cmp=std::greater<T>, typename Allocator=Allocator<T>>
 struct FinalRMinHash {
     static_assert(std::is_unsigned<T>::value, "must be unsigned btw");
     std::vector<T, Allocator> first;
