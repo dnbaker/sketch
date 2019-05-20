@@ -19,7 +19,7 @@ template<typename T, size_t aln=0>
 class vector {
     static_assert(std::is_trivial<T>::value, "T must be a trivial type");
     T *data_;
-    const size_t n_;
+    size_t n_;
 public:
     static T *allocate(size_t nelem) {
         T *ret;
@@ -63,7 +63,7 @@ public:
     T       *data()       {return data_;}
 
     bool operator<(const vector &o) const {
-        return std::lexicographical_compare<T>(begin(), end(), o.begin(), o.end());
+        return std::lexicographical_compare(begin(), end(), o.begin(), o.end());
     }
     bool operator>(const vector &o) const {
         return std::lexicographical_compare<T>(begin(), end(), o.begin(), o.end(), std::greater<T>());
