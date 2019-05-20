@@ -66,7 +66,7 @@ public:
         return std::lexicographical_compare(begin(), end(), o.begin(), o.end());
     }
     bool operator>(const vector &o) const {
-        return std::lexicographical_compare<T>(begin(), end(), o.begin(), o.end(), std::greater<T>());
+        return std::lexicographical_compare(begin(), end(), o.begin(), o.end(), std::greater<T>());
     }
 };
 
