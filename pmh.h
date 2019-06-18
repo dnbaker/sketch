@@ -33,18 +33,17 @@ void for_each_nonzero(const std::vector<T, Allocator> &x, const Func &func) {
 #if VERBOSE_AF
     std::fprintf(stderr, "Using vector %s\n", __PRETTY_FUNCTION__);
 #endif
-    size_t i = 0;
     for(size_t i = 0; i < x.size(); ++i)
         if(x[i]) func(i, x[i]);
 }
-template<typename T, typename Func, template<typename, bool> typename MatrixType, bool SO, bool B1, bool B2, bool B3>
+template<typename T, typename Func, template<typename, bool> class MatrixType, bool SO, bool B1, bool B2, bool B3>
 void for_each_nonzero(const blaze::Row<MatrixType<T, SO>, B1, B2, B3> &x, const Func &func) {
 #if VERBOSE_AF
     std::fprintf(stderr, "Using row %s\n", __PRETTY_FUNCTION__);
 #endif
-    size_t i = 0;
     for(size_t i = 0; i < x.size(); ++i)
-        if(x[i]) func(i, x[i]);
+        if(x[i])
+            func(i, x[i]);
 }
 
 template<typename T, typename Func, bool SO>
@@ -52,7 +51,6 @@ void for_each_nonzero(const blaze::DynamicVector<T, SO> &x, const Func &func) {
 #if VERBOSE_AF
     std::fprintf(stderr, "Using dv %s\n", __PRETTY_FUNCTION__);
 #endif
-    size_t i = 0;
     for(size_t i = 0; i < x.size(); ++i)
         if(x[i]) func(i, x[i]);
 }
@@ -67,7 +65,7 @@ void for_each_nonzero(const blaze::CompressedVector<T, SO> &x, const Func &func)
     }
 }
 
-template<template<typename, typename> typename Map, typename K, typename V, typename Func>
+template<template<typename, typename> class Map, typename K, typename V, typename Func>
 void for_each_nonzero(const Map<K, V> &x, const Func &func) {
 #if VERBOSE_AF
     std::fprintf(stderr, "Using blaze compressed matrix %s\n", __PRETTY_FUNCTION__);
@@ -100,7 +98,6 @@ public:
     template<typename T, typename FType=double>
     auto hash(T x, uint64_t seed) const {
         if(!x) return FType(0);
-        uint64_t newseed;
         static_assert(sizeof(x) >= 4, "must be at least 4 bytes");
         seed ^= sizeof(x) == 8 ? *reinterpret_cast<uint64_t *>(&x): *reinterpret_cast<uint32_t *>(&x);
         wy::WyHash<uint64_t> rng(seed);
