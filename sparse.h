@@ -66,7 +66,7 @@ public:
             }
         }
     }
-    SparseHLL(int p): p_(p) {
+    SparseHLL(uint32_t p): p_(p) {
         if(p > SparseHLL32::max_p()) throw std::runtime_error(std::string("p exceeds maximum ") + std::to_string(SparseHLL32::max_p()));
 #if VERBOSE_AF
         std::fprintf(stderr, "p constructor p: %u\n", p_);
@@ -133,7 +133,6 @@ public:
         }
         const std::array<uint32_t, 64> &osum = a ? *a: *tmp;
         assert(is_sorted());
-        auto it = vals_.begin();
         if(!sum_) *tmp2 = sum();
         std::array<uint32_t, 64> &lsum = sum_ ? *sum_: *tmp2;
         std::array<uint32_t, 64> usum = osum;
