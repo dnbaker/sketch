@@ -79,11 +79,11 @@
 #endif
 
 #ifndef CONST_IF
-#if __cplusplus >= 201703L
-#define CONST_IF(...) if constexpr(__VA_ARGS__)
-#else
-#define CONST_IF(...) if(__VA_ARGS__)
-#endif
+#  if __cplusplus >= __cpp_if_constexpr
+#    define CONST_IF(...) if constexpr(__VA_ARGS__)
+#  else
+#    define CONST_IF(...) if(__VA_ARGS__)
+#  endif
 #endif
 
 
