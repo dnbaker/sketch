@@ -15,6 +15,8 @@ FLAGS=-O3 -funroll-loops -pipe -march=native -msse2 -mavx2 -Ivec/blaze -Ivec -I.
     -Wreorder -DXXH_INLINE_ALL  \
 	-Wno-attributes -Wno-pragmas # -fsanitize=address -fsanitize=undefined # -Wsuggest-attribute=malloc
 
+PYCONF?=python3-config
+
 GPUFLAGS= -O3 -std=c++14
 
 ifeq ($(shell uname),Darwin)
@@ -32,8 +34,8 @@ run_tests: $(EX) lztest
 
 STD?=-std=c++14
 
-INCLUDES=-I`python3-config --includes` -Ipybind11/include
-SUF=`python3-config --extension-suffix`
+INCLUDES=-I`$(PYCONF) --includes` -Ipybind11/include
+SUF=`$(PYCONF) --extension-suffix`
 OBJS=$(patsubst %.cpp,%$(SUF),$(wildcard *.cpp))
 HEADERS=$(wildcard *.h)
 
@@ -41,7 +43,7 @@ sleef.h:
 	+cd vec/sleef && mkdir -p build && cd build && cmake .. && make && cd ../../../ && ln -s vec/sleef//build/include/sleef.h sleef.h
 
 python: _hll.cpython.so
-	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`python3-config --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
+	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
 %.cpython.so: %.cpp
 	$(CXX) $(UNDEFSTR) $(INCLUDES) -O3 -Wall $(FLAGS) -shared $(STD) -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \

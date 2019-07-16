@@ -1,4 +1,5 @@
 #include "pybind11/pybind11.h"
+#include "pybind11/numpy.h"
 #include "hll.h"
 namespace py = pybind11;
 using namespace sketch;
@@ -21,5 +22,10 @@ PYBIND11_MODULE(_hll, m) {
     m.def("jaccard_index", [](hll_t &h1, hll_t &h2) {
             return jaccard_index(h1, h2);
         }
-    );
+    ).def("from_shs", [](const py::array_t<uint64_t> &input, size_t ss=10) {
+         hll_t ret(ss);
+         auto ptr = input.data();
+         for(ssize_t i = 0; i < input.size();ret.addh(ptr[i++]));
+         return ret;
+    }, "Creates an HLL sketch from a numpy array of 64-bit integers.");
 }
