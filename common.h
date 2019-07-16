@@ -497,6 +497,20 @@ struct SizeDivPolicy {
 
 } // policy
 
+template<typename T>
+static constexpr int range_check(unsigned nbits, T val) {
+    CONST_IF(std::is_floating_point<T>::value) {
+        return 0; // Yeah, we're fine.
+    }
+    CONST_IF(std::is_signed<T>::value) {
+        const int64_t v = val;
+        return v < -int64_t(1ull << (nbits - 1)) ? -1
+                                                 : v > int64_t((1ull << (nbits - 1)) - 1);
+    } else {
+        return val >= (1ull << nbits);
+    }
+}
+
 enum MHCardinalityMode: uint8_t {
     HARMONIC_MEAN,
     GEOMETRIC_MEAN,

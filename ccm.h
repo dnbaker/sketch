@@ -2,8 +2,8 @@
 #include <ctime>
 #include <deque>
 #include <queue>
-#include "common.h"
 #include "hash.h"
+#include "update.h"
 
 namespace sketch {
 
@@ -76,160 +76,12 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
     double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
     return ret;
 }
-template<typename IntType, typename=typename std::enable_if<std::is_signed<IntType>::value>::type>
-static constexpr IntType signarr []{static_cast<IntType>(-1), static_cast<IntType>(1)};
 
 template<typename T>
 struct IndexedValue {
     using Type = typename std::decay_t<decltype(*(std::declval<T>().cbegin()))>;
 };
-template<typename T>
-static constexpr int range_check(unsigned nbits, T val) {
-    CONST_IF(std::is_floating_point<T>::value) {
-        return 0; // Yeah, we're fine.
-    }
-    CONST_IF(std::is_signed<T>::value) {
-        const int64_t v = val;
-        return v < -int64_t(1ull << (nbits - 1)) ? -1
-                                                 : v > int64_t((1ull << (nbits - 1)) - 1);
-    } else {
-        return val >= (1ull << nbits);
-    }
-}
 } // namespace detail
-
-namespace update {
-
-struct Increment {
-    // Saturates
-    template<typename T, typename IntType>
-    void operator()(T &ref, IntType maxval) const {
-        ref = ref + (ref < maxval);
-        //ref += (ref < maxval);
-    }
-    template<typename T, typename Container, typename IntType>
-    void operator()(std::vector<T> &ref, Container &con, IntType nbits) const {
-            unsigned count = con[ref[0]];
-            ++count;
-            if(detail::range_check<typename detail::IndexedValue<Container>::Type>(nbits, count) == 0) {
-                for(const auto el: ref)
-                    con[el] = count;
-            }
-    }
-    template<typename... Args>
-    Increment(Args &&... args) {}
-    static uint64_t est_count(uint64_t val) {
-        return val;
-    }
-    template<typename T1, typename T2>
-    static auto combine(const T1 &i, const T2 &j) {
-        using RetType = std::common_type_t<T1, T2>;
-        return RetType(i) + RetType(j);
-    }
-};
-
-/*
- TODO: L2 estimate --
- median(sqrt(sum(x**2 for x in row)))
-*/
-
-
-struct CountSketch {
-    // Saturates
-    template<typename T, typename IntType, typename IntType2>
-    void operator()(T &ref, IntType maxval, IntType2 hash) const {
-        ref = int64_t(ref) + detail::signarr<IntType2>[hash&1];
-    }
-    template<typename T, typename Container, typename IntType>
-    ssize_t operator()(std::vector<T> &ref, std::vector<T> &hashes, Container &con, IntType nbits) const {
-        using IDX = typename detail::IndexedValue<Container>::Type;
-        IDX newval;
-        std::vector<IDX> s;
-        assert(ref.size() == hashes.size());
-        for(size_t i(0); i < ref.size(); ++i) {
-#if !NDEBUG
-            auto inc = detail::signarr<::std::int64_t>[hashes[i]&1];
-            assert(inc == 1 || inc == -1);
-            newval = con[ref[i]] + inc;
-#else
-            newval = con[ref[i]] + detail::signarr<::std::int64_t>[hashes[i]&1];
-#endif
-            s.push_back(newval);
-            if(detail::range_check<IDX>(nbits, newval) == 0)
-                con[ref[i]] = newval;
-        }
-        if(s.size()) {
-            common::sort::insertion_sort(s.begin(), s.end());
-            return (s[s.size()>>1] + s[(s.size()-1)>>1]) >> 1;
-        }
-        return 0;
-    }
-    template<typename... Args>
-    static void Increment(Args &&... args) {}
-    uint64_t est_count(uint64_t val) const {
-        return val;
-    }
-    template<typename T1, typename T2>
-    static uint64_t combine(const T1 &i, const T2 &j) {
-        using RetType = std::common_type_t<T1, T2>;
-        std::fprintf(stderr, "[%s:%d:%s] I'm not sure this is actually right; this is essentially a placeholder.\n", __FILE__, __LINE__, __PRETTY_FUNCTION__);
-        return RetType(i) + RetType(j);
-    }
-    template<typename... Args>
-    CountSketch(Args &&... args) {}
-};
-
-struct PowerOfTwo {
-    common::DefaultRNGType rng_;
-    uint64_t  gen_;
-    uint8_t nbits_;
-    // Also saturates
-    template<typename T, typename IntType>
-    void operator()(T &ref, IntType maxval) {
-#if !NDEBUG
-        std::fprintf(stderr, "maxval: %zu. ref: %zu\n", size_t(maxval), size_t(ref));
-#endif
-        if(unsigned(ref) == 0) ref = 1;
-        else {
-            if(ref >= maxval) return;
-            if(__builtin_expect(nbits_ < ref, 0)) gen_ = rng_(), nbits_ = 64;
-            const unsigned oldref = ref;
-            ref = ref + ((gen_ & (UINT64_C(-1) >> (64 - unsigned(ref)))) == 0);
-            gen_ >>= oldref, nbits_ -= oldref;
-        }
-    }
-    template<typename T, typename Container, typename IntType>
-    void operator()(std::vector<T> &ref, Container &con, IntType nbits) {
-        uint64_t val = con[ref[0]];
-        if(val == 0) {
-            for(const auto el: ref)
-                con[el] = 1;
-        } else {
-            if(__builtin_expect(nbits_ < val, 0)) gen_ = rng_(), nbits_ = 64;
-            auto oldval = val;
-            if((gen_ & (UINT64_C(-1) >> (64 - val))) == 0) {
-                ++val;
-                if(detail::range_check(nbits, val) == 0)
-                    for(const auto el: ref)
-                        con[el] = val;
-            }
-            gen_ >>= oldval;
-            nbits_ -= oldval;
-        }
-    }
-    template<typename T1, typename T2>
-    static auto combine(const T1 &i, const T2 &j) {
-        using RetType = std::common_type_t<T1, T2>;
-        RetType i_(i), j_(j);
-        return std::max(i_, j_) + (i == j);
-    }
-    PowerOfTwo(uint64_t seed=0): rng_(seed), gen_(rng_()), nbits_(64) {}
-    static constexpr uint64_t est_count(uint64_t val) {
-        return val ? uint64_t(1) << (val - 1): 0;
-    }
-};
-
-} // namespace update
 
 using namespace common;
 

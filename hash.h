@@ -95,6 +95,8 @@ struct WangHash {
         key = ~(key-(tmp<<21));
         return key;
     }
+    template<typename T>
+    INLINE uint64_t operator()(const T&x) const {return this->operator()(static_cast<uint64_t>(x));}
 };
 
 // pcg32
