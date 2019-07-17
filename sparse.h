@@ -83,6 +83,7 @@ public:
     }
     unsigned q() const {return 64 - p_;}
     std::array<uint32_t, 64> sum() const {
+        assert(is_sorted());
         std::array<uint32_t, 64> ret{0};
         for(const auto v: vals_)
             ++ret[SparseHLL32::get_value(v)];
@@ -91,6 +92,7 @@ public:
     }
     std::array<uint32_t, 64> &count_sum() {
         if(!sum_) {
+            assert(is_sorted());
             sum_.reset(new std::array<uint32_t, 64>);
             *sum_ = sum();
         }
@@ -129,7 +131,7 @@ public:
                                  *tmp2 = sum_ ? sum_.get(): reinterpret_cast<std::array<uint32_t, 64> *>(__builtin_alloca(sizeof(*tmp2)));
         if(!a) {
             *tmp = hll::detail::sum_counts(hll.core());
-            assert(std::accumulate(tmp->begin(), tmp->end(), 0, std::plus<>()) == size_t(1) << p_);
+            assert(std::accumulate(tmp->begin(), tmp->end(), uint32_t(0), std::plus<>()) == size_t(1) << p_);
         }
         const std::array<uint32_t, 64> &osum = a ? *a: *tmp;
         assert(is_sorted());
@@ -146,9 +148,9 @@ public:
                 ++usum[val];
             }
         }
-        assert(std::accumulate(osum.begin(), osum.end(), 0, std::plus<>()) == size_t(1) << p_);
-        assert(std::accumulate(lsum.begin(), lsum.end(), 0, std::plus<>()) == size_t(1) << p_);
-        assert(std::accumulate(usum.begin(), usum.end(), 0, std::plus<>()) == size_t(1) << p_);
+        assert(std::accumulate(osum.begin(), osum.end(), 0u, std::plus<>()) == size_t(1) << p_);
+        assert(std::accumulate(lsum.begin(), lsum.end(), 0u, std::plus<>()) == size_t(1) << p_);
+        assert(std::accumulate(usum.begin(), usum.end(), 0u, std::plus<>()) == size_t(1) << p_);
         std::array<double, 3> ret;
         double myrep = this->report(), orep = hll.creport(), us = hll::detail::ertl_ml_estimate(usum, p_, q());
         double is = myrep + orep - us;

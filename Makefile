@@ -13,7 +13,7 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 FLAGS=-O3 -funroll-loops -pipe -march=native -msse2 -mavx2 -Ivec/blaze -Ivec -I. -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing \
     -Wreorder -DXXH_INLINE_ALL  \
-	-Wno-attributes -Wno-pragmas # -fsanitize=address -fsanitize=undefined # -Wsuggest-attribute=malloc
+	-Wno-attributes -Wno-pragmas -Wno-ignored-qualifiers # -fsanitize=address -fsanitize=undefined # -Wsuggest-attribute=malloc
 
 PYCONF?=python3-config
 

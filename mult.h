@@ -42,8 +42,8 @@ struct CWSamples {
 #endif
 
 template<typename FType=float, typename HashStruct=common::WangHash, bool decay=false, bool conservative=false>
-class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
-    using super = cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
+class realccm_t: public cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
+    using super = cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
     using FSpace = vec::SIMDTypes<FType>;
     using super::seeds_;
     using super::data_;

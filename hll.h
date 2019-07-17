@@ -54,6 +54,10 @@ using hash::VType;
 using hash::WangHash;
 using hash::MurFinHash;
 
+static constexpr const char *JESTIM_STRINGS []
+{
+    "ORIGINAL", "ERTL_IMPROVED", "ERTL_MLE", "ERTL_JOINT_MLE"
+};
 enum JointEstimationMethod: uint8_t {
     //ORIGINAL       = 0,
     //ERTL_IMPROVED  = 1, // Improved but biased method
@@ -983,8 +987,11 @@ public:
     void set_estim(EstimationMethod val) {
         estim_ = std::max(val, ERTL_MLE);
     }
-    void set_jestim(JointEstimationMethod val) {jestim_ = val;}
-    void set_jestim(uint16_t val) {jestim_ = static_cast<JointEstimationMethod>(val);}
+    void set_jestim(JointEstimationMethod val) {
+        jestim_ = val;
+        std::fprintf(stderr, "new jestim: %s\n", JESTIM_STRINGS[jestim_]);
+    }
+    void set_jestim(uint16_t val) {set_jestim(static_cast<JointEstimationMethod>(val));}
     void set_estim(uint16_t val)  {estim_  = static_cast<EstimationMethod>(val);}
     // Getter for is_calculated_
     bool get_is_ready() const {return is_calculated_;}
@@ -1104,13 +1111,18 @@ public:
             // We can do this because we use an aligned allocator.
             // We also have found that wider vectors than SSE2 don't matter
             const __m128i *p1(reinterpret_cast<const __m128i *>(data())), *p2(reinterpret_cast<const __m128i *>(other.data()));
-            const __m128i *const pe(reinterpret_cast<const __m128i *>(&(*core().cend())));
+            const __m128i *const pe(reinterpret_cast<const __m128i *>(&core_[core_.size()]));
             for(__m128i tmp;p1 < pe;) {
                 tmp = _mm_max_epu8(*p1++, *p2++);
                 for(size_t i = 0; i < sizeof(tmp);++counts[reinterpret_cast<uint8_t *>(&tmp)[i++]]);
             }
+            std::fprintf(stderr, "Counts for example card %lf via simple MLE\n", detail::calculate_estimate(counts, estim_, m(), np_, alpha()));
+            for(auto it = counts.begin(), e = std::find_if(counts.begin(), counts.end(), [](auto x) {return x == 0;});
+                it != e;
+                std::fprintf(stderr, "%u,", *it++));
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
+        std::fprintf(stderr, "jestim is ERTL_JOINT_MLE: %s\n", JESTIM_STRINGS[jestim_]);
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
     }

@@ -264,6 +264,7 @@ public:
         return ret;
     }
     ssize_t sub(const uint64_t val) {
+        static constexpr bool is_increment = std::is_same<UpdateStrategy, update::Increment>::value;
         CONST_IF(!std::is_same<UpdateStrategy, update::Increment>::value) {
             std::fprintf(stderr, "Can't delete from an approximate counting sketch.");
             return std::numeric_limits<ssize_t>::min();

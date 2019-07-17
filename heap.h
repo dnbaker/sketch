@@ -149,7 +149,7 @@ class ObjScoreHeap {
 public:
     template<typename... Args>
     ObjScoreHeap(size_t n, HashFunc &&hf=HashFunc(), Args &&...args):
-        h_(std::move(hf)), m_(n), cmp_()
+        h_(std::move(hf)), cmp_(), m_(n)
     {
         core_.reserve(n);
     }

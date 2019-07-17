@@ -1087,7 +1087,7 @@ public:
                 }
 #if !NDEBUG
                 auto fptr = (value_type*)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
-                assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", fptr, p1 + core_.size()));
+                assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", static_cast<const void *>(fptr), static_cast<const void *>(p1 + core_.size())));
 #endif
                 return common::sum_of_u64s(sum);
             }
