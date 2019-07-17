@@ -151,9 +151,9 @@ public:
                         if(VAL_PER_REGISTER == 1) {
                             data_[data_index] = (lpf << ctrsize) | (lc + rc);
                             assert(newc >= lc && newc >= rc);
-                            return;
+                        } else {
+                            store(data_index, subidx, lpf, newc);
                         }
-                        store(data_index, subidx, lpf, newc);
                     } else {
                         auto newc = std::max(lc, rc), newsub = std::min(lc, rc);
                         static constexpr bool slow_way = true;
