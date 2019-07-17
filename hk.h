@@ -26,13 +26,27 @@ public:
         std::fprintf(stderr, "fpsize: %zu. ctrsize: %zu. requested size: %zu. actual size: %zu. Overflow check? %d. nhashes: %zu\n", fpsize, ctrsize, requested_size, pol_.nelem(), 1, nh_);
     }
 
+    HeavyKeeper(const HeavyKeeper &o) = default;
+    HeavyKeeper(HeavyKeeper &&o)      = default;
+    HeavyKeeper& operator=(HeavyKeeper &&o)      = default;
+    HeavyKeeper& operator=(const HeavyKeeper &o) = default;
+
 
     // utilities
     template<typename T, typename=std::enable_if_t<!std::is_same<T, uint64_t>::value>>
     uint64_t hash(const T &x) const {return hasher_(x);}
+    uint64_t hash(uint64_t x) const {return hasher_(x);}
+    uint64_t hash(uint32_t x) const {return hasher_(x);}
+    uint64_t hash(int64_t x) const {return hasher_(uint64_t(x));}
+    uint64_t hash(int32_t x) const {return hasher_(uint32_t(x));}
     void seed(uint64_t x) const {rng_.seed(x);}
 
     static constexpr uint64_t sig_size = fpsize + ctrsize;
+    static constexpr uint64_t sig_mask         = sig_size < 64 ? (1ull << (sig_size)) - 1: (unsigned long long)(-1);
+    static constexpr uint64_t sig_mask_at_pos(size_t i) {
+        return sig_mask << (i % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER);
+    }
+    static_assert(sig_size <= 64, "For sig_mask to be greater than 64, we'd need to use a larger value type.");
     static constexpr uint64_t fingerprint_mask = ((1ull << fpsize) - 1) << ctrsize;
     static constexpr uint64_t count_mask       = (1ull << ctrsize) - 1;
 
@@ -50,8 +64,7 @@ public:
         auto pos = pol_.mod(i);
         uint64_t value = dataptr[pos / VAL_PER_REGISTER];
         CONST_IF(VAL_PER_REGISTER > 1) {
-            static constexpr uint64_t mask = VAL_PER_REGISTER > 1 ? (1ull << (64 / VAL_PER_REGISTER)) - 1: uint64_t(-1);
-            value = (value >> ((pos % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER))) & mask;
+            value = (value >> ((pos % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER))) & sig_mask;
         }
         return value;
     }
@@ -65,7 +78,7 @@ public:
         uint64_t to_insert = encode(count, fp);
         to_insert <<= (pos % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER);
         dataptr[pos] = (dataptr[pos] & ~(((1ull << (64 / VAL_PER_REGISTER)) - 1) << (pos % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER))) // zero out
-            | to_insert; // add new
+            | to_insert; // add new -- this is never called for shift == 64, in spite of the warning.
     }
 
     static constexpr uint64_t max_fp() {return ((1ull << fpsize) - 1);}
@@ -112,13 +125,55 @@ public:
         uint64_t ret = 0;
         size_t pos = pol_.mod(x), newfp = pol_.div_.div(x) & ((1ull << fpsize) - 1);
         for(size_t i = 0;;) {
-            auto [count, fp] = decode(from_index(pos, i));
+            auto p = decode(from_index(pos, i));
+            auto count = p.first, fp = p.second;
             if(fp == newfp) {
                 ret = std::max(ret, count);
             }
             if(++i == nh_) return ret;
             wy::wyhash64_stateless(&x);
         }
+    }
+    HeavyKeeper &operator|=(const HeavyKeeper &o) {
+        uint64_t ret = 0;
+        size_t data_index = 0;
+        for(size_t subidx = 0; subidx < nh_; ++subidx) {
+            for(size_t i = 0; i < o.size(); ++i) {
+                uint64_t lv = data_[i], rv = o.data_[i];
+                for(size_t j = 0; j < VAL_PER_REGISTER; ++j, ++data_index) {
+                    auto mask = sig_mask_at_pos(j);
+                    uint64_t llv = lv & mask, lrv = rv & mask;
+                    auto llp = decode(llv), lrp = decode(lrv);
+                    auto lc = llp.first, lpf = llp.second,
+                         rc = lrp.first, rf = lrp.seccond;
+                    if(lpf == rf) { // Easily predicted branch first
+                        auto newc = lc + rc;
+                        if(VAL_PER_REGISTER == 1) {
+                            data_[data_index] = (lpf << ctrsize) | (lc + rc);
+                            assert(newc >= lc && newc >= rc);
+                            return;
+                        }
+                        store(data_index, subidx, lpf, newc);
+                    } else {
+                        auto newc = std::max(lc, rc), newsub = std::min(lc, rc);
+                        static constexpr bool slow_way = true;
+                        if(slow_way) {
+                            while(newsub--)
+                                if(rng_() < (std::numeric_limits<uint64_t>::max()) * std::pow(b_, -ssize_t(newc)))
+                                    --newc;
+                        } else newc -= newsub; // Not rigorous, but an exact formula would be effort/perhaps costly.
+                        store(data_index, subidx, newc == lc ? lpf: rf, newc);
+                    }
+                }
+            }
+        }
+        return *this;
+    }
+    HeavyKeeper &operator+=(const HeavyKeeper &o) {return *this |= o;}
+    HeavyKeeper operator+(const HeavyKeeper &x) const {
+        HeavyKeeper cpy(*this);
+        cpy += x;
+        return cpy;
     }
 };
 
