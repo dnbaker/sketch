@@ -134,6 +134,13 @@ public:
             wy::wyhash64_stateless(&x);
         }
     }
+    auto est_count(uint64_t x) {
+        return query(x);
+    }
+    template<typename T>
+    uint64_t est_count(const T &x) const {
+        return query(x);
+    }
     HeavyKeeper &operator|=(const HeavyKeeper &o) {
         uint64_t ret = 0;
         size_t data_index = 0;
