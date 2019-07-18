@@ -1,9 +1,68 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/numpy.h"
 #include "hll.h"
+#include "omp.h"
+#include "aesctr/wy.h"
 namespace py = pybind11;
 using namespace sketch;
 using namespace hll;
+
+size_t nchoose2(size_t n) {return n * (n - 1) / 2;}
+
+struct CmpFunc {
+    template<typename Func>
+    static py::array_t<float> apply(py::list l, const Func &func) {
+        std::fprintf(stderr, "%s Starting apply\n", __PRETTY_FUNCTION__);
+        std::vector<hll::hll_t *> ptrs(l.size(), nullptr);
+        size_t i = 0;
+        for(py::handle ob: l) {
+            auto lp = ob.cast<hll_t *>();
+            if(!lp) throw std::runtime_error("Note: I die");
+            ptrs[i++] = lp;
+        }
+        const size_t lsz = l.size(), nc2 = nchoose2(lsz);
+        std::fprintf(stderr, "lsz: %zu. nc2: %zu\n", lsz, nc2);
+        py::array_t<float> ret({nc2});
+        float *ptr = static_cast<float *>(ret.request().ptr);
+        std::fprintf(stderr, "ptr: %zu\n", size_t(ptr));
+        for(size_t i = 0; i < lsz; ++i) {
+#ifdef _OPENMP
+            #pragma omp parallel for
+#endif
+            for(size_t j = i + 1; j < lsz; ++j) {
+                size_t access_index = ((i * (lsz * 2 - i - 1)) / 2 + j - (i + 1));
+				if(access_index > nc2) {std::fprintf(stderr, "out of bounds: %zu vs %zu\n", access_index, nc2);}
+			    ptr[access_index] = func(*ptrs[i], *ptrs[j]);
+            }
+        }
+        return ret;
+    }
+};
+
+struct JIF {
+    template<typename T>
+    auto operator()(T &x, T &y) const {
+        return x.jaccard_index(y);
+    }
+};
+struct USF {
+    template<typename T>
+    auto operator()(T &x, T &y) const {
+        return x.union_size(y);
+    }
+};
+struct ISF {
+    template<typename T>
+    auto operator()(T &x, T &y) const {
+        return intersection_size(x, y);
+    }
+};
+struct SCF {
+    template<typename T>
+    auto operator()(T &x, T &y) const {
+        return intersection_size(x, y) / std::min(x.report(), y.report());
+    }
+};
 
 PYBIND11_MODULE(_hll, m) {
     m.doc() = "HyperLogLog support"; // optional module docstring
@@ -38,5 +97,20 @@ PYBIND11_MODULE(_hll, m) {
          for(ssize_t i = 0; i < input.size();ret.addh(ptr[i++]));
          return ret;
      }, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers")
-    .def("union_size", [](const hll_t &h1, const hll_t &h2) {return h1.union_size(h2);});
+    .def("union_size", [](const hll_t &h1, const hll_t &h2) {return h1.union_size(h2);}, "Calculate union size")
+    .def("jaccard_matrix", [](py::list l) {return CmpFunc::apply(l, JIF());}, py::return_value_policy::take_ownership,
+         "Compare sketches in parallel. Input: list of sketches. Output: numpy array of n-choose-2 flat matrix of JIs, float")
+    .def("intersection_matrix", [](py::list l) {return CmpFunc::apply(l, ISF());}, "Compare sketches in parallel. Input: list of sketches. Output: n-choose-2 flat matrix of intersection_size, float")
+    .def("union_size_matrix", [](py::list l) {return CmpFunc::apply(l, USF());},
+         "Compare sketches in parallel. Input: list of sketches.")
+    .def("symmetric_containment_matrix", [](py::list l) {return CmpFunc::apply(l, SCF());},
+         "Compare sketches in parallel. Input: list of sketches.")
+    .def("ij2ind", [](size_t i, size_t j, size_t n) {return i < j ? (((i) * (n * 2 - i - 1)) / 2 + j - (i + 1)): (((j) * (n * 2 - j - 1)) / 2 + i - (j + 1));})
+    .def("randset", [](size_t i) {
+        static wy::WyHash<uint64_t, 4> gen(1337);
+        py::array_t<uint64_t> ret({i});
+        auto ptr = static_cast<uint64_t *>(ret.request().ptr);
+        for(size_t j = 0; j < i; ptr[j++] = gen());
+        return ret;
+    }, "Generate a 1d random numpy array");
 }

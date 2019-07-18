@@ -46,7 +46,7 @@ python: _hll.cpython.so
 	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
 %.cpython.so: %.cpp
-	$(CXX) $(UNDEFSTR) $(INCLUDES) -O3 -Wall $(FLAGS) -shared $(STD) -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \
+	$(CXX) $(UNDEFSTR) $(INCLUDES) -fopenmp -O3 -Wall $(FLAGS) -shared $(STD) -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \
     ln -fs $*$(SUF) $@
 
 %.o: %.cpp
