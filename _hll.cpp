@@ -17,10 +17,35 @@ size_t flat2fullsz(size_t n) {
     return i;
 }
 
+template<typename Sketch>
+struct AsymmetricCmpFunc {
+    template<typename Func>
+    static py::array_t<float> apply(py::list l, const Func &func) {
+        std::vector<Sketch *> ptrs(l.size(), nullptr);
+        size_t i = 0;
+        for(py::handle ob: l) {
+            auto lp = ob.cast<Sketch *>();
+            if(!lp) throw std::runtime_error("Note: I die");
+            ptrs[i++] = lp;
+        }
+        const size_t lsz = l.size();
+        py::array_t<float> ret({lsz, lsz});
+        float *ptr = static_cast<float *>(ret.request().ptr);
+        for(size_t i = 0; i < lsz; ++i) {
+#ifdef _OPENMP
+            #pragma omp parallel for
+#endif
+            for(size_t j = 0; j < lsz; ++j) {
+			    ptr[i * lsz + j] = func(*ptrs[i], *ptrs[j]);
+			    ptr[j * lsz + i] = func(*ptrs[j], *ptrs[i]);
+            }
+        }
+        return ret;
+    }
+};
 struct CmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
-        std::fprintf(stderr, "%s Starting apply\n", __PRETTY_FUNCTION__);
         std::vector<hll::hll_t *> ptrs(l.size(), nullptr);
         size_t i = 0;
         for(py::handle ob: l) {
@@ -68,6 +93,12 @@ struct SCF {
         return intersection_size(x, y) / std::min(x.report(), y.report());
     }
 };
+struct CSF {
+    template<typename T>
+    auto operator()(T &x, T &y) const {
+        return x.containment_index(y);
+    }
+};
 
 PYBIND11_MODULE(_hll, m) {
     m.doc() = "HyperLogLog support"; // optional module docstring
@@ -106,6 +137,7 @@ PYBIND11_MODULE(_hll, m) {
     .def("jaccard_matrix", [](py::list l) {return CmpFunc::apply(l, JIF());}, py::return_value_policy::take_ownership,
          "Compare sketches in parallel. Input: list of sketches. Output: numpy array of n-choose-2 flat matrix of JIs, float")
     .def("intersection_matrix", [](py::list l) {return CmpFunc::apply(l, ISF());}, "Compare sketches in parallel. Input: list of sketches. Output: n-choose-2 flat matrix of intersection_size, float")
+    .def("containment_matrix", [](py::list l) {return AsymmetricCmpFunc<hll_t>::apply(l, CSF());}, py::return_value_policy::take_ownership, "Compare sketches in parallel. Input: list of sketches. Output: n-choose-2 flat matrix of intersection_size, float")
     .def("union_size_matrix", [](py::list l) {return CmpFunc::apply(l, USF());},
          "Compare sketches in parallel. Input: list of sketches.")
     .def("symmetric_containment_matrix", [](py::list l) {return CmpFunc::apply(l, SCF());},
@@ -135,4 +167,4 @@ PYBIND11_MODULE(_hll, m) {
         }
         return ret;
     }, py::return_value_policy::take_ownership);
-}
+} // pybind11 module
