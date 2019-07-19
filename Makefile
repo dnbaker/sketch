@@ -42,7 +42,7 @@ HEADERS=$(wildcard *.h)
 sleef.h:
 	+cd vec/sleef && mkdir -p build && cd build && cmake .. && make && cd ../../../ && ln -s vec/sleef//build/include/sleef.h sleef.h
 
-python: _hll.cpython.so
+python: hll.cpython.so
 	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
 %.cpython.so: %.cpp

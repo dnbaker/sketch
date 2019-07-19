@@ -100,7 +100,7 @@ struct CSF {
     }
 };
 
-PYBIND11_MODULE(_hll, m) {
+PYBIND11_MODULE(hll, m) {
     m.doc() = "HyperLogLog support"; // optional module docstring
     py::class_<hll_t> (m, "_hll")
         .def(py::init<size_t>())
