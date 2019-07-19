@@ -9,6 +9,14 @@ using namespace hll;
 
 size_t nchoose2(size_t n) {return n * (n - 1) / 2;}
 
+size_t flat2fullsz(size_t n) {
+    n <<= 1;
+    size_t i;
+    for(i = std::sqrt(n);i * (i - 1) < n; ++i);
+    if(i * (i - 1) != n) throw std::runtime_error("Failed to extract correct size");
+    return i;
+}
+
 struct CmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
@@ -21,17 +29,14 @@ struct CmpFunc {
             ptrs[i++] = lp;
         }
         const size_t lsz = l.size(), nc2 = nchoose2(lsz);
-        std::fprintf(stderr, "lsz: %zu. nc2: %zu\n", lsz, nc2);
         py::array_t<float> ret({nc2});
         float *ptr = static_cast<float *>(ret.request().ptr);
-        std::fprintf(stderr, "ptr: %zu\n", size_t(ptr));
         for(size_t i = 0; i < lsz; ++i) {
 #ifdef _OPENMP
             #pragma omp parallel for
 #endif
             for(size_t j = i + 1; j < lsz; ++j) {
                 size_t access_index = ((i * (lsz * 2 - i - 1)) / 2 + j - (i + 1));
-				if(access_index > nc2) {std::fprintf(stderr, "out of bounds: %zu vs %zu\n", access_index, nc2);}
 			    ptr[access_index] = func(*ptrs[i], *ptrs[j]);
             }
         }
@@ -112,5 +117,22 @@ PYBIND11_MODULE(_hll, m) {
         auto ptr = static_cast<uint64_t *>(ret.request().ptr);
         for(size_t j = 0; j < i; ptr[j++] = gen());
         return ret;
-    }, "Generate a 1d random numpy array");
+    }, "Generate a 1d random numpy array")
+    .def("tri2full", [](py::array_t<float> arr) {
+        size_t dim = flat2fullsz(arr.size());
+        py::array_t<float> ret({dim, dim});
+        auto retptr = static_cast<float *>(ret.request().ptr), aptr = static_cast<float *>(arr.request().ptr);
+        for(size_t i = 0; i < dim; ++i) {
+            for(size_t j = 0; j < i; ++j) {
+                size_t ind = (((j) * (dim * 2 - j - 1)) / 2 + i - (j + 1));
+                retptr[dim * i + j] = aptr[ind];
+            }
+            retptr[dim * i + i] = 1.; // Jaccard index is 1 for this case.
+            for(size_t j = i + 1; j < dim; ++j) {
+                size_t ind = ((i * (dim * 2 - i - 1)) / 2 + j - (i + 1));
+                retptr[dim * i + j] = aptr[ind];
+            }
+        }
+        return ret;
+    }, py::return_value_policy::take_ownership);
 }
