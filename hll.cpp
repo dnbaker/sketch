@@ -25,7 +25,7 @@ struct AsymmetricCmpFunc {
         size_t i = 0;
         for(py::handle ob: l) {
             auto lp = ob.cast<Sketch *>();
-            if(!lp) throw std::runtime_error("Note: I die");
+            if(!lp) throw std::runtime_error("Failed to cast to Sketch *");
             ptrs[i++] = lp;
         }
         const size_t lsz = l.size();
@@ -43,6 +43,8 @@ struct AsymmetricCmpFunc {
         return ret;
     }
 };
+
+
 struct CmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
