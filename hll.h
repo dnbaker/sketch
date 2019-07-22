@@ -1155,6 +1155,15 @@ public:
         const double ret = (my_sz + h2.creport() - us) / my_sz;
         return std::max(0., ret);
     }
+    std::array<double, 3> full_set_comparison(const hllbase_t &h2) const {
+        if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
+            return ertl_joint(*this, h2);
+        }
+        const double us = union_size(h2), mys = creport(), os = h2.creport(),
+                     is = std::max(mys + os - us, 0.),
+                     my_only = std::max(mys - is, 0.), o_only = std::max(os - is, 0.);
+        return std::array<double, 3>{my_only, o_only, is};
+    }
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
