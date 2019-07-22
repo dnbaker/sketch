@@ -382,6 +382,7 @@ struct WeightedSketcher {
     auto jaccard_index(const base_type &o) const {return sketch_.jaccard_index(o);}
     template<typename...Args> auto jaccard_index(Args &&...args) const {return sketch_.jaccard_index(std::forward<Args>(args)...);}
     template<typename...Args> auto containment_index(Args &&...args) const {return sketch_.containment_index(std::forward<Args>(args)...);}
+    template<typename...Args> auto full_set_comparison(Args &&...args) const {return sketch_.full_set_comparison(std::forward<Args>(args)...);}
     auto containment_index(const base_type &o) const {return sketch_.containment_index(o);}
     template<typename...Args> auto free(Args &&...args) {return sketch_.free(std::forward<Args>(args)...);}
     template<typename...Args> auto cardinality_estimate(Args &&...args) const {return sketch_.cardinality_estimate(std::forward<Args>(args)...);}
