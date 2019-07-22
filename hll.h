@@ -989,7 +989,6 @@ public:
     }
     void set_jestim(JointEstimationMethod val) {
         jestim_ = val;
-        std::fprintf(stderr, "new jestim: %s\n", JESTIM_STRINGS[jestim_]);
     }
     void set_jestim(uint16_t val) {set_jestim(static_cast<JointEstimationMethod>(val));}
     void set_estim(uint16_t val)  {estim_  = static_cast<EstimationMethod>(val);}
@@ -1116,7 +1115,7 @@ public:
                 tmp = _mm_max_epu8(*p1++, *p2++);
                 for(size_t i = 0; i < sizeof(tmp);++counts[reinterpret_cast<uint8_t *>(&tmp)[i++]]);
             }
-            std::fprintf(stderr, "Counts for example card %lf via simple MLE\n", detail::calculate_estimate(counts, estim_, m(), np_, alpha()));
+            //std::fprintf(stderr, "Counts for example card %lf via simple MLE\n", detail::calculate_estimate(counts, estim_, m(), np_, alpha()));
             for(auto it = counts.begin(), e = std::find_if(counts.begin(), counts.end(), [](auto x) {return x == 0;});
                 it != e;
                 std::fprintf(stderr, "%u,", *it++));
