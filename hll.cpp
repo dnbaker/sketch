@@ -104,7 +104,7 @@ struct CSF {
 
 PYBIND11_MODULE(hll, m) {
     m.doc() = "HyperLogLog support"; // optional module docstring
-    py::class_<hll_t> (m, "_hll")
+    py::class_<hll_t> (m, "hll")
         .def(py::init<size_t>())
         .def(py::init<std::string>())
         .def("clear", &hll_t::clear, "Clear all entries.")
