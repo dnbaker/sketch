@@ -82,7 +82,8 @@ template<> struct Schismatic<uint64_t> {
     INLINE uint64_t div(uint64_t v) const {return fastdiv_u64(v, M_);}
     INLINE uint64_t mod(uint64_t v) const {return fastmod_u64(v, M_, d_);}
     INLINE div_t<uint64_t> divmod(uint64_t v) const {
-        return div_t<uint64_t> {div(v), mod(v)};
+        auto d = div(v);
+        return div_t<uint64_t> {d, v - d_ * d};
     }
 };
 template<> struct Schismatic<uint32_t> {
@@ -92,7 +93,8 @@ template<> struct Schismatic<uint32_t> {
     INLINE uint32_t div(uint32_t v) const {return fastdiv_u32(v, M_);}
     INLINE uint32_t mod(uint32_t v) const {return fastmod_u32(v, M_, d_);}
     INLINE div_t<uint32_t> divmod(uint32_t v) const {
-        return div_t<uint32_t> {div(v), mod(v)};
+        auto d = div(v);
+        return div_t<uint32_t> {d, v - d_ * d};
     }
 };
 template<> struct Schismatic<int32_t>: Schismatic<uint32_t> {};
