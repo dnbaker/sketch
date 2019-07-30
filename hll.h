@@ -1115,10 +1115,6 @@ public:
                 tmp = _mm_max_epu8(*p1++, *p2++);
                 for(size_t i = 0; i < sizeof(tmp);++counts[reinterpret_cast<uint8_t *>(&tmp)[i++]]);
             }
-            //std::fprintf(stderr, "Counts for example card %lf via simple MLE\n", detail::calculate_estimate(counts, estim_, m(), np_, alpha()));
-            for(auto it = counts.begin(), e = std::find_if(counts.begin(), counts.end(), [](auto x) {return x == 0;});
-                it != e;
-                std::fprintf(stderr, "%u,", *it++));
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
         std::fprintf(stderr, "jestim is ERTL_JOINT_MLE: %s\n", JESTIM_STRINGS[jestim_]);
