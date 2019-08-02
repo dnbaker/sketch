@@ -1115,10 +1115,6 @@ public:
                 tmp = _mm_max_epu8(*p1++, *p2++);
                 for(size_t i = 0; i < sizeof(tmp);++counts[reinterpret_cast<uint8_t *>(&tmp)[i++]]);
             }
-            //std::fprintf(stderr, "Counts for example card %lf via simple MLE\n", detail::calculate_estimate(counts, estim_, m(), np_, alpha()));
-            for(auto it = counts.begin(), e = std::find_if(counts.begin(), counts.end(), [](auto x) {return x == 0;});
-                it != e;
-                std::fprintf(stderr, "%u,", *it++));
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
         std::fprintf(stderr, "jestim is ERTL_JOINT_MLE: %s\n", JESTIM_STRINGS[jestim_]);
@@ -1145,15 +1141,8 @@ public:
         return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
     }
     double containment_index(const hllbase_t &h2) const {
-        if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
-            auto full_cmps = ertl_joint(*this, h2);
-            const auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[2]);
-            return ret;
-        }
-        const double us = union_size(h2);
-        const double my_sz = creport();
-        const double ret = (my_sz + h2.creport() - us) / my_sz;
-        return std::max(0., ret);
+        auto fsr = full_set_comparison(h2);
+        return fsr[2] / (fsr[2] + fsr[0]);
     }
     std::array<double, 3> full_set_comparison(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {

@@ -25,7 +25,7 @@ struct AsymmetricCmpFunc {
         size_t i = 0;
         for(py::handle ob: l) {
             auto lp = ob.cast<Sketch *>();
-            if(!lp) throw std::runtime_error("Note: I die");
+            if(!lp) throw std::runtime_error("Failed to cast to Sketch *");
             ptrs[i++] = lp;
         }
         const size_t lsz = l.size();
@@ -43,6 +43,8 @@ struct AsymmetricCmpFunc {
         return ret;
     }
 };
+
+
 struct CmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
@@ -102,7 +104,7 @@ struct CSF {
 
 PYBIND11_MODULE(hll, m) {
     m.doc() = "HyperLogLog support"; // optional module docstring
-    py::class_<hll_t> (m, "_hll")
+    py::class_<hll_t> (m, "hll")
         .def(py::init<size_t>())
         .def(py::init<std::string>())
         .def("clear", &hll_t::clear, "Clear all entries.")
@@ -126,13 +128,13 @@ PYBIND11_MODULE(hll, m) {
          auto ptr = input.data();
          for(ssize_t i = 0; i < input.size();ret.add(ptr[i++]));
          return ret;
-    }, "Creates an HLL sketch from a numpy array of 64-bit hashes.")
+    }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of 64-bit hashes.")
     .def("from_np", [](const py::array_t<uint64_t> &input, size_t ss=10) {
          hll_t ret(ss);
          auto ptr = input.data();
          for(ssize_t i = 0; i < input.size();ret.addh(ptr[i++]));
          return ret;
-     }, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers")
+     }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers")
     .def("union_size", [](const hll_t &h1, const hll_t &h2) {return h1.union_size(h2);}, "Calculate union size")
     .def("jaccard_matrix", [](py::list l) {return CmpFunc::apply(l, JIF());}, py::return_value_policy::take_ownership,
          "Compare sketches in parallel. Input: list of sketches. Output: numpy array of n-choose-2 flat matrix of JIs, float")
@@ -149,7 +151,7 @@ PYBIND11_MODULE(hll, m) {
         auto ptr = static_cast<uint64_t *>(ret.request().ptr);
         for(size_t j = 0; j < i; ptr[j++] = gen());
         return ret;
-    }, "Generate a 1d random numpy array")
+    }, py::return_value_policy::take_ownership, "Generate a 1d random numpy array")
     .def("tri2full", [](py::array_t<float> arr) {
         size_t dim = flat2fullsz(arr.size());
         py::array_t<float> ret({dim, dim});
