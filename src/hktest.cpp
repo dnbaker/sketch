@@ -8,7 +8,7 @@ using stats::OnlineSD;
 
 size_t n2v(size_t n) {
     //return (((n>>8) & 0xFFu) == 0) ? std::pow((n & 3) + 1, 6): (n & 7) + 1;}
-    return n & 1 ? 4: 1;
+    return n & 1 ? 8: n & 2 ? 3: 1;
 }
 
 void usage() {
@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
     size_t N = argc == 1 ?  10000: std::atoi(argv[1]);
     size_t hksz = argc <= 2 ?  20000: std::atoi(argv[2]);
     size_t ntables = argc <= 3 ? 4: std::atoi(argv[3]);
-    HeavyKeeper<16,16> hk(hksz, ntables);
+    HeavyKeeper<8,8> hk1(hksz, ntables);
     for(size_t i = 0; i < N; ++i) {
         for(size_t j = n2v(i); j--;) {
           //size_t old = hk.query(i);
@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
         auto expect = n2v(i);
         auto find = hk.query(i);
         ++negeqpos[expect == find ? 1: expect > find ? 0: 2];
-        if(expect > 30)
+        if(expect > 10)
             sd.add(((double(find) - expect) / expect));
         ++ics[expect - find];
     }

@@ -30,7 +30,10 @@ public:
     template<typename...Args>
     HeavyKeeper(size_t requested_size, size_t subtables, float pdec=1.08, Args &&...args):
         pol_(requested_size), nh_(subtables),
-        data_((requested_size * subtables) / VAL_PER_REGISTER), hasher_(std::forward<Args>(args)...), b_(pdec) {
+        data_((requested_size * subtables + (VAL_PER_REGISTER - 1)) / VAL_PER_REGISTER),
+        hasher_(std::forward<Args>(args)...),
+        b_(pdec)
+    {
         assert(subtables);
         std::fprintf(stderr, "fpsize: %zu. ctrsize: %zu. requested size: %zu. actual size: %zu. Overflow check? %d. nhashes: %zu\n", fpsize, ctrsize, requested_size, pol_.nelem(), 1, nh_);
     }
@@ -69,7 +72,8 @@ public:
     }
 
     uint64_t from_index(size_t i, size_t subidx) const {
-        auto dataptr = data_.data() + subidx * pol_.nelem();
+        auto dataptr = data_.data() + (subidx * pol_.nelem() / VAL_PER_REGISTER);
+        assert(dataptr < &data_[data_.size()] || !std::fprintf(stderr, "subidx: %zu. nelem: %zu.\n", subidx, pol_.nelem(), data_.size()));
         auto pos = pol_.mod(i);
         uint64_t value = dataptr[pos / VAL_PER_REGISTER];
         CONST_IF(VAL_PER_REGISTER > 1) {
