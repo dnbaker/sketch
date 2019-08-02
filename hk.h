@@ -91,7 +91,7 @@ public:
         size_t shift = ((pos % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER));
         to_insert <<= shift;
         auto &r = dataptr[pos / VAL_PER_REGISTER];
-        r &= bitmask(64 / VAL_PER_REGISTER) << shift;
+        r &= ~(bitmask(64 / VAL_PER_REGISTER) << shift);
         r |= to_insert;
     }
     bool random_sample(size_t count) {
