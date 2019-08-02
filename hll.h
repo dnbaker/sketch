@@ -758,20 +758,16 @@ public:
     hllbase_t(gzFile fp, Args &&... args): hllbase_t(0, ERTL_MLE, ERTL_JOINT_MLE, std::forward<Args>(args)...) {this->read(fp);}
 
     // Call sum to recalculate if you have changed contents.
-    void sum() {
+    void sum() const {
         const auto counts(detail::sum_counts(core_)); // std::array<uint32_t, 64>
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
-    void csum() {if(!is_calculated_) sum();}
+    void csum() const {if(!is_calculated_) sum();}
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const {
-        if(!is_calculated_) {
-            const auto counts(detail::sum_counts(core_)); // std::array<uint32_t, 64>
-            value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
-            is_calculated_ = true;
-        }
+        csum();
         return value_;
     }
     const auto finalize() const {return *this;}
