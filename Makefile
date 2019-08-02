@@ -58,6 +58,9 @@ python: hll.cpython.so
 %: src/%.cpp kthread.o $(HEADERS) sleef.h
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
+divtest: src/divtest.cpp kthread.o $(HEADERS) sleef.h
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz -fsanitize=undefined -fsanitize=address
+
 %: src/%.cu
 	$(NVCC) $< -o $@ $(GPUFLAGS)
 

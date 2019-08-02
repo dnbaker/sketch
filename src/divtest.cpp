@@ -2,6 +2,7 @@
 #include "hk.h"
 using namespace sketch;
 using namespace common;
+using stats::OnlineSD;
 
 int main() {
     for(size_t i = 10; i < 100000; i *= 10) {
@@ -18,16 +19,5 @@ int main() {
         policy::SizePow2Policy<uint64_t> p1(j);
         policy::SizeDivPolicy<uint64_t> p2(j);
         std::fprintf(stderr, "input: %zu. power of two: %zu. div: %zu.\n", j, p1.nelem(), p2.nelem());
-    }
-    HeavyKeeper<16,48> hk(1000, 8);
-    constexpr size_t N = 20000;
-    for(size_t i = 0; i < N; ++i) {
-        for(size_t j = (i & 15u) + 1; j--;hk.addh(i));
-    }
-    size_t exact_right = N;
-    for(size_t i = 0; i < N; ++i) {
-        if((i & 15u) + 1 != hk.query(i)) {
-            --exact_right;
-        }
     }
 }

@@ -16,6 +16,7 @@ class HeavyKeeper {
     std::vector<uint64_t, Allocator> data_;
     Hasher hasher_;
     RNG rng_;
+    std::uniform_real_distribution<double> gen;
     double b_;
 public:
     static constexpr size_t VAL_PER_REGISTER = 64 / (fpsize + ctrsize);
@@ -80,7 +81,10 @@ public:
         dataptr[pos] = (dataptr[pos] & ~(((1ull << (64 / VAL_PER_REGISTER)) - 1) << (pos % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER))) // zero out
             | to_insert; // add new -- this is never called for shift == 64, in spite of the warning.
     }
-
+    bool random_sample(size_t count) {
+        return count && gen(rng_) <= std::pow(b_, -ssize_t(count));
+        //return count != 0 && rng_() <= uint64_t(std::ldexp(std::pow(b_, -ssize_t(count)), 64));
+    }
     static constexpr uint64_t max_fp() {return ((1ull << fpsize) - 1);}
     template<typename T>
     auto addh(const T &x) {return this->add(hash(x));}
@@ -94,18 +98,19 @@ public:
             auto vals = decode(from_index(pos, i));
             auto count = vals.first, fp = vals.second;
 #endif
+            assert(encode(count, fp) == from_index(pos, i));
+            //std::fprintf(stderr, "%zu/%zu\n", size_t(encode(count, fp)), from_index(pos, i));
             if(count == 0) {
                 //std::fprintf(stderr, "first entry for x = %zu\n", size_t(x));
                 store(pos, i, newfp, 1);
                 maxv = std::max(uint64_t(1), maxv);
-            }
-            else if(fp == newfp) {
+            } else if(fp == newfp) {
                 //std::fprintf(stderr, "pos/sig matched for entry for x = %zu\n", size_t(x));
                 store(pos, i, newfp, ++count);
                 maxv = std::max(uint64_t(1), uint64_t(count));
             } else {
                 //std::fprintf(stderr, "pos/sig didn't match for %zu at count %zu\n", size_t(x), count);
-                if(rng_() < (std::numeric_limits<uint64_t>::max()) * std::pow(b_, -ssize_t(count))) {
+                if(random_sample(count)) {
                     if(--count == 0)
                         store(pos, i, newfp, 1);
                     else
@@ -163,13 +168,16 @@ public:
                         }
                     } else {
                         auto newc = std::max(lc, rc), newsub = std::min(lc, rc);
-                        static constexpr bool slow_way = true;
+                        static constexpr bool slow_way = false;
                         if(slow_way) {
                             while(newsub--)
-                                if(rng_() < (std::numeric_limits<uint64_t>::max()) * std::pow(b_, -ssize_t(newc)))
+                                if(random_sample(newc))
                                     --newc;
                         } else newc -= newsub; // Not rigorous, but an exact formula would be effort/perhaps costly.
-                        store(data_index, subidx, newc == lc ? lpf: rf, newc);
+                        if(newc == 0)
+                            store(data_index, subidx, 0, 0);
+                        else
+                            store(data_index, subidx, newc == lc ? lpf: rf, newc);
                     }
                 }
             }
