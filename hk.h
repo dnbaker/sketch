@@ -3,6 +3,12 @@
 
 namespace sketch {
 
+static constexpr uint64_t bitmask(size_t n) {
+    uint64_t x = uint64_t(1) << (n - 1);
+    x ^= x - 1;
+    return x;
+}
+
 using namespace common;
 
 template<size_t fpsize, size_t ctrsize=64-fpsize, typename Hasher=hash::WangHash, typename Policy=policy::SizeDivPolicy<uint64_t>, typename RNG=wy::WyHash<uint64_t>, typename Allocator=common::Allocator<uint64_t>>
@@ -22,7 +28,9 @@ public:
     static constexpr size_t VAL_PER_REGISTER = 64 / (fpsize + ctrsize);
     // Constructor
     template<typename...Args>
-    HeavyKeeper(size_t requested_size, size_t subtables, float pdec=1.08, Args &&...args): pol_(requested_size), nh_(subtables), data_((requested_size * subtables) / VAL_PER_REGISTER), hasher_(std::forward<Args>(args)...), b_(pdec) {
+    HeavyKeeper(size_t requested_size, size_t subtables, float pdec=1.08, Args &&...args):
+        pol_(requested_size), nh_(subtables),
+        data_((requested_size * subtables) / VAL_PER_REGISTER), hasher_(std::forward<Args>(args)...), b_(pdec) {
         assert(subtables);
         std::fprintf(stderr, "fpsize: %zu. ctrsize: %zu. requested size: %zu. actual size: %zu. Overflow check? %d. nhashes: %zu\n", fpsize, ctrsize, requested_size, pol_.nelem(), 1, nh_);
     }
@@ -43,13 +51,13 @@ public:
     void seed(uint64_t x) const {rng_.seed(x);}
 
     static constexpr uint64_t sig_size = fpsize + ctrsize;
-    static constexpr uint64_t sig_mask         = sig_size < 64 ? (1ull << (sig_size)) - 1: (unsigned long long)(-1);
+    static constexpr uint64_t sig_mask         = bitmask(sig_size);
     static constexpr uint64_t sig_mask_at_pos(size_t i) {
         return sig_mask << (i % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER);
     }
     static_assert(sig_size <= 64, "For sig_mask to be greater than 64, we'd need to use a larger value type.");
-    static constexpr uint64_t fingerprint_mask = ((1ull << fpsize) - 1) << ctrsize;
-    static constexpr uint64_t count_mask       = (1ull << ctrsize) - 1;
+    static constexpr uint64_t fingerprint_mask = bitmask(fpsize) << ctrsize;
+    static constexpr uint64_t count_mask       = bitmask(ctrsize);
 
     std::pair<uint64_t, uint64_t> decode(uint64_t x) const {
         return std::make_pair(x & count_mask, (x & fingerprint_mask) >> ctrsize);
@@ -71,15 +79,20 @@ public:
     }
 
     void store(size_t pos, size_t subidx, uint64_t fp, uint64_t count) {
-        auto dataptr = data_.data() + subidx * pol_.nelem();
+        assert(subidx < nh_);
+        auto dataptr = data_.data() + (subidx * pol_.nelem() / VAL_PER_REGISTER);
+        assert(dataptr < data_.data() + data_.size());
+        uint64_t to_insert = encode(count, fp);
+        //std::fprintf(stderr, "Position is %zu vs pol nelem %zu. pos: %zu\n", dataptr - data_.data(), pol_.nelem(), pos);
         CONST_IF(VAL_PER_REGISTER == 1) {
-            dataptr[pos] = encode(count, fp);
+            dataptr[pos] = to_insert;
             return;
         }
-        uint64_t to_insert = encode(count, fp);
-        to_insert <<= (pos % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER);
-        dataptr[pos] = (dataptr[pos] & ~(((1ull << (64 / VAL_PER_REGISTER)) - 1) << (pos % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER))) // zero out
-            | to_insert; // add new -- this is never called for shift == 64, in spite of the warning.
+        size_t shift = ((pos % VAL_PER_REGISTER) * (64 / VAL_PER_REGISTER));
+        to_insert <<= shift;
+        auto &r = dataptr[pos / VAL_PER_REGISTER];
+        r &= bitmask(64 / VAL_PER_REGISTER) << shift;
+        r |= to_insert;
     }
     bool random_sample(size_t count) {
         return count && gen(rng_) <= std::pow(b_, -ssize_t(count));
@@ -106,7 +119,7 @@ public:
                 maxv = std::max(uint64_t(1), maxv);
             } else if(fp == newfp) {
                 //std::fprintf(stderr, "pos/sig matched for entry for x = %zu\n", size_t(x));
-                store(pos, i, newfp, ++count);
+                store(pos, i, newfp, count == count_mask ? count: count);
                 maxv = std::max(uint64_t(1), uint64_t(count));
             } else {
                 //std::fprintf(stderr, "pos/sig didn't match for %zu at count %zu\n", size_t(x), count);
