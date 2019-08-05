@@ -259,6 +259,13 @@ public:
 #undef GET_LOCK_AND_CHECK
     size_t size() const {return core_.size();}
     size_t max_size() const {return m_;}
+    template<typename VecType=std::vector<Obj, Allocator<Obj>>>
+    VecType to_container() const {
+        VecType ret; ret.reserve(size());
+        for(auto v: core_)
+            ret.push_back(v);
+        return ret;
+    }
 };
 
 } // namespace heap

@@ -11,6 +11,13 @@
 #  endif
 #endif
 
+#ifndef CONST_IF
+#if __cplusplus >= 201703L
+#define CONST_IF(...) if constexpr(__VA_ARGS__)
+#else
+#define CONST_IF(...) if(__VA_ARGS__)
+#endif
+#endif
 
 // Extrapolated from 32-it method at https://github.com/lemire/fastmod and its accompanying paper
 // Method for 64-bit integers developed and available at https://github.com/dnbaker/fastmod
@@ -72,15 +79,37 @@ template<typename T> struct div_t {
     }
 };
 
-template<typename T>
+
+template<typename T, bool shortcircuit=false>
 struct Schismatic;
-template<> struct Schismatic<uint64_t> {
-    const uint64_t d_;
-    const __uint128_t M_;
+template<bool shortcircuit> struct Schismatic<uint64_t, shortcircuit> {
+private:
+    uint64_t d_;
+    __uint128_t M_;
+    std::array<uint64_t, shortcircuit ? 2: 0> m32_;
+    uint64_t &m32() {assert(shortcircuit); return m32_[0];}
+    // We swap location here so that m32 can be 64-bit aligned.
+public:
+    const auto &d() const {return d_;}
+    const uint64_t &m32() const {assert(shortcircuit); return m32_[0];}
     using DivType = div_t<uint64_t>;
-    Schismatic(uint64_t d): d_(d), M_(computeM_u64(d)) {}
-    INLINE uint64_t div(uint64_t v) const {return fastdiv_u64(v, M_);}
-    INLINE uint64_t mod(uint64_t v) const {return fastmod_u64(v, M_, d_);}
+    Schismatic(uint64_t d): d_(d), M_(shortcircuit && d <= std::numeric_limits<uint32_t>::max() ? computeM_u64(d): __uint128_t(computeM_u32(d))) {
+        CONST_IF(shortcircuit) m32() = computeM_u32(d);
+    }
+    INLINE bool test_limits(uint64_t v) const {
+        assert(shortcircuit);
+        return d_ >> 32 ? v >> 32: false;
+    }
+    INLINE uint64_t div(uint64_t v) const {
+        CONST_IF(shortcircuit && test_limits(v))
+            return fastdiv_u32(v, m32());
+        return fastdiv_u64(v, M_);
+    }
+    INLINE uint64_t mod(uint64_t v) const {
+        CONST_IF(shortcircuit && v <= std::numeric_limits<uint32_t>::max())
+            return fastdiv_u32(v, m32(), d);
+        return fastmod_u64(v, M_, d_);
+    }
     INLINE div_t<uint64_t> divmod(uint64_t v) const {
         auto d = div(v);
         return div_t<uint64_t> {d, v - d_ * d};
