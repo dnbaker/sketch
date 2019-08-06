@@ -86,28 +86,28 @@ template<bool shortcircuit> struct Schismatic<uint64_t, shortcircuit> {
 private:
     uint64_t d_;
     __uint128_t M_;
-    std::array<uint64_t, shortcircuit ? 2: 0> m32_;
+    std::array<uint64_t, shortcircuit ? 1: 0> m32_;
     uint64_t &m32() {assert(shortcircuit); return m32_[0];}
     // We swap location here so that m32 can be 64-bit aligned.
 public:
     const auto &d() const {return d_;}
     const uint64_t &m32() const {assert(shortcircuit); return m32_[0];}
     using DivType = div_t<uint64_t>;
-    Schismatic(uint64_t d): d_(d), M_(shortcircuit && d <= std::numeric_limits<uint32_t>::max() ? computeM_u64(d): __uint128_t(computeM_u32(d))) {
+    Schismatic(uint64_t d): d_(d), M_(computeM_u64(d)) {
         CONST_IF(shortcircuit) m32() = computeM_u32(d);
     }
     INLINE bool test_limits(uint64_t v) const {
         assert(shortcircuit);
-        return d_ >> 32 ? v >> 32: false;
+        return d_ >> 32 ? (v >> 32) == 0: false;
     }
     INLINE uint64_t div(uint64_t v) const {
-        CONST_IF(shortcircuit && test_limits(v))
-            return fastdiv_u32(v, m32());
+        CONST_IF(shortcircuit)
+            return test_limits(v) ? uint64_t(fastdiv_u32(v, m32())): fastdiv_u64(v, m32());
         return fastdiv_u64(v, M_);
     }
     INLINE uint64_t mod(uint64_t v) const {
-        CONST_IF(shortcircuit && v <= std::numeric_limits<uint32_t>::max())
-            return fastdiv_u32(v, m32(), d);
+        CONST_IF(shortcircuit)
+            return test_limits(v) ? uint64_t(fastmod_u32(v, m32(), d_)): fastmod_u64(v, m32(), d_);
         return fastmod_u64(v, M_, d_);
     }
     INLINE div_t<uint64_t> divmod(uint64_t v) const {
@@ -119,11 +119,12 @@ template<> struct Schismatic<uint32_t> {
     const uint32_t d_;
     const uint64_t M_;
     Schismatic(uint32_t d): d_(d), M_(computeM_u32(d)) {}
+    auto d() const {return d_;}
     INLINE uint32_t div(uint32_t v) const {return fastdiv_u32(v, M_);}
     INLINE uint32_t mod(uint32_t v) const {return fastmod_u32(v, M_, d_);}
     INLINE div_t<uint32_t> divmod(uint32_t v) const {
-        auto d = div(v);
-        return div_t<uint32_t> {d, v - d_ * d};
+        auto tmpd = div(v);
+        return div_t<uint32_t> {tmpd, v - d_ * tmpd};
     }
 };
 template<> struct Schismatic<int32_t>: Schismatic<uint32_t> {};

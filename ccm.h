@@ -606,8 +606,7 @@ const noexcept
         }
     }
     CounterType est_count(uint64_t val) 
-#if !NDEBUG
-#else
+#if defined(NDEBUG)
 const
 #endif
 {

@@ -1,3 +1,4 @@
+#include "vec/welford_sd.h"
 #include "common.h"
 #include "hk.h"
 using namespace sketch;

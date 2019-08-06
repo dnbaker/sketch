@@ -489,7 +489,7 @@ struct SizeDivPolicy {
     static size_t nelem2arg(size_t nelem) {
         return nelem;
     }
-    size_t nelem() const {return div_.d_;}
+    size_t nelem() const {return div_.d();}
     static size_t arg2vecsize(size_t arg) {return arg;}
     T mod(T rv) const {return div_.mod(rv);}
     SizeDivPolicy(T div): div_(div) {}
