@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
     for(size_t i = 0; i < N; ++i) {
         for(size_t j = n2v(i); j--;) {
           //size_t old = hk.query(i);
-          hk.addh(i);
+          hk1.addh(i);
           //std::fprintf(stderr, "Adding. Old : %zu. New: %zu\n", old, hk.query(i));
         }
     }
@@ -36,7 +36,7 @@ int main(int argc, char *argv[]) {
     std::map<float, uint32_t> ics;
     for(size_t i = 0; i < N; ++i) {
         auto expect = n2v(i);
-        auto find = hk.query(i);
+        auto find = hk1.query(i);
         ++negeqpos[expect == find ? 1: expect > find ? 0: 2];
         if(expect > 10)
             sd.add(((double(find) - expect) / expect));
@@ -48,7 +48,9 @@ int main(int argc, char *argv[]) {
     assert(negeqpos[2] == 0);
     //std::fprintf(stderr, "Gt: %zu (%f %% greater than)\n", negeqpos[2], 100. * double(negeqpos[2]) / N);
     std::fprintf(stderr, "Difference stats: mu %f, sigma %f\n", sd.mean(), sd.stdev());
-    for(const auto &[x, y]: ics) {
+    for(const auto &i: ics) {
+        auto &x = i.first;
+        auto &y = i.second;
         std::fprintf(stderr, "diff: %d. count: %d/%f\n", int(x), int(y), float(y) / N);
     }
 }

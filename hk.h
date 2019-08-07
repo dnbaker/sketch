@@ -73,7 +73,7 @@ public:
 
     uint64_t from_index(size_t i, size_t subidx) const {
         auto dataptr = data_.data() + (subidx * pol_.nelem() / VAL_PER_REGISTER);
-        assert(dataptr < &data_[data_.size()] || !std::fprintf(stderr, "subidx: %zu. nelem: %zu.\n", subidx, pol_.nelem(), data_.size()));
+        assert(dataptr < &data_[data_.size()] || !std::fprintf(stderr, "subidx: %zu. nelem: %zu. data size: %zu\n", subidx, pol_.nelem(), data_.size()));
         auto pos = pol_.mod(i);
         uint64_t value = dataptr[pos / VAL_PER_REGISTER];
         CONST_IF(VAL_PER_REGISTER > 1) {
