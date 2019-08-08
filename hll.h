@@ -189,7 +189,7 @@ static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 template<typename CountArrType>
 static double calculate_estimate(const CountArrType &counts,
                                  EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) {
-    assert(estim <= 3 && estim >= 0);
+    assert(estim <= 3);
 #if ENABLE_COMPUTED_GOTO
     static constexpr void *arr [] {&&ORREST, &&ERTL_IMPROVED_EST, &&ERTL_MLE_EST};
     goto *arr[estim];

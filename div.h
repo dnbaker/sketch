@@ -75,7 +75,7 @@ template<typename T> struct div_t {
         return *reinterpret_cast<std::pair<T, T> *>(this);
     }
     operator const std::pair<T, T> &() const {
-        return *reinterpret_cast<std::pair<T, T> *>(this);
+        return *const_cast<std::pair<T, T> *>(this);
     }
 };
 
