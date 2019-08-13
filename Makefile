@@ -62,7 +62,7 @@ heaptest: src/heaptest.cpp kthread.o $(HEADERS) sleef.h
 	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz #-fsanitize=undefined # -fsanitize=address
 
 divtest: src/divtest.cpp kthread.o $(HEADERS) sleef.h
-	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz -fsanitize=undefined -fsanitize=address
+	$(CXX) $(FLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # -fsanitize=undefined -fsanitize=address
 
 %: src/%.cu
 	$(NVCC) $< -o $@ $(GPUFLAGS)
