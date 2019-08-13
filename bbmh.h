@@ -176,8 +176,7 @@ public:
         return H(nbuckets_) && H(core_);// Removed b_ and est_cardinality_, since the sets are the same, and that's what really matters.
     }
     FinalDivBBitMinHash(const std::string &path): FinalDivBBitMinHash(path.data()) {}
-    FinalDivBBitMinHash(const char *path) {
-        std::memset(this, 0, sizeof(*this));
+    FinalDivBBitMinHash(const char *path): est_cardinality_(0), nbuckets_(0), b_(0) {
         read(path);
     }
     FinalDivBBitMinHash(FinalDivBBitMinHash &&o) = default;
@@ -954,8 +953,7 @@ public:
         std::swap(tmp, core_);
     }
     FinalBBitMinHash(const std::string &path): FinalBBitMinHash(path.data()) {}
-    FinalBBitMinHash(const char *path) {
-        std::memset(this, 0, sizeof(*this));
+    FinalBBitMinHash(const char *path): est_cardinality_(0), b_(0), p_(0) {
         read(path);
     }
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
