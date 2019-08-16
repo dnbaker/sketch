@@ -1,12 +1,17 @@
 #include "vec/vec.h"
 #include "mult.h"
 #include "hll.h"
+#include "hk.h"
 using namespace sketch;
 using namespace cws;
 
 
+using H = HeavyKeeper<32,32>;
+using S = wj::WeightedSketcher<hll::hll_t, H>;
 int main () {
     common::DefaultRNGType gen;
+    int tbsz = 100000;
+    int ntbls = 10;
 #if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
     CWSamples<> zomg(100, 1000);
 #endif
@@ -17,13 +22,15 @@ int main () {
     auto vc3 = vc + vc2;
     auto zomg2 = vc.report();
     auto zomg3 = vc3.report();
-    wj::WeightedSketcher<hll::hll_t, cm::ccm_t> ws(cm::ccm_t(8, 16, 2), hll::hll_t(10));
-    wj::WeightedSketcher<hll::hll_t, cm::ccm_t> ws2(cm::ccm_t(4, 16, 2), hll::hll_t(10));
-    for(size_t i =0; i < 200; ++i) {
-        ws.addh(1);
-        auto v = gen(), c = gen() % 8;
+    S ws(H(tbsz, ntbls), hll::hll_t(10));
+    S ws2(H(tbsz, ntbls), hll::hll_t(10));
+    for(size_t i =0; i < 20000; ++i) {
+        auto v = gen(), t = gen(), c = t % 64, c2 = (t >> 6) % 64;
         for(size_t j = 0; j < c; ++j)
             ws.addh(v), ws2.addh(v);
+        for(size_t j = 0; j < c2; ++j)
+            ws.addh(v+1), ws2.addh(v-1);
+#if 0
         v = gen();
         c = gen() % 4;
         for(size_t j = 0; j < c; ++j)
@@ -31,6 +38,7 @@ int main () {
         v = gen();
         for(size_t j = 0; j < c; ++j)
             ws.addh(v);
+#endif
     }
     hll::hll_t v1 = ws.finalize(), v2 = ws2.finalize();
     v1.sum(); v2.sum();
