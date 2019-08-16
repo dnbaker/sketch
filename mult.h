@@ -319,13 +319,19 @@ struct XXH3PairHasher {
     uint64_t hash(uint64_t x, CType count) const {
        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
     }
+    template<typename CType>
+    uint64_t operator()(uint64_t x, CType count) const {
+        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
 };
 
-struct WangPairHasher: hash::WangHash {
+struct WangPairHasher: public hash::WangHash {
     template<typename CType>
-    uint64_t hash(uint64_t x, CType count) const {
-        return this->operator()(this->operator()(x) ^ count);
+    static uint64_t hash(uint64_t x, CType count) {
+        return hash::WangHash::hash(x) ^ count;
     }
+    template<typename CType>
+    uint64_t operator()(uint64_t x, CType count) const {return hash::WangHash::hash(x) ^ count;}
 };
 
 

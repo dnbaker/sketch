@@ -5,16 +5,17 @@
 #include "ccm.h"
 using namespace sketch;
 using namespace cws;
+using PairHasher = wj::XXH3PairHasher;
 
-using H = HeavyKeeper<16,16>;
+using H = HeavyKeeper<7,9>;
 using C = cm::ccmbase_t<>;
 using S = wj::WeightedSketcher<hll::hll_t, H>;
 using S2 = wj::WeightedSketcher<hll::hll_t, C>;
-int main () {
+int main (int argc, char *argv[]) {
     common::DefaultRNGType gen;
-    int tbsz = 1 << 16;
-    int ntbls = 10;
-    size_t nitems = 1 << (18 - 6);
+    int tbsz = argc == 1 ? 1 << 12: std::atoi(argv[1]);
+    int ntbls = argc <= 2 ? 10: std::atoi(argv[2]);
+    size_t nitems = 1 << (20 - 6);
 #if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
     CWSamples<> zomg(100, 1000);
 #endif
@@ -26,10 +27,11 @@ int main () {
     auto zomg2 = vc.report();
     auto zomg3 = vc3.report();
     {
-        S ws(H(tbsz, ntbls), hll::hll_t(10));
-        S ws2(H(tbsz, ntbls), hll::hll_t(10));
+        S ws(H(tbsz / 2, ntbls), hll::hll_t(10));
+        S ws2(H(tbsz /2, ntbls), hll::hll_t(10));
+        hll::hll_t cmp1(10), cmp2(10);
         for(size_t i =0; i < nitems; ++i) {
-            auto v = gen(), t = gen(), c = t % 64, c2 = (t >> 6) % 64;
+            auto v = gen(), t = gen(), c = t % 16, c2 = (t >> 6) % 64;
             for(size_t j = 0; j < c; ++j)
                 ws.addh(v), ws2.addh(v);
             for(size_t j = 0; j < c2; ++j)
@@ -46,16 +48,25 @@ int main () {
         int nhashes = ntbls;
         S2 ws(C(nbits, l2sz, nhashes), hll::hll_t(10));
         S2 ws2(C(nbits, l2sz, nhashes), hll::hll_t(10));
+        hll::hll_t cmp1(10), cmp2(10);
+        size_t shared = 0, unshared = 0;
         for(size_t i =0; i < nitems; ++i) {
-            auto v = gen(), t = gen(), c = t % 64, c2 = (t >> 6) % 64;
-            for(size_t j = 0; j < c; ++j)
-                ws.addh(v), ws2.addh(v);
-            for(size_t j = 0; j < c2; ++j)
+            auto v = gen(), t = gen(), c = t % 16, c2 = (t >> 6) % 64;
+            shared += c;
+            for(size_t j = 0; j < c; ++j) {
+                auto hv = PairHasher()(v, c);
+                ws.addh(v), ws2.addh(v), cmp1.add(hv), cmp2.add(hv);
+            }
+            unshared += c2;
+            for(size_t j = 0; j < c2; ++j) {
                 ws.addh(v+1), ws2.addh(v-1);
+                cmp1.add(PairHasher()(v+1, c)), cmp2.add(PairHasher()(v-1, c));
+            }
         }
         hll::hll_t v1 = ws.finalize(), v2 = ws2.finalize();
         v1.sum(); v2.sum();
-        std::fprintf(stderr, "CM:v1 wji with v2 %lf\n", v1.jaccard_index(v2));
+        std::fprintf(stderr, "WJ without HK or CM by HLL: %lf\n", cmp1.jaccard_index(cmp2));
+        std::fprintf(stderr, "CM:v1 wji with v2 %lf and true ji %lf\n", v1.jaccard_index(v2), double(shared) / (shared + unshared * 2));
         std::fprintf(stderr, "CM:v1.str: %s. ws1 cardinality %lf\n", v1.to_string().data(), ws.sketch_.report());
     }
 }
