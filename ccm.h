@@ -134,7 +134,6 @@ public:
     ccmbase_t(ccmbase_t &&o): data_(std::move(o.data_)), updater_(std::move(updater_)), nhashes_(o.nhashes_), l2sz_(o.l2sz_),
                               nbits_(o.nbits_), hf_(std::move(hf_)), mask_(o.mask_), subtbl_sz_(o.subtbl_sz_), seeds_(std::move(o.seeds_))
     {
-        //std::memset(&o, 0, sizeof(o));
     }
     ccmbase_t(const ccmbase_t &o) = default;
     //ccmbase_t(ccmbase_t &&o) = default;
@@ -154,7 +153,7 @@ public:
         auto nperhash64 = lut::nhashesper64bitword[l2sz];
         while(seeds_.size() * nperhash64 < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
         clear();
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr, "size of data: %zu\n", data_.size());
         std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables. %zu is the number of 64-bit hashes with %u nhashesper64bitword\n", nbits, l2sz, nhashes, seeds_.size(), nperhash64);
         std::fprintf(stderr, "Size of updater: %zu. seeds length: %zu\n", sizeof(updater_), seeds_.size());
