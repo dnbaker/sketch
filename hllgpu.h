@@ -7,14 +7,17 @@
 #endif
 
 namespace sketch {
+#define now std::chrono::high_resolution_clock::now
 
 
-__host__ __device__ double inline origest(const uint32_t *p, unsigned l2) {
+template<typename T>
+__host__ __device__
+double inline origest(const T &p, unsigned l2) {
     auto m = size_t(1) << l2;
     double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
     double s = p[0];
-    for(auto i = 1u; i < 64; ++i)
-        s += ldexp(p[i], i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+    for(auto i = 1u; i < 64 - l2 + 1; ++i)
+        s += ldexp(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
     return alpha * m * m / s;
 }
 
@@ -48,6 +51,11 @@ auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *__restrict__, A
     return std::make_pair(std::move(ret), nvals);
 }
 
+template<typename T, typename T2, typename T3, typename=typename std::enable_if<std::is_integral<T>::value && std::is_integral<T2>::value && std::is_integral<T3>::value>::type>
+__device__ __host__ static inline T ij2ind(T i, T2 j, T3 n) {
+    return i < j ? (((i) * (n * 2 - i - 1)) / 2 + j - (i + 1)): (((j) * (n * 2 - j - 1)) / 2 + i - (j + 1));
+}
+
 #ifdef __CUDACC__
 
 __global__ void calc_sizes(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
@@ -76,7 +84,7 @@ __global__ void calc_sizes(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t
     if(tid == 0)
         sizes[hllid] = origest(sums, l2);
 }
-
+#if 0
 __host__ std::vector<uint32_t> all_pairs(const uint8_t *p, unsigned l2, size_t nhlls) {
     size_t nc2 = (nhlls * (nhlls - 1)) / 2;
     uint32_t *sizes;
@@ -91,6 +99,51 @@ __host__ std::vector<uint32_t> all_pairs(const uint8_t *p, unsigned l2, size_t n
     cudaDeviceSynchronize();
     std::vector<uint32_t> ret(nhlls);
     if(cudaMemcpy(ret.data(), sizes, nhlls * sizeof(uint32_t), cudaMemcpyDeviceToHost)) throw 3;
+    //thrust::copy(sizes, sizes + ret.size(), ret.begin());
+    cudaFree(sizes);
+    return ret;
+}
+#endif
+__global__ void calc_sizesu(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
+    if(blockIdx.x >= nhlls) return;
+    extern __shared__ int shared[];
+    uint8_t *registers = (uint8_t *)shared;
+    auto hllid = blockIdx.x;
+    int nreg = 1 << l2;
+    int nper = (nreg + (nhlls - 1)) / nhlls;
+    auto hp = p + (hllid << l2);
+    auto gid = blockIdx.x * blockDim.x + threadIdx.x;
+    if(gid >= (nhlls - 1) * nhlls / 2)
+        return;
+    for(int i = threadIdx.x * nper; i < min((threadIdx.x + 1) * nper, nreg); ++i)
+        registers[i] = hp[i];
+    __syncthreads();
+    uint32_t arr[64]{0};
+    hp = p + (threadIdx.x << l2);
+    #pragma unroll 64
+    for(int i = 0; i < (1L << l2); ++i) {
+        ++arr[max(hp[i], registers[i])];
+    }
+    sizes[gid] = origest(arr, l2);
+}
+__host__ std::vector<uint32_t> all_pairsu(const uint8_t *p, unsigned l2, size_t nhlls) {
+    size_t nc2 = (nhlls * (nhlls - 1)) / 2;
+    uint32_t *sizes;
+    size_t nb = sizeof(uint32_t) * nc2;
+    size_t m = 1ull << l2;
+    cudaError_t ce;
+    if((ce = cudaMalloc((void **)&sizes, nb)))
+        throw ce;
+    //size_t nblocks = 1;
+    std::fprintf(stderr, "About to launch kernel\n");
+    auto t = now();
+    calc_sizesu<<<nhlls,nhlls,m>>>(p, l2, nhlls, sizes);
+    cudaDeviceSynchronize();
+    auto t2 = now();
+    std::fprintf(stderr, "Time: %zu\n", (t2 - t).count());
+    std::fprintf(stderr, "Finished kernel\n");
+    std::vector<uint32_t> ret(nc2);
+    if(cudaMemcpy(ret.data(), sizes, nb, cudaMemcpyDeviceToHost)) throw 3;
     //thrust::copy(sizes, sizes + ret.size(), ret.begin());
     cudaFree(sizes);
     return ret;
