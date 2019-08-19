@@ -173,7 +173,7 @@ struct Card {
     Card(unsigned r, unsigned p, CounterType maxcnt, Args &&... args):
         core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p), maxcnt_(maxcnt) {
         total_added_.store(0);
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr, "size of sketch: %zu\n", core_.size());
 #endif
     }
@@ -265,20 +265,17 @@ struct Card {
         const CounterType max_val = *std::max_element(core_.begin(), core_.end()),
                           nvals = max_val + 1;
         std::vector<unsigned> arr(2 * nvals);
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr,"Made arr with nvals = %zu\n", size_t(nvals));
 #endif
         for(size_t i = 0; i < 2u; ++i) {
             size_t core_offset = i << r_;
             size_t arr_offset = nvals * i;
-#if !NDEBUG
-            std::fprintf(stderr, "offset for arr: %zu. cfor core: %zu\n", arr_offset, core_offset);
-#endif
             for(size_t j = 0; j < size_t(1) << r_; ++j) {
                 ++arr.access(core_.access(j + core_offset) + arr_offset);
             }
         }
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr,"Filled arr with nvals = %zu\n", size_t(nvals));
 #endif
         std::vector<double> pmeans(nvals);
@@ -287,7 +284,7 @@ struct Card {
         }
         //std::free(arr);
         std::vector<float> f_i(nvals);
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr,"Made f_i arr\n");
 #endif
         //if(!f_i) throw std::bad_alloc();
@@ -322,13 +319,19 @@ struct XXH3PairHasher {
     uint64_t hash(uint64_t x, CType count) const {
        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
     }
+    template<typename CType>
+    uint64_t operator()(uint64_t x, CType count) const {
+        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
 };
 
-struct WangPairHasher: hash::WangHash {
+struct WangPairHasher: public hash::WangHash {
     template<typename CType>
-    uint64_t hash(uint64_t x, CType count) const {
-        return this->operator()(this->operator()(x) ^ count);
+    static uint64_t hash(uint64_t x, CType count) {
+        return hash::WangHash::hash(x) ^ count;
     }
+    template<typename CType>
+    uint64_t operator()(uint64_t x, CType count) const {return hash::WangHash::hash(x) ^ count;}
 };
 
 

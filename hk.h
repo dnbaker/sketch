@@ -11,6 +11,8 @@ static constexpr uint64_t bitmask(size_t n) {
 
 using namespace common;
 
+namespace hk {
+
 template<size_t fpsize, size_t ctrsize=64-fpsize, typename Hasher=hash::WangHash, typename Policy=policy::SizeDivPolicy<uint64_t>, typename RNG=wy::WyHash<uint64_t>, typename Allocator=common::Allocator<uint64_t>>
 class HeavyKeeper {
 
@@ -35,7 +37,9 @@ public:
         b_(pdec)
     {
         assert(subtables);
+#if VERBOSE_AF
         std::fprintf(stderr, "fpsize: %zu. ctrsize: %zu. requested size: %zu. actual size: %zu. Overflow check? %d. nhashes: %zu\n", fpsize, ctrsize, requested_size, pol_.nelem(), 1, nh_);
+#endif
     }
 
     HeavyKeeper(const HeavyKeeper &o) = default;
@@ -208,6 +212,11 @@ public:
         return cpy;
     }
 };
+
+} // namespace hk
+
+using namespace hk;
+
 
 
 } // namespace sketch

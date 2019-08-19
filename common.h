@@ -191,6 +191,33 @@ static INLINE T roundup(T x) noexcept {
 }
 
 #if __GNUC__ || __clang__
+constexpr INLINE unsigned clz(signed long long x) {
+    return __builtin_clzll(x);
+}
+constexpr INLINE unsigned clz(signed long x) {
+    return __builtin_clzl(x);
+}
+constexpr INLINE unsigned clz(signed x) {
+    return __builtin_clz(x);
+}
+constexpr INLINE unsigned ctz(signed long long x) {
+    return __builtin_ctzll(x);
+}
+constexpr INLINE unsigned ctz(signed long x) {
+    return __builtin_ctzl(x);
+}
+constexpr INLINE unsigned ctz(signed x) {
+    return __builtin_ctz(x);
+}
+constexpr INLINE unsigned ffs(signed long long x) {
+    return __builtin_ffsll(x);
+}
+constexpr INLINE unsigned ffs(signed long x) {
+    return __builtin_ffsl(x);
+}
+constexpr INLINE unsigned ffs(signed x) {
+    return __builtin_ffs(x);
+}
 constexpr INLINE unsigned clz(unsigned long long x) {
     return __builtin_clzll(x);
 }
@@ -433,7 +460,6 @@ template<typename T, typename AllocatorType=typename T::allocator>
 static inline void zero_memory(std::vector<T, AllocatorType> &v, size_t newsz) {
     std::memset(v.data(), 0, v.size() * sizeof(v[0]));
     v.resize(newsz);
-    std::fprintf(stderr, "New size of container: %zu\n", newsz);
 }
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
 static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {

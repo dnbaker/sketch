@@ -29,11 +29,7 @@ using std::hash; // This way, someone can provide a hash within an object's name
 // https://arxiv.org/abs/1711.00975
 template<typename Obj, typename Cmp=std::greater<Obj>, typename HashFunc=hash<Obj> >
 class ObjHeap {
-#ifndef NOT_THREADSAFE
-#define GET_LOCK_AND_CHECK \
-#else
 #define GET_LOCK_AND_CHECK
-#endif
     std::vector<Obj> core_;
     HashFunc h_;
     using HType = uint64_t;
