@@ -50,7 +50,7 @@ auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *__restrict__, A
 
 #ifdef __CUDACC__
 
-__global__ void calc_sizes(const uint8_t *p, unsigned l2, size_t nhlls, float *sizes) {
+__global__ void calc_sizes(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
     extern __shared__ int shared[];
     uint32_t *sums = (uint32_t *)shared;
     for(int i = 0; i < 64; ++i) sums[i] = 0;
@@ -64,7 +64,8 @@ __global__ void calc_sizes(const uint8_t *p, unsigned l2, size_t nhlls, float *s
         return;
     uint32_t arr[64]{0};
     auto hp = p + nelem * hllid;
-    auto nblocks = (nhlls + 63) / 64;
+    //auto nblocks = (nhlls + 63) / 64;
+    __syncthreads();
     for(unsigned i = nreg_each * hllrem;  i < min(size_t((nreg_each * (hllrem + 1))), nelem); ++i) {
         ++arr[hp[i]];
     }
@@ -72,27 +73,25 @@ __global__ void calc_sizes(const uint8_t *p, unsigned l2, size_t nhlls, float *s
         atomicAdd(sums + i, hp[i]);
     }
     __syncthreads();
-    float hls = origest(arr, l2);
-    sizes[hllid] = hls;
+    if(tid == 0)
+        sizes[hllid] = origest(sums, l2);
 }
 
-__host__ std::vector<float> all_pairs(const uint8_t *p, unsigned l2, size_t nhlls) {
+__host__ std::vector<uint32_t> all_pairs(const uint8_t *p, unsigned l2, size_t nhlls) {
     size_t nc2 = (nhlls * (nhlls - 1)) / 2;
-    size_t nelem = nc2 + nhlls;
-    std::vector<float> ret(nelem);
-    float *cup, *sizes;
+    uint32_t *sizes;
+    size_t nb = sizeof(uint32_t) * nhlls;
     cudaError_t ce;
-    if((ce = cudaMalloc((void **)&cup, sizeof(float) * ret.size())))
+    if((ce = cudaMalloc((void **)&sizes, nb)))
         throw ce;
-    if((ce = cudaMalloc((void **)&sizes, sizeof(float) * nhlls)))
-        throw ce;
-    size_t nblocks = 1;
-    dim3 threads(4, 256);
+    //size_t nblocks = 1;
+    std::fprintf(stderr, "About to launch kernel\n");
     calc_sizes<<<64,threads,64 * sizeof(uint32_t)/*,nhlls * sizeof(float)*/>>>(p, l2, nhlls, sizes);
+    std::fprintf(stderr, "Finished kernel\n");
     cudaDeviceSynchronize();
-    if(cudaMemcpy(ret.data(), sizes, nhlls * sizeof(float), cudaMemcpyDeviceToHost)) throw 3;
+    std::vector<uint32_t> ret(nhlls);
+    if(cudaMemcpy(ret.data(), sizes, nhlls * sizeof(uint32_t), cudaMemcpyDeviceToHost)) throw 3;
     //thrust::copy(sizes, sizes + ret.size(), ret.begin());
-    cudaFree(cup);
     cudaFree(sizes);
     return ret;
 }
