@@ -348,8 +348,8 @@ struct WeightedSketcher {
     WeightedSketcher(CountingSketchType &&cst, CoreSketch &&core,
                      HashStruct &&hf=HashStruct())
     : cst_(std::move(cst)), sketch_(std::move(core)), hf_(std::move(hf)) {}
-    WeightedSketcher(std::string path): cst_(0,0), sketch_(path) {throw common::NotImplementedError("Reading weighted sketcher from disk");}
-    WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw common::NotImplementedError("Making a weighted sketcher from an integer.");}
+    WeightedSketcher(std::string path): cst_(0,0), sketch_(path) {throw NotImplementedError("Reading weighted sketcher from disk");}
+    WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw NotImplementedError("Making a weighted sketcher from an integer.");}
 
     operator final_type() {
         return std::move(sketch_);
@@ -381,7 +381,7 @@ struct WeightedSketcher {
     template<typename...Args>
     auto write(Args &&...args) const {return sketch_.write(std::forward<Args>(args)...);}
     template<typename...Args>
-    void read(Args &&...args) {throw common::NotImplementedError("Reading weighted sketcher from disk");}
+    void read(Args &&...args) {throw NotImplementedError("Reading weighted sketcher from disk");}
     auto jaccard_index(const base_type &o) const {return sketch_.jaccard_index(o);}
     template<typename...Args> auto jaccard_index(Args &&...args) const {return sketch_.jaccard_index(std::forward<Args>(args)...);}
     template<typename...Args> auto containment_index(Args &&...args) const {return sketch_.containment_index(std::forward<Args>(args)...);}

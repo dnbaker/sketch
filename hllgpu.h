@@ -126,7 +126,7 @@ __global__ void calc_sizesu(const uint8_t *p, unsigned l2, size_t nhlls, uint32_
     }
     sizes[gid] = origest(arr, l2);
 }
-__host__ std::vector<uint32_t> all_pairsu(const uint8_t *p, unsigned l2, size_t nhlls) {
+__host__ std::vector<uint32_t> all_pairsu(const uint8_t *p, unsigned l2, size_t nhlls, size_t &rets) {
     size_t nc2 = (nhlls * (nhlls - 1)) / 2;
     uint32_t *sizes;
     size_t nb = sizeof(uint32_t) * nc2;
@@ -138,9 +138,10 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *p, unsigned l2, size_t 
     std::fprintf(stderr, "About to launch kernel\n");
     auto t = now();
     calc_sizesu<<<nhlls,nhlls,m>>>(p, l2, nhlls, sizes);
-    cudaDeviceSynchronize();
+    if(cudaDeviceSynchronize()) throw 1;
     auto t2 = now();
-    std::fprintf(stderr, "Time: %zu\n", (t2 - t).count());
+    rets = (t2 - t).count();
+    std::fprintf(stderr, "Time: %zu\n", rets);
     std::fprintf(stderr, "Finished kernel\n");
     std::vector<uint32_t> ret(nc2);
     if(cudaMemcpy(ret.data(), sizes, nb, cudaMemcpyDeviceToHost)) throw 3;
