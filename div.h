@@ -28,12 +28,7 @@ using std::uint64_t;
 
 
 static inline __uint128_t computeM_u64(uint64_t d) {
-  __uint128_t M = UINT64_C(0xFFFFFFFFFFFFFFFF);
-  M <<= 64;
-  M |= UINT64_C(0xFFFFFFFFFFFFFFFF);
-  M /= d;
-  M += 1;
-  return M;
+  return (__uint128_t(-1) / d) + 1;
 }
 
 static inline uint64_t mul128_u64(__uint128_t lowbits, uint64_t d) {
@@ -41,8 +36,7 @@ static inline uint64_t mul128_u64(__uint128_t lowbits, uint64_t d) {
   bottom_half >>= 64;  // Only need the top 64 bits, as we'll shift the lower half away;
   __uint128_t top_half = (lowbits >> 64) * d;
   __uint128_t both_halves = bottom_half + top_half; // Both halves are already shifted down by 64
-  both_halves >>= 64; // Get top half of both_halves
-  return (uint64_t)both_halves;
+  return (both_halves >>= 64); // Get top half of both_halves
 }
 static inline uint64_t fastdiv_u64(uint64_t a, __uint128_t M) {
   return mul128_u64(M, a);
@@ -80,7 +74,7 @@ template<typename T> struct div_t {
 };
 
 
-template<typename T, bool shortcircuit=false>
+template<typename T, bool shortcircuit=true>
 struct Schismatic;
 template<bool shortcircuit> struct Schismatic<uint64_t, shortcircuit> {
 private:

@@ -1,6 +1,7 @@
 #ifndef SKETCH_POLICY_H
 #define SKETCH_POLICY_H
 #include "integral.h"
+#include "div.h"
 namespace sketch {
 namespace policy {
 
