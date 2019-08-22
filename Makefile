@@ -48,6 +48,9 @@ sleef.h:
 python: hll.cpython.so
 	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
+hpython: pybbmh.cpython.so
+	python -c "import subprocess;import site; subprocess.check_call('cp pybbmh.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
+
 %.cpython.so: %.cpp
 	$(CXX) $(UNDEFSTR) $(INCLUDES) -fopenmp -O3 -Wall $(CXXFLAGS) -shared $(STD) -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \
     ln -fs $*$(SUF) $@
