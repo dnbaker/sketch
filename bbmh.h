@@ -100,7 +100,7 @@ template<typename T> INLINE void setnthbit(T *ptr, size_t index, bool val) {
     return setnthbit(reinterpret_cast<uint64_t *>(ptr), index, val);
 }
 
-uint64_t getnthbit(const uint64_t *ptr, size_t index) {
+static INLINE uint64_t getnthbit(const uint64_t *ptr, size_t index) {
     return (ptr[index / 64] >> (index % 64)) & 1u;
 }
 
