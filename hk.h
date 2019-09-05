@@ -57,6 +57,10 @@ public:
     uint64_t hash(int32_t x) const {return hasher_(uint32_t(x));}
     void seed(uint64_t x) const {rng_.seed(x);}
 
+    void clear() {
+        std::memset(data_.data(), 0, sizeof(data_[0]) * data_.size());
+    }
+
     static constexpr uint64_t sig_size = fpsize + ctrsize;
     static constexpr uint64_t sig_mask         = bitmask(sig_size);
     static constexpr uint64_t sig_mask_at_pos(size_t i) {
