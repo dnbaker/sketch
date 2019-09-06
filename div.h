@@ -74,34 +74,38 @@ template<typename T> struct div_t {
 };
 
 
-template<typename T, bool shortcircuit=true>
+template<typename T, bool shortcircuit=false>
 struct Schismatic;
 template<bool shortcircuit> struct Schismatic<uint64_t, shortcircuit> {
 private:
     uint64_t d_;
     __uint128_t M_;
-    std::array<uint64_t, shortcircuit ? 1: 0> m32_;
-    uint64_t &m32() {assert(shortcircuit); return m32_[0];}
+    uint64_t m32_;
+    uint64_t &m32() {
+        return m32_;
+    }
     // We swap location here so that m32 can be 64-bit aligned.
 public:
     const auto &d() const {return d_;}
-    const uint64_t &m32() const {assert(shortcircuit); return m32_[0];}
+    const uint64_t &m32() const {assert(shortcircuit); return m32_;}
     using DivType = div_t<uint64_t>;
     Schismatic(uint64_t d): d_(d), M_(computeM_u64(d)) {
-        CONST_IF(shortcircuit) m32() = computeM_u32(d);
+        m32_ = shortcircuit ? computeM_u32(d): uint64_t(0);
     }
     INLINE bool test_limits(uint64_t v) const {
         assert(shortcircuit);
-        return d_ >> 32 ? (v >> 32) == 0: false;
+        static constexpr uint64_t threshold = std::numeric_limits<uint32_t>::max();
+        return d_ <= threshold && v <= threshold;
     }
     INLINE uint64_t div(uint64_t v) const {
-        CONST_IF(shortcircuit)
-            return test_limits(v) ? uint64_t(fastdiv_u32(v, m32())): fastdiv_u64(v, m32());
+        if(shortcircuit) {
+            return test_limits(v) ? uint64_t(fastdiv_u32(v, m32_)): fastdiv_u64(v, m32_);
+        }
         return fastdiv_u64(v, M_);
     }
     INLINE uint64_t mod(uint64_t v) const {
-        CONST_IF(shortcircuit)
-            return test_limits(v) ? uint64_t(fastmod_u32(v, m32(), d_)): fastmod_u64(v, m32(), d_);
+        if(shortcircuit)
+            return test_limits(v) ? uint64_t(fastmod_u32(v, m32_, d_)): fastmod_u64(v, m32_, d_);
         return fastmod_u64(v, M_, d_);
     }
     INLINE div_t<uint64_t> divmod(uint64_t v) const {

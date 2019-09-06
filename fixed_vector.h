@@ -35,7 +35,6 @@ public:
         std::copy(i1, i2, data_);
     }
     vector(size_t n): data_(allocate(n)), n_(n) {
-        
     }
     ~vector() {std::free(data_);}
     vector &operator=(const vector &o) = delete;

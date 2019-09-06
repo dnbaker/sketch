@@ -604,7 +604,7 @@ const noexcept
             });
         }
     }
-    CounterType est_count(uint64_t val) 
+    CounterType est_count(uint64_t val)
 #if defined(NDEBUG)
 const
 #endif
@@ -756,7 +756,7 @@ const noexcept
     INLINE void addh(Space::VType hv) noexcept {
         hv.for_each([&](auto x) {for(size_t i = 0; i < nh_; add(x, i++));});
     }
-    CounterType est_count(uint64_t val) 
+    CounterType est_count(uint64_t val)
 #if !NDEBUG
 #else
 const
