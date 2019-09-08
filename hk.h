@@ -57,6 +57,10 @@ public:
     uint64_t hash(int32_t x) const {return hasher_(uint32_t(x));}
     void seed(uint64_t x) const {rng_.seed(x);}
 
+    void clear() {
+        std::memset(data_.data(), 0, sizeof(data_[0]) * data_.size());
+    }
+
     static constexpr uint64_t sig_size = fpsize + ctrsize;
     static constexpr uint64_t sig_mask         = bitmask(sig_size);
     static constexpr uint64_t sig_mask_at_pos(size_t i) {
@@ -108,10 +112,11 @@ public:
     }
     static constexpr uint64_t max_fp() {return ((1ull << fpsize) - 1);}
     template<typename T>
-    auto addh(const T &x) {return this->add(hash(x));}
-    auto add(uint64_t x) {
+    uint64_t addh(const T &x) {return this->add(hash(x));}
+    uint64_t add(uint64_t x) {
         uint64_t maxv = 0;
-        for(size_t i = 0;;) {
+        unsigned i = 0;
+        FOREVER {
             size_t pos = pol_.mod(x), newfp = pol_.div_.div(x) & max_fp();
 #if __cplusplus >= 201703L
             auto [count, fp] = decode(from_index(pos, i));
@@ -120,8 +125,8 @@ public:
             auto count = vals.first, fp = vals.second;
 #endif
             assert(encode(count, fp) == from_index(pos, i));
-            //std::fprintf(stderr, "%zu/%zu\n", size_t(encode(count, fp)), from_index(pos, i));
-            if(count == 0) {
+            if(count == 0) { 
+                // Empty bucket -- simply insert
                 //std::fprintf(stderr, "first entry for x = %zu\n", size_t(x));
                 store(pos, i, newfp, 1);
                 maxv = std::max(uint64_t(1), maxv);
@@ -139,26 +144,25 @@ public:
                     maxv = std::max(maxv, uint64_t(count));
                 }
             }
-            if(++i == nh_) return maxv;
+            if(++i == nh_) break;
             wy::wyhash64_stateless(&x);
         }
+        return maxv;
     }
     template<typename T>
-    uint64_t query(const T &x) const {
-        return queryh(hash(x));
-    }
+    uint64_t query(const T &x) const {return queryh(hash(x));}
     uint64_t queryh(uint64_t x) const {
         uint64_t ret = 0;
         size_t pos = pol_.mod(x), newfp = pol_.div_.div(x) & ((1ull << fpsize) - 1);
-        for(size_t i = 0;;) {
+        unsigned i = 0;
+        FOREVER {
             auto p = decode(from_index(pos, i));
             auto count = p.first, fp = p.second;
-            if(fp == newfp) {
-                ret = std::max(ret, count);
-            }
-            if(++i == nh_) return ret;
+            if(fp == newfp) ret = std::max(ret, count);
+            if(++i == nh_) break;
             wy::wyhash64_stateless(&x);
         }
+        return ret;
     }
     auto est_count(uint64_t x) {
         return query(x);
@@ -216,7 +220,6 @@ public:
 } // namespace hk
 
 using namespace hk;
-
 
 
 } // namespace sketch

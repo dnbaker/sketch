@@ -43,10 +43,10 @@ OBJS=$(patsubst %.cpp,%$(SUF),$(wildcard *.cpp))
 HEADERS=$(wildcard *.h)
 
 sleef.h:
-	+cd vec/sleef && mkdir -p build && cd build && cmake .. && make && cd ../../../ && ln -s vec/sleef//build/include/sleef.h sleef.h
+	+cd vec/sleef && mkdir -p build && cd build && cmake .. && $(MAKE) && cd ../../../ && ln -s vec/sleef//build/include/sleef.h sleef.h
 
 python: hll.cpython.so
-	python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
+	+python -c "import subprocess;import site; subprocess.check_call('cp hll.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
 hpython: pybbmh.cpython.so
 	python -c "import subprocess;import site; subprocess.check_call('cp pybbmh.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"

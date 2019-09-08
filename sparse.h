@@ -200,7 +200,7 @@ public:
 #if VERBOSE_AF
                 std::fprintf(stderr, "ind is nelem - 1, and saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), unsigned(SparseHLL32::get_value(buf[ind])), buf[ind]);
 #endif
-                vals_.push_back(buf[ind++]); // Otherwise, 
+                vals_.push_back(buf[ind++]);
             }
         }
 #if !NDEBUG
