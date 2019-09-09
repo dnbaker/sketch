@@ -33,7 +33,14 @@ All have been accelerated with SIMD parallelism where possible, most are composa
     3. One-permutation counting bbit minhash
         1. In progress
         2. Not threadsafe.
-7. ntcard
+8. HeavyKeeper
+    1. hk.h
+    2. Not threadsafe current.
+    3. Reference: https://www.usenix.org/conference/atc18/presentation/gong
+    4. A seemingly unilateral improvement over count-min sketches.
+        1. One drawback is the inability to delete items, which makes it unsuitable for sliding windows.
+        2. It shares this characteristic with the Count-Min sketch with conservative update and the Count-Min Mean sketch.
+9. ntcard
     1. mult.h
     2. Threadsafe
     3. Reference: https://www.ncbi.nlm.nih.gov/pubmed/28453674
@@ -58,7 +65,7 @@ The following sketches are experimental or variations on prior structures
     2. An array each of bloom filters and hyperloglogs for approximate counting. The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation.
     3. Currently *not* threadsafe.
 8. Multiplicity Adapter
-    1. In `mult.h`, the WeightedSketch template class uses a point querying counting structure (by default, a count-min sketch).
+    1. In `mult.h`, the WeightedSketch template class uses a point querying counting structure (by default, a count-min sketch, but we have observed better results with HeavyKeeper).
     2. You can find an example of an adapter providing a weighted jaccard HyperLogLog in `test/multtest.cpp`. This works for any of the structures working on unweighted sets.
 
 Future work
@@ -94,3 +101,11 @@ By default, updates to the hyperloglog structure to occur using atomic operation
 
 ## Python bindings
 Python bindings are available via pybind11 and then imported through hll.py. hll.py calls an object's __hash__ function. To link against python2, change the "python3-" in the Makefile to "python-".
+
+
+#### Temporary buffers: alloca vs malloc
+Fairly often, we use small buffers for temporary data, such as finding medians of streams. For performance, it can be [better to use alloca](https://www.gnu.org/software/libc/manual/html_node/Advantages-of-Alloca.html).
+We use an `alloca_wrapper` template for holding these. If your compiler does not support alloca or you would rather avoid using the stack, the flag `-DAVOID_ALLOCA` is sufficient to replace these
+small allocations with ones outsourced to malloc, implementations of which often have specially designated small buffers for use.
+
+
