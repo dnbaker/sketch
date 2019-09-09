@@ -120,9 +120,13 @@ __global__ void calc_sizesu(const uint8_t *p, unsigned l2, size_t nhlls, uint32_
     __syncthreads();
     uint32_t arr[64]{0};
     hp = p + (threadIdx.x << l2);
-    #pragma unroll 64
-    for(int i = 0; i < (1L << l2); ++i) {
-        ++arr[max(hp[i], registers[i])];
+    #pragma unroll 8
+    for(int i = 0; i < (1L << l2); i += 4) {
+        auto maxes = __vmaxu4((unsigned *)&hp[i], (unsigned *)&registers[i]);
+        ++arr[maxes&0xFF];
+        ++arr[(maxes>>8)&0xFF];
+        ++arr[(maxes>>16)&0xFF];
+        ++arr[(maxes>>24)];
     }
     sizes[gid] = origest(arr, l2);
 }

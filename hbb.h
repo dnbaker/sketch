@@ -8,7 +8,7 @@ namespace hbb {
 using namespace ::sketch::common;
 
 /**
- * 
+ *
  * HyperBitBit algorithm (c/o Sedgewick) from
  * https://www.cs.princeton.edu/~rs/talks/AC11-Cardinality.pdf
  * Based on https://github.com/thomasmueller/tinyStats/blob/master/src/main/java/org/tinyStats/cardinality/HyperBitBit.java

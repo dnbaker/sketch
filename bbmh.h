@@ -1371,7 +1371,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
     template<typename TT>
     void twobit_range(TT v, unsigned offset) {
         for(size_t i = 0; i < sizeof(v) * CHAR_BIT; i += 2) {
-            
+
         }
     }
     template<typename=typename std::enable_if<std::is_same<CountingType, uint32_t>::value>::type> // Only finished for uint32_t currently

@@ -125,7 +125,7 @@ public:
             auto count = vals.first, fp = vals.second;
 #endif
             assert(encode(count, fp) == from_index(pos, i));
-            if(count == 0) { 
+            if(count == 0) {
                 // Empty bucket -- simply insert
                 //std::fprintf(stderr, "first entry for x = %zu\n", size_t(x));
                 store(pos, i, newfp, 1);
