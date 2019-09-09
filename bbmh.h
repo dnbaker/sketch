@@ -100,7 +100,7 @@ template<typename T> INLINE void setnthbit(T *ptr, size_t index, bool val) {
     return setnthbit(reinterpret_cast<uint64_t *>(ptr), index, val);
 }
 
-uint64_t getnthbit(const uint64_t *ptr, size_t index) {
+static INLINE uint64_t getnthbit(const uint64_t *ptr, size_t index) {
     return (ptr[index / 64] >> (index % 64)) & 1u;
 }
 
@@ -176,8 +176,7 @@ public:
         return H(nbuckets_) && H(core_);// Removed b_ and est_cardinality_, since the sets are the same, and that's what really matters.
     }
     FinalDivBBitMinHash(const std::string &path): FinalDivBBitMinHash(path.data()) {}
-    FinalDivBBitMinHash(const char *path) {
-        std::memset(this, 0, sizeof(*this));
+    FinalDivBBitMinHash(const char *path): est_cardinality_(0), nbuckets_(0), b_(0) {
         read(path);
     }
     FinalDivBBitMinHash(FinalDivBBitMinHash &&o) = default;
@@ -238,6 +237,13 @@ public:
         double ji = jaccard_index(o);
         double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
         return is / est_cardinality_;
+    }
+    std::array<double, 3> full_set_comparison(const FinalDivBBitMinHash &o) const {
+        double ji = jaccard_index(o);
+        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        double me_only = est_cardinality_ > is ? est_cardinality_ - is: 0.,
+               o_only  = o.est_cardinality_ > is ? o.est_cardinality_ - is: 0.;
+        return std::array<double, 3>{me_only, o_only, is};
     }
     uint64_t equal_bblocks(const FinalDivBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
@@ -947,8 +953,7 @@ public:
         std::swap(tmp, core_);
     }
     FinalBBitMinHash(const std::string &path): FinalBBitMinHash(path.data()) {}
-    FinalBBitMinHash(const char *path) {
-        std::memset(this, 0, sizeof(*this));
+    FinalBBitMinHash(const char *path): est_cardinality_(0), b_(0), p_(0) {
         read(path);
     }
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
@@ -967,6 +972,13 @@ public:
         auto rm1 = 1. - _r;
         auto rm1p = std::pow(rm1, std::ldexp(1., b_) - 1);
         return _r * rm1p / (1. - (rm1p * rm1));
+    }
+    std::array<double, 3> full_set_comparison(const FinalBBitMinHash &o) const {
+        double ji = jaccard_index(o);
+        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        double me_only = est_cardinality_ > is ? est_cardinality_ - is: 0.,
+               o_only  = o.est_cardinality_ > is ? o.est_cardinality_ - is: 0.;
+        return std::array<double, 3>{me_only, o_only, is};
     }
     ssize_t read(gzFile fp) {
         uint32_t arr[2];
@@ -1087,7 +1099,7 @@ public:
                 }
 #if !NDEBUG
                 auto fptr = (value_type*)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
-                assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", fptr, p1 + core_.size()));
+                assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", static_cast<const void *>(fptr), static_cast<const void *>(p1 + core_.size())));
 #endif
                 return common::sum_of_u64s(sum);
             }

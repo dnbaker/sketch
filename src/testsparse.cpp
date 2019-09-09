@@ -25,6 +25,8 @@ int main() {
     enum {FIRST_LOOP_N = 150, HLL_SIZE=16};
     for(const auto size: {FIRST_LOOP_N * 1, FIRST_LOOP_N * 2, FIRST_LOOP_N * 512/* FIRST_LOOP_N << 10, FIRST_LOOP_N << 16 */}) {
         hll_t h1(HLL_SIZE), h2(HLL_SIZE);
+        h1.set_jestim(ERTL_MLE);
+        h2.set_jestim(ERTL_MLE);
         auto rshift = 64 - h1.p(), lshift = h1.p();
         std::map<uint32_t, uint8_t> tmp;
         std::vector<uint32_t> i1, i2;
@@ -134,8 +136,10 @@ int main() {
         std::fprintf(stderr, "Flattened vals: %lf/%lf/%fl\n", vals[0], vals[1], vals[2]);
         assert(vals[0] == 0. && vals[1] == 0.);
         hll_t uh = h1 + h2;
+        uh.set_jestim(ERTL_MLE);
+        uh.not_ready();
+        uh.sum();
         auto us = h2.union_size(h1);
-        std::fprintf(stderr, "Size 1: %lf. us from func: %lf\n", uh.report(), us);
         assert(uh.report() == us);
         assert(h.jaccard_index(h2) == 1.);
         assert(h.jaccard_index(h1) == h2.jaccard_index(h1));

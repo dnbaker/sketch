@@ -1,20 +1,6 @@
 #ifndef CRUEL_BLOOM_H__
 #define CRUEL_BLOOM_H__
 #include "common.h"
-#include "hash.h"
-
-
-#ifdef INCLUDE_CLHASH_H_
-#  define ENABLE_CLHASH 1
-#elif ENABLE_CLHASH
-#  include "clhash.h"
-#endif
-
-#if defined(NDEBUG)
-#  if NDEBUG == 0
-#    undef NDEBUG
-#  endif
-#endif
 
 
 namespace sketch {

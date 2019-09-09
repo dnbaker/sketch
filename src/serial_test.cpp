@@ -52,8 +52,8 @@ int main(int argc, char *argv[]) {
         f_t fino(smh2.finalize());
         smh1.write("tmp.dbb");
         f_t fin1("tmp.dbb");
-        std::system("rm tmp.dbb");
-        std::system("rm SaveSketch.hll");
+        if(std::system("rm tmp.dbb")) throw "up";
+        if(std::system("rm SaveSketch.hll")) throw "down";
         std::fprintf(stderr, "ji: %lf with %zu samples packed into %zu words and %zu bits per minimizer\n", fin1.jaccard_index(fino), smh1.size(), fin1.core_.size(), size_t(fin2.b_));
         assert(fin.jaccard_index(fin2) == 1.);
         assert(fin2.jaccard_index(fino) == fin.jaccard_index(fino));
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
         fp = gzopen("10hlls.whooo", "rb");
         for(auto &h: ohlls) h.read(fp);
         gzclose(fp);
-        std::system("rm 10hlls.whooo");
+        if(std::system("rm 10hlls.whooo")) throw "sideways";
         assert(std::equal(hlls.begin(), hlls.end(), ohlls.begin()));
     }
 }

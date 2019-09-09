@@ -42,8 +42,8 @@ struct CWSamples {
 #endif
 
 template<typename FType=float, typename HashStruct=common::WangHash, bool decay=false, bool conservative=false>
-class realccm_t: public cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
-    using super = cm::ccmbase_t<cm::update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
+class realccm_t: public cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
+    using super = cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
     using FSpace = vec::SIMDTypes<FType>;
     using super::seeds_;
     using super::data_;
@@ -173,7 +173,7 @@ struct Card {
     Card(unsigned r, unsigned p, CounterType maxcnt, Args &&... args):
         core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p), maxcnt_(maxcnt) {
         total_added_.store(0);
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr, "size of sketch: %zu\n", core_.size());
 #endif
     }
@@ -265,20 +265,17 @@ struct Card {
         const CounterType max_val = *std::max_element(core_.begin(), core_.end()),
                           nvals = max_val + 1;
         std::vector<unsigned> arr(2 * nvals);
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr,"Made arr with nvals = %zu\n", size_t(nvals));
 #endif
         for(size_t i = 0; i < 2u; ++i) {
             size_t core_offset = i << r_;
             size_t arr_offset = nvals * i;
-#if !NDEBUG
-            std::fprintf(stderr, "offset for arr: %zu. cfor core: %zu\n", arr_offset, core_offset);
-#endif
             for(size_t j = 0; j < size_t(1) << r_; ++j) {
                 ++arr.access(core_.access(j + core_offset) + arr_offset);
             }
         }
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr,"Filled arr with nvals = %zu\n", size_t(nvals));
 #endif
         std::vector<double> pmeans(nvals);
@@ -287,7 +284,7 @@ struct Card {
         }
         //std::free(arr);
         std::vector<float> f_i(nvals);
-#if !NDEBUG
+#if VERBOSE_AF
         std::fprintf(stderr,"Made f_i arr\n");
 #endif
         //if(!f_i) throw std::bad_alloc();
@@ -322,13 +319,19 @@ struct XXH3PairHasher {
     uint64_t hash(uint64_t x, CType count) const {
        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
     }
+    template<typename CType>
+    uint64_t operator()(uint64_t x, CType count) const {
+        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
 };
 
-struct WangPairHasher: hash::WangHash {
+struct WangPairHasher: public hash::WangHash {
     template<typename CType>
-    uint64_t hash(uint64_t x, CType count) const {
-        return this->operator()(this->operator()(x) ^ count);
+    static uint64_t hash(uint64_t x, CType count) {
+        return hash::WangHash::hash(x) ^ count;
     }
+    template<typename CType>
+    uint64_t operator()(uint64_t x, CType count) const {return hash::WangHash::hash(x) ^ count;}
 };
 
 
@@ -345,8 +348,8 @@ struct WeightedSketcher {
     WeightedSketcher(CountingSketchType &&cst, CoreSketch &&core,
                      HashStruct &&hf=HashStruct())
     : cst_(std::move(cst)), sketch_(std::move(core)), hf_(std::move(hf)) {}
-    WeightedSketcher(std::string path): cst_(0,0), sketch_(path) {throw common::NotImplementedError("Reading weighted sketcher from disk");}
-    WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw common::NotImplementedError("Making a weighted sketcher from an integer.");}
+    WeightedSketcher(std::string path): cst_(0,0), sketch_(path) {throw NotImplementedError("Reading weighted sketcher from disk");}
+    WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw NotImplementedError("Making a weighted sketcher from an integer.");}
 
     operator final_type() {
         return std::move(sketch_);
@@ -378,10 +381,11 @@ struct WeightedSketcher {
     template<typename...Args>
     auto write(Args &&...args) const {return sketch_.write(std::forward<Args>(args)...);}
     template<typename...Args>
-    void read(Args &&...args) {throw common::NotImplementedError("Reading weighted sketcher from disk");}
+    void read(Args &&...args) {throw NotImplementedError("Reading weighted sketcher from disk");}
     auto jaccard_index(const base_type &o) const {return sketch_.jaccard_index(o);}
     template<typename...Args> auto jaccard_index(Args &&...args) const {return sketch_.jaccard_index(std::forward<Args>(args)...);}
     template<typename...Args> auto containment_index(Args &&...args) const {return sketch_.containment_index(std::forward<Args>(args)...);}
+    template<typename...Args> auto full_set_comparison(Args &&...args) const {return sketch_.full_set_comparison(std::forward<Args>(args)...);}
     auto containment_index(const base_type &o) const {return sketch_.containment_index(o);}
     template<typename...Args> auto free(Args &&...args) {return sketch_.free(std::forward<Args>(args)...);}
     template<typename...Args> auto cardinality_estimate(Args &&...args) const {return sketch_.cardinality_estimate(std::forward<Args>(args)...);}

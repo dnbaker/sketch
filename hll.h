@@ -54,6 +54,10 @@ using hash::VType;
 using hash::WangHash;
 using hash::MurFinHash;
 
+static constexpr const char *JESTIM_STRINGS []
+{
+    "ORIGINAL", "ERTL_IMPROVED", "ERTL_MLE", "ERTL_JOINT_MLE"
+};
 enum JointEstimationMethod: uint8_t {
     //ORIGINAL       = 0,
     //ERTL_IMPROVED  = 1, // Improved but biased method
@@ -185,7 +189,7 @@ static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 template<typename CountArrType>
 static double calculate_estimate(const CountArrType &counts,
                                  EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) {
-    assert(estim <= 3 && estim >= 0);
+    assert(estim <= 3);
 #if ENABLE_COMPUTED_GOTO
     static constexpr void *arr [] {&&ORREST, &&ERTL_IMPROVED_EST, &&ERTL_MLE_EST};
     goto *arr[estim];
@@ -196,7 +200,8 @@ static double calculate_estimate(const CountArrType &counts,
 #endif
         assert(estim != ERTL_MLE);
         double sum = counts[0];
-        for(unsigned i = 1; i < 64 - p; ++i) sum += std::ldexp(counts[i], i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        for(unsigned i = 1; i < 64; ++i) if(counts[i]) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        //for(unsigned i = 1; i < 64 - p + 1; ++i) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         double value(alpha * m * m / sum);
         if(value < detail::small_range_correction_threshold(m)) {
             if(counts[0]) {
@@ -754,20 +759,16 @@ public:
     hllbase_t(gzFile fp, Args &&... args): hllbase_t(0, ERTL_MLE, ERTL_JOINT_MLE, std::forward<Args>(args)...) {this->read(fp);}
 
     // Call sum to recalculate if you have changed contents.
-    void sum() {
+    void sum() const {
         const auto counts(detail::sum_counts(core_)); // std::array<uint32_t, 64>
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
-    void csum() {if(!is_calculated_) sum();}
+    void csum() const {if(!is_calculated_) sum();}
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const {
-        if(!is_calculated_) {
-            const auto counts(detail::sum_counts(core_)); // std::array<uint32_t, 64>
-            value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
-            is_calculated_ = true;
-        }
+        csum();
         return value_;
     }
     const auto finalize() const {return *this;}
@@ -905,9 +906,10 @@ public:
         } else std::fill(core_.begin(), core_.end(), static_cast<uint8_t>(0));
         value_ = is_calculated_ = 0;
     }
-    hllbase_t(hllbase_t&&o) {
-        std::memset(this, 0, sizeof(*this));
-        std::swap_ranges(reinterpret_cast<uint8_t *>(this), reinterpret_cast<uint8_t *>(this) + sizeof(*this), reinterpret_cast<uint8_t *>(std::addressof(o)));
+    hllbase_t(hllbase_t&&o): value_(0), np_(0), is_calculated_(0), estim_(ERTL_MLE), jestim_(static_cast<JointEstimationMethod>(ERTL_MLE)) {
+        std::swap_ranges(reinterpret_cast<uint8_t *>(this),
+                         reinterpret_cast<uint8_t *>(this) + sizeof(*this),
+                         reinterpret_cast<uint8_t *>(std::addressof(o)));
     }
     hllbase_t(const hllbase_t &other): core_(other.core_), value_(other.value_), np_(other.np_), is_calculated_(other.is_calculated_),
         estim_(other.estim_), jestim_(other.jestim_), hf_(other.hf_)
@@ -983,8 +985,10 @@ public:
     void set_estim(EstimationMethod val) {
         estim_ = std::max(val, ERTL_MLE);
     }
-    void set_jestim(JointEstimationMethod val) {jestim_ = val;}
-    void set_jestim(uint16_t val) {jestim_ = static_cast<JointEstimationMethod>(val);}
+    void set_jestim(JointEstimationMethod val) {
+        jestim_ = val;
+    }
+    void set_jestim(uint16_t val) {set_jestim(static_cast<JointEstimationMethod>(val));}
     void set_estim(uint16_t val)  {estim_  = static_cast<EstimationMethod>(val);}
     // Getter for is_calculated_
     bool get_is_ready() const {return is_calculated_;}
@@ -1104,13 +1108,14 @@ public:
             // We can do this because we use an aligned allocator.
             // We also have found that wider vectors than SSE2 don't matter
             const __m128i *p1(reinterpret_cast<const __m128i *>(data())), *p2(reinterpret_cast<const __m128i *>(other.data()));
-            const __m128i *const pe(reinterpret_cast<const __m128i *>(&(*core().cend())));
+            const __m128i *const pe(reinterpret_cast<const __m128i *>(&core_[core_.size()]));
             for(__m128i tmp;p1 < pe;) {
                 tmp = _mm_max_epu8(*p1++, *p2++);
                 for(size_t i = 0; i < sizeof(tmp);++counts[reinterpret_cast<uint8_t *>(&tmp)[i++]]);
             }
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
+        std::fprintf(stderr, "jestim is ERTL_JOINT_MLE: %s\n", JESTIM_STRINGS[jestim_]);
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
@@ -1134,15 +1139,17 @@ public:
         return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
     }
     double containment_index(const hllbase_t &h2) const {
+        auto fsr = full_set_comparison(h2);
+        return fsr[2] / (fsr[2] + fsr[0]);
+    }
+    std::array<double, 3> full_set_comparison(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
-            auto full_cmps = ertl_joint(*this, h2);
-            const auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[2]);
-            return ret;
+            return ertl_joint(*this, h2);
         }
-        const double us = union_size(h2);
-        const double my_sz = creport();
-        const double ret = (my_sz + h2.creport() - us) / my_sz;
-        return std::max(0., ret);
+        const double us = union_size(h2), mys = creport(), os = h2.creport(),
+                     is = std::max(mys + os - us, 0.),
+                     my_only = std::max(mys - is, 0.), o_only = std::max(os - is, 0.);
+        return std::array<double, 3>{my_only, o_only, is};
     }
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
@@ -1313,11 +1320,11 @@ public:
     }
     void write(int fn) const {
         hll_t::write(fn);
-        ::write(fn, &seed_, sizeof(seed_));
+        if(::write(fn, &seed_, sizeof(seed_)) != ssize_t(sizeof(seed_))) throw std::runtime_error("Failed to write to file.");
     }
     void read(int fn) {
         hll_t::read(fn);
-        ::read(fn, &seed_, sizeof(seed_));
+        if(::read(fn, &seed_, sizeof(seed_)) != ssize_t(sizeof(seed_))) throw std::runtime_error("Failed to read from file.");
     }
     void read(const char *fn) {
         gzFile fp = gzopen(fn, "rb");

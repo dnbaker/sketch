@@ -5,6 +5,7 @@
 
 
 using namespace sketch::cm;
+using namespace sketch;
 
 int main(int argc, char *argv[]) {
     int nbits = 10, l2sz = 16, nhashes = 24, c;

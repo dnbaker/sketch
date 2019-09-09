@@ -25,17 +25,11 @@ static int log_debug(const char *func, const char *filename, int line, const cha
 namespace heap {
 using namespace common;
 
-using std::hash;
+using std::hash; // This way, someone can provide a hash within an object's namespace for argument dependant lookup.
 // https://arxiv.org/abs/1711.00975
 template<typename Obj, typename Cmp=std::greater<Obj>, typename HashFunc=hash<Obj> >
 class ObjHeap {
-#ifndef NOT_THREADSAFE
-#define GET_LOCK_AND_CHECK \
-            std::lock_guard<std::mutex> lock(mut_); \
-            if(core_.size() >= m_ && !cmp_(o, core_.front())) return;
-#else
 #define GET_LOCK_AND_CHECK
-#endif
     std::vector<Obj> core_;
     HashFunc h_;
     using HType = uint64_t;
@@ -49,33 +43,52 @@ public:
     template<typename... Args>
     ObjHeap(size_t n, HashFunc &&hf=HashFunc(), Args &&...args): h_(std::move(hf)), cmp_(std::forward<Args>(args)...), m_(n) {
         core_.reserve(n);
+        if(!n) throw 1;
     }
-#define ADDH_CORE(op)\
-        using std::to_string;\
-        auto hv = h_(o);\
-        if((core_.size() < m_ || cmp_(o, core_[0]))) { \
-            if(hashes_.find(hv) != hashes_.end()) {\
-                LOG_DEBUG("hv present. Ignoring\n");\
-                return;\
-            } \
-            GET_LOCK_AND_CHECK\
-            hashes_.emplace(hv);\
-            core_.emplace_back(op(o));\
-            std::push_heap(core_.begin(), core_.end(), cmp_);\
-            if(core_.size() > m_) {\
-                std::pop_heap(core_.begin(), core_.end(), cmp_);\
-                hashes_.erase(hashes_.find(h_(core_.back()))); \
-                core_.pop_back();\
-                /* std::fprintf(stderr, "new min: %s\n", to_string(core_.front()).data()); */\
-            }\
-        }
+    template<typename T1, typename T2> auto cmp(const T1 &x, const T2 &y) {return cmp_(x, y);}
+    bool check(const Obj &x) const {
+        return cmp_(x, top());
+    }
+    auto &top() {return core_.front();}
+    const auto &top() const {return core_.front();}
+    void addh(const Obj &x) {
+        Obj tmp(x);
+        addh(static_cast<Obj &&>(tmp));
+    }
     void addh(Obj &&o) {
-        ADDH_CORE(std::move)
+        using std::to_string;
+        auto hv = h_(o);
+        if(hashes_.find(hv) != hashes_.end()) {
+            std::fprintf(stderr, "Object present or collision, doing nothing\n");
+            return;
+        }
+        if(core_.size() < m_) {
+#ifndef NOT_THREADSAFE
+            std::lock_guard<std::mutex> lock(mut_);
+#endif
+            if(core_.size() >= m_) {
+                std::fprintf(stderr, "Set surpassed size unexpected\n. Try again\n");
+                addh(std::move(o));
+                return;
+            }
+            if(hashes_.find(hv) != hashes_.end()) std::fprintf(stderr, "Warning: hash value occurring twice. There will be duplicates, so delete carefully.\n");
+            hashes_.emplace(hv);
+            core_.emplace_back(std::move(o));
+            std::push_heap(core_.begin(), core_.end(), cmp_);
+        } else {
+            if(check(o)) {
+#ifndef NOT_THREADSAFE
+                std::lock_guard<std::mutex> lock(mut_);
+#endif
+                if(!check(o)) return;
+                std::pop_heap(core_.begin(), core_.end(), cmp_);
+                hashes_.erase(hashes_.find(h_(core_.back())));
+                hashes_.emplace(hv);
+                core_.back() = std::move(o);
+                std::push_heap(core_.begin(), core_.end(), cmp_);
+            }
+        }
     }
-    void addh(const Obj &o) {
-        ADDH_CORE()
-    }
-#undef ADDH_CORE
 #undef GET_LOCK_AND_CHECK
     size_t max_size() const {return m_;}
     size_t size() const {return core_.size();}
@@ -86,11 +99,12 @@ public:
     template<typename VecType=std::vector<Obj, Allocator<Obj>>>
     VecType to_container() const {
         VecType ret; ret.reserve(size());
-        for(auto v: core_)
+        for(const auto &v: core_)
             ret.push_back(v);
         return ret;
     }
 };
+
 template<typename HashType, typename Cmp>
 struct HashCmp {
     const HashType hash_;
@@ -128,63 +142,49 @@ struct DefaultScoreCmp {
     }
 };
 
-template<typename Obj, typename HashFunc=hash<Obj>, typename ScoreType=std::uint64_t, typename MainCmp=DefaultScoreCmp<ScoreType>>
+template<typename Obj, typename MainCmp=std::less<uint64_t>, typename HashFunc=hash<Obj>>
 class ObjScoreHeap {
-
-    using TupType = std::pair<Obj, ScoreType>;
-    HashFunc h_;
-    using HType = uint64_t;
-    std::vector<TupType> core_;
-    const MainCmp cmp_;
-    ska::flat_hash_set<HType> hashes_;
-#ifndef NOT_THREADSAFE
-    std::mutex mut_;
-#define GET_LOCK_AND_CHECK \
-            std::lock_guard<std::mutex> lock(mut_); \
-            if(core_.size() >= m_ && !cmp_(o, core_.front())) return;
-#else
-#define GET_LOCK_AND_CHECK
-#endif
-    const uint64_t m_;
 public:
-    template<typename... Args>
-    ObjScoreHeap(size_t n, HashFunc &&hf=HashFunc(), Args &&...args):
-        h_(std::move(hf)), m_(n), cmp_()
-    {
-        core_.reserve(n);
-    }
-
-    void addh(Obj &&o, ScoreType score) {
-#define ADDH_CORE(op)\
-        auto hv = h_(o);\
-        if(core_.size() < m_ || cmp_(score, core_[0])) {\
-            if(hashes_.find(hv) != hashes_.end()) {\
-                /*std::fprintf(stderr, "Found hash: %zu\n", size_t(*hashes_.find(hv))); */\
-                return;\
-            }\
-            GET_LOCK_AND_CHECK\
-            hashes_.emplace(hv);\
-            core_.emplace_back(std::make_pair(op(o), score));\
-            std::push_heap(core_.begin(), core_.end(), cmp_);\
-            if(core_.size() > m_) {\
-                std::pop_heap(core_.begin(), core_.end(), cmp_);\
-                hashes_.erase(hashes_.find(h_(core_.back().first))); \
-                core_.pop_back();\
-            }\
+    using ScoreType = uint64_t;
+    using Pair = std::pair<Obj, ScoreType>;
+    struct Cmp {
+        INLINE bool operator()(const Pair &x, const Pair &y) const {
+            return MainCmp()(x.second, y.second);
         }
-        ADDH_CORE(std::move)
+        INLINE bool operator()(uint64_t x, uint64_t y) const {
+            return MainCmp()(x, y);
+        }
+    };
+    struct Hash {
+        HashFunc func_;
+        auto operator()(const Obj &x) const {return func_(x);}
+        auto operator()(const Pair &x) const {return func_(x.first);}
+    };
+    using Heap = ObjHeap<Pair, Cmp, Hash>;
+    Heap heap_;
+
+    template<typename...Args>
+    ObjScoreHeap(Args &&...args): heap_(std::forward<Args>(args)...) {}
+
+    template<typename T1, typename T2> auto cmp(const T1 &x, const T2 &y) {return cmp_(x, y);}
+
+    void addh(const Obj &x, ScoreType score) {
+        heap_.addh(Pair(x, score));
     }
-    void addh(const Obj &o, ScoreType score) {
-        ADDH_CORE()
+    template<typename VecType=std::vector<Obj, Allocator<Obj>>>
+    VecType to_container() const {
+        auto con = heap_.to_container();
+        VecType ret;
+        ret.reserve(size());
+        for(const auto &v: con)
+            ret.emplace_back(std::move(v.first));
+        return ret;
     }
-#undef ADDH_CORE
-#undef GET_LOCK_AND_CHECK
-    size_t size() const {return core_.size();}
-    size_t max_size() const {return m_;}
+    size_t size() const {return heap_.size();}
+    size_t max_size() const {return heap_.max_size();}
 };
-template<typename Obj, typename HashFunc=hash<Obj>, typename ScoreType=std::uint64_t, typename MainCmp=DefaultScoreCmp<ScoreType>>
-class ObjPtrScoreHeap: public ObjScoreHeap<Obj, HashFunc, ScoreType, MainCmp> {
-};
+template<typename Obj, typename MainCmp=DefaultScoreCmp<uint64_t>, typename HashFunc=hash<Obj>>
+class ObjPtrScoreHeap: public ObjScoreHeap<Obj, MainCmp, HashFunc> {};
 
 template<typename CSketchType>
 struct SketchCmp {
@@ -208,6 +208,9 @@ struct SketchCmp {
     }
 };
 
+#if SKETCH_HEAP_READY_H__
+// It's not
+
 template<typename Obj, typename CSketchType, typename HashFunc=hash<Obj>>
 class SketchHeap {
     HashFunc h_;
@@ -219,7 +222,7 @@ class SketchHeap {
     std::mutex mut_;
 #define GET_LOCK_AND_CHECK \
             std::lock_guard<std::mutex> lock(mut_); \
-            if(core_.size() >= m_ && !cmp_(o, core_.front())) return;
+            if(core_.size() >= m_ && !cmp_(o, top())) return;
 #else
 #define GET_LOCK_AND_CHECK
 #endif
@@ -232,34 +235,49 @@ public:
         core_.reserve(n);
     }
 
+    template<typename T1, typename T2> auto cmp(const T1 &x, const T2 &y) {return cmp_(x, y);}
+
+    auto &top() {return core_[0];}
+    const auto &top() const {return core_[0];}
     void addh(Obj &&o) {
-#define ADDH_CORE(op)\
-        auto hv = h_(o);\
-        if(core_.size() < m_ || cmp_.add_cmp(o, core_[0])) {\
-            if(hashes_.find(hv) != hashes_.end()) {\
-                /*std::fprintf(stderr, "Found hash: %zu\n", size_t(*hashes_.find(hv))); */\
-                return;\
-            }\
-            GET_LOCK_AND_CHECK\
-            hashes_.emplace(hv);\
-            core_.emplace_back(op(o));\
-            std::push_heap(core_.begin(), core_.end(), cmp_);\
-            if(core_.size() > m_) {\
-                std::pop_heap(core_.begin(), core_.end(), cmp_);\
-                hashes_.erase(hashes_.find(h_(core_.back().first))); \
-                core_.pop_back();\
-            }\
+        auto hv = h_(o);
+        if(core_.size() < m_) {
+            if(hashes_.find(hv) != hashes_.end()) {
+                /*std::fprintf(stderr, "Found hash: %zu\n", size_t(*hashes_.find(hv))); */
+                return;
+            }
+            GET_LOCK_AND_CHECK
+            hashes_.emplace(hv);
+            core_.emplace_back(std::move(o));
+            std::push_heap(core_.begin(), core_.end(), cmp_);
+        } else if(cmp_(o, core_.front()) && o != core_.front()) {
+            std::pop_heap(core_.begin(), core_.end(), cmp_);
+            auto it = hashes_.find(h_(core_.front()));
+            if(it != hashes_.end())
+                hashes_.erase(it);
+            hashes_.emplace(hv);
+            Obj s(std::move(core_.back()));
+            core_.back() = std::move(o);
+            std::push_heap(core_.begin(), core_.end(), cmp_);
         }
-        ADDH_CORE(std::move)
+
     }
     void addh(const Obj &o) {
-        ADDH_CORE()
+        Obj t(o);
+        addh(static_cast<Obj &&>(t));
     }
-#undef ADDH_CORE
 #undef GET_LOCK_AND_CHECK
     size_t size() const {return core_.size();}
     size_t max_size() const {return m_;}
+    template<typename VecType=std::vector<Obj, Allocator<Obj>>>
+    VecType to_container() const {
+        VecType ret; ret.reserve(size());
+        for(auto v: core_)
+            ret.push_back(v);
+        return ret;
+    }
 };
+#endif
 
 } // namespace heap
 

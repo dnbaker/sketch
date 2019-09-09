@@ -3,6 +3,7 @@
 //#include <queue>
 #include "hll.h" // For common.h and clz functions
 #include "fixed_vector.h"
+#include "isz.h"
 
 /*
  * TODO: support minhash using sketch size and a variable number of hashes.
@@ -67,26 +68,6 @@ public:
 };
 
 
-template<typename Container, typename Cmp=typename Container::key_compare>
-std::uint64_t intersection_size(const Container &c1, const Container &c2, const Cmp &cmp=Cmp()) {
-    // These containers must be sorted.
-    std::uint64_t ret = 0;
-    auto it1 = c1.begin();
-    auto it2 = c2.begin();
-    const auto e1 = c1.end();
-    const auto e2 = c2.end();
-    for(;;) {
-        if(cmp(*it1, *it2)) {
-            if(++it1 == e1) break;
-        } else if(cmp(*it2, *it1)) {
-            if(++it2 == e2) break;
-        } else {
-            ++ret;
-            if(++it1 == e1 || ++it2 == e2) break;
-        }
-    }
-    return ret;
-}
 
 
 template<typename T, typename Cmp=std::greater<T>, typename Hasher=common::WangHash>
@@ -233,7 +214,7 @@ public:
     auto end() const {return minimizers_.end();}
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
-        return minhash::intersection_size(o, *this, Cmp());
+        return common::intersection_size(o, *this, Cmp());
     }
     template<typename C2>
     double jaccard_index(const C2 &o) const {
@@ -274,7 +255,7 @@ struct FinalRMinHash {
     using container_type = decltype(first);
     Cmp cmp;
     size_t intersection_size(const FinalRMinHash &o) const {
-        return minhash::intersection_size(first, o.first, Cmp());
+        return common::intersection_size(first, o.first, Cmp());
     }
     double jaccard_index(const FinalRMinHash &o) const {
         double is = intersection_size(o);
@@ -598,10 +579,10 @@ public:
     }
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
-        return minhash::intersection_size(o, *this, [&](auto &x, auto &y) {return cmp_(x.first, y.first);});
+        return common::intersection_size(o, *this, [&](auto &x, auto &y) {return cmp_(x.first, y.first);});
     }
     size_t intersection_size(const CountingRangeMinHash &o) const {
-        return  minhash::intersection_size(o, *this, [&](auto &x, auto &y) {return cmp_(x.first, y.first);});
+        return  common::intersection_size(o, *this, [&](auto &x, auto &y) {return cmp_(x.first, y.first);});
     }
     template<typename C2>
     double jaccard_index(const C2 &o) const {
