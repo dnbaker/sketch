@@ -3,12 +3,14 @@
 
 #include <cstdint>
 #include <utility>
-#ifndef INLINE
-#  if __GNUC__ || __clang__
-#    define INLINE __attribute__((always_inline)) inline
-#  else
-#    define INLINE inline
-#  endif
+
+#undef INLINE
+#if __GNUC__ || __clang__
+#  define INLINE __attribute__((always_inline)) inline
+#elif __CUDACC__
+#  define INLINE __forceinline__ inline
+#else
+#  define INLINE inline
 #endif
 
 #ifndef CONST_IF

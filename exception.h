@@ -15,9 +15,16 @@ public:
     NotImplementedError(): std::runtime_error("NotImplemented.") {}
 };
 
+#ifdef __CUDACC__
+struct CudaError: public std::runtime_error {
+public:
+    CudaError(cudaError_t ce, std::string s): std::runtime_error(std::string("cudaError_t [") + cudaGetErrorString(ce) + "]" + s) {}
+};
+#endif // __CUDACC__
 }
 using namespace exception;
 
-}
+
+} // sketch
 
 #endif
