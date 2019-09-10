@@ -34,9 +34,9 @@ struct VACSketch {
     }
     void addh(uint64_t x) {
         thread_local ThreadSeededGen gen;
-        sketches_.front().addh(x);
-        const auto end = std::min(ctz(~gen()), n_);
-        for(uint64_t ind = 1; ind < end; sketches_[ind++].addh(x));
+        const auto end = std::min(ctz(~gen()) + 1, n_);
+        unsigned i = 0;
+        do sketches_[i++].addh(x); while(i < end);
     }
     VACSketch &operator+=(const VACSketch &o) {
         if(n_ != o.n_) throw std::runtime_error("Mismatched vacsketch counts");
