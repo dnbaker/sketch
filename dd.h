@@ -40,6 +40,10 @@ struct Store {
 
     using Type = IntegerType;
     Store(size_t maxnbins): maxbins_(maxnbins), bins_(initial_nbins, 0), count_(0), mink_(0), maxk_(0) {}
+    Store(const Store &o) = default;
+    Store(Store &&o) = default;
+    Store& operator=(const Store &o) = default;
+    Store& operator=(Store &&o) = default;
     void addh(uint64_t key) {
         if(unlikely(count_ == 0))
             mink_ = maxk_ = key;

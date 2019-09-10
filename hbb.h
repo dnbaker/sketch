@@ -29,11 +29,11 @@ public:
         auto r = __builtin_ctz(hv);
         if(r > logn_) {
             const auto k = (hv >> (sizeof(hv) * CHAR_BIT - 6));
-            s1_ |= 1L << k;
-            if (r > logn_ + 1) s2_ |= 1L << k;
-            if(popcount(s1_) > 31) {
-                s1_ = s2_; s2_ = 0; ++logn_;
-            }
+            const auto bit = 1L << k;
+            s1_ |= bit;
+            if (r > logn_ + 1) s2_ |= bit;
+            if(popcount(s1_) > 31)
+                s1_ = s2_, s2_ = 0, ++logn_;
         }
     }
 
