@@ -37,7 +37,14 @@ public:
     vector(size_t n): data_(allocate(n)), n_(n) {
     }
     ~vector() {std::free(data_);}
-    vector &operator=(const vector &o) = delete;
+    vector &operator=(const vector &o) {
+        auto tmp = static_cast<T *>(std::realloc(data_, o.n_ * sizeof(T)));
+        if(tmp == nullptr) throw std::bad_alloc();
+        data_ = tmp;
+        n_ = o.n_;
+        std::copy(o.data_, o.data_ + n_, data_);
+        return *this;
+    }
     vector &operator=(vector &&o) {
         std::free(data_);
         data_ = o.data_;
