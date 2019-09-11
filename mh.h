@@ -14,7 +14,6 @@
 
 namespace sketch {
 namespace minhash {
-using namespace common;
 
 #define SET_SKETCH(x) const auto &sketch() const {return x;} auto &sketch() {return x;}
 
@@ -988,7 +987,7 @@ public:
         static_assert(sizeof(hashval) == sizeof(arr), "Size sanity check");
         std::memcpy(&arr[0], &hashval, sizeof(hashval));
         const uint64_t index(reinterpret_cast<uint64_t *>(&hashval)[0] >> (64 - p())),
-                         lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
+                         lzt(integral::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
         const uint64_t inserted_val = encode_register(lzt, reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval());
         assert(get_lzc(inserted_val) == lzt);
         assert((reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) == get_mhr(inserted_val));

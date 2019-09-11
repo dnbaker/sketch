@@ -83,7 +83,6 @@ struct IndexedValue {
 };
 } // namespace detail
 
-using namespace common;
 
 template<typename UpdateStrategy=update::Increment,
          typename VectorType=DefaultCompactVectorType,

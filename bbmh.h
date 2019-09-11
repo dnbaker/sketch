@@ -9,7 +9,6 @@
 
 namespace sketch {
 namespace minhash {
-using namespace common;
 
 namespace detail {
 
@@ -809,7 +808,7 @@ public:
             std::array<uint32_t, 64> arr{0};
             auto diff = p_ - 1;
             for(const auto v: (*ptr))
-                ++arr[v == detail::default_val<T>() ? 0: hll::clz(v) - diff];
+                ++arr[v == detail::default_val<T>() ? 0: integral::clz(v) - diff];
             return hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
         }
         default: __builtin_unreachable(); // IMPOCEROUS

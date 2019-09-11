@@ -19,7 +19,7 @@
 namespace sketch {
 
 
-namespace dd {
+inline namespace dd {
 
 using std::size_t;
 using std::int64_t;
@@ -35,15 +35,16 @@ struct Store {
     std::vector<IntegerType> bins_;
     size_t count_;
     uint64_t mink_, maxk_;
-    Store(const Store &o) = default;
-    Store(Store &&o) = default;
 
     using Type = IntegerType;
+
     Store(size_t maxnbins): maxbins_(maxnbins), bins_(initial_nbins, 0), count_(0), mink_(0), maxk_(0) {}
     Store(const Store &o) = default;
     Store(Store &&o) = default;
+
     Store& operator=(const Store &o) = default;
     Store& operator=(Store &&o) = default;
+
     void addh(uint64_t key) {
         if(unlikely(count_ == 0))
             mink_ = maxk_ = key;
@@ -107,7 +108,6 @@ using ddf = DDSketch<float>;
 using ddd = DDSketch<double>;
 
 } // namespace dd
-using namespace dd;
 
 }
 

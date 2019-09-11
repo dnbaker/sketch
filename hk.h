@@ -9,9 +9,7 @@ static constexpr uint64_t bitmask(size_t n) {
     return x;
 }
 
-using namespace common;
-
-namespace hk {
+inline namespace hk {
 
 template<size_t fpsize, size_t ctrsize=64-fpsize, typename Hasher=hash::WangHash, typename Policy=policy::SizeDivPolicy<uint64_t>, typename RNG=wy::WyHash<uint64_t>, typename Allocator=common::Allocator<uint64_t>>
 class HeavyKeeper {
@@ -218,8 +216,5 @@ public:
 };
 
 } // namespace hk
-
-using namespace hk;
-
 
 } // namespace sketch

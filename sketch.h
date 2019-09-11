@@ -12,18 +12,32 @@
 #include "filterhll.h"
 #include "mult.h"
 #include "sparse.h"
+#include "dd.h"
+#include "hk.h"
+#include "vac.h"
 
 namespace sketch {
     // Flatten all classes to global sketch namespace.
     // Subnamespaces can still be subsampled
-    using namespace hll;
-    using namespace bf;
-    using namespace minhash;
-    using namespace fhll;
-    using namespace common;
-    using namespace cws;
-    using namespace nt;
-    using namespace wj;
+
+    // Set representations
+    using namespace hll; // HyperLogLog
+    using namespace bf;  // Bloom Filters
+    using namespace minhash; // Minhash
+    using namespace fhll;    // Filtered HLLs
+
+    // Multiplicities
+    using namespace cws; // Consistent Weighted Sampling
+    using namespace nt;  // ntcard
+    using namespace wj;  // Weighted Jaccard adapters
+
+    // Count point estimators
+    using namespace hk;  // Heavy-Keeper
+    using namespace cm; // Count/Count-Min
+
+    // Utilities
+    using namespace heap; // Heap maintainers for multisets based on a variety of criteria
+    using namespace vac;  // Approximate Multiplicity samplers for streams
 }
 
 #endif /* SKETCH_SINGLE_HEADER_H__ */

@@ -5,7 +5,6 @@
 namespace sketch {
 
 namespace hbb {
-using namespace ::sketch::common;
 
 /**
  *

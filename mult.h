@@ -17,7 +17,6 @@
 #endif
 
 namespace sketch {
-using namespace common;
 
 namespace cws {
 

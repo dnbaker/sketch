@@ -111,7 +111,7 @@
 #endif
 
 namespace sketch {
-namespace common {
+inline namespace common {
 using namespace hash;
 using namespace integral;
 
@@ -141,17 +141,22 @@ using std::int8_t;
 using std::size_t;
 using Space = vec::SIMDTypes<uint64_t>;
 
-template<typename ValueType>
+static constexpr auto AllocatorAlignment = sse::Alignment::
 #if HAS_AVX_512
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX512>;
+AVX512
 #elif __AVX2__
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX>;
+AVX
 #elif __SSE2__
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::SSE>;
+SSE
 #else
-using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
+Normal
+#pragma message("Note: no SIMD available, using scalar values")
 #endif
+     ; // TODO: extend for POWER9 ISA
 
+
+template<typename ValueType>
+using Allocator = sse::AlignedAllocator<ValueType, AllocatorAlignment>;
 #ifdef NOT_THREADSAFE
 using DefaultCompactVectorType = ::compact::vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
 

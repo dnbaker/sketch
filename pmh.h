@@ -7,7 +7,6 @@
 namespace sketch {
 
 namespace jp { // British Steel
-using namespace common;
 
 template<typename T>
 void maxify(T &x);

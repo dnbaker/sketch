@@ -44,7 +44,6 @@ static constexpr FloatType gen_tau(FloatType x) {
 
 namespace sketch {
 namespace hll {
-using namespace common;
 enum EstimationMethod: uint8_t {
     ORIGINAL       = 0,
     ERTL_IMPROVED  = 1,
