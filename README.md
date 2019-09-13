@@ -105,7 +105,9 @@ Python bindings are available via pybind11 and then imported through hll.py. hll
 
 #### Temporary buffers: alloca vs malloc
 Fairly often, we use small buffers for temporary data, such as finding medians of streams. For performance, it can be [better to use alloca](https://www.gnu.org/software/libc/manual/html_node/Advantages-of-Alloca.html).
-We use an `alloca_wrapper` template for holding these. If your compiler does not support alloca or you would rather avoid using the stack, the flag `-DAVOID_ALLOCA` is sufficient to replace these
+We use an `tmpbuffer` class template for holding these, which defaults to using alloca for small allocations.
+
+If your compiler does not support alloca or you would rather avoid using the stack, the flag `-DAVOID_ALLOCA` is sufficient to replace these
 small allocations with ones outsourced to malloc, implementations of which often have specially designated small buffers for use.
 
 

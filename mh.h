@@ -125,17 +125,6 @@ public:
     RangeMinHash(std::string) {throw NotImplementedError("");}
     double cardinality_estimate() const {
         return double(std::numeric_limits<T>::max()) / this->max_element() * minimizers_.size();
-#if 0
-         const auto sz = minimizers_.size();
-         common::detail::alloca_wrap<T> mem(sz - 1);
-         T *diffs = mem.get(), *p = diffs;
-         for(auto i1 = minimizers_.begin(), i2 = i1; ++i2 != minimizers_.end();++i1) {
-             *p++ = *i1 > *i2 ? *i1 - *i2: *i2 - *i1;
-         }
-         sort::insertion_sort(diffs, p);
-         const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
-         return ret;
-#endif
     }
     RangeMinHash(gzFile fp) {
         if(!fp) throw std::runtime_error("Null file handle!");

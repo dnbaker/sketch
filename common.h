@@ -278,10 +278,10 @@ static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, s
 }
 
 template<typename T>
-struct alloca_wrap {
+struct tmpbuffer {
     T *ptr_;
     const size_t n_;
-    alloca_wrap(size_t n): ptr_
+    tmpbuffer(size_t n): ptr_
 #if defined(AVOID_ALLOCA)
         (static_cast<T *>(std::malloc(n * sizeof(T))))
 #else
@@ -292,7 +292,7 @@ struct alloca_wrap {
     T *get() {
         return ptr_;
     }
-    ~alloca_wrap() {
+    ~tmpbuffer() {
 #if defined(AVOID_ALLOCA)
         std::free(ptr_);
 #endif

@@ -9,6 +9,8 @@ namespace sketch {
 
 namespace vac {
 
+
+namespace detail {
 // For seeding each thread's generator separately
 template<typename RNG>
 struct ThreadSeededGen: public RNG {
@@ -21,6 +23,8 @@ struct ThreadSeededGen: public RNG {
     template<typename...Args>
     decltype(auto) operator()(Args &&...args) const {return RNG::operator()(std::forward<Args>(args)...);}
 };
+
+} // detail
 
 
 template<typename BaseSketch,
@@ -36,17 +40,16 @@ struct VACSketch {
 
     // Construction
     template<typename...Args>
-    VACSketch(size_t n, Args &&...args): n_(n) {
-        if(n <= 1) {
+    VACSketch(size_t n, Args &&...args): n_(n > 1? n: size_t(1)) {
+        if(n <= 1)
             std::fputs((std::string(__PRETTY_FUNCTION__) + " requires n >= 2. Provided: " + std::to_string(n)).data(), stderr);
-            n_ = 1;
-        }
+
         sketches_.reserve(n);
         for(size_t i = n; i--; sketches_.emplace_back(std::forward<Args>(args)...));
     }
     // Addition
     void addh(uint64_t x) {
-        thread_local static ThreadSeededGen<RNG> gen;
+        thread_local static detail::ThreadSeededGen<RNG> gen;
         const auto end = std::min(ctz(gen()) + 1, n_);
         unsigned i = 0;
         do sketches_[i++].addh(x); while(i < end);
@@ -68,7 +71,7 @@ struct VACSketch {
 static fixed::vector<uint64_t> construct_power_table(double base, size_t n) {
     if(base <= 1.) throw std::runtime_error(std::to_string(base) + " is forbidden. Must be > 1.");
     fixed::vector<uint64_t> ret(n - 1);
-    detail::alloca_wrap<double> mem(n);
+    detail::tmpbuffer<double> mem(n);
     auto p = mem.get();
     p[0] = 1.;
     for(size_t i = 1; i < n; ++i) {
@@ -98,7 +101,7 @@ struct PowerVACSketch: public VACSketch<BaseSketch, Container, RNG, VectorArgs..
     }
     // Addition
     void addh(uint64_t x) {
-        thread_local static ThreadSeededGen<RNG> gen;
+        thread_local static detail::ThreadSeededGen<RNG> gen;
         auto v = gen();
         unsigned i = 0;
         do {

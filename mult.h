@@ -334,7 +334,7 @@ struct WangPairHasher: public hash::WangHash {
 };
 
 
-template<typename CoreSketch, typename CountingSketchType=cm::ccm_t, typename HashStruct=common::WangHash, typename PairHasher=WangPairHasher>
+template<typename CoreSketch, typename CountingSketchType=cm::ccm_t, typename HashStruct=common::WangHash, bool always_insert=true, typename PairHasher=WangPairHasher>
 struct WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
@@ -365,8 +365,13 @@ struct WeightedSketcher {
             if(count < 0)
                 count = 0;
         }
-        if(std::make_unsigned_t<std::decay_t<decltype(count)>>(cst_.addh(x)) > count)
-            sketch_.addh(hash(x, count));
+        auto newc = static_cast<std::make_unsigned_t<std::decay_t<decltype(count)>>>(cst_.addh(x));
+        CONST_IF(always_insert) {
+            if(count == 0) sketch_.addh(hash(x, count));
+        } else {
+            if(newc != count)
+                sketch_.addh(hash(x, count));
+        }
     }
     uint64_t hash(uint64_t x) const {return hf_(x);}
     WeightedSketcher(const WeightedSketcher &) = default;

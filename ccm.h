@@ -8,12 +8,12 @@
 namespace sketch {
 
 namespace cm {
-using common::detail::alloca_wrap;
+using common::detail::tmpbuffer;
 
 namespace detail {
 template<typename T, typename AllocatorType=typename T::allocator>
 static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
-    alloca_wrap<double> mem(nhashes);
+    tmpbuffer<double> mem(nhashes);
     double *ptr = mem.get();
     using VT = typename vec::SIMDTypes<T>::VType;
     using VS = vec::SIMDTypes<T>;
@@ -37,7 +37,7 @@ static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhas
 }
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
 static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
-    alloca_wrap<double> mem(nhashes);
+    tmpbuffer<double> mem(nhashes);
     double *ptr = mem.get();
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
@@ -58,7 +58,7 @@ static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, ui
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
 static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
-    alloca_wrap<double> mem(nhashes);
+    tmpbuffer<double> mem(nhashes);
     double *ptr = mem.get();
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
@@ -171,7 +171,7 @@ public:
     double wj_est(const ccmbase_t &o) const {
         std::fprintf(stderr, "[%s:%s:%d] Warning: This function should not be used.\n");
 #if WJMETH0
-        alloca_wrap<double> counts(nhashes_);
+        tmpbuffer<double> counts(nhashes_);
         auto p = counts.get();
 #elif MINMETH
         double minest = std::numeric_limits<double>::max();
@@ -466,7 +466,7 @@ public:
         return sqrl2(core_, nh_, np_);
     }
     CounterType addh_val(uint64_t val) {
-        alloca_wrap<CounterType> counts(nh_);
+        tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
         uint64_t v = hf_(val);
         unsigned added;
@@ -520,7 +520,7 @@ public:
         }
     }
     auto subh_val(uint64_t val) {
-        alloca_wrap<CounterType> counts(nh_);
+        tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
         uint64_t v = hf_(val);
         unsigned added;
@@ -608,7 +608,7 @@ const noexcept
 const
 #endif
 {
-        common::detail::alloca_wrap<CounterType> mem(nh_);
+        common::detail::tmpbuffer<CounterType> mem(nh_);
         CounterType *ptr = mem.get(), *p = ptr;
         if(__builtin_expect(ptr == nullptr, 0)) throw std::bad_alloc();
         uint64_t v = hf_(val);
@@ -689,7 +689,7 @@ public:
         return tmp;
     }
     CounterType addh_val(uint64_t val) {
-        alloca_wrap<CounterType> counts(nh_);
+        tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
         for(unsigned added = 0; added < nh_; ++added) {
             *cptr++ = add(val, added);
@@ -709,7 +709,7 @@ public:
         }
     }
     auto subh_val(uint64_t val) {
-        alloca_wrap<CounterType> counts(nh_);
+        tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
         for(unsigned added = 0; added < nh_; ++added) {
             *cptr++ = sub(val, added);
@@ -761,7 +761,7 @@ const noexcept
 const
 #endif
 {
-        common::detail::alloca_wrap<CounterType> mem(nh_);
+        common::detail::tmpbuffer<CounterType> mem(nh_);
         CounterType *ptr = mem.get(), *p = ptr;
         for(unsigned i = 0; i < nh_; ++i) {
             auto v = hf_(val, i);

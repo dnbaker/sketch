@@ -2,6 +2,7 @@
 #define HLL_GPU_H__
 #include "hll.h"
 #include "exception.h"
+#include <type_traits>
 
 #ifdef __CUDACC__
 //#include "thrust/thrust.h"
@@ -9,6 +10,17 @@
 
 namespace sketch {
 using hrc = std::chrono::high_resolution_clock;
+
+
+template<typename T, typename=std::enable_if_t<std::is_arithmetic<T>::value>>
+#ifdef __CUDACC__
+__host__ __device__
+#endif
+INLINE uint64_t nchoose2(T x) {
+    uint64_t ret = x;
+    ret *= (x - 1);
+    return ret >>= 1;
+}
 
 using exception::CudaError;
 template<typename T>
@@ -124,7 +136,7 @@ __host__ std::vector<uint32_t> all_pairs(const uint8_t *p, unsigned l2, size_t n
 
 
 
-__global__ void calc_sizesu(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
+__global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
     if(blockIdx.x >= nhlls) return;
     extern __shared__ int shared[];
     uint8_t *registers = (uint8_t *)shared;
@@ -147,15 +159,15 @@ __global__ void calc_sizesu(const uint8_t *p, unsigned l2, size_t nhlls, uint32_
     sizes[gid] = origest(arr, l2);
 }
 
-__global__ void calc_sizesnew(const uint8_t *p, unsigned l2, size_t nhlls, size_t nblocks, uint32_t *sizes) {
+__global__ void calc_sizes_large(const uint8_t *p, unsigned l2, size_t nhlls, size_t nblocks, uint32_t *sizes) {
     auto tid = threadIdx.x;
     auto bid = blockIdx.x;
     auto gid = bid * blockDim.x + tid;
-    
+    size_t nc2 = nchoose2(nhlls);
 }
 
 __host__ std::vector<uint32_t> all_pairsu(const uint8_t *p, unsigned l2, size_t nhlls, size_t &rets) {
-    size_t nc2 = (nhlls * (nhlls - 1)) / 2;
+    size_t nc2 = nchoose2(nhlls);
     uint32_t *sizes;
     size_t nb = sizeof(uint32_t) * nc2;
     size_t m = 1ull << l2;
@@ -176,9 +188,15 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *p, unsigned l2, size_t 
         calc_sizesnew<<<nblocks, tpb>>>(p, l2, nhlls, nblocks, sizes);
     }
 #else
-    calc_sizesu<<<nhlls,(nhlls+1)/2,m>>>(p, l2, nhlls, sizes);
+    size_t tpb = nhlls/2 + (nhlls&1);
+    if(tpb > 1024) {
+        throw std::runtime_error("Current implementation is limited to 1024 by 1024 comparisons. TODO: fix this with a reimplementation");
+    } else {
+        calc_sizes_1024<<<nhlls,(nhlls+1)/2,m>>>(p, l2, nhlls, sizes);
+    }
 #endif
     if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
+    if((ce = cudaGetLastError())) throw CudaError(ce, "");
     auto t2 = hrc::now();
     rets = (t2 - t).count();
     std::fprintf(stderr, "Time: %zu\n", rets);
