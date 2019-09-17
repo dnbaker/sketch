@@ -1,6 +1,9 @@
 #include "./common.h"
 #include "aesctr/wy.h"
 #include "tsg.h"
+#if !NDEBUG
+#include <unordered_set>
+#endif
 
 namespace sketch {
 
@@ -111,18 +114,31 @@ public:
         r |= to_insert;
     }
     bool random_sample(size_t count) {
-        static thread_local std::uniform_real_distribution<double> gen;
-        static thread_local tsg::ThreadSeededGen<RNG> rng;
-        return count && gen(rng) <= std::pow(b_, -ssize_t(count));
+        /*static thread_local */ std::uniform_real_distribution<double> gen;
+        /*static thread_local */ tsg::ThreadSeededGen<RNG> rng;
+        auto limit =  std::pow(b_, -ssize_t(count));
+        std::fprintf(stderr, "limit: %f\n", float(limit));
+        return count && gen(rng) <= limit;
     }
+#if !NDEBUG
+    std::unordered_set<size_t> posset, fpset;
+#endif
     static constexpr uint64_t max_fp() {return ((1ull << fpsize) - 1);}
     template<typename T>
     uint64_t addh(const T &x) {return this->add(hash(x));}
+    template<typename T2>
+    void divmod(uint64_t x, T2 &pos, T2 &fp) const {
+        pos = pol_.mod(x);
+        fp = pol_.div_.div(x) & max_fp();
+    }
     uint64_t add(uint64_t x) {
         uint64_t maxv = 0;
         unsigned i = 0;
         FOREVER {
-            size_t pos = pol_.mod(x), newfp = pol_.div_.div(x) & max_fp();
+            size_t pos, newfp;
+            divmod(x, pos, newfp);
+            posset.insert(pos);
+            fpset.insert(pos);
 #if __cplusplus >= 201703L
             auto [count, fp] = decode(from_index(pos, i));
 #else
@@ -130,24 +146,38 @@ public:
             auto count = vals.first, fp = vals.second;
 #endif
             assert(encode(count, fp) == from_index(pos, i));
+            std::fprintf(stderr, "pos: %zu, fp: %zu\n", pos, fp);
             if(count == 0) {
                 // Empty bucket -- simply insert
                 //std::fprintf(stderr, "first entry for x = %zu\n", size_t(x));
                 store(pos, i, newfp, 1);
+                assert(decode(from_index(pos, i)).second == newfp);
                 maxv = std::max(uint64_t(1), maxv);
+                //std::fprintf(stderr, "new insertion\n");
             } else if(fp == newfp) {
                 //std::fprintf(stderr, "pos/sig matched for entry for x = %zu\n", size_t(x));
-                store(pos, i, newfp, count == count_mask ? count: count);
-                maxv = std::max(uint64_t(1), uint64_t(count));
+                //std::fprintf(stderr, "old count %d, new count %d. mask: %d\n", count, count + (count < count_mask), count_mask);
+                if(count < count_mask) ++count;
+                store(pos, i, newfp, count);
+                assert(decode(from_index(pos, i)).second == newfp);
+                assert(decode(from_index(pos, i)).first == count);
+                maxv = std::max(maxv, uint64_t(count));
             } else {
                 //std::fprintf(stderr, "pos/sig didn't match for %zu at count %zu\n", size_t(x), count);
                 if(random_sample(count)) {
-                    if(--count == 0)
+                    //std::fprintf(stderr, "no matching, about to sample\n");
+                    if(--count == 0) {
+                        //std::fprintf(stderr, "Kicked out\n");
                         store(pos, i, newfp, 1);
-                    else
+                        assert(decode(from_index(pos, i)).second == newfp);
+                    } else {
                         store(pos, i, fp, count);
+                        assert(decode(from_index(pos, i)).second == fp);
+                        assert(decode(from_index(pos, i)).first == count);
+                    }
                     maxv = std::max(maxv, uint64_t(count));
                 }
+                assert(decode(from_index(pos, i)).first != 0);
             }
             if(++i == nh_) break;
             wy::wyhash64_stateless(&x);
@@ -155,12 +185,13 @@ public:
         return maxv;
     }
     template<typename T>
-    uint64_t query(const T &x) const {return queryh(hash(x));}
-    uint64_t queryh(uint64_t x) const {
+    uint64_t queryh(const T &x) const {return query(hash(x));}
+    uint64_t query(uint64_t x) const {
         uint64_t ret = 0;
-        size_t pos = pol_.mod(x), newfp = pol_.div_.div(x) & ((1ull << fpsize) - 1);
         unsigned i = 0;
         FOREVER {
+            size_t pos, newfp;
+            divmod(x, pos, newfp);
             auto p = decode(from_index(pos, i));
             auto count = p.first, fp = p.second;
             if(fp == newfp) ret = std::max(ret, count);
@@ -220,6 +251,11 @@ public:
         cpy += x;
         return cpy;
     }
+#if !NDEBUG
+    ~HeavyKeeper() {
+        std::fprintf(stderr, "posset: %zu. oset: %zu\n", posset.size(), fpset.size());
+    }
+#endif
 };
 
 } // namespace hk
