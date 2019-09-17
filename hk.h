@@ -1,5 +1,6 @@
 #include "./common.h"
 #include "aesctr/wy.h"
+#include "tsg.h"
 
 namespace sketch {
 
@@ -11,6 +12,12 @@ static constexpr uint64_t bitmask(size_t n) {
 
 inline namespace hk {
 
+namespace detail {
+static constexpr inline bool is_valid_decay_base(double x) {
+    return x >= 1.;
+}
+}
+
 template<size_t fpsize, size_t ctrsize=64-fpsize, typename Hasher=hash::WangHash, typename Policy=policy::SizeDivPolicy<uint64_t>, typename RNG=wy::WyHash<uint64_t>, typename Allocator=common::Allocator<uint64_t>>
 class HeavyKeeper {
 
@@ -18,23 +25,23 @@ class HeavyKeeper {
 
     // Members
     Policy pol_;
-    size_t nh_;
+    const size_t nh_;
     std::vector<uint64_t, Allocator> data_;
     Hasher hasher_;
-    RNG rng_;
-    std::uniform_real_distribution<double> gen;
-    double b_;
+    const double b_;
 public:
     static constexpr size_t VAL_PER_REGISTER = 64 / (fpsize + ctrsize);
     // Constructor
     template<typename...Args>
-    HeavyKeeper(size_t requested_size, size_t subtables, float pdec=1.08, Args &&...args):
+    HeavyKeeper(size_t requested_size, size_t subtables, double pdec=1.08, Args &&...args):
         pol_(requested_size), nh_(subtables),
         data_((requested_size * subtables + (VAL_PER_REGISTER - 1)) / VAL_PER_REGISTER),
         hasher_(std::forward<Args>(args)...),
         b_(pdec)
     {
         assert(subtables);
+        if(!detail::is_valid_decay_base(pdec))
+            throw UnsatisfiedPreconditionError(std::string("pdec is not valid (>= 1.). Value: ") + std::to_string(pdec));
 #if VERBOSE_AF
         std::fprintf(stderr, "fpsize: %zu. ctrsize: %zu. requested size: %zu. actual size: %zu. Overflow check? %d. nhashes: %zu\n", fpsize, ctrsize, requested_size, pol_.nelem(), 1, nh_);
 #endif
@@ -53,7 +60,6 @@ public:
     uint64_t hash(uint32_t x) const {return hasher_(x);}
     uint64_t hash(int64_t x) const {return hasher_(uint64_t(x));}
     uint64_t hash(int32_t x) const {return hasher_(uint32_t(x));}
-    void seed(uint64_t x) const {rng_.seed(x);}
 
     void clear() {
         std::memset(data_.data(), 0, sizeof(data_[0]) * data_.size());
@@ -105,8 +111,9 @@ public:
         r |= to_insert;
     }
     bool random_sample(size_t count) {
-        return count && gen(rng_) <= std::pow(b_, -ssize_t(count));
-        //return count != 0 && rng_() <= uint64_t(std::ldexp(std::pow(b_, -ssize_t(count)), 64));
+        static thread_local std::uniform_real_distribution<double> gen;
+        static thread_local tsg::ThreadSeededGen<RNG> rng;
+        return count && gen(rng) <= std::pow(b_, -ssize_t(count));
     }
     static constexpr uint64_t max_fp() {return ((1ull << fpsize) - 1);}
     template<typename T>

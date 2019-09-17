@@ -4,6 +4,7 @@
 #include "hll.h"
 #include "fixed_vector.h"
 #include "aesctr/wy.h"
+#include "tsg.h"
 
 namespace sketch {
 
@@ -11,23 +12,7 @@ namespace vac {
 
 using common::detail::tmpbuffer;
 
-
-namespace detail {
-// For seeding each thread's generator separately
-template<typename RNG>
-struct ThreadSeededGen: public RNG {
-    template<typename...Args>
-    ThreadSeededGen(Args &&...args): RNG(std::forward<Args>(args)...) {
-        this->seed(std::hash<std::thread::id>{}(std::this_thread::get_id()));
-    }
-    template<typename...Args>
-    decltype(auto) operator()(Args &&...args) {return RNG::operator()(std::forward<Args>(args)...);}
-    template<typename...Args>
-    decltype(auto) operator()(Args &&...args) const {return RNG::operator()(std::forward<Args>(args)...);}
-};
-
-} // detail
-
+using tsg::ThreadSeededGen;
 
 template<typename BaseSketch,
          template<typename...> class Container=std::vector,
@@ -51,7 +36,7 @@ struct VACSketch {
     }
     // Addition
     void addh(uint64_t x) {
-        thread_local static detail::ThreadSeededGen<RNG> gen;
+        thread_local static ThreadSeededGen<RNG> gen;
         const auto end = std::min(ctz(gen()) + 1, n_);
         unsigned i = 0;
         do sketches_[i++].addh(x); while(i < end);
