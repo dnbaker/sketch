@@ -53,6 +53,14 @@
 #  endif
 #endif
 
+#if __CUDACC__ || __GNUC__ || __clang__
+#  define SK_RESTRICT __restrict__
+#elif _MSC_VER
+#  define SK_RESTRICT __restrict
+#else
+#  define SK_RESTRICT
+#endif
+
 #ifdef INCLUDE_CLHASH_H_
 #  define ENABLE_CLHASH 1
 #elif ENABLE_CLHASH

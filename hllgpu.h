@@ -23,8 +23,11 @@ INLINE uint64_t nchoose2(T x) {
 }
 
 using exception::CudaError;
+
+
 template<typename T>
-__host__ __device__ INLINE void increment_maxes(T *__restrict__ arr, unsigned x1, unsigned x2) {
+__host__ __device__
+INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
 #if __CUDA_ARCH__
     x1 = __vmaxu4(x1, x2);
 #elif __SSE2__
@@ -58,7 +61,7 @@ double inline origest(const T &p, unsigned l2) {
 
 using namespace hll;
 template<typename Alloc>
-auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *__restrict__, Alloc> &re) {
+auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *SK_RESTRICT, Alloc> &re) {
     size_t maxnz = 64 - p + 1, nvals = maxnz + 1;
     size_t nsets = re.size();//, nschoose2 = ((nsets - 1) * nsets) / 2;
     size_t m = 1ull << p;
@@ -159,14 +162,18 @@ __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uin
     sizes[gid] = origest(arr, l2);
 }
 
-__global__ void calc_sizes_large(const uint8_t *p, unsigned l2, size_t nhlls, size_t nblocks, uint32_t *sizes) {
+__global__ void calc_sizes_large(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t nblocks, uint32_t *SK_RESTRICT sizes) {
     auto tid = threadIdx.x;
     auto bid = blockIdx.x;
     auto gid = bid * blockDim.x + tid;
     size_t nc2 = nchoose2(nhlls);
+    // First, divide the total amount of work that our block of workers will process
+    auto range_start = nc2 / nblocks * bid;
+    auto range_end = std::max(size_t((nc2 + nblocks - 1) / nblocks), nc2);
+    if(range_start >= range_end || (gid != gid)) return; // If you overflow, skip
 }
 
-__host__ std::vector<uint32_t> all_pairsu(const uint8_t *p, unsigned l2, size_t nhlls, size_t &rets) {
+__host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t &SK_RESTRICT rets) {
     size_t nc2 = nchoose2(nhlls);
     uint32_t *sizes;
     size_t nb = sizeof(uint32_t) * nc2;
