@@ -300,11 +300,9 @@ struct tmpbuffer {
     T *get() {
         return ptr_;
     }
-    ~tmpbuffer() {
 #if defined(AVOID_ALLOCA)
-        std::free(ptr_);
+    ~tmpbuffer() {std::free(ptr_);}
 #endif
-    }
     auto begin() {return ptr_;}
     auto begin() const {return ptr_;}
     auto end() {return ptr_ + n_;}

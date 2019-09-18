@@ -37,8 +37,13 @@ static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhas
 }
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
 static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
+#ifndef AVOID_ALLOCA
+    double mem[nhashes];
+    double *ptr = mem;
+#else
     tmpbuffer<double> mem(nhashes);
     double *ptr = mem.get();
+#endif
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
         double sum = 0;
@@ -58,8 +63,13 @@ static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, ui
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
 static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
+#ifndef AVOID_ALLOCA
+    double mem[nhashes];
+    double *ptr = mem;
+#else
     tmpbuffer<double> mem(nhashes);
     double *ptr = mem.get();
+#endif
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
         double sum = 0;
@@ -466,8 +476,13 @@ public:
         return sqrl2(core_, nh_, np_);
     }
     CounterType addh_val(uint64_t val) {
+#ifndef AVOID_ALLOCA
+        CounterType counts[nh_];
+        CounterType *cptr = counts;
+#else
         tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
+#endif
         uint64_t v = hf_(val);
         unsigned added;
         for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), *cptr++ = add(v, added++));
@@ -480,7 +495,11 @@ public:
             }
         }
         sort::insertion_sort(counts.get(), cptr);
+#ifndef AVOID_ALLOCA
+        cptr = counts;
+#else
         cptr = counts.get();
+#endif
         return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
     }
     void addh(uint64_t val) {
@@ -520,8 +539,13 @@ public:
         }
     }
     auto subh_val(uint64_t val) {
+#ifndef AVOID_ALLOCA
+        CounterType counts[nh_];
+        CounterType *cptr = counts;
+#else
         tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
+#endif
         uint64_t v = hf_(val);
         unsigned added;
         for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), *cptr++ = sub(v, added++));
@@ -534,7 +558,11 @@ public:
             }
         }
         sort::insertion_sort(counts.get(), cptr);
+#ifndef AVOID_ALLOCA
+        cptr = counts;
+#else
         cptr = counts.get();
+#endif
         return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
     }
     INLINE size_t index(uint64_t hv, unsigned subidx) const noexcept {
@@ -608,14 +636,18 @@ const noexcept
 const
 #endif
 {
+#ifndef AVOID_ALLOCA
+        CounterType mem[nh_];
+        CounterType *ptr = mem, *p = ptr;
+#else
         common::detail::tmpbuffer<CounterType> mem(nh_);
         CounterType *ptr = mem.get(), *p = ptr;
-        if(__builtin_expect(ptr == nullptr, 0)) throw std::bad_alloc();
+#endif
         uint64_t v = hf_(val);
         unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1)) {
+        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1))
             *p++ = at_pos(v, added++) * sign(v);
-        }
+
         if(added == nh_) goto end;
         for(auto it = seeds_.begin();;) {
             v = hf_(*it++ ^ val);
@@ -689,13 +721,19 @@ public:
         return tmp;
     }
     CounterType addh_val(uint64_t val) {
+#ifndef AVOID_ALLOCA
+        CounterType counts[nh_];
+        CounterType *cptr = counts;
+#else
         tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
-        for(unsigned added = 0; added < nh_; ++added) {
+#endif
+        auto cp2 = cptr;
+        for(unsigned added = 0; added < nh_; ++added)
             *cptr++ = add(val, added);
-        }
-        sort::insertion_sort(counts.get(), cptr);
-        cptr = counts.get();
+
+        sort::insertion_sort(cp2, cptr);
+        cptr = cp2;
         return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
     }
     void addh(uint64_t val) {
