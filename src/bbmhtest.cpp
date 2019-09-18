@@ -93,4 +93,5 @@ int main() {
             std::fprintf(stderr, "whl card: %lf/%zu vs expected %lf/%lf/%lf\n", whl.cardinality_estimate(), whl.core_.size(), f1.est_cardinality_, h1.report(), whl.union_size(whl));
         }
     }
+    if(std::system("rm ZOMG.cb")) throw std::runtime_error("Failed to delete ZOMG.cb");
 }

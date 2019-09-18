@@ -4,7 +4,6 @@
 
 namespace sketch {
 namespace update {
-using namespace common;
 struct Increment {
     // Saturates
     template<typename T, typename IntType>

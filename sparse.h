@@ -4,7 +4,6 @@
 namespace sketch {
 
 namespace sparse {
-using namespace common;
 
 // For HLL
 

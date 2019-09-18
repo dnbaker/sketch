@@ -14,7 +14,6 @@
 
 namespace sketch {
 namespace minhash {
-using namespace common;
 
 #define SET_SKETCH(x) const auto &sketch() const {return x;} auto &sketch() {return x;}
 
@@ -126,17 +125,6 @@ public:
     RangeMinHash(std::string) {throw NotImplementedError("");}
     double cardinality_estimate() const {
         return double(std::numeric_limits<T>::max()) / this->max_element() * minimizers_.size();
-#if 0
-         const auto sz = minimizers_.size();
-         common::detail::alloca_wrap<T> mem(sz - 1);
-         T *diffs = mem.get(), *p = diffs;
-         for(auto i1 = minimizers_.begin(), i2 = i1; ++i2 != minimizers_.end();++i1) {
-             *p++ = *i1 > *i2 ? *i1 - *i2: *i2 - *i1;
-         }
-         sort::insertion_sort(diffs, p);
-         const auto ret = double(UINT64_C(-1)) / ((diffs[(sz - 1)>>1] + diffs[((sz - 1) >> 1) - 1]) >> 1);
-         return ret;
-#endif
     }
     RangeMinHash(gzFile fp) {
         if(!fp) throw std::runtime_error("Null file handle!");
@@ -988,7 +976,7 @@ public:
         static_assert(sizeof(hashval) == sizeof(arr), "Size sanity check");
         std::memcpy(&arr[0], &hashval, sizeof(hashval));
         const uint64_t index(reinterpret_cast<uint64_t *>(&hashval)[0] >> (64 - p())),
-                         lzt(hll::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
+                         lzt(integral::clz(((arr[0] << 1)|1) << (p_ - 1)) + 1);
         const uint64_t inserted_val = encode_register(lzt, reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval());
         assert(get_lzc(inserted_val) == lzt);
         assert((reinterpret_cast<uint64_t *>(&hashval)[1] & max_mhval()) == get_mhr(inserted_val));

@@ -8,7 +8,7 @@
 #  define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__ || __AVX512__)
 #endif
 namespace sketch {
-namespace integral {
+inline namespace integral {
 #if __GNUC__ || __clang__
 constexpr INLINE unsigned clz(signed long long x) {
     return __builtin_clzll(x);
@@ -199,7 +199,6 @@ template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::VType val) {
     return popcnt_fn(val.simd_);
 }
 } // integral
-using namespace integral;
 } // sketch
 
 #endif

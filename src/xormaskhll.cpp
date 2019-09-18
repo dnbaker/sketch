@@ -2,9 +2,10 @@
 #include "hash.h"
 
 using namespace sketch::hll;
-namespace hash = sketch::hash;
+using namespace sketch::hash;
+using namespace sketch;
 
-using Hasher = XORConstantHasher<>;
+using Hasher = hash::XORConstantHasher<>;
 
 int main() {
     std::mt19937_64 mt(137);

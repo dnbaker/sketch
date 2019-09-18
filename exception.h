@@ -5,7 +5,7 @@
 
 namespace sketch {
 
-namespace exception {
+inline namespace exception {
 
 class NotImplementedError: public std::runtime_error {
 public:
@@ -15,15 +15,28 @@ public:
     NotImplementedError(): std::runtime_error("NotImplemented.") {}
 };
 
+class UnsatisfiedPreconditionError: public std::runtime_error {
+public:
+    UnsatisfiedPreconditionError(std::string msg): std::runtime_error(std::string("Unsatisfied precondition: ") + msg) {}
+
+    UnsatisfiedPreconditionError(): std::runtime_error("Unsatisfied precondition.") {}
+};
+
+class UnsatisfiedPostconditionError: public std::runtime_error {
+public:
+    UnsatisfiedPostconditionError(std::string msg): std::runtime_error(std::string("Unsatisfied precondition: ") + msg) {}
+
+    UnsatisfiedPostconditionError(): std::runtime_error("Unsatisfied precondition.") {}
+};
+
+
 #ifdef __CUDACC__
 struct CudaError: public std::runtime_error {
 public:
     CudaError(cudaError_t ce, std::string s): std::runtime_error(std::string("cudaError_t [") + cudaGetErrorString(ce) + "]" + s) {}
 };
 #endif // __CUDACC__
-}
-using namespace exception;
-
+} // exception
 
 } // sketch
 

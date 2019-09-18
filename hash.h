@@ -9,7 +9,7 @@
 #include "vec/vec.h"
 
 namespace sketch {
-namespace hash {
+inline namespace hash {
 using std::uint64_t;
 using std::uint32_t;
 using std::size_t;
