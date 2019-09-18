@@ -10,8 +10,6 @@ namespace sketch {
 
 namespace vac {
 
-using common::detail::tmpbuffer;
-
 using tsg::ThreadSeededGen;
 
 template<typename BaseSketch,
@@ -58,8 +56,8 @@ struct VACSketch {
 static fixed::vector<uint64_t> construct_power_table(double base, size_t n) {
     if(base <= 1.) throw std::runtime_error(std::to_string(base) + " is forbidden. Must be > 1.");
     fixed::vector<uint64_t> ret(n - 1);
-    tmpbuffer<double> mem(n);
-    auto p = mem.get();
+    std::vector<double> mem(n);
+    auto p = mem.data();
     p[0] = 1.;
     for(size_t i = 1; i < n; ++i) {
         auto tmp = base * p[i];
@@ -88,7 +86,7 @@ struct PowerVACSketch: public VACSketch<BaseSketch, Container, RNG, VectorArgs..
     }
     // Addition
     void addh(uint64_t x) {
-        thread_local static detail::ThreadSeededGen<RNG> gen;
+        thread_local static ThreadSeededGen<RNG> gen;
         auto v = gen();
         unsigned i = 0;
         do {
