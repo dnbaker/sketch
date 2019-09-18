@@ -91,10 +91,12 @@ int main() {
             auto vals = pair_query(tmp, h1);
             t.stop();
             std::fprintf(stderr, "Single flatten and query, including sort time %zu\n", size_t(t.report()));
+            std::fprintf(stderr, "vals: %f|%f|%f\n", vals[0], vals[1], vals[2]);
             std::fprintf(stderr, "vtime each: %zu. zomgtime: %zu. Bulk processing for vector %zu. Total score for vector approach: %zu. Total score for other approach: %zu. Query time for map: %zu\n",
                                   size_t(vtimesum), size_t(zomgsum), size_t(single_flattentime), vtimesum * FIRST_LOOP_N + size_t(single_flattentime), size_t(zomgsum * FIRST_LOOP_N + t.report()), size_t(t.report()));
             t.restart();
             auto ovals = h.jaccard_index(h2);
+            std::fprintf(stderr, "ovals: %f\n", ovals);
             for(size_t i = 99; i--;ovals = h.jaccard_index(h2));
             t.stop();
             std::fprintf(stderr, "Single dense HLL query %zu\n", size_t(t.report()) / 100);

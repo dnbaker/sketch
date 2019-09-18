@@ -1,20 +1,24 @@
 #ifndef SKETCH_SINGLE_HEADER_H__
 #define SKETCH_SINGLE_HEADER_H__
-#include "hll.h"
-#include "bf.h"
-#include "cbf.h"
-#include "mh.h"
-#include "bbmh.h"
-#include "ccm.h"
-#include "cbf.h"
-#include "mult.h"
-#include "heap.h"
-#include "filterhll.h"
-#include "mult.h"
-#include "sparse.h"
-#include "dd.h"
-#include "hk.h"
-#include "vac.h"
+#include "./hll.h"
+#include "./bf.h"
+#include "./mh.h"
+#include "./bbmh.h"
+#include "./ccm.h"
+#include "./cbf.h"
+#include "./mult.h"
+#include "./heap.h"
+#include "./filterhll.h"
+#include "./mult.h"
+#include "./sparse.h"
+#include "./dd.h"
+#include "./hk.h"
+#include "./vac.h"
+#include "./hbb.h"
+
+#ifdef __CUDACC__
+#include "hllgpu.h"
+#endif
 
 namespace sketch {
     // Flatten all classes to global sketch namespace.

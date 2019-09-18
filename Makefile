@@ -11,7 +11,7 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
 		 -pedantic -Wunused-variable -Wno-attributes -Wno-ignored-attributes
 
-FLAGS=-O1 -funroll-loops -pipe -march=native -Ivec/blaze -Ivec -Ipybind11/include -I. -fpic -Wall $(WARNINGS) \
+FLAGS=-O1 -funroll-loops -pipe -march=native -Ivec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing \
       -DXXH_INLINE_ALL  \
 	  -Wno-attributes -Wno-pragmas -Wno-ignored-qualifiers
@@ -61,7 +61,7 @@ python: hll.cpython.so
 	$(CC) -c $(FLAGS)	$< -o $@
 
 %: src/%.cpp kthread.o $(HEADERS) sleef.h
-	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
+	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -Werror $< -o $@ -lz # $(SAN)
 
 heaptest: src/heaptest.cpp kthread.o $(HEADERS) sleef.h
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)

@@ -183,7 +183,7 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
     if((ce = cudaMalloc((void **)&sizes, nb)))
         throw CudaError(ce, "Failed to malloc");
 #else
-#error("ZOGWTF")
+#error("This function can't be compiled by a non-cuda compiler")
 #endif
     //size_t nblocks = 1;
     std::fprintf(stderr, "About to launch kernel\n");

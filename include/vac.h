@@ -79,8 +79,9 @@ struct PowerVACSketch: public VACSketch<BaseSketch, Container, RNG, VectorArgs..
 
     template<typename...Args>
     PowerVACSketch(double base, size_t n, Args &&... args):
-        lut_(construct_power_table(base, n)), base_(base),
-        super(n, std::forward<Args>(args)...)
+        super(n, std::forward<Args>(args)...),
+        lut_(construct_power_table(base, n)),
+        base_(base)
     {
         std::fprintf(stderr, "base: %f. n: %zu\n", base, n);
     }

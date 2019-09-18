@@ -9,7 +9,7 @@
 #include <cmath>
 
 #ifndef unlikely
-#  ifdef __GNUC__ || __clang__
+#  if defined(__GNUC__) || defined(__clang__)
 #    define unlikely(x) __builtin_expect((x), 0)
 #  else
 #    define unlikely(x) (x)
