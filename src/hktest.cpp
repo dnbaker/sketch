@@ -10,7 +10,7 @@ size_t n2v(size_t n) {
     static const hash::WangHash wh;
     //return (((n>>8) & 0xFFu) == 0) ? std::pow((n & 3) + 1, 6): (n & 7) + 1;}
     n = wh(n);
-    return n & 63 ? 1: 64;
+    return n & 63 ? 2: 8;
 }
 
 void usage() {
@@ -22,19 +22,21 @@ void usage() {
 int main(int argc, char *argv[]) {
     if(std::find_if(argv, argv + argc, [](auto x) {return std::strcmp(x, "-h") == 0;}) != argv + argc)
         usage();
-    size_t N = argc == 1 ? 1000000: std::atoi(argv[1]);
-    size_t hksz = argc <= 2 ?  40000: std::atoi(argv[2]);
-    size_t ntables = argc <= 3 ? 8: std::atoi(argv[3]);
+    size_t N = argc == 1 ?   15000: std::atoi(argv[1]);
+    size_t hksz = argc <= 2 ? 1000: std::atoi(argv[2]);
+    size_t ntables = argc <= 3 ? 4: std::atoi(argv[3]);
     HeavyKeeper<32,32> hk1(hksz, ntables);
     for(size_t i = 0; i < N; ++i) {
-        for(size_t j = n2v(i); j--;) {
+        for(size_t j = 2; j--;) {
             size_t old = hk1.query(i);
-            auto newnew = hk1.addh(i);
-            auto newv = hk1.query(i);
+            size_t newnew = hk1.addh(i);
+            size_t newv = hk1.query(i);
             assert(newnew == newv || !std::fprintf(stderr, "newnew: %zu. newv: %zu. old: %zu\n", newnew, newv, old));
             std::fprintf(stderr, "Adding. Old : %zu. New: %zu\n", old, hk1.query(i));
         }
+        std::fprintf(stderr, "Adding. After adding: %zu\n", hk1.query(i));
     }
+#if 0
     size_t negeqpos [] {0, 0, 0};
     OnlineSD<double> sd;
     std::map<float, uint32_t> ics;
@@ -62,4 +64,5 @@ int main(int argc, char *argv[]) {
         auto &y = i.second;
         std::fprintf(stderr, "diff: %d. count: %d/%f\n", int(x), int(y), float(y) / N);
     }
+#endif
 }

@@ -61,7 +61,7 @@ python: hll.cpython.so
 	$(CC) -c $(FLAGS)	$< -o $@
 
 %: src/%.cpp kthread.o $(HEADERS) sleef.h
-	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
+	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz  $(SAN)
 
 heaptest: src/heaptest.cpp kthread.o $(HEADERS) sleef.h
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
