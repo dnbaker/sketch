@@ -1,9 +1,6 @@
 #include "./common.h"
 #include "aesctr/wy.h"
 #include "tsg.h"
-#if !NDEBUG
-#include <unordered_set>
-#endif
 
 namespace sketch {
 
