@@ -24,7 +24,7 @@ static constexpr inline bool is_valid_decay_base(double x) {
 template<size_t fpsize, size_t ctrsize=64-fpsize, typename Hasher=hash::WangHash, typename Policy=policy::SizeDivPolicy<uint64_t>, typename RNG=wy::WyHash<uint64_t>, typename Allocator=common::Allocator<uint64_t>>
 class HeavyKeeper {
 
-    static_assert(fpsize + ctrsize > 0 && 64 % (fpsize + ctrsize) == 0, "fpsize and ctrsize must be evenly divisible into our 64-bit words and at least one must be nonzero.");
+    static_assert(fpsize > 0 && ctrsize > 0 && 64 % (fpsize + ctrsize) == 0, "fpsize and ctrsize must be evenly divisible into our 64-bit words and at least one must be nonzero.");
 
     // Members
     Policy pol_;
@@ -114,8 +114,8 @@ public:
         r |= to_insert;
     }
     bool random_sample(size_t count) {
-        /*static thread_local */ std::uniform_real_distribution<double> gen;
-        /*static thread_local */ tsg::ThreadSeededGen<RNG> rng;
+        static thread_local std::uniform_real_distribution<double> gen;
+        static thread_local tsg::ThreadSeededGen<RNG> rng;
         auto limit =  std::pow(b_, -ssize_t(count));
         std::fprintf(stderr, "limit: %f\n", float(limit));
         return count && gen(rng) <= limit;
@@ -124,21 +124,26 @@ public:
     std::unordered_set<size_t> posset, fpset;
 #endif
     static constexpr uint64_t max_fp() {return ((1ull << fpsize) - 1);}
-    template<typename T>
-    uint64_t addh(const T &x) {return this->add(hash(x));}
     template<typename T2>
     void divmod(uint64_t x, T2 &pos, T2 &fp) const {
         pos = pol_.mod(x);
         fp = pol_.div_.div(x) & max_fp();
     }
-    uint64_t add(uint64_t x) {
+    void display_encoded_value(uint64_t x) {
+        auto dec = decode(x);
+        std::fprintf(stderr, "dec.first (count) = %zu. dec.first (hash) = %zu\n", dec.first, dec.second);
+    }
+    uint64_t addh(uint64_t x) {
         uint64_t maxv = 0;
         unsigned i = 0;
         FOREVER {
             size_t pos, newfp;
             divmod(x, pos, newfp);
+            std::fprintf(stderr, "Adding at pos %zu, newfp %zu\n", pos, newfp);
+#if !NDEBUG
             posset.insert(pos);
             fpset.insert(pos);
+#endif
 #if __cplusplus >= 201703L
             auto [count, fp] = decode(from_index(pos, i));
 #else
@@ -146,19 +151,25 @@ public:
             auto count = vals.first, fp = vals.second;
 #endif
             assert(encode(count, fp) == from_index(pos, i));
+            assert(decode(encode(count, fp)).first == count);
+            assert(decode(encode(count, fp)).second == fp);
+            display_encoded_value(encode(count, fp));
             std::fprintf(stderr, "pos: %zu, fp: %zu\n", pos, fp);
             if(count == 0) {
                 // Empty bucket -- simply insert
                 //std::fprintf(stderr, "first entry for x = %zu\n", size_t(x));
                 store(pos, i, newfp, 1);
                 assert(decode(from_index(pos, i)).second == newfp);
+                assert(decode(from_index(pos, i)).first == 1);
+                maxv += maxv == 0;
                 maxv = std::max(uint64_t(1), maxv);
                 //std::fprintf(stderr, "new insertion\n");
             } else if(fp == newfp) {
                 //std::fprintf(stderr, "pos/sig matched for entry for x = %zu\n", size_t(x));
                 //std::fprintf(stderr, "old count %d, new count %d. mask: %d\n", count, count + (count < count_mask), count_mask);
                 if(count < count_mask) ++count;
-                store(pos, i, newfp, count);
+                std::fprintf(stderr, "new count: %zu\n", count);
+                store(pos, i, fp, count);
                 assert(decode(from_index(pos, i)).second == newfp);
                 assert(decode(from_index(pos, i)).first == count);
                 maxv = std::max(maxv, uint64_t(count));
@@ -170,6 +181,7 @@ public:
                         //std::fprintf(stderr, "Kicked out\n");
                         store(pos, i, newfp, 1);
                         assert(decode(from_index(pos, i)).second == newfp);
+                        assert(decode(from_index(pos, i)).first == 1);
                     } else {
                         store(pos, i, fp, count);
                         assert(decode(from_index(pos, i)).second == fp);
@@ -184,14 +196,13 @@ public:
         }
         return maxv;
     }
-    template<typename T>
-    uint64_t queryh(const T &x) const {return query(hash(x));}
     uint64_t query(uint64_t x) const {
         uint64_t ret = 0;
         unsigned i = 0;
         FOREVER {
             size_t pos, newfp;
             divmod(x, pos, newfp);
+            std::fprintf(stderr, "Testing at pos %zu, newfp %zu\n", pos, newfp);
             auto p = decode(from_index(pos, i));
             auto count = p.first, fp = p.second;
             if(fp == newfp) ret = std::max(ret, count);

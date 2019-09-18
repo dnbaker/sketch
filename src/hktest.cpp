@@ -28,11 +28,11 @@ int main(int argc, char *argv[]) {
     HeavyKeeper<32,32> hk1(hksz, ntables);
     for(size_t i = 0; i < N; ++i) {
         for(size_t j = n2v(i); j--;) {
-            size_t old = hk1.queryh(i);
+            size_t old = hk1.query(i);
             auto newnew = hk1.addh(i);
-            auto newv = hk1.queryh(i);
+            auto newv = hk1.query(i);
             assert(newnew == newv || !std::fprintf(stderr, "newnew: %zu. newv: %zu. old: %zu\n", newnew, newv, old));
-            std::fprintf(stderr, "Adding. Old : %zu. New: %zu\n", old, hk1.queryh(i));
+            std::fprintf(stderr, "Adding. Old : %zu. New: %zu\n", old, hk1.query(i));
         }
     }
     size_t negeqpos [] {0, 0, 0};
@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     size_t missing = 0, found = 0;
     for(size_t i = 0; i < N; ++i) {
         auto expect = n2v(i);
-        auto find = hk1.queryh(i);
+        auto find = hk1.query(i);
         ++negeqpos[expect == find ? 1: expect > find ? 0: 2];
         if(expect > 5) {
             sd.add(((double(find) - expect) / expect));
