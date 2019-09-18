@@ -128,11 +128,12 @@ public:
         static thread_local std::uniform_real_distribution<double> gen;
         static thread_local tsg::ThreadSeededGen<RNG> rng;
         auto limit =  std::pow(b_, -ssize_t(count));
-        return count && gen(rng) <= limit;
-    }
-#if !NDEBUG
-    std::unordered_set<size_t> posset, fpset;
+        auto val = gen(rng);
+#if VERBOSE_AF
+        std::fprintf(stderr, "limit: %f. count: %zu. val: %f, pass: %s\n", limit, count, val, val <= limit ? "true": "false");
 #endif
+        return count && val <= limit;
+    }
     static constexpr uint64_t max_fp() {return ((1ull << fpsize) - 1);}
     template<typename T2>
     void divmod(uint64_t x, T2 &pos, T2 &fp) const {
@@ -150,35 +151,30 @@ public:
         FOREVER {
             size_t pos, newfp;
             divmod(x, pos, newfp);
-            std::fprintf(stderr, "Hash x = %zu yields pos %zu, newfp %zu\n", size_t(x), pos, newfp);
-#if !NDEBUG
-            posset.insert(pos);
-            fpset.insert(pos);
-#endif
             decoded_register vals = decode(from_index(pos, i));
             auto count = vals.count();
             auto fp = vals.fp();
             assert(encode(count, fp) == from_index(pos, i));
             assert(decode(encode(count, fp)).first == count);
             assert(decode(encode(count, fp)).second == fp);
+#if VERBOSE_AF
             std::fprintf(stderr, "Encoded value from previous register: ");
             display_encoded_value(encode(count, fp));
             std::fprintf(stderr, "pos: %" PRIu64 ", fp: %" PRIu64 "\n", pos, fp);
+#endif
             if(count == 0) {
-                // Empty bucket -- simply insert
+#if VERBOSE_AF
+                //Empty bucket -- simply insert
                 std::fprintf(stderr, "first entry for x = %zu\n", size_t(x));
+#endif
                 store(pos, i, newfp, 1);
                 assert(decode(from_index(pos, i)).second == newfp);
                 assert(decode(from_index(pos, i)).fp() == newfp);
                 assert(decode(from_index(pos, i)).first == 1);
                 assert(decode(from_index(pos, i)).count() == 1);
                 maxv += maxv == 0;
-                //std::fprintf(stderr, "new insertion\n");
             } else if(fp == newfp) {
-                //std::fprintf(stderr, "pos/sig matched for entry for x = %zu\n", size_t(x));
-                //std::fprintf(stderr, "old count %d, new count %d. mask: %d\n", count, count + (count < count_mask), count_mask);
                 count += count < count_mask;
-                std::fprintf(stderr, "new count: %zu\n", count);
                 store(pos, i, newfp, count);
                 assert(decode(from_index(pos, i)).second == newfp);
                 assert(decode(from_index(pos, i)).fp() == newfp);
@@ -186,20 +182,20 @@ public:
                 assert(decode(from_index(pos, i)).count() == count);
                 maxv = std::max(maxv, uint64_t(count));
             } else {
-                //std::fprintf(stderr, "pos/sig didn't match for %zu at count %zu\n", size_t(x), count);
                 if(random_sample(count)) {
-                    //std::fprintf(stderr, "no matching, about to sample\n");
                     if(--count == 0) {
-                        //std::fprintf(stderr, "Kicked out\n");
                         store(pos, i, newfp, 1);
                         assert(decode(from_index(pos, i)).second == newfp);
+                        assert(decode(from_index(pos, i)).fp() == newfp);
                         assert(decode(from_index(pos, i)).first == 1);
+                        assert(decode(from_index(pos, i)).count() == 1);
+                        maxv = std::max(maxv, size_t(1));
                     } else {
                         store(pos, i, fp, count);
                         assert(decode(from_index(pos, i)).second == fp);
+                        assert(decode(from_index(pos, i)).fp() == fp);
                         assert(decode(from_index(pos, i)).first == count);
                     }
-                    maxv = std::max(maxv, uint64_t(count));
                 }
                 assert(decode(from_index(pos, i)).first != 0);
             }
@@ -217,7 +213,6 @@ public:
             divmod(x, pos, newfp);
             auto p = decode(from_index(pos, i));
             auto count = p.count(), fp = p.fp();
-            std::fprintf(stderr, "Query of %zu yields pos %zu, newfp %zu. Old signature: %zu. Old count: %zu.\n", size_t(x), pos, newfp, p.fp(), p.count());
             if(fp == newfp) ret = std::max(ret, count);
             if(++i == nh_) break;
             wy::wyhash64_stateless(&x);
@@ -275,11 +270,6 @@ public:
         cpy += x;
         return cpy;
     }
-#if !NDEBUG
-    ~HeavyKeeper() {
-        std::fprintf(stderr, "posset: %zu. oset: %zu\n", posset.size(), fpset.size());
-    }
-#endif
 };
 
 } // namespace hk
