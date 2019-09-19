@@ -186,7 +186,7 @@ public:
                         assert(decode(from_index(pos, i)).fp() == newfp);
                         assert(decode(from_index(pos, i)).first == 1);
                         assert(decode(from_index(pos, i)).count() == 1);
-                        maxv = std::max(maxv, size_t(1));
+                        maxv = std::max(maxv, uint64_t(1));
                     } else {
                         store(pos, i, fp, count);
                         assert(decode(from_index(pos, i)).second == fp);
