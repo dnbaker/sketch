@@ -53,6 +53,14 @@
 #  endif
 #endif
 
+#if __CUDACC__ || __GNUC__ || __clang__
+#  define SK_RESTRICT __restrict__
+#elif _MSC_VER
+#  define SK_RESTRICT __restrict
+#else
+#  define SK_RESTRICT
+#endif
+
 #ifdef INCLUDE_CLHASH_H_
 #  define ENABLE_CLHASH 1
 #elif ENABLE_CLHASH
@@ -79,11 +87,11 @@
 #endif
 
 #ifndef CONST_IF
-#if __cplusplus >= 201703L
-#define CONST_IF(...) if constexpr(__VA_ARGS__)
-#else
-#define CONST_IF(...) if(__VA_ARGS__)
-#endif
+#  if __cplusplus >= __cpp_if_constexpr
+#    define CONST_IF(...) if constexpr(__VA_ARGS__)
+#  else
+#    define CONST_IF(...) if(__VA_ARGS__)
+#  endif
 #endif
 
 
@@ -111,7 +119,7 @@
 #endif
 
 namespace sketch {
-namespace common {
+inline namespace common {
 using namespace hash;
 using namespace integral;
 
@@ -141,17 +149,22 @@ using std::int8_t;
 using std::size_t;
 using Space = vec::SIMDTypes<uint64_t>;
 
-template<typename ValueType>
+static constexpr auto AllocatorAlignment = sse::Alignment::
 #if HAS_AVX_512
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX512>;
+AVX512
 #elif __AVX2__
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::AVX>;
+AVX
 #elif __SSE2__
-using Allocator = sse::AlignedAllocator<ValueType, sse::Alignment::SSE>;
+SSE
 #else
-using Allocator = std::allocator<ValueType, sse::Alignment::Normal>;
+Normal
+#pragma message("Note: no SIMD available, using scalar values")
 #endif
+     ; // TODO: extend for POWER9 ISA
 
+
+template<typename ValueType>
+using Allocator = sse::AlignedAllocator<ValueType, AllocatorAlignment>;
 #ifdef NOT_THREADSAFE
 using DefaultCompactVectorType = ::compact::vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
 
@@ -272,24 +285,28 @@ static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, s
    std::memset(v.get(), 0, v.bytes()); // zero array
 }
 
-template<typename T>
-struct alloca_wrap {
-    T *ptr_;
-    alloca_wrap(size_t n): ptr_
-#if defined(AVOID_ALLOCA)
-        (static_cast<T *>(std::malloc(n * sizeof(T))))
-#else
-        (static_cast<T *>(__builtin_alloca(n * sizeof(T))))
-#endif
+template<typename T, size_t BUFFER_SIZE=256>
+struct tmpbuffer {
+    T *const ptr_;
+    const size_t n_;
+    T buf_[BUFFER_SIZE];
+    tmpbuffer(size_t n):
+        ptr_(n <= BUFFER_SIZE ? buf_: static_cast<T *>(malloc(n * sizeof(T)))),
+        n_(n)
     {}
     T *get() {
         return ptr_;
     }
-    ~alloca_wrap() {
-#if defined(AVOID_ALLOCA)
-        std::free(ptr_);
-#endif
+    const T *get() const {
+        return ptr_;
     }
+    ~tmpbuffer() {if(n_ > BUFFER_SIZE) std::free(ptr_);}
+    auto &operator[](size_t i) {return ptr_[i];}
+    const auto &operator[](size_t i) const {return ptr_[i];}
+    auto begin() {return ptr_;}
+    auto begin() const {return ptr_;}
+    auto end() {return ptr_ + n_;}
+    auto end() const {return ptr_ + n_;}
 };
 
 } // namespace detail

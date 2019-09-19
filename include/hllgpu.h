@@ -1,14 +1,52 @@
 #ifndef HLL_GPU_H__
 #define HLL_GPU_H__
 #include "hll.h"
+#include "exception.h"
+#include <type_traits>
 
 #ifdef __CUDACC__
 //#include "thrust/thrust.h"
 #endif
 
 namespace sketch {
-#define now std::chrono::high_resolution_clock::now
+using hrc = std::chrono::high_resolution_clock;
 
+
+template<typename T, typename=std::enable_if_t<std::is_arithmetic<T>::value>>
+#ifdef __CUDACC__
+__host__ __device__
+#endif
+INLINE uint64_t nchoose2(T x) {
+    uint64_t ret = x;
+    ret *= (x - 1);
+    return ret >>= 1;
+}
+
+using exception::CudaError;
+
+
+template<typename T>
+__host__ __device__
+INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
+#if __CUDA_ARCH__
+    x1 = __vmaxu4(x1, x2);
+#elif __SSE2__
+    auto v = _mm_max_pu8(*(__m64 *)&x1, *(__m64 *)x2);
+    std::memcpy(&x1, &v, sizeof(v));
+#else
+    // Manual
+    unsigned x3 = std::max(x1>>24, x2>>24);
+    x3 <<= 8;
+    x3 |= std::max((x1 >> 16) & 0xFFu, (x2 >> 16) & 0xFFu);
+    x3 <<= 8;
+    x3 |= std::max((x1 >> 8) & 0xFFu, (x2 >> 8) & 0xFFu);
+    x1 = (x3 << 8) | std::max(x1 & 0xFFu, x2 & 0xFFu);
+#endif
+    ++arr[x1&0xFFu];
+    ++arr[(x1>>8)&0xFFu];
+    ++arr[(x1>>16)&0xFFu];
+    ++arr[x1>>24];
+}
 
 template<typename T>
 __host__ __device__
@@ -23,9 +61,9 @@ double inline origest(const T &p, unsigned l2) {
 
 using namespace hll;
 template<typename Alloc>
-auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *__restrict__, Alloc> &re) {
+auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *SK_RESTRICT, Alloc> &re) {
     size_t maxnz = 64 - p + 1, nvals = maxnz + 1;
-    size_t nsets = re.size(), nschoose2 = ((nsets - 1) * nsets) / 2;
+    size_t nsets = re.size();//, nschoose2 = ((nsets - 1) * nsets) / 2;
     size_t m = 1ull << p;
     std::vector<uint32_t> ret(nvals * nsets * m);
     for(size_t i = 0; i < nsets; ++i) {
@@ -36,14 +74,8 @@ auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *__restrict__, A
             auto rp = ret.data() + i * nsets * m;
             std::array<uint32_t, 64> z{0};
             for(size_t subi = 0; subi < m; subi += 8) {
-                ++z[std::max(p1[subi + 0], p2[subi + 0])];
-                ++z[std::max(p1[subi + 1], p2[subi + 1])];
-                ++z[std::max(p1[subi + 2], p2[subi + 2])];
-                ++z[std::max(p1[subi + 3], p2[subi + 3])];
-                ++z[std::max(p1[subi + 4], p2[subi + 4])];
-                ++z[std::max(p1[subi + 5], p2[subi + 5])];
-                ++z[std::max(p1[subi + 6], p2[subi + 6])];
-                ++z[std::max(p1[subi + 7], p2[subi + 7])];
+                increment_maxes(z.data(), *(unsigned *)&p1[subi], *(unsigned *)&p2[subi]);
+                increment_maxes(z.data(), *(unsigned *)&p1[subi+4], *(unsigned *)&p2[subi+4]);
             }
             std::memcpy(ret.data() + (i * nsets * m) + j * m, z.data(), m);
         }
@@ -104,7 +136,10 @@ __host__ std::vector<uint32_t> all_pairs(const uint8_t *p, unsigned l2, size_t n
     return ret;
 }
 #endif
-__global__ void calc_sizesu(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
+
+
+
+__global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
     if(blockIdx.x >= nhlls) return;
     extern __shared__ int shared[];
     uint8_t *registers = (uint8_t *)shared;
@@ -120,31 +155,61 @@ __global__ void calc_sizesu(const uint8_t *p, unsigned l2, size_t nhlls, uint32_
     __syncthreads();
     uint32_t arr[64]{0};
     hp = p + (threadIdx.x << l2);
-    #pragma unroll 64
-    for(int i = 0; i < (1L << l2); ++i) {
-        ++arr[max(hp[i], registers[i])];
+    #pragma unroll 8
+    for(int i = 0; i < (1L << l2); i += 4) {
+        increment_maxes(arr, *(unsigned *)&hp[i], *(unsigned *)&registers[i]);
     }
     sizes[gid] = origest(arr, l2);
 }
-__host__ std::vector<uint32_t> all_pairsu(const uint8_t *p, unsigned l2, size_t nhlls, size_t &rets) {
-    size_t nc2 = (nhlls * (nhlls - 1)) / 2;
+
+__global__ void calc_sizes_large(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t nblocks, uint32_t *SK_RESTRICT sizes) {
+    auto tid = threadIdx.x;
+    auto bid = blockIdx.x;
+    auto gid = bid * blockDim.x + tid;
+    size_t nc2 = nchoose2(nhlls);
+    // First, divide the total amount of work that our block of workers will process
+    auto range_start = nc2 / nblocks * bid;
+    auto range_end = std::max(size_t((nc2 + nblocks - 1) / nblocks), nc2);
+    if(range_start >= range_end || (gid != gid)) return; // If you overflow, skip
+}
+
+__host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t &SK_RESTRICT rets) {
+    size_t nc2 = nchoose2(nhlls);
     uint32_t *sizes;
     size_t nb = sizeof(uint32_t) * nc2;
     size_t m = 1ull << l2;
     cudaError_t ce;
+#if __CUDACC__
     if((ce = cudaMalloc((void **)&sizes, nb)))
-        throw ce;
+        throw CudaError(ce, "Failed to malloc");
+#else
+#error("This function can't be compiled by a non-cuda compiler")
+#endif
     //size_t nblocks = 1;
     std::fprintf(stderr, "About to launch kernel\n");
-    auto t = now();
-    calc_sizesu<<<nhlls,nhlls,m>>>(p, l2, nhlls, sizes);
-    if(cudaDeviceSynchronize()) throw 1;
-    auto t2 = now();
+    auto t = hrc::now();
+#if 0
+    if(nc2 <= (1ull << 32)) {
+        size_t nblocks = nc2;
+        unsigned tpb = std::min(1024, 1<<l2); // Ensure that none of my indexing is too messed up
+        calc_sizesnew<<<nblocks, tpb>>>(p, l2, nhlls, nblocks, sizes);
+    }
+#else
+    size_t tpb = nhlls/2 + (nhlls&1);
+    if(tpb > 1024) {
+        throw std::runtime_error("Current implementation is limited to 1024 by 1024 comparisons. TODO: fix this with a reimplementation");
+    } else {
+        calc_sizes_1024<<<nhlls,(nhlls+1)/2,m>>>(p, l2, nhlls, sizes);
+    }
+#endif
+    if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
+    if((ce = cudaGetLastError())) throw CudaError(ce, "");
+    auto t2 = hrc::now();
     rets = (t2 - t).count();
     std::fprintf(stderr, "Time: %zu\n", rets);
     std::fprintf(stderr, "Finished kernel\n");
     std::vector<uint32_t> ret(nc2);
-    if(cudaMemcpy(ret.data(), sizes, nb, cudaMemcpyDeviceToHost)) throw 3;
+    if((ce = cudaMemcpy(ret.data(), sizes, nb, cudaMemcpyDeviceToHost))) throw CudaError(ce, "Failed to copy device to host");
     //thrust::copy(sizes, sizes + ret.size(), ret.begin());
     cudaFree(sizes);
     return ret;

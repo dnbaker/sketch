@@ -23,7 +23,6 @@ static int log_debug(const char *func, const char *filename, int line, const cha
 #    endif
 #endif
 namespace heap {
-using namespace common;
 
 using std::hash; // This way, someone can provide a hash within an object's namespace for argument dependant lookup.
 // https://arxiv.org/abs/1711.00975

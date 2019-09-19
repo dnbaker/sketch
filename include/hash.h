@@ -9,7 +9,7 @@
 #include "vec/vec.h"
 
 namespace sketch {
-namespace hash {
+inline namespace hash {
 using std::uint64_t;
 using std::uint32_t;
 using std::size_t;
@@ -292,7 +292,9 @@ public:
 #endif
     }
     Type operator()(VType val) const {
-        throw std::runtime_error("Should not be called... yet. TODO: this");
+#ifndef __CUDACC__
+        std::fprintf(stderr, "Should not be called... yet. TODO: this");
+#endif
         // Data parallel across same coefficients.
         VType ret = Space::set1(coeffs_[0][0]);
         VType exp = val;

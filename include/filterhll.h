@@ -7,8 +7,6 @@
 namespace sketch {
 namespace fhll {
 
-using namespace common;
-
 template<typename HashType=WangHash>
 class fhllbase_t {
     using cbf_t = bf::cbfbase_t<HashType>;

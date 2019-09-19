@@ -11,10 +11,10 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
 		 -pedantic -Wunused-variable -Wno-attributes -Wno-ignored-attributes
 
-FLAGS=-O1 -funroll-loops -pipe -march=native -msse2 -mavx2 -Ivec/blaze -Ivec -Ipybind11/include -I. -fpic -Wall $(WARNINGS) \
+FLAGS=-O1 -funroll-loops -pipe -march=native -Ivec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing \
       -DXXH_INLINE_ALL  \
-	  -Wno-attributes -Wno-pragmas -Wno-ignored-qualifiers # -fsanitize=address -fsanitize=undefined # -Wsuggest-attribute=malloc
+	  -Wno-attributes -Wno-pragmas -Wno-ignored-qualifiers
 
 CXXFLAGS=$(FLAGS) -Wreorder
 
@@ -42,6 +42,8 @@ SUF=`$(PYCONF) --extension-suffix`
 OBJS=$(patsubst %.cpp,%$(SUF),$(wildcard *.cpp))
 HEADERS=$(wildcard *.h)
 
+SAN=-fsanitize=undefined -fsanitize=address
+
 sleef.h:
 	+cd vec/sleef && mkdir -p build && cd build && cmake .. && $(MAKE) && cd ../../../ && ln -s vec/sleef//build/include/sleef.h sleef.h
 
@@ -62,13 +64,13 @@ hpython: pybbmh.cpython.so
 	$(CC) -c $(FLAGS)	$< -o $@
 
 %: src/%.cpp kthread.o $(HEADERS) sleef.h
-	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
+	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 heaptest: src/heaptest.cpp kthread.o $(HEADERS) sleef.h
-	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz #-fsanitize=undefined # -fsanitize=address
+	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 divtest: src/divtest.cpp kthread.o $(HEADERS) sleef.h
-	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # -fsanitize=undefined -fsanitize=address
+	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 %: src/%.cu
 	$(NVCC) $< -o $@ $(GPUFLAGS)
