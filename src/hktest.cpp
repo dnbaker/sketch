@@ -81,6 +81,6 @@ void run_hk_point() {
     for(const size_t item: items) {
         hkh.addh(item);
     }
-    for(const auto &x: hkh) std::fprintf(stderr, "Element: %zu\n", size_t(x));
     auto c = hkh.to_container();
+    for(const auto &x: std::get<0>(c)) std::fprintf(stderr, "Element: %zu. Count: %zu\n", size_t(x), size_t(hkh.est_count(x)));
 }

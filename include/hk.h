@@ -278,13 +278,19 @@ class HeavyKeeperHeap {
 
 public:
     using hashfp_t = HashSetFingerprint;
+    using value_type = ValueType;
     HeavyKeeperHeap(size_t heap_size, HKType &&hvk): hk_(std::move(hvk)) {
         heap_.reserve(heap_size);
     }
     auto &top() {return heap_.front();}
     const auto &top() const {return heap_.front();}
-    auto hash(const ValueType &x) const {return hk_.hash(x);}
-    void addh(ValueType &&x) {
+    auto hash(const value_type &x) const {return hk_.hash(x);}
+    void addh(const value_type &x) {
+        value_type t = x;
+        addh(std::move(t));
+    }
+    auto est_count(const value_type &x) {return hk_.queryh(x);}
+    void addh(value_type &&x) {
         const auto hv = hk_.hash(x);
         const auto old_count = hk_.add(hv);
         if(hashes_.find(hv) != hashes_.end())
@@ -297,28 +303,19 @@ public:
                 std::make_heap(heap_.begin(), heap_.end(), Comparator(hk_));
             }
         } else {
-#if VERBOSE_AF
-            auto est_val = hk_.queryh(heap_.back());
-            for(const auto x: *this)
-                assert(hk_.queryh(x) <= est_val);
-            for(auto it = heap_.end(); it != heap_.begin(); std::pop_heap(heap_.begin(), it--, Comparator(hk_)));
-            std::make_heap(heap_.begin(), heap_.end(), Comparator(hk_));
-            for(const auto &x: heap_) {
-                auto v1 = hk_.queryh(x), v2 = hk_.queryh(top());
-                std::fprintf(stderr, "v1: %zu. v2: %zu\n", v1, v2);
-                assert(hk_.queryh(x) >= cmpcount);
-            }
-#endif
-            const auto cmpcount = hk_.queryh(top());
-            if(Comparator(hk_)(x, top())) {
-                assert(old_count > cmpcount || hash(top()) > hash(x));
+            auto yh = hk_.hash(top());
+            const auto cmpcount = hk_.query(yh);
+            if(std::tie(old_count, yh) > std::tie(cmpcount, hv)) {
+                assert(old_count >= cmpcount || hash(top()) > hash(x));
+
+                // 3.4:Optimization 1 -- detecting fingerprint collisions
+                if(old_count > cmpcount + 1) return;
+
                 std::pop_heap(heap_.begin(), heap_.end(), Comparator(hk_));
                 hashes_.erase(hash(heap_.back()));
-                //auto t = std::move(heap_.back());
                 heap_.back() = std::move(x);
                 hashes_.emplace(hash(heap_.back()));
                 assert(hashes_.size() == heap_.size());
-                //std::fprintf(stderr, "Old: {v:%zu, c:%zu}. New: {v:%zu,c:%zu}\n", size_t(t), hk_.queryh(t), size_t(heap_.back()), hk_.queryh(heap_.back()));
                 std::push_heap(heap_.begin(), heap_.end(), Comparator(hk_));
             }
         }
@@ -328,7 +325,7 @@ public:
     auto end() {return heap_.end();}
     auto end() const {return heap_.end();}
     auto to_container() const {
-        std::vector<ValueType, Allocator> ret = heap_;
+        std::vector<value_type, Allocator> ret = heap_;
         for(auto it = ret.end(); it != ret.begin(); std::pop_heap(ret.begin(), it--, Comparator(hk_)));
         std::vector<hashfp_t, common::Allocator<hashfp_t>> hashfps;
         std::vector<size_t, common::Allocator<size_t>> counts;
@@ -361,6 +358,52 @@ public:
         return std::make_tuple(std::move(heap_), std::move(counts), std::move(hashfps));
     }
 };
+
+#if 0
+template<typename...Args>
+struct HeavyKeeperHeavyHitters: public HeavyKeeperHeap<Args...> {
+    using super = HeavyKeeperHeap<Args...>;
+    using super::hk_;
+    using super::hashes_;
+    using super::hash;
+    using super::heap_;
+    using super::top;
+    using super::value_type;
+    size_t mc_;
+    HeavyKeeperHeavyHitters(size_t mincount, size_t n, HKType &&hk): super(n, std::move(hk)), mc_(mincount) {
+        
+    }
+
+    void addh(typename super::value_type &&x) {
+        const auto hv = hk_.hash(x);
+        const auto old_count = hk_.add(hv);
+        if(hashes_.find(hv) != hashes_.end())
+            return;
+        if(heap_.size() < heap_.capacity()) {
+            heap_.emplace_back(std::move(x));
+            hk_.addh(x);
+            hashes_.emplace(hv);
+            if(heap_.size() == heap_.capacity()) {
+                std::make_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+            }
+        } else {
+            auto yh = hk_.hash(top());
+            const auto cmpcount = hk_.query(yh);
+            if(std::tie(old_count, yh) > std::tie(cmpcount, hv)) {
+                assert(old_count > cmpcount || hash(top()) > hash(x));
+                // 3.4:Optimization 1 -- detecting fingerprint collisions
+                if(old_count > cmpcount + 1) return;
+                std::pop_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+                hashes_.erase(hash(heap_.back()));
+                heap_.back() = std::move(x);
+                hashes_.emplace(hash(heap_.back()));
+                assert(hashes_.size() == heap_.size());
+                std::push_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+            }
+        }
+    }
+};
+#endif
 
 } // namespace hk
 
