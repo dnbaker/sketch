@@ -1,11 +1,23 @@
 #include "hk.h"
-#include "common.h"
+#include "heap.h"
 #include <set>
 #include <unordered_map>
 
 using namespace sketch::hk;
 using namespace sketch;
+void run_hk_point();
+void run_hkh();
 int main() {
+    run_hk_point();
+    run_hkh();
+}
+void run_hkh() {
+    //using hkt = HeavyKeeper<32,32>;
+}
+
+void run_hk_point() {
+    static_assert(is_hk<HeavyKeeper<32,32>>::value, "Must be hk");
+    static_assert(!is_hk<int>::value, "Must be hk");
     HeavyKeeper<32,32> hk(1000, 5, 1.03);
     const size_t ninsert = 20;
     std::vector<uint64_t> items{1u,3u,5u,101u};
@@ -25,7 +37,7 @@ int main() {
         //auto current_val = size_t(hk.query(item));
         //std::fprintf(stderr, "after bulk insert %zu prev: %zu. inserted: %zu\n", item, current_val, ninsert);
         std::fflush(stderr);
-        missing += hk.query(item) == 0;
+        missing += hk.queryh(item) == 0;
     }
     std::fprintf(stderr, "missing: %zu of total %zu\n", missing, items.size());
     assert(missing < items.size() / 10);
@@ -33,21 +45,21 @@ int main() {
     std::for_each(items.begin(), items.end(), [](auto &x) {x = hash::WangHash()(x);});
     missing = 0;
     for(const size_t item: items) {
-        auto prev = hk.query(item);
+        auto prev = hk.queryh(item);
         for(size_t i = 0; i < ninsert * 10; ++i) {
             /*auto val = */hk.addh(item);
             //std::fprintf(stderr, "postq: %zu\n", postq);
         }
-        //std::fprintf(stderr, "for item %zu prev: %zu. post: %zu\n", item, size_t(prev), hk.query(item));
+        //std::fprintf(stderr, "for item %zu prev: %zu. post: %zu\n", item, size_t(prev), hk.queryh(item));
         assert(prev == 0);
-        if(hk.query(item) == 0) ++missing;
+        if(hk.queryh(item) == 0) ++missing;
     }
     assert(missing <= 42); // This could actually change and still be fine, but I want to know about these changes.
     std::fprintf(stderr, "missing 10x items: %zu of total %zu\n", missing, items.size());
     assert(missing < items.size() / 10);
     std::for_each(items.begin(), items.end(), [](auto &x) {x = hash::WangHash().inverse(x);});
     for(const size_t item: items) {
-        auto postq = hk.query(item);
+        auto postq = hk.queryh(item);
         assert(postq <= ninsert);
     }
     std::for_each(items.begin(), items.end(), [](auto &x) {x = hash::WangHash()(x);});
@@ -55,8 +67,8 @@ int main() {
     std::string line;
     for(const size_t item: items) {
         char buf[256];
-        auto postq = hk.query(item);
-        std::sprintf(buf, "After being inverting back, %zu replaces %zu\n", size_t(postq), ninsert);
+        auto postq = hk.queryh(item);
+        std::sprintf(buf, "After inverting back, %zu replaces %zu\n", size_t(postq), ninsert);
         line = buf;
         ++sset[line];
     }
@@ -65,4 +77,10 @@ int main() {
     for(const auto &pair: svec) {
         std::fprintf(stderr, "%u:%s", pair.second, pair.first.data());
     }
+    HeavyKeeperHeap<HeavyKeeper<32,32>, uint64_t> hkh(20, std::move(hk));
+    for(const size_t item: items) {
+        hkh.addh(item);
+    }
+    for(const auto &x: hkh) std::fprintf(stderr, "Element: %zu\n", size_t(x));
+    auto c = hkh.to_container();
 }

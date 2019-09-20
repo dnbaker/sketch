@@ -645,7 +645,7 @@ const
         tmp += o;
         return tmp;
     }
-#if !NDEBUG
+#if VERBOSE_AF
     ~csbase_t() {
         std::fprintf(stderr, "Sign counts: %zu/%zu (-1,+1)\n", sign_plus, sign_minus);
     }

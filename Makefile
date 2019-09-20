@@ -40,7 +40,7 @@ STD?=-std=c++14
 INCLUDES=-I`$(PYCONF) --includes` -Ipybind11/include
 SUF=`$(PYCONF) --extension-suffix`
 OBJS=$(patsubst %.cpp,%$(SUF),$(wildcard *.cpp))
-HEADERS=$(wildcard *.h)
+HEADERS=$(wildcard include/*.h)
 
 SAN=-fsanitize=undefined -fsanitize=address
 

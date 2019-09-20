@@ -21,7 +21,7 @@ int main() {
 //template<typename Obj, typename HashFunc=hash<Obj>, typename ScoreType=std::uint64_t, typename MainCmp=DefaultScoreCmp<ScoreType>>
     ObjScoreHeap<uint64_t, cmp, std::hash<uint64_t>> zomg2(100);
     csbase_t<> cs(10, 5);
-    //SketchHeap<uint64_t, decltype(cs)> zomg3(100, cs);
+    SketchHeap<uint64_t, decltype(cs)> zomg3(100, cs);
     std::vector<uint64_t> all;
     for(size_t i=0; i < 1000000; ++i) {
         auto v = mt();

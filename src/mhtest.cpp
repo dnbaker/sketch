@@ -18,11 +18,11 @@ bool forward_sorted(T i1, T i2) {
     auto tmp = *i1++;
     int ret = -1;
     start:
-    if(tmp == *i1) throw "a party";
-    if(tmp < *i1) {if(ret >= 0 && ret != 1) throw std::runtime_error("ZOMG"); ret = 1;}
-    else  {if(ret >= 0 && ret != 0) throw std::runtime_error("ZOMG"); ret = 0;}
+    if(tmp == *i1) throw std::runtime_error("e1");
+    if(tmp < *i1) {if(ret >= 0 && ret != 1) throw std::runtime_error("e2"); ret = 1;}
+    else  {if(ret >= 0 && ret != 0) throw std::runtime_error("e3"); ret = 0;}
     if(++i1 != i2) goto start;
-    if(ret < 0) throw "up";
+    if(ret < 0) throw std::runtime_error("e4");
     return ret;
 }
 using namespace sketch;

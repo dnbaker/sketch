@@ -1,6 +1,7 @@
 #include "./common.h"
 #include "aesctr/wy.h"
 #include "tsg.h"
+#include "flat_hash_map/flat_hash_map.hpp"
 
 namespace sketch {
 
@@ -11,12 +12,6 @@ static constexpr uint64_t bitmask(size_t n) {
 }
 
 inline namespace hk {
-
-namespace detail {
-static constexpr inline bool is_valid_decay_base(double x) {
-    return x >= 1.;
-}
-}
 
 template<size_t fpsize, size_t ctrsize=64-fpsize, typename Hasher=hash::WangHash, typename Policy=policy::SizeDivPolicy<uint64_t>, typename RNG=wy::WyHash<uint64_t>, typename Allocator=common::Allocator<uint64_t>>
 class HeavyKeeper {
@@ -37,15 +32,16 @@ class HeavyKeeper {
 public:
     static constexpr size_t VAL_PER_REGISTER = 64 / (fpsize + ctrsize);
     // Constructor
+    // Note: HeavyKeeper paper suggests 1.08, but that seems extreme.
     template<typename...Args>
-    HeavyKeeper(size_t requested_size, size_t subtables, double pdec=1.08, Args &&...args):
+    HeavyKeeper(size_t requested_size, size_t subtables, double pdec=1.03, Args &&...args):
         pol_(requested_size), nh_(subtables),
         data_((requested_size * subtables + (VAL_PER_REGISTER - 1)) / VAL_PER_REGISTER),
         hasher_(std::forward<Args>(args)...),
         b_(pdec)
     {
         assert(subtables);
-        if(!detail::is_valid_decay_base(pdec))
+        if(pdec <= 1.)
             throw UnsatisfiedPreconditionError(std::string("pdec is not valid (>= 1.). Value: ") + std::to_string(pdec));
 #if VERBOSE_AF
         std::fprintf(stderr, "fpsize: %zu. ctrsize: %zu. requested size: %zu. actual size: %zu. Overflow check? %d. nhashes: %zu\n", fpsize, ctrsize, requested_size, pol_.nelem(), 1, nh_);
@@ -124,7 +120,7 @@ public:
     bool random_sample(size_t count) {
         static thread_local std::uniform_real_distribution<double> gen;
         static thread_local tsg::ThreadSeededGen<RNG> rng;
-        auto limit =  std::pow(b_, -ssize_t(count));
+        auto limit = std::pow(b_, -ssize_t(count));
         auto val = gen(rng);
 #if VERBOSE_AF
         std::fprintf(stderr, "limit: %f. count: %zu. val: %f, pass: %s\n", limit, count, val, val <= limit ? "true": "false");
@@ -141,8 +137,12 @@ public:
         auto dec = decode(x);
         std::fprintf(stderr, "dec.count() = %zu. dec.fp() (hash) = %zu\n", dec.count(), dec.fp());
     }
-    uint64_t addh(uint64_t x) {
-        x = hash(x);
+    template<typename T>
+    uint64_t addh(const T &x) {
+        return add(hash(x));
+    }
+//protected:
+    uint64_t add(uint64_t x) {
         uint64_t maxv = 0;
         unsigned i = 0;
         FOREVER {
@@ -154,44 +154,20 @@ public:
             assert(encode(count, fp) == from_index(pos, i));
             assert(decode(encode(count, fp)).first == count);
             assert(decode(encode(count, fp)).second == fp);
-#if VERBOSE_AF
-            std::fprintf(stderr, "Encoded value from previous register: ");
-            display_encoded_value(encode(count, fp));
-            std::fprintf(stderr, "pos: %" PRIu64 ", fp: %" PRIu64 "\n", pos, fp);
-#endif
             if(count == 0) {
-#if VERBOSE_AF
-                //Empty bucket -- simply insert
-                std::fprintf(stderr, "first entry for x = %zu\n", size_t(x));
-#endif
                 store(pos, i, newfp, 1);
-                assert(decode(from_index(pos, i)).second == newfp);
-                assert(decode(from_index(pos, i)).fp() == newfp);
-                assert(decode(from_index(pos, i)).first == 1);
-                assert(decode(from_index(pos, i)).count() == 1);
                 maxv += maxv == 0;
             } else if(fp == newfp) {
                 count += count < count_mask;
                 store(pos, i, newfp, count);
-                assert(decode(from_index(pos, i)).second == newfp);
-                assert(decode(from_index(pos, i)).fp() == newfp);
-                assert(decode(from_index(pos, i)).first == count);
-                assert(decode(from_index(pos, i)).count() == count);
                 maxv = std::max(maxv, uint64_t(count));
             } else {
                 if(random_sample(count)) {
                     if(--count == 0) {
                         store(pos, i, newfp, 1);
-                        assert(decode(from_index(pos, i)).second == newfp);
-                        assert(decode(from_index(pos, i)).fp() == newfp);
-                        assert(decode(from_index(pos, i)).first == 1);
-                        assert(decode(from_index(pos, i)).count() == 1);
                         maxv = std::max(maxv, uint64_t(1));
                     } else {
                         store(pos, i, fp, count);
-                        assert(decode(from_index(pos, i)).second == fp);
-                        assert(decode(from_index(pos, i)).fp() == fp);
-                        assert(decode(from_index(pos, i)).first == count);
                     }
                 }
                 assert(decode(from_index(pos, i)).first != 0);
@@ -201,8 +177,12 @@ public:
         }
         return maxv;
     }
+//public:
+    template<typename T>
+    uint64_t queryh(const T &x) const {
+        return query(hash(x));
+    }
     uint64_t query(uint64_t x) const {
-        x = hash(x);
         uint64_t ret = 0;
         unsigned i = 0;
         FOREVER {
@@ -216,12 +196,9 @@ public:
         }
         return ret;
     }
-    auto est_count(uint64_t x) {
-        return query(x);
-    }
     template<typename T>
-    uint64_t est_count(const T &x) const {
-        return query(x);
+    uint64_t est_count(const T &x) {
+        return queryh(x);
     }
     HeavyKeeper &operator|=(const HeavyKeeper &o) {
         uint64_t ret = 0;
@@ -237,20 +214,14 @@ public:
                          rc = lrp.first, rf = lrp.seccond;
                     if(lpf == rf) { // Easily predicted branch first
                         auto newc = lc + rc;
-                        if(VAL_PER_REGISTER == 1) {
+                        if(VAL_PER_REGISTER != 1) store(data_index, subidx, lpf, newc);
+                        else {
                             data_[data_index] = (lpf << ctrsize) | (lc + rc);
                             assert(newc >= lc && newc >= rc);
-                        } else {
-                            store(data_index, subidx, lpf, newc);
                         }
                     } else {
                         auto newc = std::max(lc, rc), newsub = std::min(lc, rc);
-                        static constexpr bool slow_way = false;
-                        if(slow_way) {
-                            while(newsub--)
-                                if(random_sample(newc))
-                                    --newc;
-                        } else newc -= newsub; // Not rigorous, but an exact formula would be effort/perhaps costly.
+                        newc -= newsub; // Not rigorous, but an exact formula would be effort/perhaps costly.
                         if(newc == 0)
                             store(data_index, subidx, 0, 0);
                         else
@@ -266,6 +237,128 @@ public:
         HeavyKeeper cpy(*this);
         cpy += x;
         return cpy;
+    }
+};
+template<typename T>
+struct is_hk: std::false_type {};
+
+template<size_t fpsize, size_t ctrsize, typename Hasher, typename Policy, typename RNG, typename Allocator>
+struct is_hk<HeavyKeeper<fpsize,ctrsize,Hasher,Policy,RNG,Allocator>>: std::true_type {};
+
+#if CXX20_CONCEPTS
+template<typename T>
+concept BigGoalie = is_hk<T>::value;
+template<typename T>
+concept Integral = std::is_integral<T>::value;
+#endif
+
+template<
+         typename HKType,
+         typename ValueType,
+         typename Hasher=std::hash<ValueType>,
+         typename Allocator=sketch::Allocator<ValueType>,
+         typename HashSetFingerprint=uint64_t,
+         typename=typename std::enable_if_t<is_hk<HKType>::value>,
+         typename=typename std::enable_if_t<std::is_integral<HashSetFingerprint>::value>
+>
+class HeavyKeeperHeap {
+    HKType hk_;
+    std::vector<ValueType, Allocator> heap_;
+    ska::flat_hash_set<HashSetFingerprint> hashes_;
+    struct Comparator {
+        const HKType &hk_;
+        Comparator(const HKType &h): hk_(h) {}
+        bool operator()(const ValueType &x, const ValueType &y) const {
+            auto xy = hk_.hash(x), yh = hk_.hash(y);
+            auto v1 = hk_.query(xy), v2 = hk_.query(yh);
+            return std::tie(v1, yh) > std::tie(v2, xy);
+            // Inverted: selects maximum counts with minimum hash values
+        }
+    };
+
+public:
+    using hashfp_t = HashSetFingerprint;
+    HeavyKeeperHeap(size_t heap_size, HKType &&hvk): hk_(std::move(hvk)) {
+        heap_.reserve(heap_size);
+    }
+    auto &top() {return heap_.front();}
+    const auto &top() const {return heap_.front();}
+    auto hash(const ValueType &x) const {return hk_.hash(x);}
+    void addh(ValueType &&x) {
+        const auto hv = hk_.hash(x);
+        const auto old_count = hk_.add(hv);
+        if(hashes_.find(hv) != hashes_.end())
+            return;
+        if(heap_.size() < heap_.capacity()) {
+            heap_.emplace_back(std::move(x));
+            hk_.addh(x);
+            hashes_.emplace(hv);
+            if(heap_.size() == heap_.capacity()) {
+                std::make_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+            }
+        } else {
+#if VERBOSE_AF
+            auto est_val = hk_.queryh(heap_.back());
+            for(const auto x: *this)
+                assert(hk_.queryh(x) <= est_val);
+            for(auto it = heap_.end(); it != heap_.begin(); std::pop_heap(heap_.begin(), it--, Comparator(hk_)));
+            std::make_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+            for(const auto &x: heap_) {
+                auto v1 = hk_.queryh(x), v2 = hk_.queryh(top());
+                std::fprintf(stderr, "v1: %zu. v2: %zu\n", v1, v2);
+                assert(hk_.queryh(x) >= cmpcount);
+            }
+#endif
+            const auto cmpcount = hk_.queryh(top());
+            if(Comparator(hk_)(x, top())) {
+                assert(old_count > cmpcount || hash(top()) > hash(x));
+                std::pop_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+                hashes_.erase(hash(heap_.back()));
+                //auto t = std::move(heap_.back());
+                heap_.back() = std::move(x);
+                hashes_.emplace(hash(heap_.back()));
+                assert(hashes_.size() == heap_.size());
+                //std::fprintf(stderr, "Old: {v:%zu, c:%zu}. New: {v:%zu,c:%zu}\n", size_t(t), hk_.queryh(t), size_t(heap_.back()), hk_.queryh(heap_.back()));
+                std::push_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+            }
+        }
+    }
+    auto begin() {return heap_.begin();}
+    auto begin() const {return heap_.begin();}
+    auto end() {return heap_.end();}
+    auto end() const {return heap_.end();}
+    auto to_container() const {
+        std::vector<ValueType, Allocator> ret = heap_;
+        for(auto it = ret.end(); it != ret.begin(); std::pop_heap(ret.begin(), it--, Comparator(hk_)));
+        std::vector<hashfp_t, common::Allocator<hashfp_t>> hashfps;
+        std::vector<size_t, common::Allocator<size_t>> counts;
+        hashfps.reserve(heap_.size());
+        counts.reserve(heap_.size());
+        for(const auto &x: ret) {
+            auto hv = hash(x);
+            hashfps.push_back(hv);
+            counts.push_back(hk_.query(hv));
+        }
+        return std::make_tuple(std::move(ret), std::move(counts), std::move(hashfps));
+    }
+    auto finalize() const {
+        auto ret = to_container();
+        return ret;
+    }
+    auto finalize() { // Consumes and destroys
+        for(auto it = heap_.end(); it != heap_.begin(); std::pop_heap(heap_.begin(), it--, Comparator(hk_)));
+        std::vector<hashfp_t, common::Allocator<hashfp_t>> hashfps;
+        std::vector<size_t, common::Allocator<size_t>> counts;
+        hashfps.reserve(heap_.size());
+        counts.reserve(heap_.size());
+        for(const auto &x: heap_) {
+            auto hv = hash(x);
+            hashfps.push_back(hv);
+            counts.push_back(hk_.query(hv));
+        }
+        hashes_.clear();
+        hk_.clear();
+        return std::make_tuple(std::move(heap_), std::move(counts), std::move(hashfps));
     }
 };
 

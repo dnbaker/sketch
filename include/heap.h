@@ -189,6 +189,8 @@ template<typename CSketchType>
 struct SketchCmp {
     CSketchType &csketch_;
     SketchCmp(CSketchType &sketch): csketch_(sketch) {}
+    auto &sketch() {return csketch_;}
+    const auto &sketch() const {return csketch_;}
     template<typename Obj>
     bool operator()(const Obj &a, const Obj &b) const {
         return csketch_.est_count(a) > csketch_.est_count(b);
@@ -207,9 +209,7 @@ struct SketchCmp {
     }
 };
 
-#if SKETCH_HEAP_READY_H__
-// It's not
-
+#if 0
 template<typename Obj, typename CSketchType, typename HashFunc=hash<Obj>>
 class SketchHeap {
     HashFunc h_;
@@ -228,7 +228,7 @@ class SketchHeap {
     const uint64_t m_;
 public:
     template<typename... Args>
-    SketchHeap(size_t n, CSketchType &csketch,  HashFunc &&hf=HashFunc(), Args &&...args):
+    SketchHeap(size_t n, CSketchType &&csketch,  HashFunc &&hf=HashFunc(), Args &&...args):
         h_(std::move(hf)), cmp_(csketch), m_(n)
     {
         core_.reserve(n);
@@ -236,8 +236,8 @@ public:
 
     template<typename T1, typename T2> auto cmp(const T1 &x, const T2 &y) {return cmp_(x, y);}
 
-    auto &top() {return core_[0];}
-    const auto &top() const {return core_[0];}
+    auto &top() {return core_.front();}
+    const auto &top() const {return core_.front();}
     void addh(Obj &&o) {
         auto hv = h_(o);
         if(core_.size() < m_) {
@@ -247,15 +247,16 @@ public:
             }
             GET_LOCK_AND_CHECK
             hashes_.emplace(hv);
+            cmp_.sketch().addh(hv);
             core_.emplace_back(std::move(o));
             std::push_heap(core_.begin(), core_.end(), cmp_);
-        } else if(cmp_(o, core_.front()) && o != core_.front()) {
+        } else if(cmp_(o, core_.front()) && o != top()) {
             std::pop_heap(core_.begin(), core_.end(), cmp_);
             auto it = hashes_.find(h_(core_.front()));
             if(it != hashes_.end())
                 hashes_.erase(it);
             hashes_.emplace(hv);
-            Obj s(std::move(core_.back()));
+            //Obj s(std::move(core_.back()));
             core_.back() = std::move(o);
             std::push_heap(core_.begin(), core_.end(), cmp_);
         }
@@ -276,6 +277,7 @@ public:
         return ret;
     }
 };
+
 #endif
 
 } // namespace heap
