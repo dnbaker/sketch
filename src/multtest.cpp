@@ -11,6 +11,7 @@ using H = HeavyKeeper<7,9>;
 using C = cm::ccmbase_t<>;
 using S = wj::WeightedSketcher<hll::hll_t, H>;
 using S2 = wj::WeightedSketcher<hll::hll_t, C>;
+
 int main (int argc, char *argv[]) {
     common::DefaultRNGType gen;
     int tbsz = argc == 1 ? 1 << 12: std::atoi(argv[1]);

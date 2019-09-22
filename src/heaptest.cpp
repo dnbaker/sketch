@@ -6,7 +6,7 @@
 #define show(...)
 //template<typename T>
 //void show(const T &x, std::string t="no name") {int i = 0; for(auto _i: x) {if(++i >= 10) break; std::fprintf(stderr, "%s-%zu\n", t.data(), size_t(_i));}}
-
+#define ZOMG3 1
 
 using namespace sketch::heap;
 using namespace sketch::cm;
@@ -18,10 +18,11 @@ int main() {
     using cmp = std::less<>;
     ObjHeap<uint64_t, cmp> zomg(100);
     std::set<uint64_t, cmp> zomgset;
-//template<typename Obj, typename HashFunc=hash<Obj>, typename ScoreType=std::uint64_t, typename MainCmp=DefaultScoreCmp<ScoreType>>
     ObjScoreHeap<uint64_t, cmp, std::hash<uint64_t>> zomg2(100);
     csbase_t<> cs(10, 5);
-    SketchHeap<uint64_t, decltype(cs)> zomg3(100, cs);
+#if ZOMG3
+    SketchHeap<uint64_t, decltype(cs)> zomg3(100, csbase_t<>(cs));
+#endif
     std::vector<uint64_t> all;
     for(size_t i=0; i < 1000000; ++i) {
         auto v = mt();
@@ -34,9 +35,13 @@ int main() {
     }
     for(const auto v: all) zomg2.addh(v, v);
     auto zomgvec = zomg.template to_container<>();
-    //auto zomgvec3 = zomg4.template to_container<>();
     auto ozomgvec = std::vector<uint64_t, Allocator<uint64_t>>(zomgset.begin(), zomgset.end());
-    //auto zomgvec3 = zomg3.template to_container<>();
+#if ZOMG4
+    auto zomgvec4 = zomg4.template to_container<>();
+#endif
+#if ZOMG3
+    auto zomgvec3 = zomg3.template to_container<>();
+#endif
     auto zomgvec2 = zomg2.template to_container<>();
     std::sort(zomgvec.begin(), zomgvec.end());
     std::sort(zomgvec2.begin(), zomgvec2.end());

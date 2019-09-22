@@ -209,7 +209,6 @@ struct SketchCmp {
     }
 };
 
-#if 0
 template<typename Obj, typename CSketchType, typename HashFunc=hash<Obj>>
 class SketchHeap {
     HashFunc h_;
@@ -277,8 +276,6 @@ public:
         return ret;
     }
 };
-
-#endif
 
 } // namespace heap
 
