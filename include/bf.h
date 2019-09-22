@@ -323,6 +323,7 @@ public:
                 p1[5] = v1;
                 p1[6] = v1;
                 p1[7] = v1;
+                p1 += 8;
             }
             while(p1 < p2) *p1++ = v1;
         } else {
