@@ -52,8 +52,9 @@ template<typename T>
 __host__ __device__
 double inline origest(const T &p, unsigned l2) {
     auto m = size_t(1) << l2;
-    double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
+    const double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
     double s = p[0];
+    #pragma unroll 8
     for(auto i = 1u; i < 64 - l2 + 1; ++i)
         s += ldexp(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
     return alpha * m * m / s;
@@ -163,6 +164,7 @@ __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uin
 }
 
 __global__ void calc_sizes_large(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t nblocks, uint32_t *SK_RESTRICT sizes) {
+
     auto tid = threadIdx.x;
     auto bid = blockIdx.x;
     auto gid = bid * blockDim.x + tid;
@@ -170,7 +172,8 @@ __global__ void calc_sizes_large(const uint8_t *SK_RESTRICT p, unsigned l2, size
     // First, divide the total amount of work that our block of workers will process
     auto range_start = nc2 / nblocks * bid;
     auto range_end = std::max(size_t((nc2 + nblocks - 1) / nblocks), nc2);
-    if(range_start >= range_end || (gid != gid)) return; // If you overflow, skip
+    extern __shared__ int shared[];
+    if(range_start >= range_end) return; // Skip overflows
 }
 
 __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t &SK_RESTRICT rets) {

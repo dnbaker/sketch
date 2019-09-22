@@ -305,12 +305,29 @@ public:
     }
     // Reset.
     void clear() {
-        if(core_.size() >= (1<<15))
+        static constexpr const size_t MEMSET_CUTOFF = 1ull << 16;
+        if(core_.size() >= MEMSET_CUTOFF) {
+            // Typically this can be faster by swapping around virtual memory pages
             std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
-        else if(__builtin_expect(core_.size() * sizeof(core_[0]) >= sizeof(VType), 1))
-            for(VType v1 = Space::set1(0), *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
-        else
+        } else if(core_.size() * sizeof(core_[0]) >= sizeof(VType)) {
+            const VType v1 = Space::set1(0);
+            VType *p1(reinterpret_cast<VType *>(&core_[0]));
+            const VType *const p2(reinterpret_cast<VType *>(&core_[core_.size()]));
+            static_assert(std::is_pointer<decltype(p1)>::value, "must be a pointer");
+            while(p2 - p1 > 8) {
+                p1[0] = v1;
+                p1[1] = v1;
+                p1[2] = v1;
+                p1[3] = v1;
+                p1[4] = v1;
+                p1[5] = v1;
+                p1[6] = v1;
+                p1[7] = v1;
+            }
+            while(p1 < p2) *p1++ = v1;
+        } else {
             std::fill(core_.begin(), core_.end(), static_cast<uint64_t>(0));
+        }
     }
     bfbase_t(bfbase_t&&) = default;
     bfbase_t(const bfbase_t &other) = default;
@@ -464,7 +481,7 @@ public:
         }
         return ret;
     }
-    void may_contain(const std::vector<uint64_t> vals, std::vector<uint64_t> &ret) const {
+    auto &may_contain(const std::vector<uint64_t> vals, std::vector<uint64_t> &ret) const {
         return may_contain(vals.data(), vals.size(), ret);
     }
     auto &may_contain(const uint64_t *vals, size_t nvals, std::vector<uint64_t> &ret) const {
