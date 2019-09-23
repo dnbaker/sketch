@@ -779,6 +779,7 @@ public:
     }
     void write(const char *path) const {
         gzFile fp = gzopen(path, "wb");
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + path);
         this->write(fp);
         gzclose(fp);
     }

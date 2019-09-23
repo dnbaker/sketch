@@ -101,7 +101,7 @@
     ssize_t write(const char *path, int compression=6) const {\
         std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");\
         gzFile fp = gzopen(path, mode.data());\
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);\
+        if(!fp) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + path);\
         auto ret = write(fp);\
         gzclose(fp);\
         return ret;\

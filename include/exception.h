@@ -29,6 +29,10 @@ public:
     UnsatisfiedPostconditionError(): std::runtime_error("Unsatisfied precondition.") {}
 };
 
+struct ZlibError: public std::runtime_error {
+public:
+    ZlibError(int ze, std::string s): std::runtime_error(std::string("zlibError [") + zError(ze) + "]" + s) {}
+};
 
 #ifdef __CUDACC__
 struct CudaError: public std::runtime_error {

@@ -1029,7 +1029,7 @@ public:
     void write(const char *path, bool write_gz=true) const {
         if(write_gz) {
             gzFile fp(gzopen(path, "wb"));
-            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+            if(!fp) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + path);
             write(fp);
             gzclose(fp);
         } else {
@@ -1301,7 +1301,7 @@ public:
     void write(const char *fn, bool write_gz) {
         if(write_gz) {
             gzFile fp = gzopen(fn, "wb");
-            if(fp == nullptr) throw std::runtime_error("Could not open file.");
+            if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
             this->write(fp);
             gzclose(fp);
         } else {
@@ -1329,7 +1329,7 @@ public:
     }
     void read(const char *fn) {
         gzFile fp = gzopen(fn, "rb");
-        this->read(fp);
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
         gzclose(fp);
     }
     template<typename T, typename Hasher=std::hash<T>>
@@ -1376,7 +1376,7 @@ public:
     auto m() const {return hlls_[0].size();}
     void write(const char *fn) const {
         gzFile fp = gzopen(fn, "wb");
-        if(fp == nullptr) throw std::runtime_error("Could not open file.");
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
         this->write(fp);
         gzclose(fp);
     }
@@ -1386,7 +1386,7 @@ public:
     }
     void read(const char *fn) {
         gzFile fp = gzopen(fn, "rb");
-        if(fp == nullptr) throw std::runtime_error("Could not open file.");
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
         this->read(fp);
         gzclose(fp);
     }
