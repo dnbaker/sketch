@@ -577,34 +577,29 @@ public:
         if(unlikely(core_.size() < 8))
             throw NotImplementedError("for_each_nonzero not implemented for size < 8.");
 
-#define SPARSE_ITER do {\
-                 assert(v != 0);\
-                 func(index + clz(v));\
-                 v &= v - 1;\
-        } while(0)
-
         uint64_t index = 0;
-        auto it = reinterpret_cast<const uint64_t *>(&core_[0]); // Get pointer in case it's easier to optimize
+        const uint64_t *it = reinterpret_cast<const uint64_t *>(&core_[0]); // Get pointer in case it's easier to optimize
         const uint64_t *const end = &core_[size()];
         do {
             auto v = *it++;
             if(v == 0) continue;
             auto nnz = popcount(v);
             auto nloops = (nnz + 7) / 8u;
+            // nloops is guaranteed to be at least one because otherwise v would have heen 0
             switch(nnz % 8u) {
-                case 0:              VEC_FALLTHROUGH;
-            do {        SPARSE_ITER; VEC_FALLTHROUGH;
-                case 7: SPARSE_ITER; VEC_FALLTHROUGH;
-                case 6: SPARSE_ITER; VEC_FALLTHROUGH;
-                case 5: SPARSE_ITER; VEC_FALLTHROUGH;
-                case 4: SPARSE_ITER; VEC_FALLTHROUGH;
-                case 3: SPARSE_ITER; VEC_FALLTHROUGH;
-                case 2: SPARSE_ITER; VEC_FALLTHROUGH;
-                case 1: SPARSE_ITER;
+                case 0: VEC_FALLTHROUGH;
+            do {        func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
+                case 7: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
+                case 6: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
+                case 5: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
+                case 4: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
+                case 3: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
+                case 2: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
+                case 1: func(index + clz(v)); v &= v - 1;
                 } while(--nloops);
             }
+            index += sizeof(uint64_t) * CHAR_BIT;
         } while(it < end);
-#undef SPARSE_ITER
     }
     template<typename T=uint32_t, typename Alloc=std::allocator<T>>
     std::vector<T, Alloc> to_sparse_representation() const {
