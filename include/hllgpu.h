@@ -167,17 +167,29 @@ __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uin
     sizes[gid] = origest(arr, l2);
 }
 
-__global__ void calc_sizes_large(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t nblocks, uint32_t *SK_RESTRICT sizes) {
-
+__global__ void calc_sizes_large(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t nblocks, size_t mem_per_block, uint32_t *SK_RESTRICT sizes) {
+    extern __shared__ int shared[];
+    auto sptr = reinterpret_cast<uint8_t *>(&shared[0]);
     auto tid = threadIdx.x;
     auto bid = blockIdx.x;
     auto gid = bid * blockDim.x + tid;
     size_t nc2 = nchoose2(nhlls);
+    const size_t nreg = size_t(1) << l2;
     // First, divide the total amount of work that our block of workers will process
-    auto range_start = nc2 / nblocks * bid;
-    auto range_end = std::max(size_t((nc2 + nblocks - 1) / nblocks), nc2);
-    extern __shared__ int shared[];
+    auto range_start = uint64_t(bid) * nc2 / nblocks;
+    const auto range_end = size_t(std::max(uint64_t(bid + 1) * nc2 / nblocks, uint64_t(nc2)));
+    // These parameters are shared between all threads in a block
     if(range_start >= range_end) return; // Skip overflows
+    auto lhid = range_start / nhlls;
+    auto rhid = range_start % nhlls;
+    const uint8_t *lhs = p + (lhid << l2);
+    for(;;) {
+        const uint8_t *const rhs = p + (rhid << l2);
+        if(++range_start == range_end) break;
+        rhid = range_start % nhlls;
+        lhid = range_start / nhlls;
+        lhs = p + (lhid << l2);
+    }
 }
 
 __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t &SK_RESTRICT rets) {
@@ -205,6 +217,11 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
     size_t tpb = nhlls/2 + (nhlls&1);
     if(tpb > 1024) {
         throw std::runtime_error("Current implementation is limited to 1024 by 1024 comparisons. TODO: fix this with a reimplementation");
+        static constexpr size_t nblocks = 0x20000ULL;
+        static constexpr size_t mem_per_block = (16 << 20) / nblocks;
+        // This means work per block before updating will be mem_per_block / nblocks
+        
+        calc_sizes_large<<<nblocks,1024,mem_per_block>>>(p, l2, nhlls, nblocks, mem_per_block, sizes);
     } else {
         calc_sizes_1024<<<nhlls,(nhlls+1)/2,m>>>(p, l2, nhlls, sizes);
     }
