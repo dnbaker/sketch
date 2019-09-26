@@ -336,10 +336,12 @@ enum MHCardinalityMode: uint8_t {
 template<typename T, typename Alloc>
 auto &delta_encode(std::vector<T, Alloc> &x) {
     assert(std::is_sorted(x.begin(), x.end()));
-    for(auto it = x.begin(), e = x.end(); it != e; ++it) {
-        *it = *(it + 1) - *it;
+    T prev = 0;
+    for(auto &el: x) {
+        const auto tmp = el;
+        el = tmp - prev;
+        prev = tmp;
     }
-    x.pop_back();
     return x;
 }
 
@@ -348,6 +350,18 @@ std::vector<T, Alloc> delta_encode(const std::vector<T, Alloc> &x) {
     std::vector<T, Alloc> ret(x);
     delta_encode(ret);
     return ret;
+}
+
+template<typename Container, typename F>
+void for_each_delta_decode(const Container &c, const F &func) {
+    throw NotImplementedError("delta decoding is currently incorrect. DO NOT USE.");
+    using T = std::decay_t<decltype(*std::begin(c))>;
+    auto it = std::begin(c);
+    for(T cv = *it++;;) {
+        func(cv);
+        if(it == std::end(c)) break;
+        else cv += *it++;
+    }
 }
 
 #ifdef __CUDACC__

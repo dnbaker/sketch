@@ -1,4 +1,5 @@
 #include "bf.h"
+#include <iostream>
 #include "cbf.h"
 #include <unordered_set>
 using namespace sketch::bf;
@@ -34,8 +35,20 @@ int main(int argc, char *argv[]) {
         s2c += (count > 1);
     }
     std::fprintf(stderr, "Counts above 1 for s1: %" PRIu64 ". Counts above 1 for s2: %" PRIu64 ". Counts of zero for s1: %" PRIu64 "\n", s1c, s2c, s1f);
-    auto srs = bf2.template to_sparse_representation<uint32_t>();
-    std::fprintf(stderr, "number of nonzeros: %zu.\b", srs.size());
-    for(const auto e: srs)
-        assert(bf2.is_set(e));
+    bf_t bfl(8, 1, 137);
+    for(size_t i = 0; i < 100; ++i)
+        bfl.addh(i);
+    auto srs = bfl.template to_sparse_representation<uint32_t>();
+    assert(srs.size() == bfl.popcnt());
+    for(const auto e: srs) {
+        assert(bfl.is_set(e));
+    }
+    for(unsigned i = 0; i < bfl.size(); ++i) {
+        if(bfl.is_set(i))
+            assert(std::find(srs.begin(), srs.end(), i) != srs.end());
+    }
+#if 0
+    sketch::common::for_each_delta_decode(srs, [&bfl](size_t x) {
+        assert(bfl.is_set(x));});
+#endif
 }

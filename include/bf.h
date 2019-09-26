@@ -574,30 +574,39 @@ public:
     }
     template<typename F>
     void for_each_nonzero(const F &func) const {
-        if(unlikely(core_.size() < 8))
-            throw NotImplementedError("for_each_nonzero not implemented for size < 8.");
-
         uint64_t index = 0;
         const uint64_t *it = reinterpret_cast<const uint64_t *>(&core_[0]); // Get pointer in case it's easier to optimize
-        const uint64_t *const end = &core_[size()];
+        const uint64_t *const end = &*core_.end();
         do {
             auto v = *it++;
             if(v == 0) continue;
             auto nnz = popcount(v);
+            assert(nnz);
+#if UNROLL
             auto nloops = (nnz + 7) / 8u;
+            uint64_t t;
             // nloops is guaranteed to be at least one because otherwise v would have heen 0
             switch(nnz % 8u) {
                 case 0: VEC_FALLTHROUGH;
-            do {        func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
-                case 7: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
-                case 6: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
-                case 5: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
-                case 4: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
-                case 3: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
-                case 2: func(index + clz(v)); v &= v - 1; VEC_FALLTHROUGH;
-                case 1: func(index + clz(v)); v &= v - 1;
+            do {        t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 7: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 6: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 5: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 4: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 3: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 2: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 1: t = v & -v; func(index + ctz(v)); v ^= t; assert(v);
                 } while(--nloops);
+                assert(v == 0);
             }
+#else
+            while(v) {
+                uint64_t t = v & -v;
+                assert((t & (t - 1)) == 0);
+                func(index + ctz(v));
+                v ^= t;
+            }
+#endif
             index += sizeof(uint64_t) * CHAR_BIT;
         } while(it < end);
     }
