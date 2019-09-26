@@ -34,4 +34,8 @@ int main(int argc, char *argv[]) {
         s2c += (count > 1);
     }
     std::fprintf(stderr, "Counts above 1 for s1: %" PRIu64 ". Counts above 1 for s2: %" PRIu64 ". Counts of zero for s1: %" PRIu64 "\n", s1c, s2c, s1f);
+    auto srs = bf2.template to_sparse_representation<uint32_t>();
+    std::fprintf(stderr, "number of nonzeros: %zu.\b", srs.size());
+    for(const auto e: srs)
+        assert(bf2.is_set(e));
 }

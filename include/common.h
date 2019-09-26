@@ -24,7 +24,7 @@
 #ifndef _VEC_H__
 #  define NO_SLEEF
 #  define NO_BLAZE
-#  include "vec.h" // Import vec.h, but disable blaze and sleef.
+#  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
 #endif
 
 #if __AES__
@@ -332,6 +332,23 @@ enum MHCardinalityMode: uint8_t {
     MEDIAN,
     HLL_METHOD, // Should perform worse than harmonic
 };
+
+template<typename T, typename Alloc>
+auto &delta_encode(std::vector<T, Alloc> &x) {
+    assert(std::is_sorted(x.begin(), x.end()));
+    for(auto it = x.begin(), e = x.end(); it != e; ++it) {
+        *it = *(it + 1) - *it;
+    }
+    x.pop_back();
+    return x;
+}
+
+template<typename T, typename Alloc>
+std::vector<T, Alloc> delta_encode(const std::vector<T, Alloc> &x) {
+    std::vector<T, Alloc> ret(x);
+    delta_encode(ret);
+    return ret;
+}
 
 #ifdef __CUDACC__
 #endif
