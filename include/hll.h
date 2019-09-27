@@ -772,7 +772,12 @@ public:
         csum();
         return value_;
     }
-    const auto finalize() const {return *this;}
+    auto finalize() const {return *this;}
+    auto finalize() {
+        auto ret(std::move(*this));
+        this->free();
+        return ret;
+    }
     double report() noexcept {
         csum();
         return creport();

@@ -218,10 +218,18 @@ public:
     void clear() {
         decltype(minimizers_)().swap(minimizers_);
     }
+    void free() {clear();}
     final_type finalize() const {
         std::vector<T> reta(minimizers_.begin(), minimizers_.end());
         reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
-        return final_type{std::move(reta)};
+        return final_type(std::move(reta));
+    }
+    final_type finalize() {
+        std::vector<T> reta(minimizers_.begin(), minimizers_.end());
+        reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
+        final_type ret(std::move(reta));
+        this->free();
+        return ret;
     }
     std::vector<T> mh2vec() const {return to_container<std::vector<T>>();}
     size_t size() const {return minimizers_.size();}
@@ -431,6 +439,10 @@ public:
     auto end() const {return minimizers_.end();}
     auto rend() {return minimizers_.rend();}
     auto rend() const {return minimizers_.rend();}
+    void free() {
+        std::set<VType> tmp;
+        std::swap(tmp, minimizers_);
+    }
     CountingRangeMinHash(size_t n, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()): AbstractMinHash<T, Cmp>(n), hf_(std::move(hf)), cmp_(std::move(cmp)) {}
     CountingRangeMinHash(std::string s): CountingRangeMinHash(0) {throw NotImplementedError("");}
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
@@ -550,6 +562,11 @@ public:
     final_type finalize() const {
         return FinalCRMinHash<T, Cmp, CountType>(*this);
     }
+    final_type finalize() {
+        auto ret(FinalCRMinHash<T, Cmp, CountType>(*this));
+        this->free();
+        return ret;
+    }
     template<typename Func>
     void for_each(const Func &func) const {
         for(const auto &i: minimizers_) {
@@ -580,7 +597,8 @@ public:
 };
 
 
-template<typename T, typename Cmp, typename CountType>
+
+template<typename T, typename Cmp=std::greater<T>, typename CountType=uint32_t>
 struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     using super = FinalRMinHash<T, Cmp>;
     std::vector<CountType> second;

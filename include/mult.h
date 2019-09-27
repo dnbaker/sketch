@@ -7,6 +7,8 @@
 #include "./vec/blaze/blaze/Math.h"
 #endif
 #endif
+
+#include "hk.h"
 #include <cstdarg>
 #include <mutex>
 #include "./xxHash/xxh3.h"
@@ -334,7 +336,7 @@ struct WangPairHasher: public hash::WangHash {
 };
 
 
-template<typename CoreSketch, typename CountingSketchType=cm::ccm_t, typename HashStruct=common::WangHash, bool always_insert=true, typename PairHasher=WangPairHasher>
+template<typename CoreSketch, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, bool always_insert=true, typename PairHasher=WangPairHasher>
 struct WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
@@ -344,12 +346,20 @@ struct WeightedSketcher {
     using final_type = typename CoreSketch::final_type;
     using base_type  = CoreSketch;
     using cm_type    = CountingSketchType;
+    using hash_type  = HashStruct;
     WeightedSketcher(CountingSketchType &&cst, CoreSketch &&core,
                      HashStruct &&hf=HashStruct())
     : cst_(std::move(cst)), sketch_(std::move(core)), hf_(std::move(hf)) {}
     WeightedSketcher(std::string path): cst_(0,0), sketch_(path) {throw NotImplementedError("Reading weighted sketcher from disk");}
-    WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw NotImplementedError("Making a weighted sketcher from an integer.");}
+    //WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw NotImplementedError("Making a weighted sketcher from an integer.");}
 
+    template<typename...Args>
+    WeightedSketcher(const cm_type &tplt, HashStruct &&hf, Args &&...args):
+        WeightedSketcher(std::move(cm_type(tplt)) /* copy constructor to make an r-value */,
+                         CoreSketch(std::forward<Args>(args)...),
+                         std::move(hf))
+    {
+    }
     operator final_type() {
         return std::move(sketch_);
     }
@@ -380,13 +390,14 @@ struct WeightedSketcher {
     WeightedSketcher &operator=(WeightedSketcher &&) = default;
     template<typename...Args>
     final_type finalize(Args &&...args) const {
-        return final_type(sketch_.finalize(std::forward<Args>(args)...));
+        return sketch_.finalize(std::forward<Args>(args)...);
     }
     template<typename...Args>
     auto write(Args &&...args) const {return sketch_.write(std::forward<Args>(args)...);}
     template<typename...Args>
     void read(Args &&...args) {throw NotImplementedError("Reading weighted sketcher from disk");}
     auto jaccard_index(const base_type &o) const {return sketch_.jaccard_index(o);}
+    auto jaccard_index(const WeightedSketcher &o) const {return sketch_.jaccard_index(o);}
     template<typename...Args> auto jaccard_index(Args &&...args) const {return sketch_.jaccard_index(std::forward<Args>(args)...);}
     template<typename...Args> auto containment_index(Args &&...args) const {return sketch_.containment_index(std::forward<Args>(args)...);}
     template<typename...Args> auto full_set_comparison(Args &&...args) const {return sketch_.full_set_comparison(std::forward<Args>(args)...);}
