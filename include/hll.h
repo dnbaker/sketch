@@ -745,7 +745,8 @@ public:
         , hf_(std::forward<Args>(args)...)
     {
 #if LZ_COUNTER
-        std::fill(clz_counts_.begin(), clz_counts_.end(), uint64_t(0));
+        for(size_t i = 0; i < clz_counts_.size(); ++i)
+            clz_counts_[i].store(uint64_t(0));
 #endif
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
@@ -921,7 +922,8 @@ public:
         estim_(other.estim_), jestim_(other.jestim_), hf_(other.hf_)
     {
 #if LZ_COUNTER
-        std::copy(other.clz_counts_.begin(), other.clz_counts_.end(), clz_counts_.begin());
+        for(size_t i = 0; i < clz_counts_.size(); ++i)
+            clz_counts_[i].store(other.clz_counts_[i].load());
 #endif
     }
     hllbase_t& operator=(const hllbase_t &other) {
