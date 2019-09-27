@@ -219,10 +219,14 @@ public:
         decltype(minimizers_)().swap(minimizers_);
     }
     void free() {clear();}
-    final_type finalize() const {
+    final_type cfinalize() const {
         std::vector<T> reta(minimizers_.begin(), minimizers_.end());
-        reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
+        if(reta.size() < this->ss_)
+            reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
         return final_type(std::move(reta));
+    }
+    final_type finalize() const {
+        return cfinalize();
     }
     final_type finalize() {
         std::vector<T> reta(minimizers_.begin(), minimizers_.end());
@@ -466,9 +470,19 @@ public:
     auto max_element() const {
         return minimizers_.begin()->first;
     }
-    auto sum_sq() {return cached_sum_sq_ ? cached_sum_sq_: (cached_sum_sq_ = std::accumulate(std::next(this->begin()), this->end(), this->begin()->second * this->begin()->second, [](auto s, const VType &x) {return s + x.second * x.second;}));}
+    auto sum_sq() {
+        if(cached_sum_sq_) goto end;
+        cached_sum_sq_ = std::accumulate(this->begin(), this->end(), 0., [](auto s, const VType &x) {return s + x.second * x.second;});
+        end:
+        return cached_sum_sq_;
+    }
     auto sum_sq() const {return cached_sum_sq_;}
-    auto sum() {return cached_sum_ ? cached_sum_ : (cached_sum_ = std::accumulate(std::next(this->begin()), this->end(), this->begin()->second, [](auto s, const VType &x) {return s + x.second;}));}
+    auto sum() {
+        if(cached_sum_) goto end;
+        cached_sum_ = std::accumulate(std::next(this->begin()), this->end(), this->begin()->second, [](auto s, const VType &x) {return s + x.second;});
+        end:
+        return cached_sum_;
+    }
     auto sum() const {return cached_sum_;}
     double histogram_intersection(const CountingRangeMinHash &o) const {
         assert(o.size() == size());
@@ -560,6 +574,9 @@ public:
         return static_cast<double>(num) / denom;
     }
     final_type finalize() const {
+        return cfinalize();
+    }
+    final_type cfinalize() const {
         return FinalCRMinHash<T, Cmp, CountType>(*this);
     }
     final_type finalize() {
