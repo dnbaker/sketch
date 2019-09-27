@@ -333,6 +333,37 @@ enum MHCardinalityMode: uint8_t {
     HLL_METHOD, // Should perform worse than harmonic
 };
 
+template<typename T, typename Alloc>
+auto &delta_encode(std::vector<T, Alloc> &x) {
+    assert(std::is_sorted(x.begin(), x.end()));
+    T prev = 0;
+    for(auto &el: x) {
+        const auto tmp = el;
+        el = tmp - prev;
+        prev = tmp;
+    }
+    return x;
+}
+
+template<typename T, typename Alloc>
+std::vector<T, Alloc> delta_encode(const std::vector<T, Alloc> &x) {
+    std::vector<T, Alloc> ret(x);
+    delta_encode(ret);
+    return ret;
+}
+
+template<typename Container, typename F>
+void for_each_delta_decode(const Container &c, const F &func) {
+    throw NotImplementedError("delta decoding is currently incorrect. DO NOT USE.");
+    using T = std::decay_t<decltype(*std::begin(c))>;
+    auto it = std::begin(c);
+    for(T cv = *it++;;) {
+        func(cv);
+        if(it == std::end(c)) break;
+        else cv += *it++;
+    }
+}
+
 #ifdef __CUDACC__
 #endif
 

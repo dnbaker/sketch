@@ -14,9 +14,9 @@ namespace bf {
 
 static constexpr size_t optimal_nhashes(size_t l2sz, size_t est_cardinality) {
     l2sz  = size_t(1) << l2sz;
-    size_t ipart = M_LN2 * l2sz / est_cardinality;
     double fpart = M_LN2 * l2sz / est_cardinality;
-    return ipart + ((fpart - ipart) != 0);
+    size_t ipart = fpart;
+    return ipart + double(ipart) != fpart; // Always round up?
 }
 
 template<typename HashStruct=WangHash>
@@ -65,9 +65,6 @@ public:
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
         if(np_ > 40u) throw std::runtime_error(std::string("Attempting to make a table that's too large. p:") + std::to_string(np_));
         if(np_) resize(1ull << p());
-#if !NDEBUG
-        else std::fprintf(stderr, "np is small. (%u). offset %i. \n", unsigned(np_), int(l2sz) - OFFSET);
-#endif
     }
     explicit bfbase_t(size_t l2sz=OFFSET): bfbase_t(l2sz, 1, std::rand()) {}
     explicit bfbase_t(const std::string &path) {
@@ -543,17 +540,27 @@ public:
     DBSKETCH_WRITE_STRING_MACROS
     DBSKETCH_READ_STRING_MACROS
     ssize_t write(gzFile fp) const {
+        if(seeds_.size() > 255) {
+            throw std::runtime_error("Error: serialization only allows up to 255 seeds, which means you're probably using at least 510 hash functions.");
+        }
         uint8_t arr[] {np_, nh_, uint8_t(seeds_.size())};
-        ssize_t ret = gzwrite(fp, arr, sizeof(arr));
-        ret += gzwrite(fp, &hf_, sizeof(hf_));
-        ret += gzwrite(fp, &seedseed_, sizeof(seedseed_));
-        ret += gzwrite(fp, &mask_, sizeof(mask_));
-        ret += gzwrite(fp, seeds_.data(), seeds_.size() * sizeof(seeds_[0]));
-        ret += gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0]));
+        ssize_t rc;
+        if((rc = gzwrite(fp, arr, sizeof(arr))) != sizeof(arr)) throw ZlibError(Z_ERRNO, "Failed writing to file");
+        ssize_t ret = rc;
+        if((rc = gzwrite(fp, &hf_, sizeof(hf_))) != sizeof(hf_)) throw ZlibError(Z_ERRNO, "Failed writing to file");
+        ret += rc;
+        if((rc = gzwrite(fp, &seedseed_, sizeof(seedseed_))) != sizeof(seedseed_)) throw ZlibError(Z_ERRNO, "Failed writing to file");
+        ret += rc;
+        if((rc = gzwrite(fp, &mask_, sizeof(mask_))) != sizeof(mask_)) throw ZlibError(Z_ERRNO, "Failed writing to file");
+        ret += rc;
+        if((rc = gzwrite(fp, seeds_.data(), seeds_.size() * sizeof(seeds_[0]))) != seeds_.size() * sizeof(seeds_[0])) throw ZlibError(Z_ERRNO, "Failed writing to file");
+        ret += rc;
+        if((rc = gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0]))) != core_.size() * sizeof(core_[0])) throw ZlibError(Z_ERRNO, "Failed writing to file");
+        ret += rc;
         return ret;
     }
     ssize_t read(gzFile fp) {
-        uint8_t arr[3] {0};
+        uint8_t arr[] {0,0,0};
         ssize_t ret = gzread(fp, arr, sizeof(arr));
         np_ = arr[0];
         nh_ = arr[1];
@@ -563,6 +570,50 @@ public:
         ret += gzread(fp, &mask_, sizeof(mask_));
         if(np_) resize(1ull << p());
         ret += gzread(fp, core_.data(), core_.size() * sizeof(core_[0]));
+        return ret;
+    }
+    template<typename F>
+    void for_each_nonzero(const F &func) const {
+        uint64_t index = 0;
+        const uint64_t *it = reinterpret_cast<const uint64_t *>(&core_[0]); // Get pointer in case it's easier to optimize
+        const uint64_t *const end = &*core_.end();
+        do {
+            auto v = *it++;
+            if(v == 0) continue;
+            auto nnz = popcount(v);
+            assert(nnz);
+#if UNROLL
+            auto nloops = (nnz + 7) / 8u;
+            uint64_t t;
+            // nloops is guaranteed to be at least one because otherwise v would have heen 0
+            switch(nnz % 8u) {
+                case 0: VEC_FALLTHROUGH;
+            do {        t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 7: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 6: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 5: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 4: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 3: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 2: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
+                case 1: t = v & -v; func(index + ctz(v)); v ^= t; assert(v);
+                } while(--nloops);
+                assert(v == 0);
+            }
+#else
+            while(v) {
+                uint64_t t = v & -v;
+                assert((t & (t - 1)) == 0);
+                func(index + ctz(v));
+                v ^= t;
+            }
+#endif
+            index += sizeof(uint64_t) * CHAR_BIT;
+        } while(it < end);
+    }
+    template<typename T=uint32_t, typename Alloc=std::allocator<T>>
+    std::vector<T, Alloc> to_sparse_representation() const {
+        std::vector<T, Alloc> ret;
+        for_each_nonzero([&](uint64_t i) {ret.push_back(i);});
         return ret;
     }
 };
