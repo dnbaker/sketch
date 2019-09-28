@@ -10,6 +10,7 @@
 
 #include "hk.h"
 #include <cstdarg>
+#include <cmath>
 #include <mutex>
 #include "./xxHash/xxh3.h"
 
@@ -336,7 +337,7 @@ struct WangPairHasher: public hash::WangHash {
 };
 
 
-template<typename CoreSketch, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, bool always_insert=true, typename PairHasher=WangPairHasher>
+template<typename CoreSketch, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, typename PairHasher=WangPairHasher>
 struct WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
@@ -370,18 +371,12 @@ struct WeightedSketcher {
     template<typename CType>
     uint64_t hash(uint64_t x, CType count) const {return pair_hasher_.hash(x, count);}
     void add(uint64_t x) {
-        auto count = cst_.est_count(x);
-        CONST_IF(std::is_unsigned<decltype(count)>::value) {
+        auto count = cst_.addh(x);
+        CONST_IF(std::is_signed<decltype(count)>::value) {
             if(count < 0)
                 count = 0;
         }
-        auto newc = static_cast<std::make_unsigned_t<std::decay_t<decltype(count)>>>(cst_.addh(x));
-        CONST_IF(always_insert) {
-            if(count == 0) sketch_.addh(hash(x, count));
-        } else {
-            if(newc != count)
-                sketch_.addh(hash(x, count));
-        }
+        sketch_.addh(hash(x, count));
     }
     uint64_t hash(uint64_t x) const {return hf_(x);}
     WeightedSketcher(const WeightedSketcher &) = default;
@@ -404,19 +399,70 @@ struct WeightedSketcher {
     auto containment_index(const base_type &o) const {return sketch_.containment_index(o);}
     template<typename...Args> auto free(Args &&...args) {return sketch_.free(std::forward<Args>(args)...);}
     template<typename...Args> auto cardinality_estimate(Args &&...args) const {return sketch_.cardinality_estimate(std::forward<Args>(args)...);}
-#if 0
-    template<typename...Args> auto intersection_size(Args &&...args) const {return sketch_.intersection_size(std::forward<Args>(args)...);}
-    auto intersection_size(const base_type &o) const {return sketch_.intersection_size(o);}
-#endif
     auto size() const {return sketch_.size();}
 };
 
+
+template<typename CoreSketch, typename F, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, typename PairHasher=WangPairHasher>
+struct FWeightedSketcher: public WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher> {
+    const F func_;
+    template<typename... Args>
+    FWeightedSketcher(Args &&...args):
+        WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher>(std::forward<Args>(args)...),
+        func_() {}
+    template<typename... Args>
+    FWeightedSketcher(F &&func, Args &&...args): WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher>(std::forward<Args>(args)...),
+        func_(std::move(func)) {}
+    void add(uint64_t x) {
+        auto count = this->cst_.addh(x);
+        CONST_IF(std::is_signed<decltype(count)>::value) {
+            if(unlikely(count < 0)) count = 0;
+        }
+        this->sketch_.addh(this->hash(x, func_(count)));
+    }
+};
+
+namespace weight_fn {
+struct SqrtFn {
+    template<typename T>
+    T operator()(T x) const {
+        x = std::sqrt(x);
+        return x;
+    }
+};
+struct NLogFn {
+    template<typename T>
+    T operator()(T x) const {
+        x = std::log(x);
+        return x;
+    }
+};
+struct LogFn {
+    const double v_;
+    LogFn(double v): v_(1./std::log(v)) {}
+    template<typename T>
+    T operator()(T x) const {
+        x = std::log(x) * v_;
+        return x;
+    }
+};
+} // weight_fn
+
+
+
 template<typename T>
 struct is_weighted_sketch: public std::false_type {};
+
 template<typename CoreSketch,
          typename CountingSketch,
          typename HashStruct>
 struct is_weighted_sketch<WeightedSketcher<CoreSketch, CountingSketch, HashStruct>>: public std::true_type {};
+
+template<typename CoreSketch,
+         typename F,
+         typename CountingSketch,
+         typename HashStruct>
+struct is_weighted_sketch<FWeightedSketcher<CoreSketch, F, CountingSketch, HashStruct>>: public std::true_type {};
 
 } // namespace wj
 
