@@ -24,7 +24,7 @@
 #ifndef _VEC_H__
 #  define NO_SLEEF
 #  define NO_BLAZE
-#  include "vec.h" // Import vec.h, but disable blaze and sleef.
+#  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
 #endif
 
 #if __AES__
