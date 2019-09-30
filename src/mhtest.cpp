@@ -78,8 +78,9 @@ int main(int argc, char *argv[]) {
         crhm2.addh(v * v);
     }
     std::fprintf(stderr, "is/jaccard: %zu/%lf. hist intersect: %lf.\n", size_t(crhm.intersection_size(crhm2)), crhm.jaccard_index(crhm2), crhm.histogram_intersection(crhm2));
-    auto f1 = crhm.finalize();
-    auto f2 = crhm2.finalize();
+    auto f1 = crhm.cfinalize();
+    auto f2 = crhm2.cfinalize();
+    std::fprintf(stderr, "finalized\n");
     std::fprintf(stderr, "crhm sum/sumsq: %zu/%zu\n", size_t(crhm.sum()), size_t(crhm.sum_sq()));
     std::fprintf(stderr, "rmh1 b: %zu. rmh1 rb: %zu. max: %zu. min: %zu\n", size_t(*rm1.begin()), size_t(*rm2.rbegin()), size_t(rm1.max_element()), size_t(rm1.min_element()));
     assert(f1.histogram_intersection(f2) == f2.histogram_intersection(f1) && f1.histogram_intersection(f2) == crhm.histogram_intersection(crhm2));
@@ -89,7 +90,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "f1 est cardinality: %lf\n", f1.cardinality_estimate(ARITHMETIC_MEAN));
     std::fprintf(stderr, "f2 est cardinality: %lf\n", f1.cardinality_estimate());
     std::fprintf(stderr, "f2 est cardinality: %lf\n", f1.cardinality_estimate(ARITHMETIC_MEAN));
-    auto m1 = rm1.finalize(), m2 = rm2.finalize();
+    auto m1 = rm1.cfinalize(), m2 = rm2.cfinalize();
     std::fprintf(stderr, "m1 is %s-sorted\n", forward_sorted(m1.begin(), m1.end()) ? "forward": "reverse");
     //auto kmf = kmh.finalize();
     std::fprintf(stderr, "jaccard between finalized MH sketches: %lf, card %lf\n", m1.jaccard_index(m2), m1.cardinality_estimate());
@@ -102,13 +103,13 @@ int main(int argc, char *argv[]) {
             rmh1.addh(gen1());
             rmh2.addh(gen2());
         }
-        auto fmh1 = rmh1.finalize(), fmh2 = rmh2.finalize();
+        auto fmh1 = rmh1.cfinalize(), fmh2 = rmh2.cfinalize();
         auto u = fmh1 + fmh2;
         RangeMinHash<uint64_t> rmh3(20);
         gen1.seed(13); gen2.seed(1337);
         for(size_t i = n; i--;)
             rmh3.addh(gen1()), rmh3.addh(gen2());
-        auto fmh3 = rmh3.finalize();
+        auto fmh3 = rmh3.cfinalize();
         assert(fmh3.first == u.first || (pc(fmh3, "fmh3") || pc(u, "u")));
     }
 

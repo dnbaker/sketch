@@ -35,9 +35,7 @@ struct AsymmetricCmpFunc {
         py::array_t<float> ret({lsz, lsz});
         float *ptr = static_cast<float *>(ret.request().ptr);
         for(size_t i = 0; i < lsz; ++i) {
-#ifdef _OPENMP
-            #pragma omp parallel for
-#endif
+            OMP_PRAGMA("omp parallel for")
             for(size_t j = 0; j < lsz; ++j) {
 			    ptr[i * lsz + j] = func(*ptrs[i], *ptrs[j]);
 			    ptr[j * lsz + i] = func(*ptrs[j], *ptrs[i]);
@@ -61,9 +59,7 @@ struct CmpFunc {
         py::array_t<float> ret({nc2});
         float *ptr = static_cast<float *>(ret.request().ptr);
         for(size_t i = 0; i < lsz; ++i) {
-#ifdef _OPENMP
-            #pragma omp parallel for
-#endif
+            OMP_PRAGMA("omp parallel for")
             for(size_t j = i + 1; j < lsz; ++j) {
                 size_t access_index = ((i * (lsz * 2 - i - 1)) / 2 + j - (i + 1));
 			    ptr[access_index] = func(*ptrs[i], *ptrs[j]);

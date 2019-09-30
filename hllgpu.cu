@@ -11,7 +11,7 @@ int main(int argc, char *argv[]) {
     std::vector<hll::hll_t> hlls;
     hlls.reserve(n);
     for(int i = 0; i < n; ++i) hlls.emplace_back(p);
-    #pragma omp parallel for
+    OMP_PRAGMA("omp parallel for")
     for(size_t i = 0; i < 10000000;  ++i) {
         if(i % 100000 == 0) std::fprintf(stderr, "tid %d with %zu\n", omp_get_thread_num(), i);
         if(i & 1) {
@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
     auto s2 = std::vector<uint32_t>(sizes.size());
     auto t = hrc::now();
     for(auto i = 0u; i < hlls.size(); ++i) {
-        #pragma omp parallel for
+        OMP_PRAGMA("omp parallel for")
         for(auto j = i + 1; j < hlls.size(); ++j) {
             s2[ij2ind(i, j, hlls.size())] = jaccard_index(hlls[i], hlls[j]);
         }

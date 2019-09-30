@@ -218,10 +218,22 @@ public:
     void clear() {
         decltype(minimizers_)().swap(minimizers_);
     }
+    void free() {clear();}
+    final_type cfinalize() const {
+        std::vector<T> reta(minimizers_.begin(), minimizers_.end());
+        if(reta.size() < this->ss_)
+            reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
+        return final_type(std::move(reta));
+    }
     final_type finalize() const {
+        return cfinalize();
+    }
+    final_type finalize() {
         std::vector<T> reta(minimizers_.begin(), minimizers_.end());
         reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
-        return final_type{std::move(reta)};
+        final_type ret(std::move(reta));
+        this->free();
+        return ret;
     }
     std::vector<T> mh2vec() const {return to_container<std::vector<T>>();}
     size_t size() const {return minimizers_.size();}
@@ -431,6 +443,10 @@ public:
     auto end() const {return minimizers_.end();}
     auto rend() {return minimizers_.rend();}
     auto rend() const {return minimizers_.rend();}
+    void free() {
+        std::set<VType> tmp;
+        std::swap(tmp, minimizers_);
+    }
     CountingRangeMinHash(size_t n, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()): AbstractMinHash<T, Cmp>(n), hf_(std::move(hf)), cmp_(std::move(cmp)) {}
     CountingRangeMinHash(std::string s): CountingRangeMinHash(0) {throw NotImplementedError("");}
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
@@ -454,9 +470,19 @@ public:
     auto max_element() const {
         return minimizers_.begin()->first;
     }
-    auto sum_sq() {return cached_sum_sq_ ? cached_sum_sq_: (cached_sum_sq_ = std::accumulate(std::next(this->begin()), this->end(), this->begin()->second * this->begin()->second, [](auto s, const VType &x) {return s + x.second * x.second;}));}
+    auto sum_sq() {
+        if(cached_sum_sq_) goto end;
+        cached_sum_sq_ = std::accumulate(this->begin(), this->end(), 0., [](auto s, const VType &x) {return s + x.second * x.second;});
+        end:
+        return cached_sum_sq_;
+    }
     auto sum_sq() const {return cached_sum_sq_;}
-    auto sum() {return cached_sum_ ? cached_sum_ : (cached_sum_ = std::accumulate(std::next(this->begin()), this->end(), this->begin()->second, [](auto s, const VType &x) {return s + x.second;}));}
+    auto sum() {
+        if(cached_sum_) goto end;
+        cached_sum_ = std::accumulate(std::next(this->begin()), this->end(), this->begin()->second, [](auto s, const VType &x) {return s + x.second;});
+        end:
+        return cached_sum_;
+    }
     auto sum() const {return cached_sum_;}
     double histogram_intersection(const CountingRangeMinHash &o) const {
         assert(o.size() == size());
@@ -548,7 +574,15 @@ public:
         return static_cast<double>(num) / denom;
     }
     final_type finalize() const {
+        return cfinalize();
+    }
+    final_type cfinalize() const {
         return FinalCRMinHash<T, Cmp, CountType>(*this);
+    }
+    final_type finalize() {
+        auto ret(FinalCRMinHash<T, Cmp, CountType>(*this));
+        this->free();
+        return ret;
     }
     template<typename Func>
     void for_each(const Func &func) const {
@@ -580,7 +614,8 @@ public:
 };
 
 
-template<typename T, typename Cmp, typename CountType>
+
+template<typename T, typename Cmp=std::greater<T>, typename CountType=uint32_t>
 struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     using super = FinalRMinHash<T, Cmp>;
     std::vector<CountType> second;
@@ -618,24 +653,21 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         return static_cast<double>(num);
     }
     double histogram_intersection(const FinalCRMinHash &o) const {
-        assert(o.size() == this->size());
+        assert(o.size() == this->size()|| !std::fprintf(stderr, "this->size: %zu. o size: %zu\n", this->size(), o.size()));
         const size_t lsz = this->size();
-        size_t denom = 0, num = 0;
+        size_t num = 0;
         for(size_t i1 = 0, i2 = 0;;) {
             if(this->cmp(this->first[i1], o.first[i2])) {
-                denom += second[i1];
                 I1DF;
             } else if(this->cmp(o.first[i2], this->first[i1])) {
-                denom += o.second[i2];
                 I2DF;
             } else {
                 const auto v1 = o.second[i2], v2 = second[i1];
-                denom += std::max(v1, v2);
                 num += std::min(v1, v2);
                 I1DF; I2DF;
             }
         }
-        return static_cast<double>(num) / denom;
+        return static_cast<double>(num) / (count_sum_ + o.count_sum_ - num);
     }
     DBSKETCH_READ_STRING_MACROS
     DBSKETCH_WRITE_STRING_MACROS
@@ -695,16 +727,20 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
     }
     template<typename Hasher>
     FinalCRMinHash(const CountingRangeMinHash<T, Cmp, Hasher, CountType> &prefinal): FinalRMinHash<T,Cmp>() {
-        this->first.reserve(prefinal.size());
-        this->second.reserve(prefinal.size());
+        this->first.reserve(prefinal.sketch_size());
+        this->second.reserve(prefinal.sketch_size());
         for(const auto &pair: prefinal)
             this->first.push_back(pair.first), this->second.push_back(pair.second);
-        if(this->first.size() < prefinal.sketch_size()) {
-            this->first.insert(this->first.end(), prefinal.sketch_size(), std::numeric_limits<T>::max());
-            this->second.insert(this->second.end(), prefinal.sketch_size(), 0);
+        ssize_t diff =  prefinal.sketch_size() - this->first.size();
+        if(diff > 0) {
+            this->first.insert(this->first.end(), diff, std::numeric_limits<T>::max());
+            this->second.insert(this->second.end(), diff, 0);
+        } else if(diff < 0) {
+            throw std::runtime_error(std::string("diff < 0: ") + std::to_string(diff));
         }
         count_sum_ = countsum();
         count_sum_sq_ = std::sqrt(countsumsq());
+        assert(this->first.size() == prefinal.sketch_size());
     }
     template<typename Hasher>
     FinalCRMinHash(CountingRangeMinHash<T, Cmp, Hasher, CountType> &&prefinal): FinalCRMinHash(static_cast<const CountingRangeMinHash<T, Cmp, Hasher, CountType> &>(prefinal)) {

@@ -7,7 +7,10 @@
 #include "./vec/blaze/blaze/Math.h"
 #endif
 #endif
+
+#include "hk.h"
 #include <cstdarg>
+#include <cmath>
 #include <mutex>
 #include "./xxHash/xxh3.h"
 
@@ -334,7 +337,7 @@ struct WangPairHasher: public hash::WangHash {
 };
 
 
-template<typename CoreSketch, typename CountingSketchType=cm::ccm_t, typename HashStruct=common::WangHash, bool always_insert=true, typename PairHasher=WangPairHasher>
+template<typename CoreSketch, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, typename PairHasher=WangPairHasher>
 struct WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
@@ -344,12 +347,20 @@ struct WeightedSketcher {
     using final_type = typename CoreSketch::final_type;
     using base_type  = CoreSketch;
     using cm_type    = CountingSketchType;
+    using hash_type  = HashStruct;
     WeightedSketcher(CountingSketchType &&cst, CoreSketch &&core,
                      HashStruct &&hf=HashStruct())
     : cst_(std::move(cst)), sketch_(std::move(core)), hf_(std::move(hf)) {}
     WeightedSketcher(std::string path): cst_(0,0), sketch_(path) {throw NotImplementedError("Reading weighted sketcher from disk");}
-    WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw NotImplementedError("Making a weighted sketcher from an integer.");}
+    //WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw NotImplementedError("Making a weighted sketcher from an integer.");}
 
+    template<typename...Args>
+    WeightedSketcher(const cm_type &tplt, HashStruct &&hf, Args &&...args):
+        WeightedSketcher(std::move(cm_type(tplt)) /* copy constructor to make an r-value */,
+                         CoreSketch(std::forward<Args>(args)...),
+                         std::move(hf))
+    {
+    }
     operator final_type() {
         return std::move(sketch_);
     }
@@ -360,18 +371,12 @@ struct WeightedSketcher {
     template<typename CType>
     uint64_t hash(uint64_t x, CType count) const {return pair_hasher_.hash(x, count);}
     void add(uint64_t x) {
-        auto count = cst_.est_count(x);
-        CONST_IF(std::is_unsigned<decltype(count)>::value) {
+        auto count = cst_.addh(x);
+        CONST_IF(std::is_signed<decltype(count)>::value) {
             if(count < 0)
                 count = 0;
         }
-        auto newc = static_cast<std::make_unsigned_t<std::decay_t<decltype(count)>>>(cst_.addh(x));
-        CONST_IF(always_insert) {
-            if(count == 0) sketch_.addh(hash(x, count));
-        } else {
-            if(newc != count)
-                sketch_.addh(hash(x, count));
-        }
+        sketch_.addh(hash(x, count));
     }
     uint64_t hash(uint64_t x) const {return hf_(x);}
     WeightedSketcher(const WeightedSketcher &) = default;
@@ -380,32 +385,84 @@ struct WeightedSketcher {
     WeightedSketcher &operator=(WeightedSketcher &&) = default;
     template<typename...Args>
     final_type finalize(Args &&...args) const {
-        return final_type(sketch_.finalize(std::forward<Args>(args)...));
+        return sketch_.finalize(std::forward<Args>(args)...);
     }
     template<typename...Args>
     auto write(Args &&...args) const {return sketch_.write(std::forward<Args>(args)...);}
     template<typename...Args>
     void read(Args &&...args) {throw NotImplementedError("Reading weighted sketcher from disk");}
     auto jaccard_index(const base_type &o) const {return sketch_.jaccard_index(o);}
+    auto jaccard_index(const WeightedSketcher &o) const {return sketch_.jaccard_index(o);}
     template<typename...Args> auto jaccard_index(Args &&...args) const {return sketch_.jaccard_index(std::forward<Args>(args)...);}
     template<typename...Args> auto containment_index(Args &&...args) const {return sketch_.containment_index(std::forward<Args>(args)...);}
     template<typename...Args> auto full_set_comparison(Args &&...args) const {return sketch_.full_set_comparison(std::forward<Args>(args)...);}
     auto containment_index(const base_type &o) const {return sketch_.containment_index(o);}
     template<typename...Args> auto free(Args &&...args) {return sketch_.free(std::forward<Args>(args)...);}
     template<typename...Args> auto cardinality_estimate(Args &&...args) const {return sketch_.cardinality_estimate(std::forward<Args>(args)...);}
-#if 0
-    template<typename...Args> auto intersection_size(Args &&...args) const {return sketch_.intersection_size(std::forward<Args>(args)...);}
-    auto intersection_size(const base_type &o) const {return sketch_.intersection_size(o);}
-#endif
     auto size() const {return sketch_.size();}
 };
 
+
+template<typename CoreSketch, typename F, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, typename PairHasher=WangPairHasher>
+struct FWeightedSketcher: public WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher> {
+    const F func_;
+    template<typename... Args>
+    FWeightedSketcher(Args &&...args):
+        WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher>(std::forward<Args>(args)...),
+        func_() {}
+    template<typename... Args>
+    FWeightedSketcher(F &&func, Args &&...args): WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher>(std::forward<Args>(args)...),
+        func_(std::move(func)) {}
+    void add(uint64_t x) {
+        auto count = this->cst_.addh(x);
+        CONST_IF(std::is_signed<decltype(count)>::value) {
+            if(unlikely(count < 0)) count = 0;
+        }
+        this->sketch_.addh(this->hash(x, func_(count)));
+    }
+};
+
+namespace weight_fn {
+struct SqrtFn {
+    template<typename T>
+    T operator()(T x) const {
+        x = std::sqrt(x);
+        return x;
+    }
+};
+struct NLogFn {
+    template<typename T>
+    T operator()(T x) const {
+        x = std::log(x);
+        return x;
+    }
+};
+struct LogFn {
+    const double v_;
+    LogFn(double v): v_(1./std::log(v)) {}
+    template<typename T>
+    T operator()(T x) const {
+        x = std::log(x) * v_;
+        return x;
+    }
+};
+} // weight_fn
+
+
+
 template<typename T>
 struct is_weighted_sketch: public std::false_type {};
+
 template<typename CoreSketch,
          typename CountingSketch,
          typename HashStruct>
 struct is_weighted_sketch<WeightedSketcher<CoreSketch, CountingSketch, HashStruct>>: public std::true_type {};
+
+template<typename CoreSketch,
+         typename F,
+         typename CountingSketch,
+         typename HashStruct>
+struct is_weighted_sketch<FWeightedSketcher<CoreSketch, F, CountingSketch, HashStruct>>: public std::true_type {};
 
 } // namespace wj
 

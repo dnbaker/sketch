@@ -1,3 +1,6 @@
+#pragma once
+#ifndef HEAVY_KEEPER_H__
+#define HEAVY_KEEPER_H__
 #include "./common.h"
 #include "aesctr/wy.h"
 #include "tsg.h"
@@ -31,6 +34,7 @@ class HeavyKeeper {
     const double b_;
 public:
     static constexpr size_t VAL_PER_REGISTER = 64 / (fpsize + ctrsize);
+    using hash_type = Hasher;
     // Constructor
     // Note: HeavyKeeper paper suggests 1.08, but that seems extreme.
     template<typename...Args>
@@ -408,3 +412,4 @@ struct HeavyKeeperHeavyHitters: public HeavyKeeperHeap<Args...> {
 } // namespace hk
 
 } // namespace sketch
+#endif

@@ -722,7 +722,7 @@ public:
                               core_.size() * sizeof(core_[0]));
     }
     void reset() {
-        std::fill(core_.begin(), core_.end(), 0);
+        std::fill(core_.begin(), core_.end(), uint64_t(0));
         value_ = 0;
         is_calculated_ = false;
     }
@@ -745,7 +745,8 @@ public:
         , hf_(std::forward<Args>(args)...)
     {
 #if LZ_COUNTER
-        std::memset(&clz_counts_[0], 0, sizeof(clz_counts_));
+        for(size_t i = 0; i < clz_counts_.size(); ++i)
+            clz_counts_[i].store(uint64_t(0));
 #endif
         //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
     }
@@ -772,7 +773,12 @@ public:
         csum();
         return value_;
     }
-    const auto finalize() const {return *this;}
+    auto finalize() const {return *this;}
+    auto finalize() {
+        auto ret(std::move(*this));
+        this->free();
+        return ret;
+    }
     double report() noexcept {
         csum();
         return creport();
@@ -916,7 +922,8 @@ public:
         estim_(other.estim_), jestim_(other.jestim_), hf_(other.hf_)
     {
 #if LZ_COUNTER
-        std::memcpy(&clz_counts_[0], &other.clz_counts_[0], sizeof(clz_counts_));
+        for(size_t i = 0; i < clz_counts_.size(); ++i)
+            clz_counts_[i].store(other.clz_counts_[i].load());
 #endif
     }
     hllbase_t& operator=(const hllbase_t &other) {

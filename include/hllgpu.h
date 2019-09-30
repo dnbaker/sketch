@@ -69,14 +69,18 @@ auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *SK_RESTRICT, Al
     std::vector<uint32_t> ret(nvals * nsets * m);
     for(size_t i = 0; i < nsets; ++i) {
         auto p1 = re[i];
-        #pragma omp parallel for
+        OMP_PRAGMA("omp parallel for")
         for(size_t j = i + 1; j < nsets; ++j) {
             auto p2 = re[j];
             auto rp = ret.data() + i * nsets * m;
             std::array<uint32_t, 64> z{0};
             for(size_t subi = 0; subi < m; subi += 8) {
-                increment_maxes(z.data(), *(unsigned *)&p1[subi], *(unsigned *)&p2[subi]);
-                increment_maxes(z.data(), *(unsigned *)&p1[subi+4], *(unsigned *)&p2[subi+4]);
+                increment_maxes(z.data(),
+                    *reinterpret_cast<const unsigned *>(&p1[subi]),
+                    *reinterpret_cast<const unsigned *>(&p2[subi]));
+                increment_maxes(z.data(),
+                    *reinterpret_cast<const unsigned *>(&p1[subi+4]),
+                    *reinterpret_cast<const unsigned *>(&p2[subi+4]));
             }
             std::memcpy(ret.data() + (i * nsets * m) + j * m, z.data(), m);
         }
