@@ -69,7 +69,7 @@ auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *SK_RESTRICT, Al
     std::vector<uint32_t> ret(nvals * nsets * m);
     for(size_t i = 0; i < nsets; ++i) {
         auto p1 = re[i];
-        #pragma omp parallel for
+        OMP_PRAGMA("omp parallel for")
         for(size_t j = i + 1; j < nsets; ++j) {
             auto p2 = re[j];
             auto rp = ret.data() + i * nsets * m;
