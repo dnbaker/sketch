@@ -62,11 +62,11 @@ int main(int argc, char *argv[]) {
         auto v = mt();
         rm2.addh(v);
     }
-    size_t is = intersection_size(rm1, rm2);
+    size_t is = intersection_size(rm1, rm2, typename RangeMinHash<uint64_t>::key_compare());
     double ji = rm1.jaccard_index(rm2);
     std::fprintf(stderr, "sketch is: %zu. sketch ji: %lf. True: %lf\n", is, ji, true_ji);
     assert(std::abs(ji - true_ji) / true_ji < 0.1);
-    is = intersection_size(rm1, rm1);
+    is = intersection_size(rm1, rm1, typename RangeMinHash<uint64_t>::key_compare());
     ji = rm1.jaccard_index(rm1);
     std::fprintf(stderr, "ji for a sketch and itself: %lf\n", ji);
     mt.seed(1337);

@@ -4,10 +4,13 @@
 
 namespace sketch {
 namespace common {
-template<typename Container1, typename Container2, typename Cmp=typename Container1::key_compare>
-std::uint64_t intersection_size(const Container1 &c1, const Container2 &c2, const Cmp &cmp=Cmp()) {
+template<typename Container, typename Cmp=std::less<>>
+std::uint64_t intersection_size(const Container &c1, const Container &c2, const Cmp &cmp=Cmp()) {
     // These containers must be sorted.
-    static_assert(std::is_same<decltype(*std::begin(c1)), decltype(*std::begin(c2))>::value, "Containers must derefernce to the same type.");
+    //static_assert(std::is_same<decltype(*std::begin(c1)), decltype(*std::begin(c2))>::value, "Containers must derefernce to the same type.");
+    //for(const auto v: c1) std::fprintf(stderr, "element is %zu\n", size_t(v));
+    assert(std::is_sorted(c2.begin(), c2.end(), cmp));
+    assert(std::is_sorted(c1.begin(), c1.end(), cmp));
     auto it1 = std::begin(c1);
     auto it2 = std::begin(c2);
     const auto e1 = std::cend(c1);

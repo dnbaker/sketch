@@ -5,6 +5,10 @@
 #include "fixed_vector.h"
 #include "isz.h"
 
+#if !NDEBUG
+#  include <unordered_map>
+#endif
+
 /*
  * TODO: support minhash using sketch size and a variable number of hashes.
  * Implementations: KMinHash (multiple hash functions)
@@ -98,7 +102,7 @@ public:
     SET_SKETCH(hashes_)
 };
 
-template<typename T, typename Cmp, typename Allocator> struct FinalRMinHash; // Forward definition
+template<typename T, typename Allocator> struct FinalRMinHash; // Forward definition
 /*
 The sketch is the set of minimizers.
 
@@ -116,7 +120,7 @@ protected:
     std::set<T, Cmp> minimizers_; // using std::greater<T> so that we can erase from begin()
 
 public:
-    using final_type = FinalRMinHash<T, Cmp, Allocator>;
+    using final_type = FinalRMinHash<T, Allocator>;
     using Compare = Cmp;
     RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()):
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
@@ -202,10 +206,13 @@ public:
     auto end() const {return minimizers_.end();}
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
-        return common::intersection_size(o, *this, Cmp());
+        CONST_IF(std::is_same<Cmp, std::less<>>::value) std::fprintf(stderr, "cmp is less\n");
+        CONST_IF(std::is_same<Cmp, std::greater<>>::value) std::fprintf(stderr, "cmp is gt\n");
+        CONST_IF(std::is_same<Cmp, std::less<T>>::value) std::fprintf(stderr, "cmp is less\n");
+        CONST_IF(std::is_same<Cmp, std::greater<T>>::value) std::fprintf(stderr, "cmp is gt\n");
+        return common::intersection_size(o, *this, cmp_);
     }
-    template<typename C2>
-    double jaccard_index(const C2 &o) const {
+    double jaccard_index(const RangeMinHash &o) const {
         double is = this->intersection_size(o);
         return is / (minimizers_.size() + o.size() - is);
     }
@@ -248,14 +255,14 @@ struct EqualWeight {
 };
 }
 
-template<typename T, typename Cmp=std::greater<T>, typename Allocator=Allocator<T>>
+template<typename T, typename Allocator=Allocator<T>>
 struct FinalRMinHash {
     static_assert(std::is_unsigned<T>::value, "must be unsigned btw");
     std::vector<T, Allocator> first;
+    uint64_t lsum_;
     using container_type = decltype(first);
-    Cmp cmp;
     size_t intersection_size(const FinalRMinHash &o) const {
-        return common::intersection_size(first, o.first, Cmp());
+        return common::intersection_size(first, o.first);
     }
     double jaccard_index(const FinalRMinHash &o) const {
         double is = intersection_size(o);
@@ -271,15 +278,12 @@ struct FinalRMinHash {
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
         auto i1 = this->rbegin(), i2 = o.rbegin();
         while(newfirst.size() < first.size()) {
-            if(cmp(*i1, *i2)) {
-                newfirst.push_back(*i2);
-                ++i2;
-            } else if(cmp(*i2, *i1)) {
-                newfirst.push_back(*i1);
-                ++i1;
+            if(*i2 < *i1) {
+                newfirst.push_back(*i2++);
+            } else if(*i1 < *i2) {
+                newfirst.push_back(*i1++);
             } else newfirst.push_back(*i1), ++i1, ++i2;
         }
-        std::reverse(newfirst.begin(), newfirst.end());
         std::swap(newfirst, first);
         return *this;
     }
@@ -297,12 +301,13 @@ struct FinalRMinHash {
             // Easier to branch-predict:  http://www.vldb.org/pvldb/vol8/p293-inoue.pdf
             if(*i1 != *i2) ++i1, ++i2;
             else {
-                const int c = cmp(*i1, *i2);
-                i2 += c; i1 += !c;
+                const int c = *i1 < *i2;
+                i2 += !c; i1 += c;
             }
             ++n_in_sketch;
         }
-        mv = cmp(*i1, *i2) ? *i2: *i1;
+        mv = *i1 < *i2 ? *i1: *i2;
+        // TODO: test after refactoring
         assert(i1 < this->rend());
         return double(std::numeric_limits<T>::max()) / (mv) * this->size();
     }
@@ -311,18 +316,21 @@ struct FinalRMinHash {
         double sum = (std::numeric_limits<T>::max() / double(this->max_element()) * first.size());
         return sum;
     }
+    void sum() const {
+        lsum_ = std::accumulate(this->first.begin(), this->first.end(), size_t(0));
+    }
 #define I1DF if(++i1 == lsz) break
 #define I2DF if(++i2 == lsz) break
     template<typename WeightFn=weight::EqualWeight>
     double tf_idf(const FinalRMinHash &o, const WeightFn &fn=WeightFn()) const {
         assert(o.size() == size());
         const size_t lsz = size();
-        double denom = 0, num = 0;
+        double num = 0, denom;
         for(size_t i1 = 0, i2 = 0;;) {
-            if(cmp(first[i1], o.first[i2])) {
+            if(first[i1] < o.first[i2]) {
                 denom += fn(first[i1]);
                 I1DF;
-            } else if(cmp(o.first[i2], first[i1])) {
+            } else if(o.first[i2] < first[i1]) {
                 denom += fn(o.first[i2]);
                 I2DF;
             } else {
@@ -362,9 +370,12 @@ struct FinalRMinHash {
         decltype(first) tmp; std::swap(tmp, first);
     }
     template<typename Alloc>
-    FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(ofirst.size()), cmp() {std::copy(ofirst.begin(), ofirst.end(), first.begin());}
-    FinalRMinHash(std::vector<T, Allocator> &&first): first(std::move(first)), cmp() {}
-    FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)), cmp(std::move(o.cmp)) {}
+    FinalRMinHash(const std::vector<T, Alloc> &ofirst): first(ofirst.size()) {std::copy(ofirst.begin(), ofirst.end(), first.begin()); sort();}
+    //template<typename Alloc>
+    //FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(std::move(ofirst)) {
+    //    sort();
+    //}
+    FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)) {sort();}
     ssize_t read(gzFile fp) {
         uint64_t sz;
         if(gzread(fp, &sz, sizeof(sz)) != sizeof(sz)) throw std::runtime_error("Failed to read");
@@ -372,6 +383,7 @@ struct FinalRMinHash {
         ssize_t ret = sizeof(sz), nb = first.size() * sizeof(first[0]);
         if(gzread(fp, first.data(), nb) != nb) throw std::runtime_error("Failed to read");
         ret += nb;
+        sort();
         return ret;
     }
     ssize_t write(gzFile fp) const {
@@ -386,9 +398,10 @@ struct FinalRMinHash {
         assert(std::accumulate(first.begin(), first.end(), true, [&](bool t, auto v) {return t && *first.begin() >= v;}));
         return *first.begin();
     }
-    template<typename Hasher>
+    template<typename Hasher, typename Cmp>
     FinalRMinHash(RangeMinHash<T, Cmp, Hasher> &&prefinal): FinalRMinHash(std::move(prefinal.finalize())) {
         prefinal.clear();
+        sort();
     }
     FinalRMinHash(const std::string &s): FinalRMinHash(s.data()) {}
     FinalRMinHash(const char *infname) {
@@ -399,9 +412,12 @@ protected:
     FinalRMinHash() {}
     FinalRMinHash(const FinalRMinHash &o) = default;
     FinalRMinHash &operator=(const FinalRMinHash &o) = default;
+    void sort() {
+        common::sort::default_sort(this->first.begin(), this->first.end());
+    }
 };
 
-template<typename T, typename Cmp, typename CountType> struct FinalCRMinHash; // Forward
+template<typename T, typename CountType> struct FinalCRMinHash; // Forward
 
 
 template<typename T,
@@ -433,7 +449,7 @@ class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {
 public:
     const auto &min() const {return minimizers_;}
     using size_type = CountType;
-    using final_type = FinalCRMinHash<T, Cmp, CountType>;
+    using final_type = FinalCRMinHash<T, CountType>;
     auto size() const {return minimizers_.size();}
     auto begin() {return minimizers_.begin();}
     auto begin() const {return minimizers_.begin();}
@@ -577,10 +593,10 @@ public:
         return cfinalize();
     }
     final_type cfinalize() const {
-        return FinalCRMinHash<T, Cmp, CountType>(*this);
+        return FinalCRMinHash<T, CountType>(*this);
     }
     final_type finalize() {
-        auto ret(FinalCRMinHash<T, Cmp, CountType>(*this));
+        auto ret(FinalCRMinHash<T, CountType>(*this));
         this->free();
         return ret;
     }
@@ -599,12 +615,25 @@ public:
     void print() const {
         for_each([](auto &p) {std::fprintf(stderr, "key %s with value %zu\n", std::to_string(p.first).data(), size_t(p.second));});
     }
-    template<typename C2>
-    size_t intersection_size(const C2 &o) const {
-        return common::intersection_size(o, *this, [&](auto &x, auto &y) {return cmp_(x.first, y.first);});
-    }
     size_t intersection_size(const CountingRangeMinHash &o) const {
-        return  common::intersection_size(o, *this, [&](auto &x, auto &y) {return cmp_(x.first, y.first);});
+        size_t num = 0;
+        auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
+#define I1__DM__ if(++i1 == minimizers_.end()) break
+#define I2__DM__ if(++i2 == o.minimizers_.end()) break
+        for(;;) {
+            if(cmp_(i1->first, i2->first)) {
+                I1__DM__;
+            } else if(cmp_(i2->first, i1->first)) {
+                I2__DM__;
+            } else {
+                num += std::min(i1->second, i2->second);
+                I1__DM__;
+                I2__DM__;
+            }
+#undef I1__DM__
+#undef I1__DM__
+        }
+        return num;
     }
     template<typename C2>
     double jaccard_index(const C2 &o) const {
@@ -615,12 +644,14 @@ public:
 
 
 
-template<typename T, typename Cmp=std::greater<T>, typename CountType=uint32_t>
-struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
-    using super = FinalRMinHash<T, Cmp>;
+template<typename T, typename CountType=uint32_t>
+struct FinalCRMinHash: public FinalRMinHash<T> {
+    using super = FinalRMinHash<T>;
     std::vector<CountType> second;
     uint64_t count_sum_;
     double count_sum_sq_;
+    using count_type = CountType;
+    using key_type = T;
     FinalCRMinHash(const std::string &path): FinalCRMinHash(path.data()) {}
     FinalCRMinHash(const char *path) {
         this->read(path);
@@ -631,42 +662,93 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         std::swap(tmp, second);
     }
     size_t countsum() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2;});}
-    size_t countsumsq() const {return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2 * sz2;});}
+    size_t countsumsq() const {
+#if !NDEBUG
+        size_t lsum = 0;
+        for(const auto v: this->second) lsum += v * v;
+        
+        size_t asum = std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2 * sz2;});
+        assert(asum == lsum);
+        return asum;
+#else
+        return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2 * sz2;});
+#endif
+    }
     double cosine_distance(const FinalCRMinHash &o) const {
         return dot(o) / count_sum_sq_ / o.count_sum_sq_;
     }
     double dot(const FinalCRMinHash &o) const {
-        assert(o.size() == this->size());
-        const size_t lsz = this->size();
+        const size_t lsz = this->size(), rsz = o.size();
         size_t num = 0;
         for(size_t i1 = 0, i2 = 0;;) {
-            if(this->cmp(this->first[i1], o.first[i2])) {
-                I1DF;
-            } else if(this->cmp(o.first[i2], this->first[i1])) {
-                I2DF;
+            if(this->first[i1] < o.first[i2]) {
+                if(++i1 == lsz) break;
+            } else if(o.first[i2] < this->first[i1]) {
+                if(++i2 == rsz) break;
             } else {
                 const auto v1 = o.second[i2], v2 = second[i1];
                 num += v1 * v2;
-                I1DF; I2DF;
+                if(++i1 == lsz || ++i2 == rsz) break;
             }
         }
         return static_cast<double>(num);
     }
     double histogram_intersection(const FinalCRMinHash &o) const {
-        assert(o.size() == this->size()|| !std::fprintf(stderr, "this->size: %zu. o size: %zu\n", this->size(), o.size()));
-        const size_t lsz = this->size();
-        size_t num = 0;
-        for(size_t i1 = 0, i2 = 0;;) {
-            if(this->cmp(this->first[i1], o.first[i2])) {
-                I1DF;
-            } else if(this->cmp(o.first[i2], this->first[i1])) {
-                I2DF;
-            } else {
-                const auto v1 = o.second[i2], v2 = second[i1];
-                num += std::min(v1, v2);
-                I1DF; I2DF;
+#if 0
+        static bool flag = false;
+        if(o.size() != this->size()) {
+            if(flag == false) {
+                std::fprintf(stderr, "Warning: this size (%zu) sdoesn't match another size (%zu), but comparisons are still valid.\n", this->size(), o.size());
+                flag = true;
             }
         }
+#endif
+#if !NDEBUG
+        uint64_t added_up = 0;
+        {
+            std::unordered_map<key_type, count_type> lhs, rhs;
+            for(size_t i = 0; i < this->size(); ++i) {
+                auto itp = lhs.emplace(this->first[i], this->second[i]);
+                assert(itp.second || !std::fprintf(stderr, "Duplicate: %zu key, %u count\n", itp.first->first, itp.first->second)); {
+            }
+            for(size_t i = 0; i < this->size(); ++i) {
+                assert(lhs[this->first[i]] == this->second[i]);
+            }
+            for(size_t i = 0; i < o.size(); ++i) {
+                auto k = o.first[i];
+                auto c = o.second[i];
+                assert(rhs.find(k) == rhs.end());
+                rhs.emplace(k, c);
+                assert(rhs[k] == c);
+            }
+            for(size_t i = 0; i < o.size(); ++i)
+                assert(rhs[o.first[i]] == o.second[i]);
+            for(const auto &pair: lhs) {
+                auto it = rhs.find(pair.first);
+                if(it != rhs.end())
+                    added_up += std::min(it->second, pair.second);
+            }
+        }
+#endif
+        //assert(o.size() == this->size()|| !std::fprintf(stderr, "this->size: %zu. o size: %zu\n", this->size(), o.size()));
+        const size_t lsz = this->size(), rsz = o.size();
+        size_t num = 0;
+        for(size_t i1 = 0, i2 = 0;;) {
+            auto &lhs = this->first[i1];
+            auto &rhs = o.first[i2];
+            if(lhs < rhs) {
+                if(++i1 == lsz) break;
+            } else if(rhs < lhs) {
+                if(++i2 == rsz) break;
+            } else {
+                assert(!(lhs < rhs));
+                assert(!(rhs < lhs));
+                assert(lhs == rhs);
+                num += std::min(o.second[i2], this->second[i1]);
+                if(++i1 == lsz || ++i2 == rsz) break;
+            }
+        }
+        assert(num == added_up || !std::fprintf(stderr, "%zu manual via hashmap, %zu through merging sorted sets\n", added_up, num));
         return static_cast<double>(num) / (count_sum_ + o.count_sum_ - num);
     }
     DBSKETCH_READ_STRING_MACROS
@@ -680,6 +762,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         ret += gzread(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         this->second.resize(nelem);
         ret += gzread(fp, this->second.data(), sizeof(this->second[0]) * nelem);
+        assert(std::set<uint64_t>(this->first.begin(), this->first.end()).size() == this->first.size());
         return ret;
     }
     double union_size(const FinalCRMinHash &o) const {
@@ -687,6 +770,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         return super::union_size(o);
     }
     ssize_t write(gzFile fp) const {
+        assert(std::set<uint64_t>(this->first.begin(), this->first.end()).size() == this->first.size());
         uint64_t nelem = second.size();
         ssize_t ret = gzwrite(fp, &nelem, sizeof(nelem));
         ret += gzwrite(fp, &count_sum_, sizeof(count_sum_));
@@ -701,36 +785,56 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         const size_t lsz = this->size();
         double denom = 0, num = 0;
         for(size_t i1 = 0, i2 = 0;;) {
-            if(this->cmp(this->first[i1], o.first[i2])) {
+            auto &lhs = this->first[i1];
+            auto &rhs = o.first[i2];
+            if(lhs < rhs) {
                 denom += second[i1] * fn(this->first[i1]);
-                I1DF;
-            } else if(this->cmp(o.first[i2], this->first[i1])) {
+                if(++i1 == lsz) break;
+            } else if(rhs < lhs) {
                 denom += o.second[i2] * fn(o.first[i2]);
-                I2DF;
+                if(++i2 == o.size()) break;
             } else {
                 const auto v1 = second[i1] * fn(this->first[i1]), v2 = o.second[i2] * fn(o.first[i2]);
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                I1DF; I2DF;
+                if(++i2 == o.size()) break;
+                if(++i1 == lsz) break;
             }
         }
 #undef I1DF
 #undef I2DF
         return num / denom;
     }
-    FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second): FinalRMinHash<T, Cmp>(std::move(first)), second(std::move(second)) {
+    FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second) {
+        std::vector<std::pair<key_type, count_type>> tmp;
+        for(size_t i = 0; i < first.size(); ++i)
+            tmp.push_back(std::make_pair(first[i], second[i]));
+        common::sort::default_sort(tmp.begin(), tmp.end(), [](auto x, auto y) {return x.first < y.first;});
+        this->first.resize(first.size());
+        this->second.resize(second.size());
+        for(size_t i = 0; i < this->first.size(); ++i)
+            this->first[i] = tmp[i].first, this->second[i] = tmp[i].second;
+        assert(std::is_sorted(this->first.begin(), this->first.end()));
         if(this->first.size() != this->second.size()) {
             char buf[512];
             std::sprintf(buf, "Illegal FinalCRMinHash: hashes and counts must have equal length. Length one: %zu. Length two: %zu", this->first.size(), second.size());
             throw std::runtime_error(buf);
         }
     }
-    template<typename Hasher>
-    FinalCRMinHash(const CountingRangeMinHash<T, Cmp, Hasher, CountType> &prefinal): FinalRMinHash<T,Cmp>() {
-        this->first.reserve(prefinal.sketch_size());
-        this->second.reserve(prefinal.sketch_size());
+    FinalCRMinHash(std::pair<std::vector<T>, std::vector<CountType>> &&args):
+        FinalCRMinHash(std::move(args.first), std::move(args.second))
+    {
+    }
+    template<typename Hasher, typename Cmp>
+    static std::pair<std::vector<T>, std::vector<CountType>> crmh2vecs(const CountingRangeMinHash<T, Cmp, Hasher, CountType> &prefinal) {
+        std::vector<T> tmp;
+        std::vector<CountType> tmp2;
         for(const auto &pair: prefinal)
-            this->first.push_back(pair.first), this->second.push_back(pair.second);
+            tmp.push_back(pair.first), tmp2.push_back(pair.second);
+        return std::make_pair(std::move(tmp), std::move(tmp2));
+    }
+    template<typename Hasher, typename Cmp>
+    FinalCRMinHash(const CountingRangeMinHash<T, Cmp, Hasher, CountType> &prefinal): FinalCRMinHash(crmh2vecs(prefinal)) {
         ssize_t diff =  prefinal.sketch_size() - this->first.size();
         if(diff > 0) {
             this->first.insert(this->first.end(), diff, std::numeric_limits<T>::max());
@@ -742,7 +846,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         count_sum_sq_ = std::sqrt(countsumsq());
         assert(this->first.size() == prefinal.sketch_size());
     }
-    template<typename Hasher>
+    template<typename Hasher, typename Cmp>
     FinalCRMinHash(CountingRangeMinHash<T, Cmp, Hasher, CountType> &&prefinal): FinalCRMinHash(static_cast<const CountingRangeMinHash<T, Cmp, Hasher, CountType> &>(prefinal)) {
         prefinal.clear();
     }
@@ -761,7 +865,7 @@ struct FinalCRMinHash: public FinalRMinHash<T, Cmp> {
         return std::max(0., is / us);
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
-        return FinalRMinHash<T, Cmp>::cardinality_estimate(mode);
+        return FinalRMinHash<T>::cardinality_estimate(mode);
     }
 };
 

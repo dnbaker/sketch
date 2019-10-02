@@ -29,6 +29,8 @@
 
 #if __AES__
 #include "aesctr/aesctr.h"
+#else
+#error("__AES__ not provided. Did you use -march=native?")
 #endif
 
 #if ZWRAP_USE_ZSTD
