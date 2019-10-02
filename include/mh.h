@@ -323,23 +323,26 @@ struct FinalRMinHash {
 #define I2DF if(++i2 == lsz) break
     template<typename WeightFn=weight::EqualWeight>
     double tf_idf(const FinalRMinHash &o, const WeightFn &fn=WeightFn()) const {
-        assert(o.size() == size());
         const size_t lsz = size();
-        double num = 0, denom;
+        const size_t rsz = o.size();
+        double num, denom;
+        num = denom = 0;
         for(size_t i1 = 0, i2 = 0;;) {
             if(first[i1] < o.first[i2]) {
                 denom += fn(first[i1]);
-                I1DF;
+                if(++i1 == lsz) break;
             } else if(o.first[i2] < first[i1]) {
                 denom += fn(o.first[i2]);
-                I2DF;
+                if(++i2 == rsz) break;
             } else {
                 const auto v1 = fn(first[i1]), v2 = fn(o.first[i2]);
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                I1DF; I2DF;
+                if(++i1 == lsz) break;
+                if(++i2 == rsz) break;
             }
         }
+        std::fprintf(stderr, "num: %f. denom: %f\n", num, denom);
         return num / denom;
     }
     typename container_type::const_iterator begin() {
@@ -444,7 +447,7 @@ class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {
     };
     Hasher hf_;
     Cmp cmp_;
-    CountType cached_sum_sq_ = 0, cached_sum_ = 0;
+    mutable CountType cached_sum_sq_ = 0, cached_sum_ = 0;
     std::set<VType> minimizers_; // using std::greater<T> so that we can erase from begin()
 public:
     const auto &min() const {return minimizers_;}
@@ -508,19 +511,20 @@ public:
 #define I2DM if(++i2 == o.minimizers_.end()) break
         for(;;) {
             if(cmp_(i1->first, i2->first)) {
-                denom += i1->second;
-                I1DM;
+                denom += (i1++)->second;
+                if(i1 == minimizers_.end()) break;
             } else if(cmp_(i2->first, i1->first)) {
-                denom += i2->second;
-                I2DM;
+                denom += (i2++)->second;
+                if(i2 == o.minimizers_.end()) break;
             } else {
                 const auto v1 = i1->second, v2 = i2->second;
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                I1DM;
-                I2DM;
+                if(++i1 == minimizers_.end()) break;
+                if(++i2 == o.minimizers_.end()) break;
             }
         }
+        std::fprintf(stderr, "num: %zu. denom: %zu\n", num, denom);
         return static_cast<double>(num) / denom;
     }
     double containment_index(const CountingRangeMinHash &o) const {
@@ -570,23 +574,24 @@ public:
         assert(o.size() == size());
         double denom = 0, num = 0;
         auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
+        const auto e1 = minimizers_.cend(), e2 = o.minimizers_.cend();
         for(;;) {
-            if(cmp_(i1->first, i2->first)) {
-                denom += (i1->second) * fn(i1->first);
-                I1DM;
-            } else if(cmp_(i2->first, i1->first)) {
-                denom += (i2->second) * fn(i2->first);
-                I2DM;
+            auto &lhf = i1->first, &rhf = i2->first;
+            if(cmp_(lhf, rhf)) {
+                denom += (i1->second) * fn(lhf);
+                if(++i1 == e1) break;
+            } else if(cmp_(rhf, lhf)) {
+                denom += (i2->second) * fn(rhf);
+                if(++i2 == e2) break;
             } else {
-                const auto v1 = i1->second * fn(i1->first), v2 = i2->second * fn(i2->first);
+                assert(rhf == lhf);
+                const auto v1 = i1->second * fn(lhf), v2 = i2->second * fn(rhf);
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                I1DM;
-                I2DM;
+                if(++i1 == e1 || ++i2 == e2) break;
             }
         }
-#undef I1DM
-#undef I2DM
+        std::fprintf(stderr, "%f, %f\n", num, denom);
         return static_cast<double>(num) / denom;
     }
     final_type finalize() const {
@@ -694,22 +699,13 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         return static_cast<double>(num);
     }
     double histogram_intersection(const FinalCRMinHash &o) const {
-#if 0
-        static bool flag = false;
-        if(o.size() != this->size()) {
-            if(flag == false) {
-                std::fprintf(stderr, "Warning: this size (%zu) sdoesn't match another size (%zu), but comparisons are still valid.\n", this->size(), o.size());
-                flag = true;
-            }
-        }
-#endif
 #if !NDEBUG
         uint64_t added_up = 0;
         {
             std::unordered_map<key_type, count_type> lhs, rhs;
             for(size_t i = 0; i < this->size(); ++i) {
                 auto itp = lhs.emplace(this->first[i], this->second[i]);
-                assert(itp.second || !std::fprintf(stderr, "Duplicate: %zu key, %u count\n", itp.first->first, itp.first->second)); {
+                assert(itp.second || !std::fprintf(stderr, "Duplicate: %zu key, %u count\n", itp.first->first, itp.first->second));
             }
             for(size_t i = 0; i < this->size(); ++i) {
                 assert(lhs[this->first[i]] == this->second[i]);
@@ -781,28 +777,26 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
     }
     template<typename WeightFn=weight::EqualWeight>
     double tf_idf(const FinalCRMinHash &o, const WeightFn &fn=WeightFn()) const {
-        assert(o.size() == this->size());
         const size_t lsz = this->size();
+        const size_t rsz = o.size();
         double denom = 0, num = 0;
         for(size_t i1 = 0, i2 = 0;;) {
             auto &lhs = this->first[i1];
             auto &rhs = o.first[i2];
             if(lhs < rhs) {
-                denom += second[i1] * fn(this->first[i1]);
+                denom += second[i1] * fn(lhs);
                 if(++i1 == lsz) break;
             } else if(rhs < lhs) {
-                denom += o.second[i2] * fn(o.first[i2]);
-                if(++i2 == o.size()) break;
+                denom += o.second[i2] * fn(rhs);
+                if(++i2 == rhs) break;
             } else {
-                const auto v1 = second[i1] * fn(this->first[i1]), v2 = o.second[i2] * fn(o.first[i2]);
+                const auto v1 = second[i1] * fn(lhs), v2 = o.second[i2] * fn(rhs);
                 denom += std::max(v1, v2);
                 num += std::min(v1, v2);
-                if(++i2 == o.size()) break;
-                if(++i1 == lsz) break;
+                if(++i2 == rsz || ++i1 == lsz) break;
             }
         }
-#undef I1DF
-#undef I2DF
+        std::fprintf(stderr, "num: %f. denom: %f\n", num, denom);
         return num / denom;
     }
     FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second) {

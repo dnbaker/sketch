@@ -84,7 +84,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "crhm sum/sumsq: %zu/%zu\n", size_t(crhm.sum()), size_t(crhm.sum_sq()));
     std::fprintf(stderr, "rmh1 b: %zu. rmh1 rb: %zu. max: %zu. min: %zu\n", size_t(*rm1.begin()), size_t(*rm2.rbegin()), size_t(rm1.max_element()), size_t(rm1.min_element()));
     assert(f1.histogram_intersection(f2) == f2.histogram_intersection(f1) && f1.histogram_intersection(f2) == crhm.histogram_intersection(crhm2));
-    assert(crhm.histogram_intersection(crhm2) ==  f1.tf_idf(f2));
+    assert(crhm.histogram_intersection(crhm2) ==  f1.tf_idf(f2) || !std::fprintf(stderr, "v1: %f. v2: %f\n", crhm.histogram_intersection(crhm2), f1.tf_idf(f2)));
     std::fprintf(stderr, "tf-idf with equal weights: %lf\n", f1.tf_idf(f2));
     std::fprintf(stderr, "f1 est cardinality: %lf\n", f1.cardinality_estimate());
     std::fprintf(stderr, "f1 est cardinality: %lf\n", f1.cardinality_estimate(ARITHMETIC_MEAN));
