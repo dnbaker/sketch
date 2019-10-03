@@ -254,9 +254,11 @@ struct EqualWeight {
 };
 }
 
-template<typename T, typename Allocator=Allocator<T>>
+template<typename T, typename Allocator=std::allocator<T>>
 struct FinalRMinHash {
     static_assert(std::is_unsigned<T>::value, "must be unsigned btw");
+
+    using allocator = Allocator;
     std::vector<T, Allocator> first;
     uint64_t lsum_;
     using container_type = decltype(first);
@@ -275,7 +277,7 @@ struct FinalRMinHash {
     FinalRMinHash &operator+=(const FinalRMinHash &o) {
         std::vector<T, Allocator> newfirst; newfirst.reserve(o.size());
         if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
-        auto i1 = this->rbegin(), i2 = o.rbegin();
+        auto i1 = this->begin(), i2 = o.begin();
         while(newfirst.size() < first.size()) {
             if(*i2 < *i1) {
                 newfirst.push_back(*i2++);
@@ -340,11 +342,9 @@ struct FinalRMinHash {
                 ++i1; ++i2;
                 if(i1 == lsz || i2 == rsz) break;
             }
-            std::fprintf(stderr, "[%s] num: %f. denom: %f. i1: %zu. u2: %zu\n", __PRETTY_FUNCTION__, num, denom, i1, i2);
         }
         while(i1 < lsz) denom += fn(first[i1++]);
         while(i2 < rsz) denom += fn(o.first[i2++]);
-        std::fprintf(stderr, "Final [%s] num: %f. denom: %f\n", __PRETTY_FUNCTION__, num, denom);
         return num / denom;
     }
     typename container_type::const_iterator begin() {
@@ -376,10 +376,10 @@ struct FinalRMinHash {
     }
     template<typename Alloc>
     FinalRMinHash(const std::vector<T, Alloc> &ofirst): first(ofirst.size()) {std::copy(ofirst.begin(), ofirst.end(), first.begin()); sort();}
-    //template<typename Alloc>
-    //FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(std::move(ofirst)) {
-    //    sort();
-    //}
+    template<typename Alloc, typename=std::enable_if_t<std::is_same<Alloc, allocator>::value>>
+    FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(std::move(ofirst)) {
+        sort();
+    }
     FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)) {sort();}
     ssize_t read(gzFile fp) {
         uint64_t sz;
@@ -400,8 +400,9 @@ struct FinalRMinHash {
     DBSKETCH_READ_STRING_MACROS
     DBSKETCH_WRITE_STRING_MACROS
     auto max_element() const {
-        assert(std::accumulate(first.begin(), first.end(), true, [&](bool t, auto v) {return t && *first.begin() >= v;}));
-        return *first.begin();
+        const auto ret = first.back();
+        assert(std::accumulate(first.begin(), first.end(), true, [&](bool t, auto v) {return t && ret >= v;}));
+        return first.back();
     }
     template<typename Hasher, typename Cmp>
     FinalRMinHash(RangeMinHash<T, Cmp, Hasher> &&prefinal): FinalRMinHash(std::move(prefinal.finalize())) {
@@ -528,7 +529,6 @@ public:
         }
         while(i1 != e1) denom += i1++->second;
         while(i2 != e2) denom += i2++->second;
-        std::fprintf(stderr, "[%s] num %zu, denom %zu\n", __PRETTY_FUNCTION__, num, denom);
         return static_cast<double>(num) / denom;
     }
     double containment_index(const CountingRangeMinHash &o) const {
@@ -598,7 +598,6 @@ public:
         }
         while(i1 < e1) denom += i1->second * fn(i1->first), ++i1;
         while(i2 < e2) denom += i2->second * fn(i2->first), ++i2;
-        std::fprintf(stderr, "%f, %f\n", num, denom);
         return static_cast<double>(num) / denom;
     }
     final_type finalize() const {
@@ -723,7 +722,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         return static_cast<double>(num);
     }
     double histogram_intersection(const FinalCRMinHash &o) const {
-#if !NDEBUG
+#if 0
         uint64_t added_up = 0;
         {
             std::unordered_map<key_type, count_type> lhs, rhs;
@@ -830,6 +829,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         double denom = 0, num = 0;
         size_t i1 = 0, i2 = 0;
         for(;;) {
+            std::fprintf(stderr, "[%s] in loop num %f, denom %f\n", __PRETTY_FUNCTION__, num, denom);
             auto &lhs = this->first[i1];
             auto &rhs = o.first[i2];
             const auto lhv = second[i1] * fn(lhs), rhv = o.second[i2] * fn(rhs);
@@ -847,18 +847,23 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
             }
             assert(i2 < o.second.size());
         }
-        while(i1 < lsz) denom += this->first[i1] * fn(second[i1]), ++i1;
-        while(i2 < lsz) denom += o.first[i2] * fn(o.second[i2]), ++i2;
-        std::fprintf(stderr, "[%s] num %f, denom %f\n", num, denom);
+        std::fprintf(stderr, "[%s] after loop num %f, denom %f\n", __PRETTY_FUNCTION__, num, denom);
+        while(i1 < lsz) {
+            denom += this->second.operator[](i1) * fn(this->first.operator[](i1)), ++i1;
+            //denom += this->first[i1] * fn(second[i1]), ++i1;
+        }
+        while(i2 < rsz) {
+            denom += o.second.operator[](i2) * fn(o.first.operator[](i2)), ++i2;
+        }
+        std::fprintf(stderr, "[%s] after finishing num %f, denom %f\n", __PRETTY_FUNCTION__, num, denom);
         return num / denom;
     }
-    FinalCRMinHash(std::vector<T> &&first, std::vector<CountType> &&second) {
+    void prepare(size_t ss=0) {
+        if(ss == 0) ss = this->first.size();
         std::vector<std::pair<key_type, count_type>> tmp;
-        for(size_t i = 0; i < first.size(); ++i)
-            tmp.push_back(std::make_pair(first[i], second[i]));
+        for(size_t i = 0; i < this->first.size(); ++i)
+            tmp.push_back(std::make_pair(this->first[i], second[i]));
         common::sort::default_sort(tmp.begin(), tmp.end(), [](auto x, auto y) {return x.first < y.first;});
-        this->first.resize(first.size());
-        this->second.resize(second.size());
         for(size_t i = 0; i < this->first.size(); ++i)
             this->first[i] = tmp[i].first, this->second[i] = tmp[i].second;
         assert(std::is_sorted(this->first.begin(), this->first.end()));
@@ -867,33 +872,43 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
             std::sprintf(buf, "Illegal FinalCRMinHash: hashes and counts must have equal length. Length one: %zu. Length two: %zu", this->first.size(), second.size());
             throw std::runtime_error(buf);
         }
+        ssize_t diff = ss - this->first.size();
+        if(diff > 0) {
+            this->first.insert(this->first.end(), diff, UINT64_MAX);
+            this->second.insert(this->second.end(), diff, 0);
+        }
         count_sum_ = countsum();
         count_sum_sq_ = std::sqrt(countsumsq());
     }
-    FinalCRMinHash(std::pair<std::vector<T>, std::vector<CountType>> &&args):
-        FinalCRMinHash(std::move(args.first), std::move(args.second))
+    template<typename Valloc, typename=std::enable_if_t<!std::is_same<Valloc, typename super::allocator>::value>>
+    FinalCRMinHash(std::vector<T, Valloc> &&first, std::vector<CountType> &&second, size_t ss=0) {
+        //this->first = std::move(first);
+        this->first.assign(first.begin(), first.end());
+        this->second = std::move(second);
+        std::swap(first, std::vector<T, Valloc>());
+        prepare(ss);
+    }
+    FinalCRMinHash(std::vector<T, typename super::allocator> &&first, std::vector<CountType> &&second, size_t ss=0) {
+        this->first = std::move(first);
+        this->second = std::move(second);
+        prepare(ss);
+    }
+    template<typename Valloc>
+    FinalCRMinHash(std::pair<std::vector<T, Valloc>, std::vector<CountType>> &&args, size_t ss=0):
+        FinalCRMinHash(std::move(args.first), std::move(args.second), ss)
     {
     }
     template<typename Hasher, typename Cmp>
     static std::pair<std::vector<T>, std::vector<CountType>> crmh2vecs(const CountingRangeMinHash<T, Cmp, Hasher, CountType> &prefinal) {
         std::vector<T> tmp;
         std::vector<CountType> tmp2;
+        tmp.reserve(prefinal.size()), tmp2.reserve(prefinal.size());
         for(const auto &pair: prefinal)
             tmp.push_back(pair.first), tmp2.push_back(pair.second);
         return std::make_pair(std::move(tmp), std::move(tmp2));
     }
     template<typename Hasher, typename Cmp>
-    FinalCRMinHash(const CountingRangeMinHash<T, Cmp, Hasher, CountType> &prefinal): FinalCRMinHash(crmh2vecs(prefinal)) {
-        assert(std::is_sorted(this->first.begin(), this->first.end()));
-        ssize_t diff =  prefinal.sketch_size() - this->first.size();
-        if(diff > 0) {
-            this->first.insert(this->first.end(), diff, std::numeric_limits<T>::max());
-            this->second.insert(this->second.end(), diff, 0);
-        } else if(diff < 0) {
-            throw std::runtime_error(std::string("diff < 0: ") + std::to_string(diff));
-        }
-        count_sum_ = countsum();
-        count_sum_sq_ = std::sqrt(countsumsq());
+    FinalCRMinHash(const CountingRangeMinHash<T, Cmp, Hasher, CountType> &prefinal): FinalCRMinHash(crmh2vecs(prefinal), prefinal.sketch_size()) {
         assert(this->first.size() == prefinal.sketch_size());
     }
     template<typename Hasher, typename Cmp>
