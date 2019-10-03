@@ -1,5 +1,14 @@
 #pragma once
 
+#define sk__str__(x) #x
+#define sk__xstr__(x) sk__str__(x)
+#define SKETCH_SHIFT 16
+#define SKETCH_MAJOR 0
+#define SKETCH_MINOR 7
+#define SKETCH_VERSION_INTEGER (SKETCH_MAJOR << SKETCH_SHIFT) | SKETCH_MINOR
+#define SKETCH_VERSION SKETCH_MAJOR.SKETCH_MINOR
+#define SKETCH_VERSION_STR sk__xstr__(SKETCH_VERSION)
+
 #include <algorithm>
 #include <array>
 #include <atomic>
