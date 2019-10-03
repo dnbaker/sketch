@@ -263,19 +263,34 @@ inline void insertion_sort(Iter begin, Iter end) {
     insertion_sort(begin, end, std::less<std::decay_t<decltype(*begin)>>());
 }
 #ifndef SORT_ALGORITHM
-template<typename... Args>
-void default_sort(Args &&... args) {std::sort(std::forward<Args>(args)...);}
-template<typename Container, typename Cmp=std::less<std::decay_t<decltype(*std::begin(std::declval<Container>()))>>>
-void default_sort(Container &x, Cmp cmp=Cmp()) {
-    default_sort(std::begin(x), std::end(x), cmp);
-}
-#else
+#  define SORT_ALGORITHM std::sort
+#  define UNDEFSORT
+#endif
 template<typename... Args>
 void default_sort(Args &&... args) {SORT_ALGORITHM(std::forward<Args>(args)...);}
-template<typename Container, typename Cmp=std::less<std::decay_t<decltype(*std::begin(x))>>>
+template<typename Container, typename Cmp>
 void default_sort(Container &x, Cmp cmp=Cmp()) {
-    default_sort(std::begin(x), std::end(x), cmp);
+    SORT_ALGORITHM(std::begin(x), std::end(x), cmp);
 }
+template<typename Container>
+void default_sort(Container &x) {
+    SORT_ALGORITHM(std::begin(x), std::end(x));
+}
+template<typename I1, typename I2, typename Cmp=std::less<std::decay_t<decltype(*std::declval<I1>())>>>
+void default_sort(I1 i1, I2 i2, Cmp cmp=Cmp())  {
+    SORT_ALGORITHM(i1, i2, cmp);
+}
+template<typename T>
+void default_sort(T *__restrict__ x, T *__restrict__ y) {
+    SORT_ALGORITHM(x, y);
+}
+template<typename T, typename Cmp>
+void default_sort(T *__restrict__ x, T *__restrict__ y, Cmp cmp=Cmp()) {
+    SORT_ALGORITHM(x, y, cmp);
+}
+#ifdef UNDEFSORT
+#  undef SORT_ALGORITHM
+#  undef UNDEFSORT
 #endif
 
 } // namespace sort

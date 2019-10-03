@@ -1,0 +1,30 @@
+#include "mh.h"
+
+using namespace sketch;
+struct Counter
+{
+  struct value_type { template<typename T> value_type(const T&) { } };
+  void push_back(const value_type&) { ++count; }
+  size_t count = 0;
+};
+\
+int main() {
+    mh::CountingRangeMinHash<uint64_t, std::greater<uint64_t>, std::hash<uint64_t>> cm(16), cm2(16);
+    for(size_t i = 64; i; cm.addh(i--));
+    for(size_t i = 96; i > 8; cm2.addh(i--));
+    for(const auto v: cm) std::fprintf(stderr, "v: %" PRIu64 "\n", v.first);
+    for(const auto v: cm2) std::fprintf(stderr, "v2: %" PRIu64 "\n", v.first);
+    auto cmf2 = cm2.cfinalize();
+    auto cmf = cm.cfinalize();
+    std::vector<uint64_t> lhv, rhv;
+    for(const auto v: cm) lhv.push_back(v.first);
+    for(const auto v: cm2) rhv.push_back(v.first);
+    sort::default_sort(lhv);
+    sort::default_sort(rhv);
+    Counter c;
+    std::set_intersection(lhv.begin(), lhv.end(), rhv.begin(), rhv.end(), std::back_inserter(c));
+    assert(c.count == cm.intersection_size(cm2));
+    Counter c2;
+    std::set_union(lhv.begin(), lhv.end(), rhv.begin(), rhv.end(), std::back_inserter(c2));
+    assert(c2.count == cm.union_size(cm2));
+}
