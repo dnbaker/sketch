@@ -722,56 +722,16 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         return static_cast<double>(num);
     }
     double histogram_intersection(const FinalCRMinHash &o) const {
-#if 0
-        uint64_t added_up = 0;
-        {
-            std::unordered_map<key_type, count_type> lhs, rhs;
-            for(size_t i = 0; i < this->size(); ++i) {
-                auto itp = lhs.emplace(this->first[i], this->second[i]);
-                assert(itp.second || !std::fprintf(stderr, "Duplicate: %zu key, %u count\n", itp.first->first, itp.first->second));
-            }
-            for(size_t i = 0; i < this->size(); ++i) {
-                assert(lhs[this->first[i]] == this->second[i]);
-            }
-            for(size_t i = 0; i < o.size(); ++i) {
-                auto k = o.first[i];
-                auto c = o.second[i];
-                assert(rhs.find(k) == rhs.end());
-                rhs.emplace(k, c);
-                assert(rhs[k] == c);
-            }
-            for(size_t i = 0; i < o.size(); ++i)
-                assert(rhs[o.first[i]] == o.second[i]);
-            for(const auto &pair: lhs) {
-                auto it = rhs.find(pair.first);
-                if(it != rhs.end())
-                    added_up += std::min(it->second, pair.second);
-            }
-        }
-#endif
-        //assert(o.size() == this->size()|| !std::fprintf(stderr, "this->size: %zu. o size: %zu\n", this->size(), o.size()));
         const size_t lsz = this->size(), rsz = o.size();
         assert(std::accumulate(this->second.begin(), this->second.end(), size_t(0)) == this->count_sum_);
         size_t num = 0;
-#if 0
-        size_t denom = 0;
-#endif
         size_t i1 = 0, i2 = 0;
         for(;;) {
-#if 0
-            std::fprintf(stderr, "[%s] denom: %zu. num: %zu. indices: %zu, %zu\n", __PRETTY_FUNCTION__, denom, num, i1, i2);
-#endif
             auto &lhs = this->first[i1];
             auto &rhs = o.first[i2];
             if(lhs < rhs) {
-#if 0
-                denom += this->second[i1++];
-#endif
                 if(++i1 == lsz) break;
             } else if(rhs < lhs) {
-#if 0
-                denom += o.second[i2++];
-#endif
                 if(++i2 == rsz) break;
             } else {
                 assert(!(lhs < rhs));
@@ -779,17 +739,9 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
                 assert(lhs == rhs);
                 auto lhv = this->second[i1++], rhv = o.second[i2++];
                 num += std::min(lhv, rhv);
-#if 0
-                denom += std::max(lhv, rhv);
-#endif
                 if(i1 == lsz || i2 == rsz) break;
             }
         }
-#if 0
-        while(i1 != lsz) denom += this->second[i1++];
-        while(i2 != rsz) denom += o.second[i2++];
-#endif
-        assert(num == added_up || !std::fprintf(stderr, "%zu manual via hashmap, %zu through merging sorted sets\n", added_up, num));
         return static_cast<double>(num) / (count_sum_ + o.count_sum_ - num);
     }
     DBSKETCH_READ_STRING_MACROS
