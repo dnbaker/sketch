@@ -36,7 +36,7 @@ int main(int argc, char *argv[]) {
     double olap_frac = argc < 3 ? 0.1: std::atof(argv[2]);
     size_t ss = argc < 4 ? 11: size_t(std::strtoull(argv[3], nullptr, 10));
     RangeMinHash<uint64_t> rm1(1 << ss), rm2(1 << ss);
-    CountingRangeMinHash<uint64_t> crhm(1 << ss), crhm2(1 << ss);
+    CountingRangeMinHash<uint64_t> crhm(1 << 6), crhm2(1 << 6);
     //KthMinHash<uint64_t> kmh(30, 100);
     std::mt19937_64 mt(1337);
     size_t olap_n = (olap_frac * nelem);
@@ -83,7 +83,10 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "finalized\n");
     std::fprintf(stderr, "crhm sum/sumsq: %zu/%zu\n", size_t(crhm.sum()), size_t(crhm.sum_sq()));
     std::fprintf(stderr, "rmh1 b: %zu. rmh1 rb: %zu. max: %zu. min: %zu\n", size_t(*rm1.begin()), size_t(*rm2.rbegin()), size_t(rm1.max_element()), size_t(rm1.min_element()));
-    assert(f1.histogram_intersection(f2) == f2.histogram_intersection(f1) && f1.histogram_intersection(f2) == crhm.histogram_intersection(crhm2));
+    assert(f1.histogram_intersection(f2) == f2.histogram_intersection(f1));
+    std::fprintf(stderr, "hist intesrection haflway done\n");
+    assert(f1.histogram_intersection(f2) == crhm.histogram_intersection(crhm2));
+    std::fprintf(stderr, "hist intesrection done\n");
     assert(crhm.histogram_intersection(crhm2) ==  f1.tf_idf(f2) || !std::fprintf(stderr, "v1: %f. v2: %f\n", crhm.histogram_intersection(crhm2), f1.tf_idf(f2)));
     std::fprintf(stderr, "tf-idf with equal weights: %lf\n", f1.tf_idf(f2));
     std::fprintf(stderr, "f1 est cardinality: %lf\n", f1.cardinality_estimate());

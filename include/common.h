@@ -265,9 +265,17 @@ inline void insertion_sort(Iter begin, Iter end) {
 #ifndef SORT_ALGORITHM
 template<typename... Args>
 void default_sort(Args &&... args) {std::sort(std::forward<Args>(args)...);}
+template<typename Container, typename Cmp=std::less<std::decay_t<decltype(*std::begin(std::declval<Container>()))>>>
+void default_sort(Container &x, Cmp cmp=Cmp()) {
+    default_sort(std::begin(x), std::end(x), cmp);
+}
 #else
 template<typename... Args>
 void default_sort(Args &&... args) {SORT_ALGORITHM(std::forward<Args>(args)...);}
+template<typename Container, typename Cmp=std::less<std::decay_t<decltype(*std::begin(x))>>>
+void default_sort(Container &x, Cmp cmp=Cmp()) {
+    default_sort(std::begin(x), std::end(x), cmp);
+}
 #endif
 
 } // namespace sort

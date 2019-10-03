@@ -3,7 +3,7 @@
 #include <cstdint>
 
 namespace sketch {
-namespace common {
+inline namespace common {
 template<typename Container, typename Cmp=std::less<>>
 std::uint64_t intersection_size(const Container &c1, const Container &c2, const Cmp &cmp=Cmp()) {
     // These containers must be sorted.
