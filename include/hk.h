@@ -296,7 +296,7 @@ public:
     auto est_count(const value_type &x) {return hk_.queryh(x);}
     uint64_t addh(value_type &&x) {
         const auto hv = hk_.hash(x);
-        const auto old_count = hk_.query(hv);
+        auto old_count = hk_.query(hv);
         if(hashes_.find(hv) != hashes_.end())
             goto end;
         if(heap_.size() < heap_.capacity()) {
