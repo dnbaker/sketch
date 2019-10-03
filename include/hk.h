@@ -294,35 +294,41 @@ public:
         addh(std::move(t));
     }
     auto est_count(const value_type &x) {return hk_.queryh(x);}
-    void addh(value_type &&x) {
+    uint64_t addh(value_type &&x) {
         const auto hv = hk_.hash(x);
-        const auto old_count = hk_.add(hv);
+        const auto old_count = hk_.query(hv);
         if(hashes_.find(hv) != hashes_.end())
-            return;
+            goto end;
         if(heap_.size() < heap_.capacity()) {
             heap_.emplace_back(std::move(x));
-            hk_.addh(x);
+            hk_.add(hv);
             hashes_.emplace(hv);
             if(heap_.size() == heap_.capacity()) {
                 std::make_heap(heap_.begin(), heap_.end(), Comparator(hk_));
             }
         } else {
-            auto yh = hk_.hash(top());
-            const auto cmpcount = hk_.query(yh);
-            if(std::tie(old_count, yh) > std::tie(cmpcount, hv)) {
+            auto yhv = hk_.hash(top());
+            const auto cmpcount = hk_.query(yhv);
+            if(std::tie(old_count, yhv) > std::tie(cmpcount, hv)) {
                 assert(old_count >= cmpcount || hash(top()) > hash(x));
 
                 // 3.4:Optimization 1 -- detecting fingerprint collisions
-                if(old_count > cmpcount + 1) return;
+                if(old_count > cmpcount + 1) {
+                    old_count = 0;
+                    goto end;
+                }
+                hk_.add(hv);
 
                 std::pop_heap(heap_.begin(), heap_.end(), Comparator(hk_));
                 hashes_.erase(hash(heap_.back()));
+                hashes_.emplace(hv);
                 heap_.back() = std::move(x);
-                hashes_.emplace(hash(heap_.back()));
                 assert(hashes_.size() == heap_.size());
                 std::push_heap(heap_.begin(), heap_.end(), Comparator(hk_));
             }
         }
+        end:
+        return old_count;
     }
     auto begin() {return heap_.begin();}
     auto begin() const {return heap_.begin();}
