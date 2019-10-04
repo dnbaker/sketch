@@ -432,6 +432,7 @@ template<typename T,
          typename CountType=uint32_t
         >
 class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {
+    static_assert(std::is_arithmetic<CountType>::value, "CountType must be arithmetic");
     struct VType {
         T first;
         mutable CountType second;

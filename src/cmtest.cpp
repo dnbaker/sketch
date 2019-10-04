@@ -9,7 +9,7 @@ struct Counter
 };
 \
 int main() {
-    mh::CountingRangeMinHash<uint64_t, std::greater<uint64_t>, std::hash<uint64_t>> cm(16), cm2(16);
+    mh::CountingRangeMinHash<uint64_t, std::greater<uint64_t>, std::hash<uint64_t>, double> cm(16), cm2(16);
     for(size_t i = 64; i; cm.addh(i--));
     for(size_t i = 96; i > 8; cm2.addh(i--));
     for(const auto v: cm) std::fprintf(stderr, "v: %" PRIu64 "\n", v.first);
@@ -24,6 +24,10 @@ int main() {
     Counter c;
     std::set_intersection(lhv.begin(), lhv.end(), rhv.begin(), rhv.end(), std::back_inserter(c));
     assert(c.count == cm.intersection_size(cm2));
+    assert(c.count == cmf.intersection_size(cmf2));
+    for(auto &c: cmf.second)
+        c = 2;
+    assert(c.count == cmf.intersection_size(cmf2)); // Make sure intersection size is still the same
     Counter c2;
     std::set_union(lhv.begin(), lhv.end(), rhv.begin(), rhv.end(), std::back_inserter(c2));
     assert(c2.count == cm.union_size(cm2));

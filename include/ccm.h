@@ -803,22 +803,31 @@ public:
     }
 };
 
-template<typename CMType, template<typename> class QueueContainer=std::queue>
+template<typename CMType, template<typename...> class QueueContainer=std::deque, typename...Args>
 class SlidingWindow {
-    QueueContainer<uint64_t> hashes_;
+    using qc = QueueContainer<uint64_t, Args...>;
+    qc hashes_;
 public:
     CMType cm_;
     size_t queue_size_;
-    SlidingWindow(size_t queue_size, CMType &&cm): queue_size_(queue_size), cm_(std::move(cm)) {
-        hashes_.reserve(queue_size_);
+    SlidingWindow(size_t queue_size, CMType &&cm, qc &&hashes=qc()): queue_size_(queue_size), cm_(std::move(cm)) {
     }
     void addh(uint64_t v) {
         cm_.addh(v);
         if(hashes_.size() == queue_size_) {
-            cm_.sub(hashes_.front());
+            cm_.subh(hashes_.front());
             hashes_.pop_front();
             hashes_.push_back(v);
         }
+    }
+    CMType &sketch() {
+        return cm_;
+    }
+    const CMType &sketch() const {
+        return cm_;
+    }
+    CMType &&release() {
+        return std::move(cm_);
     }
 };
 
