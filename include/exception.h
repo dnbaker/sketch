@@ -2,6 +2,11 @@
 #ifndef SKETCHCEPTION_H__
 #define SKETCHCEPTION_H__
 #include <stdexcept>
+#if ZWRAP_USE_ZSTD
+#  include "zstd_zlibwrapper.h"
+#else
+#  include <zlib.h>
+#endif
 
 namespace sketch {
 
@@ -29,9 +34,21 @@ public:
     UnsatisfiedPostconditionError(): std::runtime_error("Unsatisfied precondition.") {}
 };
 
-struct ZlibError: public std::runtime_error {
+class ZlibError: public std::runtime_error {
+    static constexpr const char * const z_errmsg[10] = {
+        (z_const char *)"need dictionary",     /* Z_NEED_DICT       2  */
+        (z_const char *)"stream end",          /* Z_STREAM_END      1  */
+        (z_const char *)"",                    /* Z_OK              0  */
+        (z_const char *)"file error",          /* Z_ERRNO         (-1) */
+        (z_const char *)"stream error",        /* Z_STREAM_ERROR  (-2) */
+        (z_const char *)"data error",          /* Z_DATA_ERROR    (-3) */
+        (z_const char *)"insufficient memory", /* Z_MEM_ERROR     (-4) */
+        (z_const char *)"buffer error",        /* Z_BUF_ERROR     (-5) */
+        (z_const char *)"incompatible version",/* Z_VERSION_ERROR (-6) */
+        (z_const char *)""
+    };
 public:
-    ZlibError(int ze, std::string s): std::runtime_error(std::string("zlibError [") + zError(ze) + "]" + s) {}
+    ZlibError(int ze, std::string s): std::runtime_error(std::string("zlibError [") + z_errmsg[Z_NEED_DICT-ze] + "]" + s) {}
 };
 
 #ifdef __CUDACC__
