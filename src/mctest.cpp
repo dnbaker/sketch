@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "probabilistic method stack space: %zu\theap space:%zu\n", x, y);
     std::tie(x, y) = cmsexact.est_memory_usage();
     std::fprintf(stderr, "exact method stack space: %zu\theap space:%zu\n", x, y);
-    size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 100000;
+    size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 1000000;
     std::vector<uint64_t> items;
     std::mt19937_64 mt;
     while(items.size() < nitems) items.emplace_back(mt());
@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
     items.emplace_back(137);
     int TIMES = 4;
     for(const auto item: items) {
-        for(int i = TIMES; i--;) {
+        for(int i = (item & 0xFF) == 0 ? 200: TIMES; i--;) {
             cmsexact.addh(item), cms.addh(item),  cmscs.addh(item), cmswithnonminmal.addh(item), cmscs4w.addh(item), cmsexact2.addh(item);
         }
     }
@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
             std::fprintf(stderr, "approx: %i, exact %i, histcs %i\n", int(cms.est_count(137)), int(cmsexact.est_count(137)), int(cmscs.est_count(137)));
         }
         //std::fprintf(stderr, "est count: %zu\n", size_t(cms.est_count(j)));
-        auto exact_count = j == 137 ? 1000 + TIMES: TIMES;
+        auto exact_count = j == 137 ? 1000 + TIMES: (j & 0xFF) == 0 ? 200: TIMES;
         ++histapprox[cms.est_count(j) - exact_count];
         ++histexact[cmsexact.est_count(j) - exact_count];
         ssize_t csest = cmscs.est_count(j);

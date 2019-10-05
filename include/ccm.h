@@ -11,7 +11,7 @@ namespace cm {
 using common::detail::tmpbuffer;
 
 namespace detail {
-template<typename T, typename AllocatorType=typename T::allocator>
+template<typename T, typename AllocatorType>
 static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
     tmpbuffer<float, 8> mem(nhashes);
     float *ptr = mem.get();
@@ -22,20 +22,47 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhash
     for(size_t i = 0; i < nhashes; ++i) {
         const T *p1 = &v[i << l2sz], *p2 = &v[(i+1)<<l2sz];
         while(p2 - p1 > ct) {
-            sum = VS::add(sum, VS::mul(*reinterpret_cast<const VT *>(p1), *reinterpret_cast<const VT *>(*p1)));
+            const auto el = *reinterpret_cast<const VT *>(p1);
+            sum = VS::add(sum, VS::mul(el, el));
             p1 += ct;
         }
-        T full_sum = 0;
-        while(p1 < p2) {
+        T full_sum = sum.sum();
+        while(p1 < p2)
             full_sum += *p1++;
-        }
-        full_sum += sum.sum();
         ptr[i] = std::sqrt(full_sum);
     }
     common::sort::insertion_sort(ptr, ptr + nhashes);
     float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
     return ret;
 }
+template<typename T, typename AllocatorType>
+static inline float sqrl2(const std::vector<T, AllocatorType> &v, const std::vector<T, AllocatorType> &v2, uint32_t nhashes, uint32_t l2sz) {
+    assert(v.size() == v2.size());
+    tmpbuffer<float, 8> mem(nhashes);
+    float *ptr = mem.get();
+    using VT = typename vec::SIMDTypes<T>::VType;
+    using VS = vec::SIMDTypes<T>;
+    VT sum = VS::set1(0);
+    static constexpr size_t ct = VS::COUNT;
+    for(size_t i = 0; i < nhashes; ++i) {
+        const T *p1 = &v[i << l2sz], *p2 = &v2[i<<l2sz], *p1e = &v[(i + 1) << l2sz];
+        while(p1e - p1 > ct) {
+            const auto lv = *reinterpret_cast<const VT *>(p1);
+            const auto rv = *reinterpret_cast<const VT *>(p2);
+            sum = VS::add(sum, VS::mul(lv, rv));
+            p1 += ct;
+            p2 += ct;
+        }
+        T full_sum = sum.sum();
+        while(p1 < p1e)
+            full_sum += *p1++ * *p2++;
+        ptr[i] = std::sqrt(full_sum);
+    }
+    common::sort::insertion_sort(ptr, ptr + nhashes);
+    float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    return ret;
+}
+
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
 static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
     tmpbuffer<float, 8> mem(nhashes);
@@ -47,8 +74,25 @@ static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uin
             int64_t val = v[start++];
             sum += val * val;
         }
-        sum = std::sqrt(sum);
-        ptr[i] = sum;
+        ptr[i] = std::sqrt(sum);
+    }
+    common::sort::insertion_sort(ptr, ptr + nhashes);
+    float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    return ret;
+}
+
+template<typename T1, unsigned int BITS, typename T2, typename Allocator>
+static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, const compact::vector<T1, BITS, T2, Allocator> &v2, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<float, 8> mem(nhashes);
+    float *ptr = mem.get();
+    for(size_t i = 0; i < nhashes; ++i) {
+        size_t start = i << l2sz, end = (i + 1) << l2sz;
+        float sum = 0;
+        while(start != end) {
+            sum += v[start] * v2[start];
+            ++start;
+        }
+        ptr[i] = std::sqrt(sum);
     }
     common::sort::insertion_sort(ptr, ptr + nhashes);
     float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
@@ -65,6 +109,24 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
         do {
             int64_t val = v[start++];
             sum += val * val;
+        } while(start != end);
+        ptr[i] = std::sqrt(sum);
+    }
+    common::sort::insertion_sort(ptr, ptr + nhashes);
+    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    return ret;
+}
+
+template<typename T1, unsigned int BITS, typename T2, typename Allocator>
+static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v, const compact::ts_vector<T1, BITS, T2, Allocator> &v2, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<double, 8> mem(nhashes);
+    double *ptr = mem.get();
+    for(size_t i = 0; i < nhashes; ++i) {
+        size_t start = i << l2sz, end = (i + 1) << l2sz;
+        double sum = 0;
+        do {
+            sum += v[start] * v2[start];
+            ++start;
         } while(start != end);
         ptr[i] = std::sqrt(sum);
     }
@@ -115,6 +177,9 @@ public:
     }
     double l2est() const {
         return detail::sqrl2(data_, nhashes_, l2sz_);
+    }
+    double join_size_l2est(const ccmbase_t &o) const {
+        return detail::sqrl2(data_, o.data_, nhashes_, l2sz_);
     }
     template<typename Func>
     void for_each_register(const Func &func) {
@@ -444,9 +509,6 @@ class csbase_t {
     const HashStruct hf_;
     uint64_t mask_;
     std::vector<CounterType, Allocator<CounterType>> seeds_;
-#if !NDEBUG
-    mutable size_t sign_plus = 0, sign_minus = 0;
-#endif
 public:
     template<typename...Args>
     csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
@@ -559,10 +621,6 @@ public:
         return core_[index(hv, subidx)];
     }
     INLINE int sign(uint64_t hv) const {
-#if !NDEBUG
-        if ( hv & (1ul << np_)) ++sign_plus;
-        else                    ++sign_minus;
-#endif
         return hv & (1ul << np_) ? 1: -1;
     }
     INLINE void subh(Space::VType hv) noexcept {
@@ -602,7 +660,6 @@ public:
         unsigned added;
         for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1))
             *p++ = at_pos(v, added++) * sign(v);
-
         if(added == nh_) goto end;
         for(auto it = seeds_.begin();;) {
             v = hf_(*it++ ^ val);
@@ -631,11 +688,6 @@ public:
         tmp += o;
         return tmp;
     }
-#if VERBOSE_AF
-    ~csbase_t() {
-        std::fprintf(stderr, "Sign counts: %zu/%zu (-1,+1)\n", sign_plus, sign_minus);
-    }
-#endif
 };
 template<typename CounterType=int32_t, typename=typename std::enable_if<std::is_signed<CounterType>::value>::type>
 class cs4wbase_t {
@@ -649,9 +701,6 @@ class cs4wbase_t {
     uint32_t np_, nh_;
     uint64_t mask_;
     const KWiseHasherSet<4> hf_;
-#if !NDEBUG
-    mutable size_t sign_plus = 0, sign_minus = 0;
-#endif
 public:
     template<typename...Args>
     cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
@@ -719,10 +768,6 @@ public:
         return core_[index(hv, subidx)];
     }
     INLINE int sign(uint64_t hv) const noexcept {
-#if !NDEBUG
-        if ( hv & (1ul << np_)) ++sign_plus;
-        else                    ++sign_minus;
-#endif
         return hv & (1ul << np_) ? 1: -1;
     }
     INLINE void subh(Space::VType hv) noexcept {
@@ -747,11 +792,6 @@ public:
             return ptr[0];
         }
     }
-#if !NDEBUG
-    ~cs4wbase_t() {
-        std::fprintf(stderr, "Sign counts: %zu/%zu (-1,+1)\n", sign_plus, sign_minus);
-    }
-#endif
 };
 
 
