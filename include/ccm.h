@@ -12,9 +12,9 @@ using common::detail::tmpbuffer;
 
 namespace detail {
 template<typename T, typename AllocatorType=typename T::allocator>
-static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
-    tmpbuffer<double> mem(nhashes);
-    double *ptr = mem.get();
+static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<float, 8> mem(nhashes);
+    float *ptr = mem.get();
     using VT = typename vec::SIMDTypes<T>::VType;
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
@@ -29,30 +29,29 @@ static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhas
         while(p1 < p2) {
             full_sum += *p1++;
         }
-        ptr[i] = std::sqrt(sum.sum() + full_sum);
+        full_sum += sum.sum();
+        ptr[i] = std::sqrt(full_sum);
     }
     common::sort::insertion_sort(ptr, ptr + nhashes);
-    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
     return ret;
 }
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
-    tmpbuffer<double> mem(nhashes);
-    double *ptr = mem.get();
+static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<float, 8> mem(nhashes);
+    float *ptr = mem.get();
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
-        double sum = 0;
+        float sum = 0;
         while(start != end) {
-            int64_t val = v[start];
-            val *= val;
-            sum += val;
-            ++start;
+            int64_t val = v[start++];
+            sum += val * val;
         }
         sum = std::sqrt(sum);
         ptr[i] = sum;
     }
     common::sort::insertion_sort(ptr, ptr + nhashes);
-    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
     return ret;
 }
 
@@ -63,14 +62,11 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
         double sum = 0;
-        while(start != end) {
-            int64_t val = v[start];
-            val *= val;
-            sum += val;
-            ++start;
-        }
-        sum = std::sqrt(sum);
-        ptr[i] = sum;
+        do {
+            int64_t val = v[start++];
+            sum += val * val;
+        } while(start != end);
+        ptr[i] = std::sqrt(sum);
     }
     common::sort::insertion_sort(ptr, ptr + nhashes);
     double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
@@ -434,6 +430,7 @@ public:
         return *this;
     }
 };
+
 template<typename HashStruct=common::WangHash, typename CounterType=int32_t, typename=typename std::enable_if<std::is_signed<CounterType>::value>::type>
 class csbase_t {
     /*
@@ -448,7 +445,7 @@ class csbase_t {
     uint64_t mask_;
     std::vector<CounterType, Allocator<CounterType>> seeds_;
 #if !NDEBUG
-    size_t sign_plus = 0, sign_minus = 0;
+    mutable size_t sign_plus = 0, sign_minus = 0;
 #endif
 public:
     template<typename...Args>
@@ -561,12 +558,7 @@ public:
         assert((hv & mask_) + (subidx << np_) < core_.size());
         return core_[index(hv, subidx)];
     }
-    INLINE int sign(uint64_t hv)
-#if !NDEBUG
-#else
-const noexcept
-#endif
-{
+    INLINE int sign(uint64_t hv) const {
 #if !NDEBUG
         if ( hv & (1ul << np_)) ++sign_plus;
         else                    ++sign_minus;
@@ -603,11 +595,7 @@ const noexcept
             });
         }
     }
-    CounterType est_count(uint64_t val)
-#if defined(NDEBUG)
-const
-#endif
-{
+    CounterType est_count(uint64_t val) const {
         common::detail::tmpbuffer<CounterType> mem(nh_);
         CounterType *ptr = mem.get(), *p = ptr;
         uint64_t v = hf_(val);
@@ -631,9 +619,7 @@ const
             CounterType start1 = ptr[(nh_ - 1)>>1];
             start1 += ptr[(nh_-1)>>1];
             return start1 >> 1;
-        } else {
-            return ptr[0];
-        }
+        } else return ptr[0];
     }
     csbase_t &operator+=(const csbase_t &o) {
         for(size_t i = 0; i < core_.size(); ++i)
@@ -664,7 +650,7 @@ class cs4wbase_t {
     uint64_t mask_;
     const KWiseHasherSet<4> hf_;
 #if !NDEBUG
-    size_t sign_plus = 0, sign_minus = 0;
+    mutable size_t sign_plus = 0, sign_minus = 0;
 #endif
 public:
     template<typename...Args>
@@ -696,17 +682,12 @@ public:
 
         sort::insertion_sort(cp2, cptr);
         cptr = cp2;
-        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
+        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) / static_cast<CounterType>(2);
     }
-    void addh(uint64_t val) {
-        for(unsigned added = 0; added < nh_; ++added) {
-            add(val, added);
-        }
-    }
+    auto addh(uint64_t val) {return addh_val(val);}
     void subh(uint64_t val) {
-        for(unsigned added = 0; added < nh_; ++added) {
+        for(unsigned added = 0; added < nh_; ++added)
             sub(val, added);
-        }
     }
     auto subh_val(uint64_t val) {
         tmpbuffer<CounterType> counts(nh_);
@@ -737,12 +718,7 @@ public:
         assert((hv & mask_) + (subidx << np_) < core_.size());
         return core_[index(hv, subidx)];
     }
-    INLINE int sign(uint64_t hv)
-#if !NDEBUG
-#else
-const noexcept
-#endif
-{
+    INLINE int sign(uint64_t hv) const noexcept {
 #if !NDEBUG
         if ( hv & (1ul << np_)) ++sign_plus;
         else                    ++sign_minus;
@@ -755,12 +731,7 @@ const noexcept
     INLINE void addh(Space::VType hv) noexcept {
         hv.for_each([&](auto x) {for(size_t i = 0; i < nh_; add(x, i++));});
     }
-    CounterType est_count(uint64_t val)
-#if !NDEBUG
-#else
-const
-#endif
-{
+    CounterType est_count(uint64_t val) const {
         common::detail::tmpbuffer<CounterType> mem(nh_);
         CounterType *ptr = mem.get(), *p = ptr;
         for(unsigned i = 0; i < nh_; ++i) {

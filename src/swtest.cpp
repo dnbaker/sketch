@@ -1,5 +1,5 @@
 #include "include/ccm.h"
-#include "circularqueue/circular_buffer.h"
+#include "circularqueue/cq.h"
 using namespace sketch;
 using CT = cm::cs4wbase_t<int32_t>;
 

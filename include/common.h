@@ -327,7 +327,7 @@ static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, s
    std::memset(v.get(), 0, v.bytes()); // zero array
 }
 
-template<typename T, size_t BUFFER_SIZE=256>
+template<typename T, size_t BUFFER_SIZE=64>
 struct tmpbuffer {
     T *const ptr_;
     const size_t n_;
@@ -336,6 +336,10 @@ struct tmpbuffer {
         ptr_(n <= BUFFER_SIZE ? buf_: static_cast<T *>(malloc(n * sizeof(T)))),
         n_(n)
     {}
+    tmpbuffer(const tmpbuffer &o) = delete;
+    tmpbuffer(tmpbuffer &&o) = delete;
+    tmpbuffer& operator=(const tmpbuffer &o) = delete;
+    tmpbuffer& operator=(tmpbuffer &&o) = delete;
     T *get() {
         return ptr_;
     }
@@ -343,12 +347,18 @@ struct tmpbuffer {
         return ptr_;
     }
     ~tmpbuffer() {if(n_ > BUFFER_SIZE) std::free(ptr_);}
+
     auto &operator[](size_t i) {return ptr_[i];}
-    const auto &operator[](size_t i) const {return ptr_[i];}
+    const auto operator[](size_t i) const {return ptr_[i];}
+    // By value rather than reference
+
     auto begin() {return ptr_;}
-    auto begin() const {return ptr_;}
+    auto cbegin() const {return ptr_;}
+    auto begin() const {return cbegin();}
+
     auto end() {return ptr_ + n_;}
-    auto end() const {return ptr_ + n_;}
+    auto cend() const {return ptr_ + n_;}
+    auto end() const {return cend();}
 };
 
 } // namespace detail

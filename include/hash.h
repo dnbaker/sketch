@@ -201,6 +201,7 @@ inline void MultAddPrime89(int96_t & r, uint64_t x, const int96_t &a, const int9
     r[2] = b[2] + HIGH(d2) + d3 + carry;
 }
 // CWtrick64 for 64-bit key x (Prime = 2ˆ89-1)
+
 template<size_t k>
 inline uint64_t CWtrick64(uint64_t x, const std::array<int96_t, k> &keys) {
 	static_assert(k > 2, "If you only need 2, don't use this function.");
@@ -286,9 +287,9 @@ public:
     }
     uint64_t operator()(uint64_t val) const {
 #ifndef NO_USE_SIAM
-		return siam::CWtrick64<k>(val, coeffs_);
+		return siam::CWtrick64(val, coeffs_);
 #else
-		return nosiam::i61hash<k>(val, coeffs_);
+		return nosiam::i61hash(val, coeffs_);
 #endif
     }
     Type operator()(VType val) const {

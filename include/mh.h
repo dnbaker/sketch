@@ -402,7 +402,7 @@ struct FinalRMinHash {
     auto max_element() const {
         const auto ret = first.back();
         assert(std::accumulate(first.begin(), first.end(), true, [&](bool t, auto v) {return t && ret >= v;}));
-        return first.back();
+        return ret;
     }
     template<typename Hasher, typename Cmp>
     FinalRMinHash(RangeMinHash<T, Cmp, Hasher> &&prefinal): FinalRMinHash(std::move(prefinal.finalize())) {
