@@ -98,7 +98,7 @@ int main(int argc, char *argv[]) {
     for(const auto &pair: hist4w) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
     for(const auto k: hset) {
-        std::fprintf(stderr, "Count sketch4w %" PRIi64 "\t%s\n", k, std::to_string(size_t(histcs[k])).data());
+        std::fprintf(stderr, "Count sketch4w %" PRIi64 "\t%s\n", k, std::to_string(size_t(hist4w[k])).data());
     }
     KWiseIndependentPolynomialHash<4> hf; // Just to test compilation
     std::fprintf(stderr, "l2 join size needs further debugging, not doing\n");
