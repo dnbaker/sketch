@@ -384,7 +384,15 @@ struct WeightedSketcher {
     WeightedSketcher &operator=(const WeightedSketcher &) = default;
     WeightedSketcher &operator=(WeightedSketcher &&) = default;
     template<typename...Args>
+    final_type cfinalize(Args &&...args) const {
+        return sketch_.cfinalize(std::forward<Args>(args)...);
+    }
+    template<typename...Args>
     final_type finalize(Args &&...args) const {
+        return this->cfinalize();
+    }
+    template<typename...Args>
+    final_type finalize(Args &&...args) {
         return sketch_.finalize(std::forward<Args>(args)...);
     }
     template<typename...Args>
@@ -418,6 +426,7 @@ struct FWeightedSketcher: public WeightedSketcher<CoreSketch, CountingSketchType
         CONST_IF(std::is_signed<decltype(count)>::value) {
             if(unlikely(count < 0)) count = 0;
         }
+        std::fprintf(stderr, "taking %zu to turn into %f\n", size_t(count), double(func_(count)));
         this->sketch_.addh(this->hash(x, func_(count)));
     }
 };

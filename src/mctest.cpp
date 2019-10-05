@@ -50,10 +50,18 @@ int main(int argc, char *argv[]) {
     }
     //for(size_t i = 0; i < 10;++i)
     items.emplace_back(137);
-    for(const auto item: items) cmsexact.addh(item), cms.addh(item),  cmscs.addh(item), cmswithnonminmal.addh(item), cmscs4w.addh(item), cmsexact2.addh(item);
-    for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137), cmsexact2.addh(137));
+    int TIMES = 4;
+    for(const auto item: items) {
+        for(int i = TIMES; i--;) {
+            cmsexact.addh(item), cms.addh(item),  cmscs.addh(item), cmswithnonminmal.addh(item), cmscs4w.addh(item), cmsexact2.addh(item);
+        }
+    }
+    for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137), cmsexact2.addh(137), cmscs4w.addh(137));
     auto items2 = items;
-    for(auto &i: items2) i = mt(), cmsexact2.addh(i), cmscs4w2.addh(i);
+    for(auto &i: items2) {
+        i = mt();
+        for(int j = TIMES; j--;cmsexact2.addh(i), cmscs4w2.addh(i));
+    }
     //size_t true_is = items.size() + 1000;
     //size_t true_us = items.size() * 2 + 1000;
     std::fprintf(stderr, "All inserted\n");
@@ -65,14 +73,16 @@ int main(int argc, char *argv[]) {
             std::fprintf(stderr, "approx: %i, exact %i, histcs %i\n", int(cms.est_count(137)), int(cmsexact.est_count(137)), int(cmscs.est_count(137)));
         }
         //std::fprintf(stderr, "est count: %zu\n", size_t(cms.est_count(j)));
-        ++histapprox[cms.est_count(j)];
-        ++histexact[cmsexact.est_count(j)];
+        auto exact_count = j == 137 ? 1000 + TIMES: TIMES;
+        ++histapprox[cms.est_count(j) - exact_count];
+        ++histexact[cmsexact.est_count(j) - exact_count];
         ssize_t csest = cmscs.est_count(j);
-        ++histcs[csest];
-        ++hist4w[cmscs4w.est_count(j) - 1];
+        ++histcs[csest - exact_count];
+        ++hist4w[cmscs4w.est_count(j) - exact_count];
         missing += csest == 0;
         ++tot;
     }
+    std::fprintf(stderr, "missing %zu of %zu\n", missing, items.size());
     std::vector<int64_t> hset;
     for(const auto &pair: histexact) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
@@ -98,7 +108,7 @@ int main(int argc, char *argv[]) {
     for(const auto &pair: hist4w) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
     for(const auto k: hset) {
-        std::fprintf(stderr, "Count sketch4w %" PRIi64 "\t%s\n", k, std::to_string(size_t(histcs[k])).data());
+        std::fprintf(stderr, "Count sketch4w %" PRIi64 "\t%s\n", k, std::to_string(size_t(hist4w[k])).data());
     }
     KWiseIndependentPolynomialHash<4> hf; // Just to test compilation
     std::fprintf(stderr, "l2 join size needs further debugging, not doing\n");

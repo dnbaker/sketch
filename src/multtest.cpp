@@ -14,8 +14,8 @@ using S2 = wj::WeightedSketcher<hll::hll_t, C>;
 
 int main (int argc, char *argv[]) {
     common::DefaultRNGType gen;
-    int tbsz = argc == 1 ? 1 << 12: std::atoi(argv[1]);
-    int ntbls = argc <= 2 ? 10: std::atoi(argv[2]);
+    int tbsz = argc == 1 ? 1 << 13: std::atoi(argv[1]);
+    int ntbls = argc <= 2 ? 6: std::atoi(argv[2]);
     size_t nitems = 1 << (20 - 6);
 #if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
     CWSamples<> zomg(100, 1000);
@@ -31,6 +31,7 @@ int main (int argc, char *argv[]) {
         S ws(H(tbsz / 2, ntbls), hll::hll_t(10));
         S ws2(H(tbsz /2, ntbls), hll::hll_t(10));
         hll::hll_t cmp1(10), cmp2(10);
+        gen.seed(0);
         for(size_t i =0; i < nitems; ++i) {
             auto v = gen(), t = gen(), c = t % 16, c2 = (t >> 6) % 64;
             for(size_t j = 0; j < c; ++j)
@@ -51,6 +52,7 @@ int main (int argc, char *argv[]) {
         S2 ws2(C(nbits, l2sz, nhashes), hll::hll_t(10));
         hll::hll_t cmp1(10), cmp2(10);
         size_t shared = 0, unshared = 0;
+        gen.seed(0);
         for(size_t i =0; i < nitems; ++i) {
             auto v = gen(), t = gen(), c = t % 16, c2 = (t >> 6) % 64;
             shared += c;

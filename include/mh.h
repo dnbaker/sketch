@@ -236,7 +236,9 @@ public:
     }
     final_type finalize() {
         std::vector<T> reta(minimizers_.begin(), minimizers_.end());
-        reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
+        if(reta.size() < this->ss_) {
+            reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
+        }
         final_type ret(std::move(reta));
         this->free();
         return ret;
@@ -842,6 +844,8 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         prepare(ss);
     }
     FinalCRMinHash(std::vector<T, typename super::allocator> &&first, std::vector<CountType> &&second, size_t ss=0) {
+        std::fprintf(stderr, "first size: %zu.\n", first.size());
+        std::fprintf(stderr, "second size: %zu.\n", second.size());
         this->first = std::move(first);
         this->second = std::move(second);
         prepare(ss);
