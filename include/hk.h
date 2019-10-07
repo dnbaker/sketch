@@ -135,7 +135,7 @@ public:
     template<typename T2>
     void divmod(uint64_t x, T2 &pos, T2 &fp) const {
         pos = pol_.mod(x);
-        fp = pol_.div_.div(x) & max_fp();
+        fp = pol_.div(x) & max_fp();
     }
     void display_encoded_value(uint64_t x) {
         auto dec = decode(x);
