@@ -21,10 +21,18 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhash
     static constexpr size_t ct = VS::COUNT;
     for(size_t i = 0; i < nhashes; ++i) {
         const T *p1 = &v[i << l2sz], *p2 = &v[(i+1)<<l2sz];
-        while(p2 - p1 > ct) {
-            const auto el = *reinterpret_cast<const VT *>(p1);
-            sum = VS::add(sum, VS::mul(el, el));
-            p1 += ct;
+        if(VS::is_aligned) {
+            while(p2 - p1 > ct) {
+                const auto el = *reinterpret_cast<const VT *>(p1);
+                sum = VS::add(sum, VS::mul(el, el));
+                p1 += ct;
+            }
+        } else {
+            while(p2 - p1 > ct) {
+                const auto el = VT::loadu(p1);
+                sum = VS::add(sum, VS::mul(el, el));
+                p1 += ct;
+            }
         }
         T full_sum = sum.sum();
         while(p1 < p2)
@@ -44,18 +52,26 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, const std::vec
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
     static constexpr size_t ct = VS::COUNT;
+    const bool is_aligned = VT::aligned(v.data()) && VT::aligned(v2.data());
     for(size_t i = 0; i < nhashes; ++i) {
         const T *p1 = &v[i << l2sz], *p2 = &v2[i<<l2sz], *p1e = &v[(i + 1) << l2sz];
+#if 0
         while(p1e - p1 > ct) {
+            auto lv = VS::load(p1), VS::load(p2);
             const auto lv = *reinterpret_cast<const VT *>(p1);
             const auto rv = *reinterpret_cast<const VT *>(p2);
-            sum = VS::add(sum, VS::mul(lv, rv));
+            sum = VS::add(sum, VS::abs(VS::mul(lv, rv)));
             p1 += ct;
             p2 += ct;
         }
         T full_sum = sum.sum();
         while(p1 < p1e)
             full_sum += *p1++ * *p2++;
+#endif
+        // SIMD absolute value is hard, ignore it.
+        T full_sum = std::abs(*p1++ * *p2++);
+        while(p1 != p1e) full_sum += std::abs(*p1++ * *p2++);
+
         ptr[i] = std::sqrt(full_sum);
     }
     common::sort::insertion_sort(ptr, ptr + nhashes);
@@ -753,11 +769,17 @@ public:
     }
     INLINE auto add(uint64_t hv, unsigned subidx) noexcept {
         hv = hf_(hv, subidx);
-        return at_pos(hv, subidx) += sign(hv);
+        auto &ref = at_pos(hv, subidx);
+        if(ref != std::numeric_limits<CounterType>::max()) // easy branch to predict
+            ref += sign(hv);
+        return ref;
     }
     INLINE auto sub(uint64_t hv, unsigned subidx) noexcept {
         hv = hf_(hv, subidx);
-        return at_pos(hv, subidx) -= sign(hv);
+        auto &ref = at_pos(hv, subidx);
+        if(ref != std::numeric_limits<CounterType>::min()) // easy branch to predict
+            ref -= sign(hv);
+        return ref;
     }
     INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
         assert(index(hv, subidx) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
