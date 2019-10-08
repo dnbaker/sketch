@@ -1,5 +1,7 @@
 #ifndef THREAD_SEEDED_GEN_H__
 #define THREAD_SEEDED_GEN_H__
+#include <thread>
+#include <utility>
 
 namespace tsg {
 template<typename RNG>
