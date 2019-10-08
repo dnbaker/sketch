@@ -27,12 +27,36 @@ public:
     UnsatisfiedPreconditionError(): std::runtime_error("Unsatisfied precondition.") {}
 };
 
+
+static int precondition_require(bool condition, std::string s, int ec=0) {
+    if(!condition) {
+        if(ec) throw UnsatisfiedPreconditionError(s + " Error code: " + std::to_string(ec));
+        else throw UnsatisfiedPreconditionError(s);
+    }
+    return ec;
+}
+
 class UnsatisfiedPostconditionError: public std::runtime_error {
 public:
     UnsatisfiedPostconditionError(std::string msg): std::runtime_error(std::string("Unsatisfied precondition: ") + msg) {}
 
     UnsatisfiedPostconditionError(): std::runtime_error("Unsatisfied precondition.") {}
 };
+
+static int postcondition_require(bool condition, std::string s, int ec=0) {
+    if(!condition) {
+        if(ec) throw UnsatisfiedPostconditionError(s + " Error code: " + std::to_string(ec));
+        else throw UnsatisfiedPostconditionError(s);
+    }
+    return ec;
+}
+
+#define PREC_REQ_EC(condition, s, ec) \
+    ::sketch::exception::precondition_require(condition, std::string(s) + '[' + __FILE__ + '|' + __PRETTY_FUNCTION__ + "|#L" + std::to_string(__LINE__) + "] Failing condition: \"" + #condition + '"', ec)
+#define PREC_REQ(condition, s) PREC_REQ_EC(condition, s, 0)
+#define POST_REQ_EC(condition, s, ec) \
+    ::sketch::exception::postcondition_require(condition, std::string(s) + '[' + __FILE__ + '|' + __PRETTY_FUNCTION__ + "|#L" + std::to_string(__LINE__) + "] Failing condition: \"" + #condition + '"', ec)
+#define POST_REQ(condition, s) POST_REQ_EC(condition, s, 0)
 
 class ZlibError: public std::runtime_error {
     static const char *es(int c) {

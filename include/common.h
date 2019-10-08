@@ -100,9 +100,9 @@
 #endif
 
 #if __has_cpp_attribute(no_unique_address)
-#  define NO_ADDRESS [[no_unique_address]]
+#  define SK_NO_ADDRESS [[no_unique_address]]
 #else
-#  define NO_ADDRESS
+#  define SK_NO_ADDRESS
 #endif
 
 #ifndef CONST_IF
@@ -358,7 +358,7 @@ struct tmpbuffer {
 
     auto end() {return ptr_ + n_;}
     auto cend() const {return ptr_ + n_;}
-    auto end() const {return cend();}
+    auto end()  const {return cend();}
 };
 
 } // namespace detail

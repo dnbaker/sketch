@@ -10,6 +10,27 @@ using namespace mh;
 
 int main() {
     static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
+
+    BBitMinHasher<uint64_t> b1(10, 4), b2(10, 4);
+    b1.addh(1);
+    b1.addh(4);
+    b1.addh(137);
+
+    b2.addh(1);
+    b2.addh(4);
+    b2.addh(17);
+    auto f1 = b1.cfinalize(), f2 = b2.cfinalize();
+    std::fprintf(stderr, "f1 popcount: %" PRIu64 "\n", f1.popcnt());
+    std::fprintf(stderr, "f2 popcount: %" PRIu64 "\n", f2.popcnt());
+    b1.show();
+    b2.show();
+    auto b3 = b1 + b2;
+    b3.show();
+    auto f3 = b3.finalize();
+    std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());
+    auto neqb12 = f1.equal_bblocks(f2);
+    std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(neqb12), size_t(f1.equal_bblocks(f1)));
+
     for(size_t i = 7; i <= 14; i += 2) {
         for(const auto b: {7u, 13u, 14u, 17u, 9u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);

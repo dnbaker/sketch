@@ -942,11 +942,7 @@ public:
     }
 
     hllbase_t &operator+=(const hllbase_t &other) {
-        if(other.np_ != np_) {
-            char buf[256];
-            std::sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
-            throw std::runtime_error(buf);
-        }
+        PREC_REQ(np_ == other.np_, "mismatched sketch sizes.");
         unsigned i;
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
         if(m() >= sizeof(Type)) {
@@ -1103,8 +1099,6 @@ public:
 #undef CHRE
     }
     hllbase_t operator+(const hllbase_t &other) const {
-        if(other.p() != p())
-            throw std::runtime_error(std::string("p (") + std::to_string(p()) + " != other.p (" + std::to_string(other.p()));
         hllbase_t ret(*this);
         ret += other;
         return ret;
@@ -1614,16 +1608,14 @@ public:
         } else for(;k < ns_;add(h_(val ^ seeds_[k]), k), ++k);
     }
     double intersection_size(const chlf_t &other) const {
-        if(core_.size() != other.core_.size() || seeds_.size() != other.seeds_.size())
-            throw std::runtime_error("Incorrect sketch sizes for comparison.");
+        PREC_REQ(core_.size() == other.core_.size() && seeds_.size() == other.seeds_.size());
         double sz1 = report(), sz2 = other.report();
         chlf_t tmp = *this + other;
         double sz3 = tmp.report();
         return std::max(0., sz1 + sz2 - sz3);
     }
     double jaccard_index(const chlf_t &other) const {
-        if(core_.size() != other.core_.size() || seeds_.size() != other.seeds_.size())
-            throw std::runtime_error("Incorrect sketch sizes for comparison.");
+        PREC_REQ(core_.size() == other.core_.size() && seeds_.size() == other.seeds_.size());
         double sz1 = report(), sz2 = other.report();
         chlf_t tmp = *this + other;
         double sz3 = tmp.report();
@@ -1690,8 +1682,8 @@ struct wh119_t {
     wh119_t(const std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(s), wh_base_(base) {}
     double cardinality_estimate() const {
         std::array<uint32_t, 256> counts{0};
-        if(core_.size() & (core_.size() - 1)) throw 1;
-        if(core_.size() < sizeof(hll::detail::SIMDHolder)) throw 1;
+        PREC_REQ(is_pow2(core_.size()), "Size must be a power of two");
+        PREC_REQ(core_.size() >= sizeof(hll::detail::SIMDHolder), "Must be at least as large as a SIMD vector");
 #if 1
         hll::detail::SIMDHolder tmp, *ptr = (hll::detail::SIMDHolder*)core_.data();
         for(size_t i = 0; i < core_.size() / sizeof(tmp); ++i)
@@ -1713,6 +1705,7 @@ struct wh119_t {
     size_t size() const {return core_.size();}
     double union_size(const wh119_t &o) const {return union_size(o.core_);}
     double union_size(const std::vector<uint8_t, Allocator<uint8_t>> &o) const {
+        PREC_REQ(o.size() == size(), "mismatched sizes");
         if(o.size() != size()) throw std::runtime_error("Non-matching parameters for wh119_t");
         std::array<uint32_t, 256> counts;
         std::memset(counts.data(), 0, sizeof(counts));

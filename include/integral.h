@@ -2,7 +2,24 @@
 #define SKETCH_INTEGRAL_H
 #include "x86intrin.h"
 #include <cstdint>
+#include <climits>
+#include <limits>
 #include <cinttypes>
+#include "libpopcnt/libpopcnt.h"
+#ifndef _VEC_H__
+#  define NO_SLEEF
+#  define NO_BLAZE
+#  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
+#endif
+
+
+#ifndef INLINE
+#  if __GNUC__ || __clang__
+#    define INLINE __attribute__((always_inline)) inline
+#  else
+#    define INLINE inline
+#  endif
+#endif
 
 #ifndef HAS_AVX_512
 #  define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__ || __AVX512__)
@@ -130,7 +147,7 @@ static INLINE T roundup(T x) noexcept {
     return ++x;
 }
 template<typename T>
-static constexpr inline bool is_pow2(T val) {
+static constexpr INLINE bool is_pow2(T val) {
     return val && (val & (val - 1)) == 0;
 }
 INLINE auto popcount(uint64_t val) noexcept {
@@ -142,13 +159,13 @@ INLINE auto popcount(uint64_t val) noexcept {
             : "cc");
     return val;
 #else
-    // According to GodBolt, gcc7.3 fails to inline this function call even at -Ofast.
+    // According to GodBolt, gcc7.3 fails to INLINE this function call even at -Ofast.
     //
     //
     return __builtin_popcountll(val);
 #endif
 }
-inline unsigned popcount(__m64 val) noexcept {return popcount(*reinterpret_cast<uint64_t *>(&val));}
+INLINE unsigned popcount(__m64 val) noexcept {return popcount(*reinterpret_cast<uint64_t *>(&val));}
 
 template<typename T>
 static INLINE uint64_t vatpos(const T v, size_t ind) {
@@ -198,6 +215,11 @@ template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::Type val) {
 template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::VType val) {
     return popcnt_fn(val.simd_);
 }
+template<typename T, typename T2>
+INLINE auto roundupdiv(T x, T2 div) {
+    return ((x + div - 1) / div) * div;
+}
+
 } // integral
 } // sketch
 

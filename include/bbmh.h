@@ -161,10 +161,11 @@ public:
     uint64_t nbuckets_;
     uint32_t b_;
     std::vector<value_type, Allocator<value_type>> core_;
-    FinalDivBBitMinHash(unsigned nbuckets, unsigned b, double est): est_cardinality_(est), nbuckets_(nbuckets), b_(b),
-        core_((value_type(b) * nbuckets_) / 64 + (nbuckets_ * value_type(b) % (sizeof(value_type) * CHAR_BIT) != 0))
+    FinalDivBBitMinHash(unsigned nbuckets, unsigned b, double est):
+        est_cardinality_(est), nbuckets_(nbuckets), b_(b),
+        core_(value_type(b) * nbuckets / 64)
     {
-       //assert(core_.size() % b == 0 || !std::fprintf(stderr, "Failed initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, nbuckets, core_.size(), core_.size() * 64));
+        PREC_REQ(b * nbuckets % 64 == 0, "b * nbuckets must be divisible by 64");
     }
     void free() {
         decltype(core_) tmp;
@@ -602,6 +603,7 @@ struct SuperMinHash {
         }
         return div_bbit_finalize(b, *ptr, cest);
     }
+    auto cfinalize(uint32_t b=0) const {return finalize(b ? b: bbits_);}
     void clear() {
         SuperMinHash tmp(std::move(*this));
     }
@@ -618,7 +620,6 @@ template<typename CountingType, typename=typename std::enable_if<
 struct FinalCountingBBitMinHash;
 
 
-
 template<typename T, typename Hasher=common::WangHash>
 class DivBBitMinHasher {
     std::vector<T> core_;
@@ -629,7 +630,7 @@ public:
     using final_type = FinalDivBBitMinHash;
     template<typename... Args>
     DivBBitMinHasher(unsigned nbuckets, unsigned b, Args &&... args):
-        core_(((nbuckets + sizeof(T) * CHAR_BIT - 1) / (sizeof(T) * CHAR_BIT) * sizeof(T) * CHAR_BIT), detail::default_val<T>()),
+        core_(roundupdiv(nbuckets, 64)),
         b_(b), div_(core_.size()), hf_(std::forward<Args>(args)...)
     {
 #if VERBOSE_AF
@@ -684,6 +685,7 @@ public:
         return detail::harmonic_cardinality_estimate(core_);
     }
     FinalDivBBitMinHash finalize(unsigned b=0) const;
+    FinalDivBBitMinHash cfinalize(unsigned b=0) const {return finalize(b);}
 };
 
 
@@ -698,7 +700,7 @@ public:
     }
     using final_type = FinalBBitMinHash;
     template<typename... Args>
-    BBitMinHasher(unsigned p, unsigned b, Args &&... args):
+    BBitMinHasher(unsigned p, unsigned b=8, Args &&... args):
         core_(size_t(1) << p, detail::default_val<T>()), b_(b), p_(p), hf_(std::forward<Args>(args)...)
     {
         if(b_ + p_ > sizeof(T) * CHAR_BIT) {
@@ -708,7 +710,6 @@ public:
             throw std::runtime_error(buf);
         }
     }
-    BBitMinHasher(unsigned p): BBitMinHasher(p, 8) {}
     void reset() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
@@ -741,6 +742,13 @@ public:
     void write(const std::string &fn, int compression=6, uint32_t b=0) const {write(fn.data(), compression, b);}
     void write(gzFile fp, uint32_t b=0) const {
         finalize(b?b:b_).write(fp);
+    }
+    void show() const {
+        std::fprintf(stderr, "b_: %u. size: %zu\n", b_, size());
+        for(size_t i = 0; i < size(); ++i) {
+            if(core_[i] != detail::default_val<T>())
+                std::fprintf(stderr, "I: %zu. V: %zu\n", i, size_t(core_[i]));
+        }
     }
     int densify() {
         auto rc = detail::densifybin(core_);
@@ -868,11 +876,19 @@ public:
         } else {
            for(size_t i = 0; i < core_.size();core_[i] = std::min(core_[i], o.core_[i]), ++i);
         }
+#    else
+        for(size_t i = 0; i < core_.size();core_[i] = std::min(core_[i], o.core_[i]), ++i);
 #    endif
 #endif
         return *this;
     }
+    BBitMinHasher operator+(const BBitMinHasher &o) const {
+        auto ret(*this);
+        ret += o;
+        return ret;
+    }
     FinalBBitMinHash finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
+    FinalBBitMinHash cfinalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
     double wh_base() const {
         return std::pow((long double)(1uL << (64 - p_)), 1.L/254);
     }
@@ -898,6 +914,7 @@ public:
     WideHyperLogLogHasher(Args &&...args): BBitMinHasher<uint64_t, HashStruct>(std::forward<Args>(args)...) {
     }
     whll::wh119_t finalize() const {return super::make_whll();}
+    whll::wh119_t cfinalize() const {return finalize();}
     double cardinality_estimate() const {
         return finalize().cardinality_estimate();
     }
@@ -1000,6 +1017,15 @@ public:
         if(__builtin_expect(gzwrite(fp, core_.data(), nb) != ssize_t(nb), 0)) throw std::runtime_error("Could not write to file");
         ssize_t ret = sizeof(arr) + sizeof(est_cardinality_) + nb;
         return ret;
+    }
+    uint64_t popcnt() const {
+        Space::VType tmp;
+        const Type *op(reinterpret_cast<const Type *>(&core_[0])),
+                   *ep(reinterpret_cast<const Type *>(&core_[core_.size()]));
+        auto sum = popcnt_fn(*op++);
+        while(op < ep)
+            sum = Space::add(sum, popcnt_fn(*op++));
+        return sum_of_u64s(sum);
     }
 #if HAS_AVX_512
     template<typename Func1, typename Func2>
@@ -1171,6 +1197,8 @@ INLINE double jaccard_index(const FinalBBitMinHash &a, const FinalBBitMinHash &b
 template<typename T, typename Hasher>
 FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMode mode) const {
     b = b ? b: b_; // Use the b_ of BBitMinHasher if not specified; this is because we can make multiple kinds of bbit minhashes from the same hasher.
+    assert(b);
+    assert(core_.size() % 64 == 0);
     std::vector<T> tmp;
     const std::vector<T> *ptr = &core_;
     if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
@@ -1233,11 +1261,17 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b, MHCardinalityMod
     return ret;
 }
 
+template<typename T, typename Hasher>
+FinalBBitMinHash BBitMinHasher<T, Hasher>::cfinalize(uint32_t b, MHCardinalityMode mode) const {
+    return finalize(b, mode);
+}
+
 template<typename T, typename Allocator>
 FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator> &core_ref, double est_v) {
     using detail::getnthbit;
     using detail::setnthbit;
     const double cest = est_v ? est_v : detail::harmonic_cardinality_estimate(core_ref);
+    //std::fprintf(stderr, "Calling with core_ref size of %zu and b as %d\n", core_ref.size(), b);
     FinalDivBBitMinHash ret(core_ref.size(), b, cest);
     using FinalType = typename FinalDivBBitMinHash::value_type;
     assert(ret.core_.size() % b == 0);
@@ -1376,9 +1410,8 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
     template<typename=typename std::enable_if<std::is_same<CountingType, uint32_t>::value>::type> // Only finished for uint32_t currently
     HistResult histogram_sums(const FinalCountingBBitMinHash &o) const {
         if(!std::is_same<CountingType, uint32_t>::value) throw NotImplementedError("histogram_sums only available for uint32_t");
-        assert(o.core_.size() == core_.size() || !std::fprintf(stderr, "Mismatched sizes: %zu, %zu\n", core_.size(), o.core_.size()));
+        PREC_REQ(o.core_.size() == core_.size(), "mismatched sizes");
         const uint64_t *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
-        std::fprintf(stderr, "b_: %u. p_: %u\n", unsigned(b_), p_);
         assert(b_ <= 64 || !std::fprintf(stderr, "b_: %u\n", b_) || (7 < 64)); // b_ > 64 not yet supported, though it could be done with a larger hash
         uint64_t matched_sum = 0;
         assert(o.core_.size() == core_.size());

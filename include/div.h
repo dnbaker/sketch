@@ -2,6 +2,7 @@
 #define SKETCH_DIV_H__
 
 #include <cstdint>
+#include <cassert>
 #include <utility>
 
 #undef INLINE

@@ -195,6 +195,7 @@ public:
         return detail::sqrl2(data_, nhashes_, l2sz_);
     }
     double join_size_l2est(const ccmbase_t &o) const {
+        PREC_REQ(o.size() == this->size(), "tables must have the same size\n");
         return detail::sqrl2(data_, o.data_, nhashes_, l2sz_);
     }
     template<typename Func>
@@ -525,6 +526,9 @@ class csbase_t {
     const HashStruct hf_;
     uint64_t mask_;
     std::vector<CounterType, Allocator<CounterType>> seeds_;
+
+    CounterType       *data()       {return core_.data();}
+    const CounterType *data() const {return core_.data();}
 public:
     template<typename...Args>
     csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
@@ -695,8 +699,21 @@ public:
         } else return ptr[0];
     }
     csbase_t &operator+=(const csbase_t &o) {
-        for(size_t i = 0; i < core_.size(); ++i)
-            core_[i] += o.core_[i];
+        precondition_require(o.size() == this->size(), "tables must have the same size\n");
+        using VS = vec::SIMDTypes<CounterType>;
+        using VT = typename VS::VType;
+        VT sum = VS::set1(0);
+        static constexpr uint32_t lim = ilog2(VS::COUNT);
+        if(np_ > lim && VS::aligned(o.data()) && VS::aligned(data())) {
+            size_t i = 0;
+            do {
+                VS::store(data() + i, VS::add(VS::load(o.data() + i), VS::load(data() + i)));
+                i += VS::COUNT;
+            } while(i < core_.size());
+        } else {
+            for(size_t i = 0; i < core_.size(); ++i)
+                core_[i] += o.core_[i];
+        }
         return *this;
     }
     csbase_t operator+(const csbase_t &o) const {
@@ -717,6 +734,10 @@ class cs4wbase_t {
     uint32_t np_, nh_;
     uint64_t mask_;
     const KWiseHasherSet<4> hf_;
+    CounterType       *data()       {return core_.data();}
+    const CounterType *data() const {return core_.data();}
+
+    size_t size() const {return core_.size();}
 public:
     template<typename...Args>
     cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
@@ -727,16 +748,6 @@ public:
     }
     double l2est() const {
         return sqrl2(core_, nh_, np_);
-    }
-    cs4wbase_t &operator+=(const cs4wbase_t &o) {
-        for(size_t i = 0; i < core_.size(); ++i)
-            core_[i] += o.core_[i];
-        return *this;
-    }
-    cs4wbase_t operator+(const cs4wbase_t &o) const {
-        auto tmp = *this;
-        tmp += o;
-        return tmp;
     }
     CounterType addh_val(uint64_t val) {
         tmpbuffer<CounterType> counts(nh_);
@@ -813,6 +824,31 @@ public:
         } else {
             return ptr[0];
         }
+    }
+    cs4wbase_t &operator+=(const cs4wbase_t &o) {
+        precondition_require(o.size() == this->size(), "tables must have the same size\n");
+        using OT = typename vec::SIMDTypes<CounterType>::Type;
+        using VS = vec::SIMDTypes<CounterType>;
+        static constexpr uint32_t lim = ilog2(VS::COUNT);
+        if(np_ > lim && VS::aligned(o.data()) && VS::aligned(data())) {
+            size_t i = 0;
+            do {
+                VS::store(reinterpret_cast<OT *>(data() + i),
+                    VS::add(VS::load(reinterpret_cast<const OT *>(o.data() + i)),
+                    VS::load(reinterpret_cast<const OT *>(data() + i)))
+                );
+                i += VS::COUNT;
+            } while(i < core_.size());
+        } else {
+            for(size_t i = 0; i < core_.size(); ++i)
+                core_[i] += o.core_[i];
+        }
+        return *this;
+    }
+    cs4wbase_t operator+(const cs4wbase_t &o) const {
+        auto tmp = *this;
+        tmp += o;
+        return tmp;
     }
 };
 

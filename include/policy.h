@@ -10,10 +10,15 @@ struct SizePow2Policy {
     T mask_;
     T shift_;
     SizePow2Policy(size_t n): mask_((1ull << nelem2arg(n)) - 1), shift_(ilog2(mask_ + 1)) {
+        auto n2a = nelem2arg(n);
+        std::fprintf(stderr, "n (%zu) becomes argument %zu\n", n, n2a);
+        mask_ = (1ull << nelem2arg(n));
+        shift_ = ilog2(mask_);
+        --mask_;
     }
     static size_t nelem2arg(size_t nelem) {
         // Return the floor of nelem, but increment by one if it wasn't a power of two.
-        return ilog2(nelem) + (nelem & (nelem - 1)) != 0;
+        return ilog2(nelem) + ((nelem & (nelem - 1)) != 0);
     }
     size_t nelem() const {return size_t(mask_) + 1;}
     static size_t arg2vecsize(size_t arg) {return size_t(1) << nelem2arg(arg);}
