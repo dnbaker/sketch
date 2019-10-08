@@ -758,13 +758,13 @@ public:
         core_(uint64_t(nh) << np), np_(np), nh_(nh),
         mask_((1ull << np_) - 1),
         hf_(seedseed),
-        seedseed_(seedseed);
+        seedseed_(seedseed)
     {
     }
     cs4wbase_t fold(int n=1) const {
         PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
         PREC_REQ(n <= np_, "Can't fold to less than 1");
-        cs4wbase_t ret(np_ - n, nh, seedseed_);
+        cs4wbase_t ret(np_ - n, nh_, seedseed_);
         throw NotImplementedError("Not finished, but it should be simple.");
         //for(size_t i = 0; i < 
         return ret;
