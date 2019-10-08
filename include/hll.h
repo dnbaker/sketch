@@ -1608,14 +1608,15 @@ public:
         } else for(;k < ns_;add(h_(val ^ seeds_[k]), k), ++k);
     }
     double intersection_size(const chlf_t &other) const {
-        PREC_REQ(core_.size() == other.core_.size() && seeds_.size() == other.seeds_.size());
+        PREC_REQ(core_.size() == other.core_.size() && seeds_.size() == other.seeds_.size(),
+                 "mismached parameters");
         double sz1 = report(), sz2 = other.report();
         chlf_t tmp = *this + other;
         double sz3 = tmp.report();
         return std::max(0., sz1 + sz2 - sz3);
     }
     double jaccard_index(const chlf_t &other) const {
-        PREC_REQ(core_.size() == other.core_.size() && seeds_.size() == other.seeds_.size());
+        PREC_REQ(core_.size() == other.core_.size() && seeds_.size() == other.seeds_.size(), "mismatched paramters");
         double sz1 = report(), sz2 = other.report();
         chlf_t tmp = *this + other;
         double sz3 = tmp.report();

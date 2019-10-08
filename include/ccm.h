@@ -721,6 +721,18 @@ public:
         tmp += o;
         return tmp;
     }
+    csbase_t &operator-=(const csbase_t &o) {
+        // TODO: SIMD optimize (but how often is this needed?)
+        PREC_REQ(core_.size() == o.core_.size(), "mismatched sizes");
+        for(size_t i = 0; i < core_.size(); ++i)
+            core_[i] -= o.core_[i];
+        return *this;
+    }
+    csbase_t operator-(const csbase_t &o) const {
+        auto tmp = *this;
+        tmp -= o;
+        return tmp;
+    }
 };
 template<typename CounterType=int32_t, typename=typename std::enable_if<std::is_signed<CounterType>::value>::type>
 class cs4wbase_t {
@@ -848,6 +860,18 @@ public:
     cs4wbase_t operator+(const cs4wbase_t &o) const {
         auto tmp = *this;
         tmp += o;
+        return tmp;
+    }
+    cs4wbase_t &operator-=(const cs4wbase_t &o) {
+        // TODO: SIMD optimize (but how often is this needed?)
+        PREC_REQ(size() == o.size(), "mismatched sizes");
+        for(size_t i = 0; i < size(); ++i)
+            core_[i] -= o.core_[i];
+        return *this;
+    }
+    cs4wbase_t operator-(const cs4wbase_t &o) const {
+        auto tmp = *this;
+        tmp -= o;
         return tmp;
     }
 };
