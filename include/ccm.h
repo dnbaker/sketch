@@ -734,7 +734,7 @@ public:
         return tmp;
     }
 };
-template<typename CounterType=int32_t, typename=typename std::enable_if<std::is_signed<CounterType>::value>::type>
+template<typename CounterType=int32_t>
 class cs4wbase_t {
     /*
      * Commentary: because of chance, one can end up with a negative number as an estimate.
@@ -742,21 +742,32 @@ class cs4wbase_t {
      * or it and others in the bucket were not heavy enough and by chance it did
      * not weigh over the other items with the opposite sign. Treat these as 0s.
     */
+    static_assert(std::is_signed<CounterType>::value, "CounterType must be signed");
+
     std::vector<CounterType, Allocator<CounterType>> core_;
     uint32_t np_, nh_;
     uint64_t mask_;
     const KWiseHasherSet<4> hf_;
+    uint64_t seedseed_;
     CounterType       *data()       {return core_.data();}
     const CounterType *data() const {return core_.data();}
 
     size_t size() const {return core_.size();}
 public:
-    template<typename...Args>
-    cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
+    cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137):
         core_(uint64_t(nh) << np), np_(np), nh_(nh),
         mask_((1ull << np_) - 1),
-        hf_(seedseed)
+        hf_(seedseed),
+        seedseed_(seedseed);
     {
+    }
+    cs4wbase_t fold(int n=1) const {
+        PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
+        PREC_REQ(n <= np_, "Can't fold to less than 1");
+        cs4wbase_t ret(np_ - n, nh, seedseed_);
+        throw NotImplementedError("Not finished, but it should be simple.");
+        //for(size_t i = 0; i < 
+        return ret;
     }
     double l2est() const {
         return sqrl2(core_, nh_, np_);
