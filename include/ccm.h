@@ -914,7 +914,11 @@ class SlidingWindow {
 public:
     CMType cm_;
     size_t queue_size_;
-    SlidingWindow(size_t queue_size, CMType &&cm, qc &&hashes=qc()): queue_size_(queue_size), cm_(std::move(cm)) {
+    SlidingWindow(size_t queue_size, CMType &&cm, qc &&hashes=qc()):
+        hashes_(std::move(hashes)),
+        cm_(std::move(cm)),
+        queue_size_(queue_size)
+    {
     }
     void addh(uint64_t v) {
         cm_.addh(v);
