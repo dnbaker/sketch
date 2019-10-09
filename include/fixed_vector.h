@@ -25,12 +25,8 @@ public:
         T *ret;
         const size_t nb = nelem * sizeof(T);
         CONST_IF(aln) {
-#if _GLIBCXX_HAVE_ALIGNED_ALLOC
-            ret = std::aligned_alloc(aln, nb);
-#else
             ret = nullptr;
             (void)posix_memalign((void **)&ret, aln, nb);
-#endif
         } else {
             ret = static_cast<T *>(std::malloc(nb));
         }
