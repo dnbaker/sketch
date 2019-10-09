@@ -36,7 +36,7 @@ int main(int argc, char *argv[]) {
     double olap_frac = argc < 3 ? 0.1: std::atof(argv[2]);
     size_t ss = argc < 4 ? 11: size_t(std::strtoull(argv[3], nullptr, 10));
     RangeMinHash<uint64_t> rm1(1 << ss), rm2(1 << ss);
-    CountingRangeMinHash<uint64_t> crmh(1 << 6), crmh2(1 << 6);
+    CountingRangeMinHash<uint64_t> crmh(1 << ss), crmh2(1 << ss);
     //KthMinHash<uint64_t> kmh(30, 100);
     std::mt19937_64 mt(1337);
     size_t olap_n = (olap_frac * nelem);

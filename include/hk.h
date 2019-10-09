@@ -45,7 +45,7 @@ public:
         b_(pdec)
     {
         assert(subtables);
-        PREC_REQ(pdec <= 1., std::string("pdec is not valid (>= 1.). Value: ") + std::to_string(pdec));
+        PREC_REQ(pdec >= 1., std::string("pdec is not valid (>= 1.). Value: ") + std::to_string(pdec));
 #if VERBOSE_AF
         std::fprintf(stderr, "fpsize: %zu. ctrsize: %zu. requested size: %zu. actual size: %zu. Overflow check? %d. nhashes: %zu\n", fpsize, ctrsize, requested_size, pol_.nelem(), 1, nh_);
 #endif

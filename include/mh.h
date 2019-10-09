@@ -680,7 +680,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
     using super = FinalRMinHash<T>;
     std::vector<CountType> second;
     uint64_t count_sum_;
-    double count_sum_sq_;
+    double count_sum_l2norm_;
     using count_type = CountType;
     using key_type = T;
     FinalCRMinHash(const std::string &path): FinalCRMinHash(path.data()) {}
@@ -706,7 +706,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
 #endif
     }
     double cosine_distance(const FinalCRMinHash &o) const {
-        return dot(o) / count_sum_sq_ / o.count_sum_sq_;
+        return dot(o) / count_sum_l2norm_ / o.count_sum_l2norm_;
     }
     double dot(const FinalCRMinHash &o) const {
         const size_t lsz = this->size(), rsz = o.size();
@@ -727,6 +727,11 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
     double histogram_intersection(const FinalCRMinHash &o) const {
         const size_t lsz = this->size(), rsz = o.size();
         assert(std::accumulate(this->second.begin(), this->second.end(), size_t(0)) == this->count_sum_);
+        assert(std::accumulate(o.second.begin(), o.second.end(), size_t(0)) == o.count_sum_);
+        assert(std::sqrt(std::accumulate(this->second.begin(), this->second.end(), 0., [](auto psum, auto newv) {return psum + newv * newv;})) == this->count_sum_l2norm_);
+        assert(std::sqrt(std::accumulate(o.second.begin(), o.second.end(), 0., [](auto psum, auto newv) {return psum + newv * newv;})) == o.count_sum_l2norm_);
+        assert(count_sum_ > 0);
+        assert(o.count_sum_ > 0);
         size_t num = 0;
         size_t i1 = 0, i2 = 0;
         for(;;) {
@@ -754,7 +759,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         ssize_t ret = gzread(fp, &nelem, sizeof(nelem));
         this->first.resize(nelem);
         ret += gzread(fp, &count_sum_, sizeof(count_sum_));
-        ret += gzread(fp, &count_sum_sq_, sizeof(count_sum_sq_));
+        ret += gzread(fp, &count_sum_l2norm_, sizeof(count_sum_l2norm_));
         ret += gzread(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         this->second.resize(nelem);
         ret += gzread(fp, this->second.data(), sizeof(this->second[0]) * nelem);
@@ -770,7 +775,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         uint64_t nelem = second.size();
         ssize_t ret = gzwrite(fp, &nelem, sizeof(nelem));
         ret += gzwrite(fp, &count_sum_, sizeof(count_sum_));
-        ret += gzwrite(fp, &count_sum_sq_, sizeof(count_sum_sq_));
+        ret += gzwrite(fp, &count_sum_l2norm_, sizeof(count_sum_l2norm_));
         ret += gzwrite(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         ret += gzwrite(fp, this->second.data(), sizeof(this->second[0]) * nelem);
         return ret;
@@ -810,7 +815,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         while(i2 < rsz) {
             denom += o.second.operator[](i2) * fn(o.first.operator[](i2)), ++i2;
         }
-        std::fprintf(stderr, "[%s] after finishing num %f, denom %f\n", __PRETTY_FUNCTION__, num, denom);
+        //std::fprintf(stderr, "[%s] after finishing num %f, denom %f\n", __PRETTY_FUNCTION__, num, denom);
         return num / denom;
     }
     void prepare(size_t ss=0) {
@@ -833,7 +838,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
             this->second.insert(this->second.end(), diff, 0);
         }
         count_sum_ = countsum();
-        count_sum_sq_ = std::sqrt(countsumsq());
+        count_sum_l2norm_ = std::sqrt(countsumsq());
     }
     template<typename Valloc, typename=std::enable_if_t<!std::is_same<Valloc, typename super::allocator>::value>>
     FinalCRMinHash(std::vector<T, Valloc> &&first, std::vector<CountType> &&second, size_t ss=0) {
