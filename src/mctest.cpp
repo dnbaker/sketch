@@ -57,7 +57,7 @@ int main(int argc, char *argv[]) {
         }
     }
     for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137), cmsexact2.addh(137), cmscs4w.addh(137));
-    auto items2 = items;
+    auto items2(items.size());
     for(auto &i: items2) {
         i = mt();
         for(int j = TIMES; j--;cmsexact2.addh(i), cmscs4w2.addh(i));
@@ -115,6 +115,8 @@ int main(int argc, char *argv[]) {
     double nonmin = cmswithnonminmal.l2est();
     std::fprintf(stderr, "nonminimal update info l2 join size: %lf\n", nonmin);
     auto composed4w = cmscs4w + cmscs4w2;
+    auto folded_composed1 = composed4w.fold(1);
+    auto folded_composed2 = composed4w.fold(2);
 #if 0
     double nonmin_man = 0;
     cmswithnonminmal.for_each_register([&](const auto &x) {nonmin_man += x * x;});

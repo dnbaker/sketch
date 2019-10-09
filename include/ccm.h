@@ -526,6 +526,7 @@ class csbase_t {
     const HashStruct hf_;
     uint64_t mask_;
     std::vector<CounterType, Allocator<CounterType>> seeds_;
+    uint64_t seedseed_;
 
     CounterType       *data()       {return core_.data();}
     const CounterType *data() const {return core_.data();}
@@ -534,7 +535,8 @@ public:
     csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
         core_(uint64_t(nh) << np), np_(np), nh_(nh), nph_(64 / (np + 1)), hf_(std::forward<Args>(args)...),
         mask_((1ull << np_) - 1),
-        seeds_((nh_ + (nph_ - 1)) / nph_ - 1)
+        seeds_((nh_ + (nph_ - 1)) / nph_ - 1),
+        seedseed_(seedseed)
     {
         DefaultRNGType gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
@@ -733,6 +735,18 @@ public:
         tmp -= o;
         return tmp;
     }
+    csbase_t fold(int n=1) const {
+        PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
+        PREC_REQ(n <= np_, "Can't fold to less than 1");
+        csbase_t ret(np_ - n, nh_, seedseed_);
+        size_t ri = 0;
+        // More cache-efficient way to traverse than iterating over the final sketch
+        for(size_t i = 0; i < core_.size(); ++i) {
+            ret.core_[ri] += core_[i];
+            if(++ri == ret.core_.size()) ri = 0;
+        }
+        return ret;
+    }
 };
 template<typename CounterType=int32_t>
 class cs4wbase_t {
@@ -765,8 +779,12 @@ public:
         PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
         PREC_REQ(n <= np_, "Can't fold to less than 1");
         cs4wbase_t ret(np_ - n, nh_, seedseed_);
-        throw NotImplementedError("Not finished, but it should be simple.");
-        //for(size_t i = 0; i < 
+        size_t ri = 0;
+        // More cache-efficient way to traverse than iterating over the final sketch
+        for(size_t i = 0; i < core_.size(); ++i) {
+            ret.core_[ri] += core_[i];
+            if(++ri == ret.core_.size()) ri = 0;
+        }
         return ret;
     }
     double l2est() const {
