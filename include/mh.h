@@ -819,11 +819,13 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         return num / denom;
     }
     void prepare(size_t ss=0) {
-        if(ss == 0) ss = this->first.size();
-        std::vector<std::pair<key_type, count_type>> tmp;
-        for(size_t i = 0; i < this->first.size(); ++i)
-            tmp.push_back(std::make_pair(this->first[i], second[i]));
-        common::sort::default_sort(tmp.begin(), tmp.end(), [](auto x, auto y) {return x.first < y.first;});
+        const size_t fs = this->first.size();
+        ss = ss ? ss: fs;
+        fixed::vector<std::pair<key_type, count_type>> tmp(fs);
+        for(size_t i = 0; i < fs; ++i)
+            tmp[i] = std::make_pair(this->first[i], second[i]);
+        auto tmpcmp = [](auto x, auto y) {return x.first < y.first;};
+        common::sort::default_sort(tmp.begin(), tmp.end(), tmpcmp);
         for(size_t i = 0; i < this->first.size(); ++i)
             this->first[i] = tmp[i].first, this->second[i] = tmp[i].second;
         assert(std::is_sorted(this->first.begin(), this->first.end()));
@@ -832,11 +834,19 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
             std::sprintf(buf, "Illegal FinalCRMinHash: hashes and counts must have equal length. Length one: %zu. Length two: %zu", this->first.size(), second.size());
             throw std::runtime_error(buf);
         }
-        ssize_t diff = ss - this->first.size();
+        std::ptrdiff_t diff = ss - this->first.size();
         if(diff > 0) {
             this->first.insert(this->first.end(), diff, UINT64_MAX);
             this->second.insert(this->second.end(), diff, 0);
+        } else if(diff < 0) {
+            auto fe = this->first.end(), se = this->second.end();
+            assert(fe + diff < fe);
+            assert(se + diff < se);
+            this->first.erase(fe + diff, fe);
+            this->second.erase(se + diff, se);
         }
+        assert(this->first.size() == this->second.size());
+        assert(this->first.size() == ss);
         count_sum_ = countsum();
         count_sum_l2norm_ = std::sqrt(countsumsq());
     }
@@ -849,8 +859,10 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         prepare(ss);
     }
     FinalCRMinHash(std::vector<T, typename super::allocator> &&first, std::vector<CountType> &&second, size_t ss=0) {
+#if VERBOSE_AF
         std::fprintf(stderr, "first size: %zu.\n", first.size());
         std::fprintf(stderr, "second size: %zu.\n", second.size());
+#endif
         this->first = std::move(first);
         this->second = std::move(second);
         prepare(ss);

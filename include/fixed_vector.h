@@ -17,16 +17,23 @@ namespace fixed {
 
 template<typename T, size_t aln=0>
 class vector {
-    static_assert(std::is_trivial<T>::value, "T must be a trivial type");
+    static_assert(std::is_trivially_destructible<T>::value, "T must not have a destructor to call");
     T *data_;
     size_t n_;
 public:
     static T *allocate(size_t nelem) {
         T *ret;
+        const size_t nb = nelem * sizeof(T);
         CONST_IF(aln) {
+#if _GLIBCXX_HAVE_ALIGNED_ALLOC
+            ret = std::aligned_alloc(aln, nb);
+#else
             ret = nullptr;
-            (void)posix_memalign((void **)&ret, aln, nelem * sizeof(T));
-        } else ret = static_cast<T *>(std::malloc(sizeof(T) * nelem));
+            (void)posix_memalign((void **)&ret, aln, nb);
+#endif
+        } else {
+            ret = static_cast<T *>(std::malloc(nb));
+        }
         if(ret == nullptr) throw std::bad_alloc();
         return ret;
     }

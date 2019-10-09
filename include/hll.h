@@ -775,15 +775,17 @@ public:
         csum();
         return value_;
     }
-    auto finalize() const {return *this;}
-    auto cfinalize() const {return *this;}
-#if 1
+    auto finalize() const {
+        sum();
+        return *this;
+    }
+    auto cfinalize() const {return finalize();}
     auto finalize() {
         auto ret(std::move(*this));
+        ret.sum();
         this->free();
         return ret;
     }
-#endif
     double report() const noexcept {
         return creport();
     }
