@@ -11,7 +11,9 @@ struct SizePow2Policy {
     T shift_;
     SizePow2Policy(size_t n): mask_((1ull << nelem2arg(n)) - 1), shift_(ilog2(mask_ + 1)) {
         auto n2a = nelem2arg(n);
+#if VERBOSE_AF
         std::fprintf(stderr, "n (%zu) becomes argument %zu\n", n, n2a);
+#endif
         mask_ = (1ull << nelem2arg(n));
         shift_ = ilog2(mask_);
         --mask_;

@@ -748,7 +748,9 @@ public:
         for(size_t i = 0; i < clz_counts_.size(); ++i)
             clz_counts_[i].store(uint64_t(0));
 #endif
-        //std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
+#if VERBOSE_AF
+        std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
+#endif
     }
     explicit hllbase_t(size_t np, HashStruct &&hs): hllbase_t(np, ERTL_MLE, (JointEstimationMethod)ERTL_JOINT_MLE, std::move(hs)) {}
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_JOINT_MLE) {}
@@ -769,22 +771,23 @@ public:
     void csum() const {if(!is_calculated_) sum();}
 
     // Returns cardinality estimate. Sums if not calculated yet.
-    double creport() const {
+    double creport() const noexcept {
         csum();
         return value_;
     }
     auto finalize() const {return *this;}
+    auto cfinalize() const {return *this;}
+#if 1
     auto finalize() {
         auto ret(std::move(*this));
         this->free();
         return ret;
     }
-    double report() noexcept {
-        csum();
+#endif
+    double report() const noexcept {
         return creport();
     }
-    double cardinality_estimate() const { return creport();}
-    double cardinality_estimate() noexcept { return report();}
+    double cardinality_estimate() const noexcept { return creport();}
 
     // Returns error estimate
     double cest_err() const {

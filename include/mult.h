@@ -389,10 +389,16 @@ struct WeightedSketcher {
     }
     template<typename...Args>
     final_type finalize(Args &&...args) const {
+#if VERBOSE_AF
+        std::fprintf(stderr, "const finalize\n");
+#endif
         return this->cfinalize();
     }
     template<typename...Args>
     final_type finalize(Args &&...args) {
+#if VERBOSE_AF
+        std::fprintf(stderr, "nonconst finalize\n");
+#endif
         return sketch_.finalize(std::forward<Args>(args)...);
     }
     template<typename...Args>
