@@ -777,7 +777,7 @@ public:
     }
     cs4wbase_t fold(int n=1) const {
         PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
-        PREC_REQ(n <= np_, "Can't fold to less than 1");
+        PREC_REQ(unsigned(n) <= np_, "Can't fold to less than 1");
         cs4wbase_t ret(np_ - n, nh_, seedseed_);
         size_t ri = 0;
         // More cache-efficient way to traverse than iterating over the final sketch

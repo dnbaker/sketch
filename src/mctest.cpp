@@ -8,7 +8,7 @@ using namespace sketch::cm;
 using namespace sketch;
 
 int main(int argc, char *argv[]) {
-    int nbits = 10, l2sz = 16, nhashes = 24, c;
+    int nbits = 12, l2sz = 18, nhashes = 8, c;
     //if(argc == 1) goto usage;
     while((c = getopt(argc, argv, "n:l:b:h")) >= 0) {
         switch(c) {
@@ -41,13 +41,14 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "probabilistic method stack space: %zu\theap space:%zu\n", x, y);
     std::tie(x, y) = cmsexact.est_memory_usage();
     std::fprintf(stderr, "exact method stack space: %zu\theap space:%zu\n", x, y);
-    size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 1000000;
+    size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 100000;
     std::vector<uint64_t> items;
     std::mt19937_64 mt;
     while(items.size() < nitems) items.emplace_back(mt());
     for(const auto el: cms.ref()) {
         assert(unsigned(el) == 0);
     }
+    std::fprintf(stderr, "Inserted at first\n");
     //for(size_t i = 0; i < 10;++i)
     items.emplace_back(137);
     int TIMES = 4;
@@ -56,12 +57,9 @@ int main(int argc, char *argv[]) {
             cmsexact.addh(item), cms.addh(item),  cmscs.addh(item), cmswithnonminmal.addh(item), cmscs4w.addh(item), cmsexact2.addh(item);
         }
     }
+    std::fprintf(stderr, "Inserted items\n");
     for(size_t i = 1000; i--;cmscs.addh(137), cmsexact.addh(137), cms.addh(137), cmsexact2.addh(137), cmscs4w.addh(137));
-    auto items2(items.size());
-    for(auto &i: items2) {
-        i = mt();
-        for(int j = TIMES; j--;cmsexact2.addh(i), cmscs4w2.addh(i));
-    }
+    std::fprintf(stderr, "Inserted 137\n");
     //size_t true_is = items.size() + 1000;
     //size_t true_us = items.size() * 2 + 1000;
     std::fprintf(stderr, "All inserted\n");
@@ -96,7 +94,14 @@ int main(int argc, char *argv[]) {
     for(const auto k: hset) {
         std::fprintf(stderr, "Approx %" PRIi64 "\t%" PRIu64 "\n", k, histapprox[k]);
     }
-    std::fprintf(stderr, "Total of false positives from item2: %zu/%zu\n", std::accumulate(items2.begin(), items2.end(), size_t(0), [&](size_t s, auto x) {return s + (cms.est_count(x) != 0);}), size_t(nitems));
+    std::vector<uint64_t> items2(items.size());
+    for(auto &i: items2) {
+        i = mt();
+    }
+    std::fprintf(stderr, "Total of false positives from item2: %zu/%zu\n",
+                 std::accumulate(items2.begin(), items2.end(), size_t(0), [&](size_t s, auto x) {return s + (cms.est_count(x) != 0);}),
+                 size_t(nitems));
+    for(const auto i: items) for(int j = TIMES; j--;cmsexact2.addh(i), cmscs4w2.addh(i));
     hset.clear();
     for(const auto &pair: histcs) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
