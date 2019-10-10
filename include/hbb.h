@@ -1,10 +1,10 @@
 #ifndef HYPERBITBIT_H__
 #define HYPERBITBIT_H__
-#include "common.h"
+#include "./common.h"
 
 namespace sketch {
 
-namespace hbb {
+inline namespace hbb {
 
 /**
  *
@@ -12,7 +12,7 @@ namespace hbb {
  * https://www.cs.princeton.edu/~rs/talks/AC11-Cardinality.pdf
  * Based on https://github.com/thomasmueller/tinyStats/blob/master/src/main/java/org/tinyStats/cardinality/HyperBitBit.java
  */
-template<typename HashStruct>
+template<typename HashStruct=hash::WangHash>
 class HyperBitBit {
 
     uint16_t    logn_;

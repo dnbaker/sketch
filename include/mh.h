@@ -764,6 +764,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         this->second.resize(nelem);
         ret += gzread(fp, this->second.data(), sizeof(this->second[0]) * nelem);
         assert(std::set<uint64_t>(this->first.begin(), this->first.end()).size() == this->first.size());
+        prepare();
         return ret;
     }
     double union_size(const FinalCRMinHash &o) const {

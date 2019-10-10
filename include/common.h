@@ -48,12 +48,12 @@
 #  include <zlib.h>
 #endif
 
-#include "sseutil.h"
-#include "div.h"
-#include "hash.h"
-#include "policy.h"
-#include "exception.h"
-#include "integral.h"
+#include "./sseutil.h"
+#include "./div.h"
+#include "./hash.h"
+#include "./policy.h"
+#include "./exception.h"
+#include "./integral.h"
 
 
 #ifndef INLINE
