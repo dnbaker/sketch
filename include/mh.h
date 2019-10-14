@@ -217,8 +217,8 @@ public:
     }
     template<typename Container>
     Container to_container() const {
-        if(this->ss_ != size()) // If the sketch isn't full, add UINT64_MAX to the end until it is.
-            minimizers_.resize(this->ss_, std::numeric_limits<uint64_t>::max());
+        if(this->ss_ != size()) // If the sketch isn't full, add max to the end until it is.
+            minimizers_.resize(this->ss_, std::numeric_limits<T>::max());
         return Container(std::rbegin(minimizers_), std::rend(minimizers_.end()));
     }
     void clear() {
@@ -250,9 +250,22 @@ public:
 };
 
 namespace weight {
+
+
 struct EqualWeight {
+    // Do you even weight bro?
     template<typename T>
     constexpr double operator()(T &x) const {return 1.;}
+};
+
+template<typename ScorerType>
+struct DictWeight {
+    const ScorerType &m_;
+    DictWeight(const ScorerType &m): m_(m) {}
+    template<typename T>
+    double operator()(T &x) const {
+        return m_.score(x);
+    }
 };
 }
 
@@ -296,7 +309,7 @@ struct FinalRMinHash {
         return tmp;
     }
     double union_size(const FinalRMinHash &o) const {
-        if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
+        PREC_REQ(this->size() == o.size(), "Non-matching parameters for FinalRMinHash comparison");
         size_t n_in_sketch = 0;
         auto i1 = this->rbegin(), i2 = o.rbegin();
         T mv;
@@ -385,10 +398,10 @@ struct FinalRMinHash {
     FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)) {sort();}
     ssize_t read(gzFile fp) {
         uint64_t sz;
-        if(gzread(fp, &sz, sizeof(sz)) != sizeof(sz)) throw std::runtime_error("Failed to read");
+        if(gzread(fp, &sz, sizeof(sz)) != sizeof(sz)) throw ZlibError("Failed to read");
         first.resize(sz);
         ssize_t ret = sizeof(sz), nb = first.size() * sizeof(first[0]);
-        if(gzread(fp, first.data(), nb) != nb) throw std::runtime_error("Failed to read");
+        if(gzread(fp, first.data(), nb) != nb) throw ZlibError("Failed to read");
         ret += nb;
         sort();
         return ret;
@@ -449,7 +462,7 @@ class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {
         }
         VType(T v, CountType c): first(v), second(c) {}
         VType(const VType &o): first(o.first), second(o.second) {}
-        VType(gzFile fp) {if(gzread(fp, this, sizeof(*this)) != sizeof(*this)) throw 1;}
+        VType(gzFile fp) {if(gzread(fp, this, sizeof(*this)) != sizeof(*this)) throw ZlibError("Failed to read");}
     };
     Hasher hf_;
     Cmp cmp_;
@@ -559,16 +572,16 @@ public:
     DBSKETCH_READ_STRING_MACROS
     ssize_t write(gzFile fp) const {
         uint64_t n = minimizers_.size();
-        if(gzwrite(fp, &n, sizeof(n)) != sizeof(n)) throw 1;
+        if(gzwrite(fp, &n, sizeof(n)) != sizeof(n)) throw ZlibError("Failed to write");
         for(const auto &pair: minimizers_) {
             if(gzwrite(fp, std::addressof(pair), sizeof(pair)) != sizeof(pair))
-                throw 2;
+                ZlibError("Failed to write");
         }
         return sizeof(VType) * minimizers_.size();
     }
     ssize_t read(gzFile fp) {
         uint64_t n;
-        if(gzread(fp, &n, sizeof(n)) != sizeof(n)) throw 1;
+        if(gzread(fp, &n, sizeof(n)) != sizeof(n)) throw ZlibError("Failed to read");
         for(size_t i = n; i--; minimizers_.insert(VType(fp)));
         return sizeof(n) + sizeof(VType) * n;
     }
@@ -768,7 +781,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         return ret;
     }
     double union_size(const FinalCRMinHash &o) const {
-        if(this->size() != o.size()) throw std::runtime_error("Non-matching parameters for FinalRMinHash comparison");
+        PREC_REQ(this->size() == o.size(), "mismatched parameters");
         return super::union_size(o);
     }
     ssize_t write(gzFile fp) const {
@@ -790,7 +803,6 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         double denom = 0, num = 0;
         size_t i1 = 0, i2 = 0;
         for(;;) {
-            std::fprintf(stderr, "[%s] in loop num %f, denom %f\n", __PRETTY_FUNCTION__, num, denom);
             auto &lhs = this->first[i1];
             auto &rhs = o.first[i2];
             const auto lhv = second[i1] * fn(lhs), rhv = o.second[i2] * fn(rhs);
@@ -808,7 +820,6 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
             }
             assert(i2 < o.second.size());
         }
-        std::fprintf(stderr, "[%s] after loop num %f, denom %f\n", __PRETTY_FUNCTION__, num, denom);
         while(i1 < lsz) {
             denom += this->second.operator[](i1) * fn(this->first.operator[](i1)), ++i1;
             //denom += this->first[i1] * fn(second[i1]), ++i1;
@@ -830,14 +841,10 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         for(size_t i = 0; i < this->first.size(); ++i)
             this->first[i] = tmp[i].first, this->second[i] = tmp[i].second;
         assert(std::is_sorted(this->first.begin(), this->first.end()));
-        if(this->first.size() != this->second.size()) {
-            char buf[512];
-            std::sprintf(buf, "Illegal FinalCRMinHash: hashes and counts must have equal length. Length one: %zu. Length two: %zu", this->first.size(), second.size());
-            throw std::runtime_error(buf);
-        }
-        std::ptrdiff_t diff = ss - this->first.size();
+        PREC_REQ(this->first.size() == this->second.size(), "Counts and hashes must have equal size");
+        const std::ptrdiff_t diff = ss - this->first.size();
         if(diff > 0) {
-            this->first.insert(this->first.end(), diff, UINT64_MAX);
+            this->first.insert(this->first.end(), diff, std::numeric_limits<T>::max());
             this->second.insert(this->second.end(), diff, 0);
         } else if(diff < 0) {
             auto fe = this->first.end(), se = this->second.end();
@@ -850,6 +857,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         assert(this->first.size() == ss);
         count_sum_ = countsum();
         count_sum_l2norm_ = std::sqrt(countsumsq());
+        POST_REQ(this->first.size() == this->second.size(), "Counts and hashes must have equal size");
     }
     template<typename Valloc, typename=std::enable_if_t<!std::is_same<Valloc, typename super::allocator>::value>>
     FinalCRMinHash(std::vector<T, Valloc> &&first, std::vector<CountType> &&second, size_t ss=0) {

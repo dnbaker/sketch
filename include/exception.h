@@ -76,6 +76,7 @@ class ZlibError: public std::runtime_error {
     }
 public:
     ZlibError(int ze, std::string s): std::runtime_error(std::string("zlibError [") + es(ze) + "]" + s) {}
+    ZlibError(std::string s): ZlibError(Z_ERRNO, s) {}
 };
 
 #ifdef __CUDACC__
