@@ -16,6 +16,8 @@
 #ifndef INLINE
 #  if __GNUC__ || __clang__
 #    define INLINE __attribute__((always_inline)) inline
+#  elif __CUDACC__
+#    define INLINE __forceinline__ inline
 #  else
 #    define INLINE inline
 #  endif
@@ -81,7 +83,64 @@ constexpr INLINE unsigned ffs(unsigned long x) {
 constexpr INLINE unsigned ffs(unsigned x) {
     return __builtin_ffs(x);
 }
-#else
+#endif
+#ifdef __CUDACC__
+__device__ constexpr INLINE unsigned clz(signed long long x) {
+    return __clzll(x);
+}
+__device__ constexpr INLINE unsigned clz(signed long x) {
+    return __clzll(x);
+}
+__device__ constexpr INLINE unsigned clz(signed x) {
+    return __clz(x);
+}
+__device__ constexpr INLINE unsigned clz(unsigned long long x) {
+    return __clzll(x);
+}
+__device__ constexpr INLINE unsigned clz(unsigned long x) {
+    return __clzll(x);
+}
+__device__ constexpr INLINE unsigned clz(unsigned x) {
+    return __clz(x);
+}
+__device__ constexpr INLINE unsigned ctz(signed long long x) {
+    return clz(__brevll(x));
+}
+__device__ constexpr INLINE unsigned ctz(signed long x) {
+    return clz(__brevll(x));
+}
+__device__ constexpr INLINE unsigned ctz(signed x) {
+    return clz(__brev(x));
+}
+__device__ constexpr INLINE unsigned ctz(unsigned long long x) {
+    return clz(__brevll(x));
+}
+__device__ constexpr INLINE unsigned ctz(unsigned long x) {
+    return clz(__brevll(x));
+}
+__device__ constexpr INLINE unsigned ctz(unsigned x) {
+    return clz(__brev(x));
+}
+__device__ constexpr INLINE unsigned ffs(signed long long x) {
+    return __ffsll(x);
+}
+__device__ constexpr INLINE unsigned ffs(signed long x) {
+    return __ffsll(x);
+}
+__device__ constexpr INLINE unsigned ffs(signed x) {
+    return __ffs(x);
+}
+__device__ constexpr INLINE unsigned ffs(unsigned long long x) {
+    return __ffsll(x);
+}
+__device__ constexpr INLINE unsigned ffs(unsigned long x) {
+    return __ffsll(x);
+}
+__device__ constexpr INLINE unsigned ffs(unsigned x) {
+    return __ffs(x);
+}
+#endif
+#if !defined(__clang__) && !defined(__GNUC__) && !defined(__CUDACC__)
 #pragma message("Using manual clz instead of gcc/clang __builtin_*")
 #define clztbl(x, arg) do {\
     switch(arg) {\
