@@ -29,114 +29,114 @@
 namespace sketch {
 inline namespace integral {
 #if __GNUC__ || __clang__
-constexpr INLINE unsigned clz(signed long long x) {
+constexpr INLINE unsigned clz(signed long long x) noexcept {
     return __builtin_clzll(x);
 }
-constexpr INLINE unsigned clz(signed long x) {
+constexpr INLINE unsigned clz(signed long x) noexcept {
     return __builtin_clzl(x);
 }
-constexpr INLINE unsigned clz(signed x) {
+constexpr INLINE unsigned clz(signed x) noexcept {
     return __builtin_clz(x);
 }
-constexpr INLINE unsigned ctz(signed long long x) {
+constexpr INLINE unsigned ctz(signed long long x) noexcept {
     return __builtin_ctzll(x);
 }
-constexpr INLINE unsigned ctz(signed long x) {
+constexpr INLINE unsigned ctz(signed long x) noexcept {
     return __builtin_ctzl(x);
 }
-constexpr INLINE unsigned ctz(signed x) {
+constexpr INLINE unsigned ctz(signed x) noexcept {
     return __builtin_ctz(x);
 }
-constexpr INLINE unsigned ffs(signed long long x) {
+constexpr INLINE unsigned ffs(signed long long x) noexcept {
     return __builtin_ffsll(x);
 }
-constexpr INLINE unsigned ffs(signed long x) {
+constexpr INLINE unsigned ffs(signed long x) noexcept {
     return __builtin_ffsl(x);
 }
-constexpr INLINE unsigned ffs(signed x) {
+constexpr INLINE unsigned ffs(signed x) noexcept {
     return __builtin_ffs(x);
 }
-constexpr INLINE unsigned clz(unsigned long long x) {
+constexpr INLINE unsigned clz(unsigned long long x) noexcept {
     return __builtin_clzll(x);
 }
-constexpr INLINE unsigned clz(unsigned long x) {
+constexpr INLINE unsigned clz(unsigned long x) noexcept {
     return __builtin_clzl(x);
 }
-constexpr INLINE unsigned clz(unsigned x) {
+constexpr INLINE unsigned clz(unsigned x) noexcept {
     return __builtin_clz(x);
 }
-constexpr INLINE unsigned ctz(unsigned long long x) {
+constexpr INLINE unsigned ctz(unsigned long long x) noexcept {
     return __builtin_ctzll(x);
 }
-constexpr INLINE unsigned ctz(unsigned long x) {
+constexpr INLINE unsigned ctz(unsigned long x) noexcept {
     return __builtin_ctzl(x);
 }
-constexpr INLINE unsigned ctz(unsigned x) {
+constexpr INLINE unsigned ctz(unsigned x) noexcept {
     return __builtin_ctz(x);
 }
-constexpr INLINE unsigned ffs(unsigned long long x) {
+constexpr INLINE unsigned ffs(unsigned long long x) noexcept {
     return __builtin_ffsll(x);
 }
-constexpr INLINE unsigned ffs(unsigned long x) {
+constexpr INLINE unsigned ffs(unsigned long x) noexcept {
     return __builtin_ffsl(x);
 }
-constexpr INLINE unsigned ffs(unsigned x) {
+constexpr INLINE unsigned ffs(unsigned x) noexcept {
     return __builtin_ffs(x);
 }
 #endif
 #ifdef __CUDACC__
-__device__ constexpr INLINE unsigned clz(signed long long x) {
+__device__ constexpr INLINE unsigned clz(signed long long x) noexcept {
     return __clzll(x);
 }
-__device__ constexpr INLINE unsigned clz(signed long x) {
+__device__ constexpr INLINE unsigned clz(signed long x) noexcept {
     return __clzll(x);
 }
-__device__ constexpr INLINE unsigned clz(signed x) {
+__device__ constexpr INLINE unsigned clz(signed x) noexcept {
     return __clz(x);
 }
-__device__ constexpr INLINE unsigned clz(unsigned long long x) {
+__device__ constexpr INLINE unsigned clz(unsigned long long x) noexcept {
     return __clzll(x);
 }
-__device__ constexpr INLINE unsigned clz(unsigned long x) {
+__device__ constexpr INLINE unsigned clz(unsigned long x) noexcept {
     return __clzll(x);
 }
-__device__ constexpr INLINE unsigned clz(unsigned x) {
+__device__ constexpr INLINE unsigned clz(unsigned x) noexcept {
     return __clz(x);
 }
-__device__ constexpr INLINE unsigned ctz(signed long long x) {
+__device__ constexpr INLINE unsigned ctz(signed long long x) noexcept {
     return clz(__brevll(x));
 }
-__device__ constexpr INLINE unsigned ctz(signed long x) {
+__device__ constexpr INLINE unsigned ctz(signed long x) noexcept {
     return clz(__brevll(x));
 }
-__device__ constexpr INLINE unsigned ctz(signed x) {
+__device__ constexpr INLINE unsigned ctz(signed x) noexcept {
     return clz(__brev(x));
 }
-__device__ constexpr INLINE unsigned ctz(unsigned long long x) {
+__device__ constexpr INLINE unsigned ctz(unsigned long long x) noexcept {
     return clz(__brevll(x));
 }
-__device__ constexpr INLINE unsigned ctz(unsigned long x) {
+__device__ constexpr INLINE unsigned ctz(unsigned long x) noexcept {
     return clz(__brevll(x));
 }
-__device__ constexpr INLINE unsigned ctz(unsigned x) {
+__device__ constexpr INLINE unsigned ctz(unsigned x) noexcept {
     return clz(__brev(x));
 }
-__device__ constexpr INLINE unsigned ffs(signed long long x) {
+__device__ constexpr INLINE unsigned ffs(signed long long x) noexcept {
     return __ffsll(x);
 }
-__device__ constexpr INLINE unsigned ffs(signed long x) {
+__device__ constexpr INLINE unsigned ffs(signed long x) noexcept {
     return __ffsll(x);
 }
-__device__ constexpr INLINE unsigned ffs(signed x) {
+__device__ constexpr INLINE unsigned ffs(signed x) noexcept {
     return __ffs(x);
 }
-__device__ constexpr INLINE unsigned ffs(unsigned long long x) {
+__device__ constexpr INLINE unsigned ffs(unsigned long long x) noexcept {
     return __ffsll(x);
 }
-__device__ constexpr INLINE unsigned ffs(unsigned long x) {
+__device__ constexpr INLINE unsigned ffs(unsigned long x) noexcept {
     return __ffsll(x);
 }
-__device__ constexpr INLINE unsigned ffs(unsigned x) {
+__device__ constexpr INLINE unsigned ffs(unsigned x) noexcept {
     return __ffs(x);
 }
 #endif
@@ -150,7 +150,7 @@ __device__ constexpr INLINE unsigned ffs(unsigned x) {
         case 4: case 5: case 6: case 7: x += 1; break;\
     }} while(0)
 
-constexpr INLINE int clz_manual( uint32_t x )
+constexpr INLINE int clz_manual( uint32_t x ) noexcept
 {
   int n(0);
   if ((x & 0xFFFF0000) == 0) {n  = 16; x <<= 16;}
@@ -161,7 +161,7 @@ constexpr INLINE int clz_manual( uint32_t x )
 }
 
 // Overload
-constexpr INLINE int clz_manual( uint64_t x )
+constexpr INLINE int clz_manual( uint64_t x ) noexcept
 {
   int n(0);
   if ((x & 0xFFFFFFFF00000000ull) == 0) {n  = 32; x <<= 32;}
@@ -189,7 +189,7 @@ static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz failed.");
 
 template<typename T>
 static constexpr INLINE unsigned ilog2(T x) noexcept {
-    return sizeof(T) * CHAR_BIT - clz(x)  - 1;
+    return sizeof(T) * CHAR_BIT - clz(x) - 1;
 }
 template<typename T>
 static INLINE T roundup(T x) noexcept {
@@ -206,7 +206,7 @@ static INLINE T roundup(T x) noexcept {
     return ++x;
 }
 template<typename T>
-static constexpr INLINE bool is_pow2(T val) {
+static constexpr INLINE bool is_pow2(T val) noexcept {
     return val && (val & (val - 1)) == 0;
 }
 INLINE auto popcount(uint64_t val) noexcept {
@@ -225,9 +225,23 @@ INLINE auto popcount(uint64_t val) noexcept {
 #endif
 }
 INLINE unsigned popcount(__m64 val) noexcept {return popcount(*reinterpret_cast<uint64_t *>(&val));}
+#ifdef __CUDACC__
+__device__ INLINE auto popcount(uint64_t val) noexcept {
+    return __popcll(val);
+}
+__device__ INLINE auto popcount(int64_t val) noexcept {
+    return __popcll(val);
+}
+__device__ INLINE auto popcount(uint32_t val) noexcept {
+    return __popc(val);
+}
+__device__ INLINE auto popcount(int32_t val) noexcept {
+    return __popc(val);
+}
+#endif
 
 template<typename T>
-static INLINE uint64_t vatpos(const T v, size_t ind) {
+static INLINE uint64_t vatpos(const T v, size_t ind) noexcept {
     return reinterpret_cast<const uint64_t *>(&v)[ind];
 }
 
@@ -243,15 +257,15 @@ static INLINE uint64_t sum_of_u64s(const T val) {
 #  if (__clang__ &&__clang_major__ >= 4) || (__GNUC__ && __GNUC__ >= 7)
 #define AVX512_REDUCE_OPERATIONS_ENABLED 1
 template<>
-INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) {
+INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) noexcept {
     return _mm512_reduce_add_epi64(val);
 }
 #  endif
 #endif
 
 
-template<typename T> INLINE auto popcnt_fn(T val);
-template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::Type val) {
+template<typename T> INLINE auto popcnt_fn(T val) noexcept;
+template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::Type val) noexcept {
 
 #if HAS_AVX_512
 #  if __AVX512VPOPCNTDQ__
@@ -271,11 +285,11 @@ template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::Type val) {
 #endif
 }
 
-template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::VType val) {
+template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::VType val) noexcept {
     return popcnt_fn(val.simd_);
 }
 template<typename T, typename T2>
-INLINE auto roundupdiv(T x, T2 div) {
+INLINE auto roundupdiv(T x, T2 div) noexcept {
     return ((x + div - 1) / div) * div;
 }
 
