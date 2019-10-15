@@ -231,10 +231,16 @@ public:
             reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
         return final_type(std::move(reta));
     }
-    final_type finalize() const {
+    final_type finalize() & {
         return cfinalize();
     }
-    final_type finalize() {
+    final_type finalize() const & {
+        return cfinalize();
+    }
+    final_type finalize() && {
+        return static_cast<const RangeMinHash &&>(*this).finalize();
+    }
+    final_type finalize() const && {
         std::vector<T> reta(minimizers_.begin(), minimizers_.end());
         if(reta.size() < this->ss_) {
             reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
@@ -616,14 +622,20 @@ public:
         while(i2 < e2) denom += i2->second * fn(i2->first), ++i2;
         return static_cast<double>(num) / denom;
     }
-    final_type finalize() const {
+    final_type finalize() & {
         return cfinalize();
     }
-    final_type cfinalize() const {
+    final_type finalize() const & {
+        return cfinalize();
+    }
+    final_type cfinalize() const & {
         return FinalCRMinHash<T, CountType>(*this);
     }
-    final_type finalize() {
-        auto ret(FinalCRMinHash<T, CountType>(*this));
+    final_type finalize() && {
+        return static_cast<const CountingRangeMinHash &&>(*this).finalize();
+    }
+    final_type finalize() const && {
+        auto ret(FinalCRMinHash<T, CountType>(std::move(*this)));
         this->free();
         return ret;
     }
