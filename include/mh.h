@@ -246,7 +246,6 @@ public:
             reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
         }
         final_type ret(std::move(reta));
-        this->free();
         return ret;
     }
     std::vector<T> mh2vec() const {return to_container<std::vector<T>>();}
@@ -636,7 +635,6 @@ public:
     }
     final_type finalize() const && {
         auto ret(FinalCRMinHash<T, CountType>(std::move(*this)));
-        this->free();
         return ret;
     }
     template<typename Func>
