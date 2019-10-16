@@ -43,15 +43,19 @@ OBJS=$(patsubst %.cpp,%$(SUF),$(wildcard *.cpp))
 HEADERS=$(wildcard include/*.h)
 
 SAN=-fsanitize=undefined -fsanitize=address
+PYTHON?=python3
 
 sleef.h:
 	+cd vec/sleef && mkdir -p build && cd build && cmake .. && $(MAKE) && cd ../../../ && ln -s vec/sleef//build/include/sleef.h sleef.h
 
 python: $(HEADERS) python/hll.cpp python/setup.py
-	cd python && python setup.py install
+	cd python && $(PYTHON) setup.py install
+
+mpython: python/hll.cpp hll.cpython.so
+	$(PYTHON) -c "import subprocess;import site; subprocess.check_call('cp "hll*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
 hpython: pybbmh.cpython.so
-	python -c "import subprocess;import site; subprocess.check_call('cp pybbmh.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
+	$(PYTHON) -c "import subprocess;import site; subprocess.check_call('cp pybbmh.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
 %.cpython.so: %.cpp
 	$(CXX) $(UNDEFSTR) $(INCLUDES) -fopenmp -O3 -Wall $(CXXFLAGS) -shared $(STD) -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \
