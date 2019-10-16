@@ -67,8 +67,10 @@
 
 #ifdef _OPENMP
 #define OMP_PRAGMA(...) _Pragma(__VA_ARGS__)
+#define OMP_ONLY(...) __VA_ARGS__
 #else
 #define OMP_PRAGMA(...)
+#define OMP_ONLY(...)
 #endif
 
 

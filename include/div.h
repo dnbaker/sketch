@@ -71,6 +71,7 @@ template<typename T> struct div_t {
     operator std::pair<T, T> &() {
         return *reinterpret_cast<std::pair<T, T> *>(this);
     }
+    std::pair<T, T> to_pair() const {return std::make_pair(quot, rem);}
     operator const std::pair<T, T> &() const {
         return *const_cast<std::pair<T, T> *>(this);
     }
@@ -93,7 +94,11 @@ public:
     const uint64_t &m32() const {assert(shortcircuit); return m32_;}
     using DivType = div_t<uint64_t>;
     Schismatic(uint64_t d): d_(d), M_(computeM_u64(d)) {
-        m32_ = shortcircuit ? computeM_u32(d): uint64_t(0);
+        CONST_IF(shortcircuit) {
+            m32_ = computeM_u32(d);
+        } else {
+            m32_ = 0;
+        }
     }
     INLINE bool test_limits(uint64_t v) const {
         assert(shortcircuit);

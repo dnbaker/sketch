@@ -775,12 +775,18 @@ public:
         csum();
         return value_;
     }
-    auto finalize() const {
+    auto cfinalize() const {return finalize();}
+    auto finalize() const & {
         sum();
         return *this;
     }
-    auto cfinalize() const {return finalize();}
-    auto finalize() {
+    auto finalize() & {
+        return static_cast<const hllbase_t &>(*this).finalize();
+    }
+    auto finalize() && {
+        return static_cast<const hllbase_t &&>(*this).finalize();
+    }
+    auto finalize() const && {
         auto ret(std::move(*this));
         ret.sum();
         this->free();
