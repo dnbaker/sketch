@@ -25,13 +25,14 @@ public:
         T *ret;
         const size_t nb = nelem * sizeof(T);
         CONST_IF(aln) {
-            ret = nullptr;
-            (void)posix_memalign((void **)&ret, aln, nb);
+            if(posix_memalign((void **)&ret, aln, nb)) goto fail;
         } else {
-            ret = static_cast<T *>(std::malloc(nb));
+            if((ret = static_cast<T *>(std::malloc(nb))) == nullptr) goto fail;
         }
-        if(ret == nullptr) throw std::bad_alloc();
         return ret;
+        fail:
+        throw std::bad_alloc();
+        return nullptr;
     }
     template<typename It>
     vector(It i1, It i2): data_(allocate(std::distance(i1, i2))), n_(std::distance(i1, i2)) {
