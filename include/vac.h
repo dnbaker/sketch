@@ -1,10 +1,11 @@
 #ifndef VAC_SKETCH_H__
 #define VAC_SKETCH_H__
-#include "mult.h"
-#include "hll.h"
-#include "fixed_vector.h"
+#include "./mult.h"
+#include "./hll.h"
+#include "./fixed_vector.h"
 #include "aesctr/wy.h"
-#include "tsg.h"
+#include "./exception"
+#include "./tsg.h"
 
 namespace sketch {
 
@@ -98,8 +99,8 @@ struct PowerVACSketch: public VACSketch<BaseSketch, Container, RNG, VectorArgs..
     }
     // Composition
     PowerVACSketch &operator+=(const PowerVACSketch &o) {
-        PREQ_REC(this->n_ == o.n_, "Must be same n");
-        PREQ_REC(this->base_ == o.base_, "Must be same base");
+        PREC_REQ(this->n_ == o.n_, "Must be same n");
+        PREC_REQ(this->base_ == o.base_, "Must be same base");
         auto i1 = this->sketches_.begin();
         auto i2 = o.sketches_.begin();
         auto e1 = this->sketches_.end();

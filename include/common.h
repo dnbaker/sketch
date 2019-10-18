@@ -351,7 +351,7 @@ struct tmpbuffer {
     ~tmpbuffer() {if(n_ > BUFFER_SIZE) std::free(ptr_);}
 
     auto &operator[](size_t i) {return ptr_[i];}
-    const auto operator[](size_t i) const {return ptr_[i];}
+    auto operator[](size_t i) const {return ptr_[i];}
     // By value rather than reference
 
     auto begin() {return ptr_;}

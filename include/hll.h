@@ -1162,7 +1162,7 @@ public:
         const double us = union_size(h2), mys = creport(), os = h2.creport(),
                      is = std::max(mys + os - us, 0.),
                      my_only = std::max(mys - is, 0.), o_only = std::max(os - is, 0.);
-        return std::array<double, 3>{my_only, o_only, is};
+        return std::array<double, 3>{{my_only, o_only, is}};
     }
     double jaccard_index(const hllbase_t &h2) const {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
