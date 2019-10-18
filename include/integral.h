@@ -26,6 +26,10 @@
 #ifndef HAS_AVX_512
 #  define HAS_AVX_512 (_FEATURE_AVX512F || _FEATURE_AVX512ER || _FEATURE_AVX512PF || _FEATURE_AVX512CD || __AVX512BW__ || __AVX512CD__ || __AVX512F__ || __AVX512__)
 #endif
+
+#if defined(__AVX512VPOPCNTDQ__)
+#  define popcnt512(x) ::_mm512_popcnt_epi64(x)
+#endif
 namespace sketch {
 inline namespace integral {
 #if __GNUC__ || __clang__

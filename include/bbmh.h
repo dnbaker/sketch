@@ -136,11 +136,7 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
     __m512i match = ~(*s1++ ^ *s2++);
     while(--b)
         match &= ~(*s1++ ^ *s2++);
-#if defined(__AVX512VPOPCNTDQ__)
-    return ::_mm512_popcnt_epi64(match);
-#else
     return popcnt512(match);
-#endif
 }
 #endif
 
@@ -1134,12 +1130,14 @@ public:
             default: {
                 // Process each 'b' remainder block in
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
-                __m128i match = ~(*vp1++ ^ *vp2++);
-                for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
+
+                auto notincxor = [&](){return ~(*vp1++ ^ *vp2++);};
+                __m128i match = notincxor();
+                for(unsigned b = b_; --b;match &= notincxor());
                 auto sum = popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
                 while(vp1 != vpe) {
                     match = ~(*vp1++ ^ *vp2++);
-                    for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
+                    for(unsigned b = b_; --b; match &= notincxor());
                     sum += popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
                 }
                 return sum;
