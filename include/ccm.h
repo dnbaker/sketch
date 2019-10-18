@@ -51,11 +51,12 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, const std::vec
     using VT = typename vec::SIMDTypes<T>::VType;
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
-    static constexpr size_t ct = VS::COUNT;
-    const bool is_aligned = VT::aligned(v.data()) && VT::aligned(v2.data());
     for(size_t i = 0; i < nhashes; ++i) {
         const T *p1 = &v[i << l2sz], *p2 = &v2[i<<l2sz], *p1e = &v[(i + 1) << l2sz];
+        // portable SIMD absolute value is hard, ignore it.
 #if 0
+        const bool is_aligned = VT::aligned(v.data()) && VT::aligned(v2.data());
+        static constexpr size_t ct = VS::COUNT;
         while(p1e - p1 > ct) {
             auto lv = VS::load(p1), VS::load(p2);
             const auto lv = *reinterpret_cast<const VT *>(p1);
@@ -68,7 +69,6 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, const std::vec
         while(p1 < p1e)
             full_sum += *p1++ * *p2++;
 #endif
-        // SIMD absolute value is hard, ignore it.
         T full_sum = std::abs(*p1++ * *p2++);
         while(p1 != p1e) full_sum += std::abs(*p1++ * *p2++);
 
@@ -339,9 +339,9 @@ public:
         }
         return ret;
     }
+    static constexpr bool is_increment = std::is_same<UpdateStrategy, update::Increment>::value;
     ssize_t sub(const uint64_t val) {
-        static constexpr bool is_increment = std::is_same<UpdateStrategy, update::Increment>::value;
-        CONST_IF(!std::is_same<UpdateStrategy, update::Increment>::value) {
+        CONST_IF(!is_increment) {
             std::fprintf(stderr, "Can't delete from an approximate counting sketch.");
             return std::numeric_limits<ssize_t>::min();
         }
@@ -455,7 +455,7 @@ public:
                 }
             }
         }
-        return ret + std::is_same<UpdateStrategy, update::Increment>::value;
+        return ret + is_increment;
     }
     uint64_t est_count(uint64_t val) const {
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());

@@ -1696,13 +1696,10 @@ struct wh119_t {
         std::array<uint32_t, 256> counts{0};
         PREC_REQ(is_pow2(core_.size()), "Size must be a power of two");
         PREC_REQ(core_.size() >= sizeof(hll::detail::SIMDHolder), "Must be at least as large as a SIMD vector");
-#if 1
-        hll::detail::SIMDHolder tmp, *ptr = (hll::detail::SIMDHolder*)core_.data();
-        for(size_t i = 0; i < core_.size() / sizeof(tmp); ++i)
+        const hll::detail::SIMDHolder *ptr = static_cast<const hll::detail::SIMDHolder*>(static_cast<const void *>(core_.data()));
+        for(size_t i = 0; i < core_.size() / sizeof(*ptr); ++i) {
             (*ptr++).inc_counts(counts);
-#else
-        for(const auto v: core_) ++counts[v];
-#endif
+        }
         long double sum = counts[0];
         for(ssize_t i = 1; i < ssize_t(counts.size()); ++i) {
             sum += static_cast<long double>(counts[i]) * (std::pow(wh_base_, -i));
@@ -1723,7 +1720,8 @@ struct wh119_t {
         std::memset(counts.data(), 0, sizeof(counts));
         size_t i;
         using space = vec::SIMDTypes<uint8_t>;
-        const space::Type *p1 = (const space::Type *)core_.data(), *p2 = (const space::Type *)o.data();
+        const space::Type *p1 = static_cast<const space::Type *>(static_cast<const void *>(core_.data())),
+                          *p2 = static_cast<const space::Type *>(static_cast<const void *>(o.data()));
         for(i = 0; i < core_.size() / sizeof(*p1); ++i) {
             hll::detail::SIMDHolder(hll::detail::SIMDHolder::max_fn(*p1++, *p2++)).inc_counts(counts);
         }

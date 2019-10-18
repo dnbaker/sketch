@@ -204,7 +204,6 @@ public:
         return queryh(x);
     }
     HeavyKeeper &operator|=(const HeavyKeeper &o) {
-        uint64_t ret = 0;
         size_t data_index = 0;
         for(size_t subidx = 0; subidx < nh_; ++subidx) {
             for(size_t i = 0; i < o.size(); ++i) {

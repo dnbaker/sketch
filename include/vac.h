@@ -42,8 +42,10 @@ struct VACSketch {
     // Composition
     VACSketch &operator+=(const VACSketch &o) {
         if(n_ != o.n_) throw std::runtime_error("Mismatched vacsketch counts");
-        for(auto i1 = sketches_.begin(), i2 = o.sketches_.begin(), e1 = sketches_.end();
-            i1 != e1; *i1++ += *i2++);
+        auto i1 = sketches_.begin();
+        auto i2 = o.sketches_.begin();
+        auto e1 = sketches_.end();
+        while(i1 != e1) (*i1++ += *i2++);
         return *this;
     }
     VACSketch operator+(const VACSketch &o) const {
@@ -96,10 +98,12 @@ struct PowerVACSketch: public VACSketch<BaseSketch, Container, RNG, VectorArgs..
     }
     // Composition
     PowerVACSketch &operator+=(const PowerVACSketch &o) {
-        if(this->n_ != this->o.n_) throw std::runtime_error("Mismatched vacsketch counts");
-        if(base_ != o.base_) throw std::runtime_error("Mismatched vacsketch base parameter counts");
-        for(auto i1 = this->sketches_.begin(), i2 = o.sketches_.begin(), e1 = this->sketches_.end();
-            i1 != e1; *i1++ += *i2++);
+        PREQ_REC(this->n_ == o.n_, "Must be same n");
+        PREQ_REC(this->base_ == o.base_, "Must be same base");
+        auto i1 = this->sketches_.begin();
+        auto i2 = o.sketches_.begin();
+        auto e1 = this->sketches_.end();
+        while(i1 != e1) (*i1++ += *i2++);
         return *this;
     }
     PowerVACSketch operator+(const PowerVACSketch &o) const {

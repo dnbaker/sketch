@@ -306,7 +306,6 @@ void flatten(std::vector<uint32_t, Allocator> &a) {
 }
 template<typename Allocator, typename Functor>
 void flattened_for_each(std::vector<uint32_t, Allocator> &a, const Functor &func) {
-    size_t nfilled = 0;
     const size_t nelem = a.size();
     if(nelem > 64)
         sort::default_sort(a.data(), a.data() + nelem);

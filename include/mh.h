@@ -857,7 +857,8 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
             this->first.insert(this->first.end(), diff, std::numeric_limits<T>::max());
             this->second.insert(this->second.end(), diff, 0);
         } else if(diff < 0) {
-            auto fe = this->first.end(), se = this->second.end();
+            const auto fe = this->first.end();
+            const auto se = this->second.end();
             assert(fe + diff < fe);
             assert(se + diff < se);
             this->first.erase(fe + diff, fe);

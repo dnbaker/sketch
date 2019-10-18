@@ -486,7 +486,7 @@ public:
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         ret.clear();
 #if !NDEBUG
-        std::fprintf(stderr, "nvals: %zu. nvals. Resize size: %zu\n", nvals, nvals >> 6 + ((nvals & 0x63u) != 0));
+        std::fprintf(stderr, "nvals: %zu. nvals. Resize size: %zu\n", nvals, (nvals >> 6) + ((nvals & 0x63u) != 0));
 #endif
         ret.resize((nvals >> 6) + ((nvals & 0x63u) != 0), UINT64_C(-1));
         unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;

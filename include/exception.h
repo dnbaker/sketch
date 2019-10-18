@@ -2,6 +2,7 @@
 #ifndef SKETCHCEPTION_H__
 #define SKETCHCEPTION_H__
 #include <stdexcept>
+#include <string>
 #if ZWRAP_USE_ZSTD
 #  include "zstd_zlibwrapper.h"
 #else
