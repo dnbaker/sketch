@@ -94,6 +94,18 @@
 #  endif
 #endif
 
+#if !NDEBUG
+#  define DBG_ONLY(...) __VA_ARGS__
+#else
+#  define DBG_ONLY(...)
+#endif
+
+#if VERBOSE_AF
+#  define VERBOSE_ONLY(...) __VA_ARGS__
+#else
+#  define VERBOSE_ONLY(...)
+#endif
+
 #ifndef FOREVER
 #  define FOREVER for(;;)
 #endif

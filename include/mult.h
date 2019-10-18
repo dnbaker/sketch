@@ -337,7 +337,7 @@ struct WangPairHasher: public hash::WangHash {
 };
 
 
-template<typename CoreSketch, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, typename PairHasher=WangPairHasher>
+template<typename CoreSketch, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, bool always_add=false, typename PairHasher=WangPairHasher>
 struct WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
@@ -372,11 +372,12 @@ struct WeightedSketcher {
     uint64_t hash(uint64_t x, CType count) const {return pair_hasher_.hash(x, count);}
     void add(uint64_t x) {
         auto count = cst_.addh(x);
-        CONST_IF(std::is_signed<decltype(count)>::value) {
-            if(count < 0)
-                count = 0;
+        CONST_IF(always_add) {
+            sketch_.addh(hash(x, std::max(count, static_cast<decltype(count)>(0))));
+        } else {
+            if(count > 0)
+                sketch_.addh(hash(x, count));
         }
-        sketch_.addh(hash(x, count));
     }
     uint64_t hash(uint64_t x) const {return hf_(x);}
     WeightedSketcher(const WeightedSketcher &) = default;
@@ -417,23 +418,25 @@ struct WeightedSketcher {
 };
 
 
-template<typename CoreSketch, typename F, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, typename PairHasher=WangPairHasher>
-struct FWeightedSketcher: public WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher> {
+template<typename CoreSketch, typename F, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, bool always_add=false, typename PairHasher=WangPairHasher>
+struct FWeightedSketcher: public WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, always_add, PairHasher> {
     const F func_;
     template<typename... Args>
     FWeightedSketcher(Args &&...args):
-        WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher>(std::forward<Args>(args)...),
+        WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, always_add, PairHasher>(std::forward<Args>(args)...),
         func_() {}
     template<typename... Args>
-    FWeightedSketcher(F &&func, Args &&...args): WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher>(std::forward<Args>(args)...),
+    FWeightedSketcher(F &&func, Args &&...args): WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, always_add, PairHasher>(std::forward<Args>(args)...),
         func_(std::move(func)) {}
     void add(uint64_t x) {
         auto count = this->cst_.addh(x);
-        CONST_IF(std::is_signed<decltype(count)>::value) {
-            if(unlikely(count < 0)) count = 0;
+        DBG_ONLY(std::fprintf(stderr, "taking %zu to turn into %f\n", size_t(count), double(func_(count)));)
+        CONST_IF(always_add) {
+            this->sketch_.addh(this->hash(x, func_(std::max(count, static_cast<decltype(count)>(0)))));
+        } else {
+            if(count > 0)
+                this->sketch_.addh(this->hash(x, func_(count)));
         }
-        std::fprintf(stderr, "taking %zu to turn into %f\n", size_t(count), double(func_(count)));
-        this->sketch_.addh(this->hash(x, func_(count)));
     }
 };
 
