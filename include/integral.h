@@ -213,21 +213,25 @@ template<typename T>
 static constexpr INLINE bool is_pow2(T val) noexcept {
     return val && (val & (val - 1)) == 0;
 }
-INLINE auto popcount(uint64_t val) noexcept {
-#ifdef AVOID_ASM_POPCNT
-// From cqf https://github.com/splatlab/cqf/
-    asm("popcnt %[val], %[val]"
-            : [val] "+r" (val)
-            :
-            : "cc");
-    return val;
-#else
-    // According to GodBolt, gcc7.3 fails to INLINE this function call even at -Ofast.
-    //
-    //
+INLINE auto popcount(unsigned long long val) noexcept {
     return __builtin_popcountll(val);
-#endif
 }
+INLINE auto popcount(unsigned long val) noexcept {
+    return __builtin_popcountl(val);
+}
+INLINE auto popcount(signed long long val) noexcept {
+    return __builtin_popcountll(val);
+}
+INLINE auto popcount(signed long val) noexcept {
+    return __builtin_popcountl(val);
+}
+INLINE auto popcount(unsigned val) noexcept {
+    return __builtin_popcount(val);
+}
+INLINE auto popcount(int val) noexcept {
+    return __builtin_popcount(val);
+}
+
 INLINE unsigned popcount(__m64 val) noexcept {return popcount(*reinterpret_cast<uint64_t *>(&val));}
 #ifdef __CUDACC__
 __device__ INLINE auto popcount(uint64_t val) noexcept {
