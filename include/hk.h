@@ -37,8 +37,9 @@ public:
     using hash_type = Hasher;
     // Constructor
     // Note: HeavyKeeper paper suggests 1.08, but that seems extreme.
+    HeavyKeeper(size_t requested_size, size_t subtables): HeavyKeeper(requested_size, subtables, 1.08) {}
     template<typename...Args>
-    HeavyKeeper(size_t requested_size, size_t subtables, double pdec=1.03, Args &&...args):
+    HeavyKeeper(size_t requested_size, size_t subtables, double pdec, Args &&...args):
         pol_(requested_size), nh_(subtables),
         data_((requested_size * subtables + (VAL_PER_REGISTER - 1)) / VAL_PER_REGISTER),
         hasher_(std::forward<Args>(args)...),

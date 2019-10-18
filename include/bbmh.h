@@ -243,7 +243,7 @@ public:
         double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
         double me_only = est_cardinality_ > is ? est_cardinality_ - is: 0.,
                o_only  = o.est_cardinality_ > is ? o.est_cardinality_ - is: 0.;
-        return std::array<double, 3>{me_only, o_only, is};
+        return std::array<double, 3>{{me_only, o_only, is}};
     }
     uint64_t equal_bblocks(const FinalDivBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
@@ -995,7 +995,7 @@ public:
         double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
         double me_only = est_cardinality_ > is ? est_cardinality_ - is: 0.,
                o_only  = o.est_cardinality_ > is ? o.est_cardinality_ - is: 0.;
-        return std::array<double, 3>{me_only, o_only, is};
+        return std::array<double, 3>{{me_only, o_only, is}};
     }
     ssize_t read(gzFile fp) {
         uint32_t arr[2];
