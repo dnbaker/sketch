@@ -580,9 +580,9 @@ public:
         do {
             auto v = *it++;
             if(v == 0) continue;
+#ifndef NO_BF_FOREACH_UNROLL
             auto nnz = popcount(v);
             assert(nnz);
-#if UNROLL
             auto nloops = (nnz + 7) / 8u;
             uint64_t t;
             // nloops is guaranteed to be at least one because otherwise v would have heen 0
@@ -595,7 +595,7 @@ public:
                 case 4: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
                 case 3: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
                 case 2: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH;
-                case 1: t = v & -v; func(index + ctz(v)); v ^= t; assert(v);
+                case 1: t = v & -v; func(index + ctz(v)); v ^= t;
                 } while(--nloops);
                 assert(v == 0);
             }
