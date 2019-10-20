@@ -44,4 +44,6 @@ namespace sketch {
     using namespace vac;  // Approximate Multiplicity samplers for streams
 }
 
+namespace sk = sketch;
+
 #endif /* SKETCH_SINGLE_HEADER_H__ */

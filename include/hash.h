@@ -328,6 +328,7 @@ struct KWiseHasherSet {
         while(hashers_.size() < nh)
             hashers_.emplace_back(mt());
     }
+    size_t size() const {return hashers_.size();}
     uint64_t operator()(uint64_t v, unsigned ind) const {
         return hashers_[ind](v);
     }

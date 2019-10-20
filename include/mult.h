@@ -43,7 +43,7 @@ struct CWSamples {
 };
 #endif
 
-template<typename FType=float, typename HashStruct=common::WangHash, bool decay=false, bool conservative=false>
+template<typename FType=float, typename HashStruct=common::WangHash, size_t decay_interval=0, bool conservative=false>
 class realccm_t: public cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
     using super = cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
     using FSpace = vec::SIMDTypes<FType>;
@@ -55,6 +55,7 @@ class realccm_t: public cm::ccmbase_t<update::Increment,std::vector<FType, Alloc
     using super::l2sz_;
     using super::hash;
     static constexpr size_t rescale_frequency_ = 1ul << 12;
+    static constexpr bool decay = decay_interval != 0;
 
     FType scale_, scale_inv_, scale_cur_;
     std::atomic<uint64_t> total_added_;
@@ -69,7 +70,7 @@ public:
     }
     realccm_t(): realccm_t(1.-1e-7) {}
     void rescale(size_t exp=rescale_frequency_) {
-        auto scale_div = std::pow(scale_, rescale_frequency_);
+        auto scale_div = std::pow(scale_, exp);
         auto ptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data());
         auto eptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data() + this->data_.size());
         auto mul = FSpace::set1(scale_div);
@@ -80,6 +81,11 @@ public:
         FType *rptr = reinterpret_cast<FType *>(ptr);
         while(rptr < this->data_.data() + this->data_.size())
             *rptr++ *= scale_div;
+    }
+    void flush_rescaling() {
+        size_t exp = total_added_ % rescale_frequency_;
+        rescale(exp);
+        total_added_ += rescale_frequency_ - exp;
     }
     FType add(const uint64_t val, FType inc) {
         ++total_added_; // I don't care about ordering, I just want it to be atomic.
@@ -113,8 +119,9 @@ public:
                 for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
                 ++seedind;
             }
-            best_indices.push_back(indices[0]);
-            ssize_t minval = data_[indices[0]];
+            auto fi = indices[0];
+            best_indices.push_back(fi);
+            auto minval = data_[fi];
             unsigned score;
             for(size_t i(1); i < indices.size(); ++i) {
                 // This will change with
@@ -126,7 +133,7 @@ public:
                     minval = score;
                 }
             }
-            ret = (data_[best_indices[0]] += inc);
+            ret = (data_[fi] += inc);
             for(size_t i = 1; i < best_indices.size() - 1; data_[best_indices[i++]] += inc);
             // This is likely a scatter/gather candidate, but they aren't particularly fast operations.
             // This could be more valuable on a GPU.

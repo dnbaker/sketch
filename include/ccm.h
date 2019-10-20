@@ -739,15 +739,14 @@ public:
         PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
         PREC_REQ(n <= np_, "Can't fold to less than 1");
         csbase_t ret(np_ - n, nh_, seedseed_);
-        size_t ri = 0;
+        schism::Schismatic<uint32_t> div(core_.size());
         // More cache-efficient way to traverse than iterating over the final sketch
-        for(size_t i = 0; i < core_.size(); ++i) {
-            ret.core_[ri] += core_[i];
-            if(++ri == ret.core_.size()) ri = 0;
-        }
+        for(size_t i = 0; i < core_.size(); ++i)
+            ret.core_[div.mod(i)] += core_[i];
         return ret;
     }
 };
+
 template<typename CounterType=int32_t>
 class cs4wbase_t {
     /*
@@ -902,6 +901,17 @@ public:
         auto tmp = *this;
         tmp -= o;
         return tmp;
+    }
+    csbase_t fold(int n=1) const {
+        PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
+        PREC_REQ(n <= np_, "Can't fold to less than 1");
+        cs4wbase_t ret(np_ - n, nh_, seedseed_);
+        schism::Schismatic<uint32_t> div(core_.size());
+        // More cache-efficient way to traverse than iterating over the final sketch
+        for(size_t i = 0; i < core_.size(); ++i)
+            ret.core_[div.mod(i)] += core_[i];
+
+        return ret;
     }
 };
 
