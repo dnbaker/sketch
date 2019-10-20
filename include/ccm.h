@@ -774,18 +774,6 @@ public:
         seedseed_(seedseed)
     {
     }
-    cs4wbase_t fold(int n=1) const {
-        PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
-        PREC_REQ(unsigned(n) <= np_, "Can't fold to less than 1");
-        cs4wbase_t ret(np_ - n, nh_, seedseed_);
-        size_t ri = 0;
-        // More cache-efficient way to traverse than iterating over the final sketch
-        for(size_t i = 0; i < core_.size(); ++i) {
-            ret.core_[ri] += core_[i];
-            if(++ri == ret.core_.size()) ri = 0;
-        }
-        return ret;
-    }
     double l2est() const {
         return sqrl2(core_, nh_, np_);
     }
@@ -904,7 +892,7 @@ public:
     }
     cs4wbase_t fold(int n=1) const {
         PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
-        PREC_REQ(n <= np_, "Can't fold to less than 1");
+        PREC_REQ(n <= int(np_), "Can't fold to less than 1");
         cs4wbase_t ret(np_ - n, nh_, seedseed_);
         schism::Schismatic<uint32_t> div(core_.size());
         // More cache-efficient way to traverse than iterating over the final sketch
