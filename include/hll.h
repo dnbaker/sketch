@@ -1719,7 +1719,7 @@ struct wh119_t {
         std::array<uint32_t, 256> counts;
         std::memset(counts.data(), 0, sizeof(counts));
         size_t i;
-        using space = vec::SIMDTypes<uint8_t>;
+        using space = vec::SIMDTypes<uint64_t>;
         const space::Type *p1 = static_cast<const space::Type *>(static_cast<const void *>(core_.data())),
                           *p2 = static_cast<const space::Type *>(static_cast<const void *>(o.data()));
         for(i = 0; i < core_.size() / sizeof(*p1); ++i) {

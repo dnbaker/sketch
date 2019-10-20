@@ -254,7 +254,7 @@ static INLINE uint64_t vatpos(const T v, size_t ind) noexcept {
 }
 
 template<typename T>
-static INLINE uint64_t sum_of_u64s(const T val) {
+INLINE uint64_t sum_of_u64s(const T val) noexcept {
     uint64_t sum = vatpos(val, 0);
     for(size_t i = 1; i < sizeof(T) / sizeof(uint64_t); ++i)
         sum += vatpos(val, i);

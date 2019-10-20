@@ -98,6 +98,17 @@ dev_test_p: dev_test.cpp kthread.o hll.h
 clean:
 	rm -f test.o test hll.o kthread.o *hll*cpython*so $(EX)
 
+
+PREFIX?=/usr/local
+
+install: $(HEADERS) compact_vector/include/compact_vector.hpp
+	install -d $(DESTDIR)$(PREFIX)/include/sketch && \
+	install -d $(DESTDIR)$(PREFIX)/include/compact_vector/include && \
+	install -d $(DESTDIR)$(PREFIX)/include/aesctr && \
+    install -m 644 $(HEADERS) $(DESTDIR)$(PREFIX)/include/sketch && \
+    install -m 644 $(wildcard compact_vector/include/*.hpp) $(DESTDIR)$(PREFIX)/include/compact_vector/include && \
+    install -m 644 $(wildcard aesctr/*.h) $(DESTDIR)$(PREFIX)/include/aesctr
+
 #mctest: mctest.cpp ccm.h
 #mctest_d: mctest.cpp ccm.h
 

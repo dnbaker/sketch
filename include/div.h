@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cassert>
 #include <utility>
+#include <limits>
 
 #undef INLINE
 #if __GNUC__ || __clang__
