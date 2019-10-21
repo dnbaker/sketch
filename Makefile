@@ -12,7 +12,7 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -pedantic -Wunused-variable -Wno-attributes -Wno-ignored-attributes -Wpedantic \
         -Wno-missing-braces
 
-FLAGS=-O1 -funroll-loops -pipe -march=native -I. -Ivec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
+FLAGS=-O1 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Ivec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing \
       -DXXH_INLINE_ALL  \
 	  -Wno-attributes -Wno-pragmas -Wno-ignored-qualifiers
@@ -41,7 +41,7 @@ STD?=-std=c++14
 INCLUDES=-I`$(PYCONF) --includes` -Ipybind11/include
 SUF=`$(PYCONF) --extension-suffix`
 OBJS=$(patsubst %.cpp,%$(SUF),$(wildcard *.cpp))
-HEADERS=$(wildcard include/*.h)
+HEADERS=$(wildcard include/sketch/*.h)
 
 SAN=-fsanitize=undefined -fsanitize=address
 PYTHON?=python3
@@ -102,12 +102,13 @@ clean:
 PREFIX?=/usr/local
 
 install: $(HEADERS) compact_vector/include/compact_vector.hpp
-	install -d $(DESTDIR)$(PREFIX)/include/sketch && \
+	install -d $(DESTDIR)$(PREFIX)/include/sketch/vec && \
 	install -d $(DESTDIR)$(PREFIX)/include/compact_vector/include && \
 	install -d $(DESTDIR)$(PREFIX)/include/aesctr && \
     install -m 644 $(HEADERS) $(DESTDIR)$(PREFIX)/include/sketch && \
     install -m 644 $(wildcard compact_vector/include/*.hpp) $(DESTDIR)$(PREFIX)/include/compact_vector/include && \
-    install -m 644 $(wildcard aesctr/*.h) $(DESTDIR)$(PREFIX)/include/aesctr
+    install -m 644 $(wildcard aesctr/*.h) $(DESTDIR)$(PREFIX)/include/aesctr && \
+    install -m 644 $(wildcard vec/*.h) $(DESTDIR)$(PREFIX)/include/sketch/vec
 
 #mctest: mctest.cpp ccm.h
 #mctest_d: mctest.cpp ccm.h
