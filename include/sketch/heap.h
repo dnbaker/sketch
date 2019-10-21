@@ -280,6 +280,10 @@ public:
 } // namespace heap
 
 } // namespace sketch
+#ifdef UNDEF_LDB
+#  undef LOG_DEBUG
+#  undef UNDEF_LDB
+#endif
 
 
 #endif /* #ifndef SKETCH_HEAP_H__ */

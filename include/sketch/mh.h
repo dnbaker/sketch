@@ -6,7 +6,6 @@
 #include <unordered_map>
 #include "isz.h"
 
-#undef NDEBUG
 
 /*
  * TODO: support minhash using sketch size and a variable number of hashes.

@@ -88,12 +88,6 @@
 #  include "clhash.h"
 #endif
 
-#if defined(NDEBUG)
-#  if NDEBUG == 0
-#    undef NDEBUG
-#  endif
-#endif
-
 #if !NDEBUG
 #  define DBG_ONLY(...) __VA_ARGS__
 #else

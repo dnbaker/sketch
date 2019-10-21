@@ -14,11 +14,6 @@
 #include <mutex>
 #include "./xxHash/xxh3.h"
 
-#ifdef NDEBUG
-#    undef NDEBUG
-#  define NDEBUG 1
-#endif
-
 namespace sketch {
 
 namespace cws {
@@ -265,11 +260,7 @@ struct Card {
             for(size_t i = 1; i < data_.size(); std::fprintf(fp, ",%f", data_[i++]));
         }
     };
-#if !NDEBUG
-#define access at
-#else
 #define access operator[]
-#endif
     ResultType report() const {
         const CounterType max_val = *std::max_element(core_.begin(), core_.end()),
                           nvals = max_val + 1;
