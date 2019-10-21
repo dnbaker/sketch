@@ -31,7 +31,7 @@ endif
 
 
 NVCC?=nvcc
-EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
+EX=$(patsubst testsrc/%.cpp,%,$(wildcard testsrc/*.cpp))
 all: $(EX)
 run_tests: $(EX) lztest
 	for i in $(EX) lztest; do ./$$i; done
@@ -68,13 +68,13 @@ hpython: pybbmh.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-%: src/%.cpp kthread.o $(HEADERS) sleef.h
+%: testsrc/%.cpp kthread.o $(HEADERS) sleef.h
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-heaptest: src/heaptest.cpp kthread.o $(HEADERS) sleef.h
+heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS) sleef.h
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-divtest: src/divtest.cpp kthread.o $(HEADERS) sleef.h
+divtest: testsrc/divtest.cpp kthread.o $(HEADERS) sleef.h
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 %: src/%.cu
@@ -89,7 +89,7 @@ divtest: src/divtest.cpp kthread.o $(HEADERS) sleef.h
 %_d: src/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-lztest: src/test.cpp kthread.o $(HEADERS)
+lztest: testsrc/test.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
 
 dev_test_p: dev_test.cpp kthread.o hll.h

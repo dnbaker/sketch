@@ -2,8 +2,8 @@
 #define PYSKETCH_H__
 #include "pybind11/pybind11.h"
 #include "pybind11/numpy.h"
-#include "bbmh.h"
-#include "omp.h"
+#include "sketch/bbmh.h"
+#include <omp.h>
 #include "aesctr/wy.h"
 namespace py = pybind11;
 using namespace sketch;
