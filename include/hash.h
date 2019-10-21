@@ -320,10 +320,10 @@ public:
     uint64_t inverse(uint64_t val) { return val;} // This is a lie for compatibility only
 #endif
 };
-template<size_t k>
-struct KWiseHasherSet {
-    std::vector<KWiseIndependentPolynomialHash<k>> hashers_;
-    KWiseHasherSet(size_t nh, uint64_t seedseed=137) {
+template<typename Hasher>
+struct HasherSet {
+    std::vector<Hasher> hashers_;
+    HasherSet(size_t nh, uint64_t seedseed=137) {
         std::mt19937_64 mt(seedseed);
         while(hashers_.size() < nh)
             hashers_.emplace_back(mt());
@@ -335,6 +335,30 @@ struct KWiseHasherSet {
     uint64_t operator()(uint64_t v) const {throw std::runtime_error("Should not be called.");}
 };
 
+template<size_t k>
+struct KWiseHasherSet: public HasherSet<KWiseIndependentPolynomialHash<k>> {
+    using super = HasherSet<KWiseIndependentPolynomialHash<k>>;
+
+    template<typename...Args>
+    KWiseHasherSet(Args &&...args): super(std::forward<Args>(args)...) {}
+};
+
+#if 0
+template<typename Hasher>
+struct HasherSet {
+    std::vector<uint64_t> seed_;
+    KWiseHasherSet(size_t nh, uint64_t seedseed=137) {
+        std::mt19937_64 mt(seedseed);
+        while(hashers_.size() < nh)
+            hashers_.emplace_back(mt());
+    }
+    size_t size() const {return hashers_.size();}
+    uint64_t operator()(uint64_t v, unsigned ind) const {
+        return hashers_[ind](v);
+    }
+    uint64_t operator()(uint64_t v) const {throw std::runtime_error("Should not be called.");}
+};
+#endif
 
 struct MurFinHash {
     template<typename...Args> MurFinHash(Args &&...args) {}
