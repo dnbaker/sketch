@@ -788,6 +788,8 @@ public:
         cptr = cp2;
         return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) / static_cast<CounterType>(2);
     }
+    auto nhashes() const {return nh_;}
+    auto p() const {return np_;}
     auto addh(uint64_t val) {return addh_val(val);}
     void subh(uint64_t val) {
         for(unsigned added = 0; added < nh_; ++added)
@@ -894,11 +896,15 @@ public:
         PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
         PREC_REQ(n <= int(np_), "Can't fold to less than 1");
         cs4wbase_t ret(np_ - n, nh_, seedseed_);
-        schism::Schismatic<uint32_t> div(core_.size());
+        unsigned destmod = (1ull << ret.p()) - 1;
         // More cache-efficient way to traverse than iterating over the final sketch
-        for(size_t i = 0; i < core_.size(); ++i)
-            ret.core_[div.mod(i)] += core_[i];
-
+        const size_t coresubsz = 1ull << p(), destsubsz = 1ull << ret.p();
+        for(auto h = 0u; h < nh_; ++h) {
+            auto destptr = &ret.core_[h << ret.p()];
+            auto coreptr = &core_[h << p()];
+            for(size_t i = 0; i < coresubsz; ++i)
+                destptr[i & destmod] += coreptr[i];
+        }
         return ret;
     }
 };
