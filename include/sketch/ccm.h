@@ -888,7 +888,7 @@ public:
         cs4wbase_t ret(np_ - n, nh_, seedseed_);
         unsigned destmod = (1ull << ret.p()) - 1;
         // More cache-efficient way to traverse than iterating over the final sketch
-        const size_t coresubsz = 1ull << p(), destsubsz = 1ull << ret.p();
+        const size_t coresubsz = 1ull << p();
         for(auto h = 0u; h < nh_; ++h) {
             auto destptr = &ret.core_[h << ret.p()];
             auto coreptr = &core_[h << p()];
