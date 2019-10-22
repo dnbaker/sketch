@@ -4,6 +4,7 @@
 #include <queue>
 #include "hash.h"
 #include "update.h"
+#include "median.h"
 
 namespace sketch {
 
@@ -39,9 +40,10 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhash
             full_sum += *p1++;
         ptr[i] = std::sqrt(full_sum);
     }
-    common::sort::insertion_sort(ptr, ptr + nhashes);
-    float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    return ret;
+    return median(ptr, nhashes);
+    //common::sort::insertion_sort(ptr, ptr + nhashes);
+    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    //return ret;
 }
 template<typename T, typename AllocatorType>
 static inline float sqrl2(const std::vector<T, AllocatorType> &v, const std::vector<T, AllocatorType> &v2, uint32_t nhashes, uint32_t l2sz) {
@@ -74,9 +76,10 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, const std::vec
 
         ptr[i] = std::sqrt(full_sum);
     }
-    common::sort::insertion_sort(ptr, ptr + nhashes);
-    float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    return ret;
+    //common::sort::insertion_sort(ptr, ptr + nhashes);
+    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    //return ret;
+    return median(ptr, nhashes);
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
@@ -92,9 +95,7 @@ static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uin
         }
         ptr[i] = std::sqrt(sum);
     }
-    common::sort::insertion_sort(ptr, ptr + nhashes);
-    float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    return ret;
+    return median(ptr, nhashes);
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
@@ -110,9 +111,10 @@ static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, con
         }
         ptr[i] = std::sqrt(sum);
     }
-    common::sort::insertion_sort(ptr, ptr + nhashes);
-    float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    return ret;
+    return median(ptr, nhashes);
+    //common::sort::insertion_sort(ptr, ptr + nhashes);
+    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    //return ret;
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
@@ -128,9 +130,10 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
         } while(start != end);
         ptr[i] = std::sqrt(sum);
     }
-    common::sort::insertion_sort(ptr, ptr + nhashes);
-    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    return ret;
+    //common::sort::insertion_sort(ptr, ptr + nhashes);
+    //double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
+    //return ret;
+    return median(ptr, nhashes);
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
@@ -146,9 +149,12 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
         } while(start != end);
         ptr[i] = std::sqrt(sum);
     }
+    return median(ptr, nhashes);
+#if 0
     common::sort::insertion_sort(ptr, ptr + nhashes);
     double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
     return ret;
+#endif
 }
 
 template<typename T>
@@ -272,9 +278,10 @@ public:
 #endif
         }
 #if WJMETH0
-        auto cptr = counts.get();
-        sort::insertion_sort(cptr, p);
-        return (cptr[(nhashes_ >> 1)] + cptr[(nhashes_ - 1 ) >> 1]) * .5;
+        return median(counts.get(), nhashes_);
+        //auto cptr = counts.get();
+        //sort::insertion_sort(cptr, p);
+        //return (cptr[(nhashes_ >> 1)] + cptr[(nhashes_ - 1 ) >> 1]) * .5;
 #elif MINMETH
         return minest;
 #else
@@ -561,9 +568,7 @@ public:
                 if(added == nh_) break; // this could be optimized by pre-scanning, I think.
             }
         }
-        sort::insertion_sort(counts.get(), cptr);
-        cptr = counts.get();
-        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
+        return median(counts.get(), nh_);
     }
     void addh(uint64_t val) {
         uint64_t v = hf_(val);
@@ -615,9 +620,7 @@ public:
                 if(added == nh_) break; // this could be optimized by pre-scanning, I think.
             }
         }
-        sort::insertion_sort(counts.get(), cptr);
-        cptr = counts.get();
-        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
+        return median(counts.get(), nh_);
     }
     INLINE size_t index(uint64_t hv, unsigned subidx) const noexcept {
         return (hv & mask_) + (subidx << np_);
@@ -694,12 +697,7 @@ public:
         end:
         //std::for_each(mem.get(), mem.get() + nh_, [p=mem.get()](const auto &x) {std::fprintf(stderr, "Count estimate for ind %zd is %u\n", &x - p, int32_t(x));});
         ///
-        if(nh_ > 1) {
-            sort::insertion_sort(ptr, ptr + nh_);
-            CounterType start1 = ptr[(nh_ - 1)>>1];
-            start1 += ptr[(nh_-1)>>1];
-            return start1 >> 1;
-        } else return ptr[0];
+        return median(ptr, nh_);
     }
     csbase_t &operator+=(const csbase_t &o) {
         precondition_require(o.size() == this->size(), "tables must have the same size\n");
@@ -787,9 +785,7 @@ public:
         for(unsigned added = 0; added < nh_; ++added)
             *cptr++ = add(val, added);
 
-        sort::insertion_sort(cp2, cptr);
-        cptr = cp2;
-        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) / static_cast<CounterType>(2);
+        return median(cp2, nh_);
     }
     auto addh(uint64_t val) {return addh_val(val);}
     void subh(uint64_t val) {
@@ -802,9 +798,7 @@ public:
         for(unsigned added = 0; added < nh_; ++added) {
             *cptr++ = sub(val, added);
         }
-        sort::insertion_sort(counts.get(), cptr);
-        cptr = counts.get();
-        return (cptr[(nh_ >> 1)] + cptr[(nh_ - 1 ) >> 1]) >> 1;
+        return median(counts.get(), nh_);
     }
     INLINE size_t index(uint64_t hv, unsigned subidx) const noexcept {
         return (hv & mask_) + (subidx << np_);
@@ -847,14 +841,7 @@ public:
             auto v = hf_(val, i);
             *p++ = at_pos(v, i) * sign(v);
         }
-        if(nh_ > 1) {
-            sort::insertion_sort(ptr, ptr + nh_);
-            CounterType start1 = ptr[(nh_ - 1)>>1];
-            start1 += ptr[(nh_-1)>>1];
-            return start1 >> 1;
-        } else {
-            return ptr[0];
-        }
+        return median(ptr, nh_);
     }
     cs4wbase_t &operator+=(const cs4wbase_t &o) {
         precondition_require(o.size() == this->size(), "tables must have the same size\n");
