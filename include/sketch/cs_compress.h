@@ -49,7 +49,7 @@ auto cs_decompress(const C &in, size_t newdim, size_t olddim, const KWiseHasherS
             auto hv = hf(i, j);
             tmp[j] = in[div.mod(hv >> 1) * ns + j] * (hv & 1 ? 1: -1);
         }
-        std::sort(tmp, tmp + hf.size());
+        common::sort::insertion_sort(tmp, tmp + hf.size());
         ret[i] = (tmp[ns >> 1] + tmp[(ns - 1) >> 1]) * .5; 
     }
     return ret;
@@ -75,7 +75,7 @@ auto top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, cons
             auto hv = hf(i, j);
             tmp[j] = in.operator[](div.mod(hv >> 1) * ns + j) * (hv & 1 ? 1: -1);
         }
-        std::sort(tmp, tmp + hf.size());
+        common::sort::insertion_sort(tmp, tmp + hf.size());
         std::pair<FT, unsigned> pair = std::make_pair((tmp[ns >> 1] + tmp[(ns - 1) >> 1]) * .5, unsigned(i));
         OMP_PRAGMA("omp critical")
         {

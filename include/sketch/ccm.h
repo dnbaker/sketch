@@ -538,6 +538,7 @@ public:
         seeds_((nh_ + (nph_ - 1)) / nph_ - 1),
         seedseed_(seedseed)
     {
+        DEPRECATION_WARNING("csbase_t will be deprecated in favor of cs4wbase_t moving forward.");
         DefaultRNGType gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
         // Just to make sure that simd addh is always accessing owned memory.
@@ -747,7 +748,8 @@ public:
     }
 };
 
-template<typename CounterType=int32_t>
+
+template<typename CounterType=int32_t, typename HasherSetType=KWiseHasherSet<4>>
 class cs4wbase_t {
     /*
      * Commentary: because of chance, one can end up with a negative number as an estimate.
@@ -760,18 +762,19 @@ class cs4wbase_t {
     std::vector<CounterType, Allocator<CounterType>> core_;
     uint32_t np_, nh_;
     uint64_t mask_;
-    const KWiseHasherSet<4> hf_;
     uint64_t seedseed_;
+    const HasherSetType hf_;
     CounterType       *data()       {return core_.data();}
     const CounterType *data() const {return core_.data();}
+    // TODO: use a simpler hash function under the assumption that it doesn't matter?
 
     size_t size() const {return core_.size();}
 public:
     cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137):
         core_(uint64_t(nh) << np), np_(np), nh_(nh),
         mask_((1ull << np_) - 1),
-        hf_(seedseed),
-        seedseed_(seedseed)
+        seedseed_(seedseed),
+        hf_(seedseed)
     {
     }
     double l2est() const {

@@ -59,6 +59,8 @@ static int postcondition_require(bool condition, std::string s, int ec=0) {
     ::sketch::exception::postcondition_require(condition, std::string(s) + '[' + __FILE__ + '|' + __PRETTY_FUNCTION__ + "|#L" + std::to_string(__LINE__) + "] Failing condition: \"" + #condition + '"', ec)
 #define POST_REQ(condition, s) POST_REQ_EC(condition, s, 0)
 
+#define DEPRECATION_WARNING(condition) std::fprintf(stderr, "[%s:%d:%s] Warning: %s will be deprecated.\n", __PRETTY_FUNCTION__, __LINE__, __FILE__,  #condition)
+
 class ZlibError: public std::runtime_error {
     static const char *es(int c) {
         static constexpr const char * const z_errmsg[10] = {

@@ -109,6 +109,14 @@ struct WangHash {
     INLINE uint64_t operator()(const T&x) const {return this->operator()(static_cast<uint64_t>(x));}
 };
 
+template<typename BaseHash>
+struct SeededHash: public BaseHash {
+    const uint64_t seed_;
+    template<typename...A>
+    SeededHash(uint64_t seed, A &&...a): seed_(seed), BaseHash(std::forward<A>(a)...) {}
+    auto operator()(uint64_t item) const {return BaseHash::operator()(item ^ seed_);}
+};
+
 // pcg32
 // The purpose of this is fast random number generation for {Super,Bag}MinHash
 struct pcg32_random_t {   // Internals are *Private*.
@@ -320,7 +328,7 @@ public:
     uint64_t inverse(uint64_t val) { return val;} // This is a lie for compatibility only
 #endif
 };
-template<typename Hasher>
+template<typename Hasher=SeededHash<WangHash>>
 struct HasherSet {
     std::vector<Hasher> hashers_;
     HasherSet(size_t nh, uint64_t seedseed=137) {

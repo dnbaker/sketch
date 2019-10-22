@@ -553,9 +553,9 @@ public:
         ret += rc;
         if((rc = gzwrite(fp, &mask_, sizeof(mask_))) != sizeof(mask_)) throw ZlibError(Z_ERRNO, "Failed writing to file");
         ret += rc;
-        if((rc = gzwrite(fp, seeds_.data(), seeds_.size() * sizeof(seeds_[0]))) != seeds_.size() * sizeof(seeds_[0])) throw ZlibError(Z_ERRNO, "Failed writing to file");
+        if((rc = gzwrite(fp, seeds_.data(), seeds_.size() * sizeof(seeds_[0]))) != ssize_t(seeds_.size() * sizeof(seeds_[0]))) throw ZlibError(Z_ERRNO, "Failed writing to file");
         ret += rc;
-        if((rc = gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0]))) != core_.size() * sizeof(core_[0])) throw ZlibError(Z_ERRNO, "Failed writing to file");
+        if((rc = gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0]))) != ssize_t(core_.size() * sizeof(core_[0]))) throw ZlibError(Z_ERRNO, "Failed writing to file");
         ret += rc;
         return ret;
     }
