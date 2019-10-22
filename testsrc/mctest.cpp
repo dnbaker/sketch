@@ -121,7 +121,9 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "nonminimal update info l2 join size: %lf\n", nonmin);
     auto composed4w = cmscs4w + cmscs4w2;
     auto folded_composed1 = composed4w.fold(1);
+    std::fprintf(stderr, "folded with 1\n");
     auto folded_composed2 = composed4w.fold(2);
+    std::fprintf(stderr, "folded with 2\n");
 #if 0
     double nonmin_man = 0;
     cmswithnonminmal.for_each_register([&](const auto &x) {nonmin_man += x * x;});
