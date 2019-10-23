@@ -587,7 +587,7 @@ public:
             uint64_t t;
             // nloops is guaranteed to be at least one because otherwise v would have heen 0
             switch(nnz % 8u) {
-                case 0: VEC_FALLTHROUGH
+                case 0:
             do {        t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH
                 case 7: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH
                 case 6: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH

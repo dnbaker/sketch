@@ -1,5 +1,6 @@
 #ifndef SKETCH_INTEGRAL_H
 #define SKETCH_INTEGRAL_H
+#include "./macros.h"
 #include "x86intrin.h"
 #include <cstdint>
 #include <climits>
@@ -32,14 +33,7 @@
 #endif
 namespace sketch {
 inline namespace integral {
-#ifdef __CUDA_ARCH__
-#  define CUDA_ARCH_ONLY(...) __VA_ARGS__
-#  define HOST_ONLY(...)
-#else
-#  define CUDA_ARCH_ONLY(...)
-#  define HOST_ONLY(...) __VA_ARGS__
-#endif
-#if __GNUC__ || __clang__
+#if defined(__GNUC__) || defined(__clang__)
 CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(signed long long x) noexcept {
     return 
 #ifdef __CUDA_ARCH__

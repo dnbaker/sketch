@@ -1,4 +1,6 @@
 #pragma once
+#ifndef SKETCH_MACROS_H__
+#define SKETCH_MACROS_H__
 
 
 // Versioning
@@ -41,13 +43,20 @@
 #  define SK_RESTRICT
 #endif
 
+#ifdef __CUDA_ARCH__
+#  define CUDA_ARCH_ONLY(...) __VA_ARGS__
+#  define HOST_ONLY(...)
+#else
+#  define CUDA_ARCH_ONLY(...)
+#  define HOST_ONLY(...) __VA_ARGS__
+#endif
+
 #ifdef __CUDACC__
 #  define UNROLLSTR sk__xstr__("unroll" #x)
 #  define CUDA_PRAGMA(x) _Pragma(x)
 #  define CUDA_ONLY(...) __VA_ARGS__
 #else
 #  define CUDA_PRAGMA(x)
-#  define CUDA_ONLY(...)
 #  define CUDA_ONLY(...)
 #endif
 
@@ -87,3 +96,5 @@
 #    define CONST_IF(...) if(__VA_ARGS__)
 #  endif
 #endif
+
+#endif /* SKETCH_MACROS_H__ */
