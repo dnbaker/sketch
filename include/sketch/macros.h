@@ -41,6 +41,17 @@
 #  define SK_RESTRICT
 #endif
 
+#ifdef __CUDACC__
+#  define UNROLLSTR sk__xstr__("unroll" #x)
+#  define CUDA_PRAGMA(x) _Pragma(x)
+#  define CUDA_ONLY(...) __VA_ARGS__
+#else
+#  define CUDA_PRAGMA(x)
+#  define CUDA_ONLY(...)
+#  define CUDA_ONLY(...)
+#endif
+
+
 #ifdef INCLUDE_CLHASH_H_
 #  define ENABLE_CLHASH 1
 #elif ENABLE_CLHASH

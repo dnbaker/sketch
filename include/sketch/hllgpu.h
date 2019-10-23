@@ -1,5 +1,6 @@
 #ifndef HLL_GPU_H__
 #define HLL_GPU_H__
+#include <omp.h>
 #include "hll.h"
 #include "exception.h"
 #include <type_traits>
@@ -12,27 +13,21 @@ namespace sketch {
 using hrc = std::chrono::high_resolution_clock;
 
 
+CUDA_ONLY(using exception::CudaError;)
+
 template<typename T, typename=std::enable_if_t<std::is_arithmetic<T>::value>>
-#ifdef __CUDACC__
-__host__ __device__
-#endif
+CUDA_ONLY(__host__ __device__)
 INLINE uint64_t nchoose2(T x) {
-    uint64_t ret = x;
-    ret *= (x - 1);
-    return ret >>= 1;
+    return (uint64_t(x) * uint64_t(x - 1)) / 2;
 }
 
-using exception::CudaError;
 
 
 template<typename T>
-__host__ __device__
+CUDA_ONLY(__host__ __device__)
 INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
 #if __CUDA_ARCH__
     x1 = __vmaxu4(x1, x2);
-#elif __SSE2__
-    auto v = _mm_max_pu8(*(__m64 *)&x1, *(__m64 *)x2);
-    std::memcpy(&x1, &v, sizeof(v));
 #else
     // Manual
     unsigned x3 = std::max(x1>>24, x2>>24);
@@ -41,22 +36,27 @@ INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
     x3 <<= 8;
     x3 |= std::max((x1 >> 8) & 0xFFu, (x2 >> 8) & 0xFFu);
     x1 = (x3 << 8) | std::max(x1 & 0xFFu, x2 & 0xFFu);
-#endif
     ++arr[x1&0xFFu];
     ++arr[(x1>>8)&0xFFu];
     ++arr[(x1>>16)&0xFFu];
     ++arr[x1>>24];
+#endif
 }
 
 template<typename T>
-__host__ __device__
-double inline origest(const T &p, unsigned l2) {
+CUDA_ONLY(__host__ __device__)
+INLINE double origest(const T &p, unsigned l2) {
     auto m = size_t(1) << l2;
     const double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
     double s = p[0];
-    #pragma unroll 8
-    for(auto i = 1u; i < 64 - l2 + 1; ++i)
-        s += ldexp(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+    CUDA_PRAGMA("unroll 8")
+    for(auto i = 1u; i < 64 - l2 + 1; ++i) {
+#if __CUDA_ARCH__
+        s += ::ldexp(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+#else
+        s += std::ldexp(p[i], -i);
+#endif
+    }
     return alpha * m * m / s;
 }
 
@@ -88,12 +88,14 @@ auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *SK_RESTRICT, Al
     return std::make_pair(std::move(ret), nvals);
 }
 
-template<typename T, typename T2, typename T3, typename=typename std::enable_if<std::is_integral<T>::value && std::is_integral<T2>::value && std::is_integral<T3>::value>::type>
+#ifdef __CUDACC__
+template<typename T, typename T2, typename T3, typename=typename std::enable_if<
+             std::is_integral<T>::value && std::is_integral<T2>::value && std::is_integral<T3>::value
+         >::type>
 __device__ __host__ static inline T ij2ind(T i, T2 j, T3 n) {
     return i < j ? (((i) * (n * 2 - i - 1)) / 2 + j - (i + 1)): (((j) * (n * 2 - j - 1)) / 2 + i - (j + 1));
 }
 
-#ifdef __CUDACC__
 
 __global__ void calc_sizes(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
     extern __shared__ int shared[];
@@ -160,7 +162,7 @@ __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uin
     __syncthreads();
     uint32_t arr[64]{0};
     hp = p + (threadIdx.x << l2);
-    #pragma unroll 8
+    CUDA_PRAGMA("unroll 8")
     for(int i = 0; i < (1L << l2); i += 4) {
         increment_maxes(arr, *(unsigned *)&hp[i], *(unsigned *)&registers[i]);
     }
@@ -177,7 +179,7 @@ __global__ void calc_sizes_large(const uint8_t *SK_RESTRICT p, unsigned l2, size
     const size_t nreg = size_t(1) << l2;
     // First, divide the total amount of work that our block of workers will process
     auto range_start = uint64_t(bid) * nc2 / nblocks;
-    const auto range_end = size_t(std::max(uint64_t(bid + 1) * nc2 / nblocks, uint64_t(nc2)));
+    const auto range_end = size_t(max(uint64_t(bid + 1) * nc2 / nblocks, uint64_t(nc2)));
     // These parameters are shared between all threads in a block
     if(range_start >= range_end) return; // Skip overflows
     auto lhid = range_start / nhlls;
@@ -216,12 +218,12 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
 #else
     size_t tpb = nhlls/2 + (nhlls&1);
     if(tpb > 1024) {
-        throw std::runtime_error("Current implementation is limited to 1024 by 1024 comparisons. TODO: fix this with a reimplementation");
         static constexpr size_t nblocks = 0x20000ULL;
         static constexpr size_t mem_per_block = (16 << 20) / nblocks;
         // This means work per block before updating will be mem_per_block / nblocks
         
         calc_sizes_large<<<nblocks,1024,mem_per_block>>>(p, l2, nhlls, nblocks, mem_per_block, sizes);
+        throw std::runtime_error("Current implementation is limited to 1024 by 1024 comparisons. TODO: fix this with a reimplementation");
     } else {
         calc_sizes_1024<<<nhlls,(nhlls+1)/2,m>>>(p, l2, nhlls, sizes);
     }

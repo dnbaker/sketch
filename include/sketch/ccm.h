@@ -37,10 +37,10 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhash
         }
         T full_sum = sum.sum();
         while(p1 < p2)
-            full_sum += *p1++;
-        ptr[i] = std::sqrt(full_sum);
+            full_sum += *p1 * *p1, ++p1;
+        ptr[i] = full_sum;
     }
-    return median(ptr, nhashes);
+    return std::sqrt(median(ptr, nhashes));
     //common::sort::insertion_sort(ptr, ptr + nhashes);
     //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
     //return ret;
@@ -769,11 +769,13 @@ class cs4wbase_t {
     size_t size() const {return core_.size();}
 public:
     cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137):
-        core_(uint64_t(nh) << np), np_(np), nh_(nh),
+        np_(np),
         mask_((1ull << np_) - 1),
         seedseed_(seedseed),
         hf_(seedseed)
     {
+        nh_ += (nh % 2 == 0);
+        core_.resize(nh_ << np_);
     }
     double l2est() const {
         return sqrl2(core_, nh_, np_);

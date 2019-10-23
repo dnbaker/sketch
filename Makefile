@@ -21,8 +21,6 @@ CXXFLAGS=$(FLAGS) -Wreorder
 
 PYCONF?=python3-config
 
-GPUFLAGS= -O3 -std=c++14
-
 ifeq ($(shell uname),Darwin)
     UNDEFSTR=-undefined dynamic_lookup
 else
@@ -37,6 +35,8 @@ run_tests: $(EX) lztest
 	for i in $(EX) lztest; do ./$$i; done
 
 STD?=-std=c++14
+
+GPUFLAGS= -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp
 
 INCLUDES=-I`$(PYCONF) --includes` -Ipybind11/include
 SUF=`$(PYCONF) --extension-suffix`

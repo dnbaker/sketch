@@ -789,7 +789,7 @@ public:
     auto finalize() const && {
         auto ret(std::move(*this));
         ret.sum();
-        this->free();
+        const_cast<hllbase_t &>(*this).free();
         return ret;
     }
     double report() const noexcept {
