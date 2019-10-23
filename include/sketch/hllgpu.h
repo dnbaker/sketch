@@ -4,6 +4,9 @@
 #include "hll.h"
 #include "exception.h"
 #include <type_traits>
+#if USE_THRUST
+#  include <thrust/device_vector.h>
+#endif
 
 namespace sketch {
 using hrc = std::chrono::high_resolution_clock;
@@ -30,24 +33,24 @@ INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
     x3 <<= 8;
     x3 |= std::max((x1 >> 8) & 0xFFu, (x2 >> 8) & 0xFFu);
     x1 = (x3 << 8) | std::max(x1 & 0xFFu, x2 & 0xFFu);
+#endif
     ++arr[x1&0xFFu];
     ++arr[(x1>>8)&0xFFu];
     ++arr[(x1>>16)&0xFFu];
     ++arr[x1>>24];
-#endif
 }
 
 template<typename T>
 CUDA_ONLY(__host__ __device__)
 INLINE double origest(const T &p, unsigned l2) {
-    auto m = size_t(1) << l2;
+    const auto m = 1u << l2;
     const double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
     double s = p[0];
     SK_UNROLL(8)
     //_Pragma("GCC unroll 8")
     for(auto i = 1u; i < 64 - l2 + 1; ++i) {
 #if __CUDA_ARCH__
-        s += ldexp(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        s += ldexpf(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
 #else
         s += std::ldexp(p[i], -i);
 #endif
@@ -108,7 +111,7 @@ __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uin
     for(int i = threadIdx.x * nper; i < min((threadIdx.x + 1) * nper, nreg); ++i)
         registers[i] = hp[i];
     __syncthreads();
-    uint32_t arr[64]{0};
+    uint32_t arr[60]{0};
     hp = p + (threadIdx.x << l2);
     CUDA_PRAGMA("unroll 8")
     for(int i = 0; i < (1L << l2); i += 4) {
@@ -117,8 +120,8 @@ __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uin
     sizes[gid] = origest(arr, l2);
 }
 
-__global__ void calc_sizes_row(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls,
-                               size_t nrows, size_t mem_per_block,
+__global__ void calc_sizes_row(const uint8_t *SK_RESTRICT p, unsigned l2, unsigned nhlls,
+                               unsigned nrows, unsigned mem_per_block,
                                uint32_t *SK_RESTRICT register_sums,
                                uint32_t *SK_RESTRICT sizes, uint16_t nblock_per_cmp) {
     extern __shared__ int shared[];
@@ -135,6 +138,21 @@ __global__ void calc_sizes_row(const uint8_t *SK_RESTRICT p, unsigned l2, size_t
     auto bid = blockIdx.x;
     auto gid = bid * blockDim.x + tid;
     const uint32_t nreg = size_t(1) << l2;
+    uint32_t arr[60]{0};
+#if 0
+    int lhi, rhi;
+    get_indices(nhlls, nblock_per_cmp, block_id, &lhi, &rhi);
+    int total_workers = blockDim.x * nblock_per_cmp;
+    #pragma unroll 8
+    for(int i = nreg * tid / total_workers; i < min(nreg, (nreg * (tid + 1) / total_workers)); i += 4) {
+        increment_maxes(arr,
+                        *reinterpret_cast<unsigned *>(&hp[i]),
+                        *reinterpret_cast<unsigned *>(&registers[i]));
+    }
+    __syncthreads();
+    for(int i = tid * (nl2s) / blockDim.x; i < min((tid + 1) * nl2s / blockDim.x, nl2s); ++i)
+        atomicAdd(register_sums + (nl2s * , sptr[i]);
+#endif
 }
 
 __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t &SK_RESTRICT rets) {
@@ -148,6 +166,7 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
     auto t = hrc::now();
     size_t tpb = nhlls/2 + (nhlls&1);
     std::vector<uint32_t> ret(nc2);
+    PREC_REQ(l2 > 5, "l2 must be 6 or greater");
     if(tpb > 1024) {
         const size_t mem_per_block = sizeof(uint32_t) * (64 - l2 + 1);
         const int nrows = 1; // This can/should be changed eventually
@@ -155,20 +174,29 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
         size_t ncmp_per_loop = nhlls * nrows;
         size_t nblocks = nblock_per_cmp * ncmp_per_loop;
         auto ydim = (nblocks + 65535 - 1) / 65535;
-        uint32_t *register_sums;
         dim3 griddims(nblocks < 65535 ? nblocks: 65535, ydim);
         if((ce = cudaMalloc((void **)&sizes, ncmp_per_loop * sizeof(uint32_t))))
             throw CudaError(ce, "Failed to malloc for row");
+#if USE_THRUST
+        thrust::device_vector<uint32_t> tv((64 - l2 + 1) * ncmp_per_loop);
+        uint32_t *register_sums(tv.data());
+#else
+        uint32_t *register_sums;
         if((ce = cudaMalloc((void **)&register_sums, ncmp_per_loop * mem_per_block)))
             throw CudaError(ce, "Failed to malloc for row");
+#endif
         // This means work per block before updating will be mem_per_block / nblocks
         for(int i = 0; i < (nhlls + (nrows - 1)) / nrows; ++i) {
-            cudaMemset(register_sums, 0, ncmp_per_loop * mem_per_block); // zero registers
+            // zero registers
+#if USE_THRUST
+            thrust::fill(tv.begin(), tv.end());
+#else
+            cudaMemset(register_sums, 0, ncmp_per_loop * mem_per_block);
+#endif
             calc_sizes_row<<<griddims,256,mem_per_block>>>(p, l2, nhlls, nrows, mem_per_block, register_sums, sizes, nblock_per_cmp);
             if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
             cudaMemcpy(sizes, ret.data(), ncmp_per_loop * sizeof(uint32_t), cudaMemcpyDeviceToHost);
         }
-        cudaFree(register_sums);
     } else {
         if((ce = cudaMalloc((void **)&sizes, nb)))
             throw CudaError(ce, "Failed to malloc");
