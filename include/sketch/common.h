@@ -45,8 +45,6 @@
 #endif
 
 // Versioning
-#define sk__str__(x) #x
-#define sk__xstr__(x) sk__str__(x)
 #define SKETCH_SHIFT 16
 #define SKETCH_MAJOR 0
 #define SKETCH_MINOR 8
@@ -352,6 +350,7 @@ std::vector<T, Alloc> delta_encode(const std::vector<T, Alloc> &x) {
 template<typename Container, typename F>
 void for_each_delta_decode(const Container &c, const F &func) {
     throw NotImplementedError("delta decoding is currently incorrect. DO NOT USE.");
+#if 0
     using T = std::decay_t<decltype(*std::begin(c))>;
     auto it = std::begin(c);
     for(T cv = *it++;;) {
@@ -359,6 +358,7 @@ void for_each_delta_decode(const Container &c, const F &func) {
         if(it == std::end(c)) break;
         else cv += *it++;
     }
+#endif
 }
 
 #ifdef __CUDACC__

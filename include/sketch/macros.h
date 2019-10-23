@@ -49,6 +49,8 @@
 #  define CUDA_ONLY(...)
 #endif
 
+#define sk__str__(x) #x
+#define sk__xstr__(x) sk__str__(x)
 #define CPP_PASTE(...) sk__xstr__(__VA_ARGS__)
 #define CPP_PASTE_UNROLL(...) sk__xstr__("unroll" __VA_ARGS__)
 

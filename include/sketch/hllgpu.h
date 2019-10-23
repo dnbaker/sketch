@@ -5,13 +5,8 @@
 #include "exception.h"
 #include <type_traits>
 
-#ifdef __CUDACC__
-//#include "thrust/thrust.h"
-#endif
-
 namespace sketch {
 using hrc = std::chrono::high_resolution_clock;
-
 
 CUDA_ONLY(using exception::CudaError;)
 
@@ -20,7 +15,6 @@ CUDA_ONLY(__host__ __device__)
 INLINE uint64_t nchoose2(T x) {
     return (uint64_t(x) * uint64_t(x - 1)) / 2;
 }
-
 
 
 template<typename T>
@@ -123,29 +117,24 @@ __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uin
     sizes[gid] = origest(arr, l2);
 }
 
-__global__ void calc_sizes_large(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t nblocks, size_t mem_per_block, uint32_t *SK_RESTRICT sizes) {
+__global__ void calc_sizes_row(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls,
+                               size_t nrows, size_t mem_per_block,
+                               uint32_t *SK_RESTRICT register_sums,
+                               uint32_t *SK_RESTRICT sizes, uint16_t nblock_per_cmp) {
     extern __shared__ int shared[];
-    auto sptr = reinterpret_cast<uint8_t *>(&shared[0]);
+    auto sptr = reinterpret_cast<uint32_t *>(&shared[0]);
+    const int block_id = blockIdx.x +
+                         blockIdx.y * gridDim.x;
+    if(block_id > nrows * nhlls)
+        return;
+    const int global_tid = block_id * blockDim.x + threadIdx.x;
     auto tid = threadIdx.x;
+    const int nl2s = 64 - l2 + 1;
+    for(int i = tid * (nl2s) / blockDim.x; i < min((tid + 1) * nl2s / blockDim.x, nl2s); ++i)
+        sptr[i] = 0;
     auto bid = blockIdx.x;
     auto gid = bid * blockDim.x + tid;
-    size_t nc2 = nchoose2(nhlls);
-    const size_t nreg = size_t(1) << l2;
-    // First, divide the total amount of work that our block of workers will process
-    auto range_start = uint64_t(bid) * nc2 / nblocks;
-    const auto range_end = size_t(max(uint64_t(bid + 1) * nc2 / nblocks, uint64_t(nc2)));
-    // These parameters are shared between all threads in a block
-    if(range_start >= range_end) return; // Skip overflows
-    auto lhid = range_start / nhlls;
-    auto rhid = range_start % nhlls;
-    const uint8_t *lhs = p + (lhid << l2);
-    for(;;) {
-        const uint8_t *const rhs = p + (rhid << l2);
-        if(++range_start == range_end) break;
-        rhid = range_start % nhlls;
-        lhid = range_start / nhlls;
-        lhs = p + (lhid << l2);
-    }
+    const uint32_t nreg = size_t(1) << l2;
 }
 
 __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned l2, size_t nhlls, size_t &SK_RESTRICT rets) {
@@ -154,42 +143,45 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
     size_t nb = sizeof(uint32_t) * nc2;
     size_t m = 1ull << l2;
     cudaError_t ce;
-#if __CUDACC__
-    if((ce = cudaMalloc((void **)&sizes, nb)))
-        throw CudaError(ce, "Failed to malloc");
-#else
-#error("This function can't be compiled by a non-cuda compiler")
-#endif
     //size_t nblocks = 1;
     std::fprintf(stderr, "About to launch kernel\n");
     auto t = hrc::now();
-#if 0
-    if(nc2 <= (1ull << 32)) {
-        size_t nblocks = nc2;
-        unsigned tpb = std::min(1024, 1<<l2); // Ensure that none of my indexing is too messed up
-        calc_sizesnew<<<nblocks, tpb>>>(p, l2, nhlls, nblocks, sizes);
-    }
-#else
     size_t tpb = nhlls/2 + (nhlls&1);
+    std::vector<uint32_t> ret(nc2);
     if(tpb > 1024) {
-        static constexpr size_t nblocks = 0x20000ULL;
-        static constexpr size_t mem_per_block = (16 << 20) / nblocks;
+        const size_t mem_per_block = sizeof(uint32_t) * (64 - l2 + 1);
+        const int nrows = 1; // This can/should be changed eventually
+        const int nblock_per_cmp = 4; // Can/should be changed later
+        size_t ncmp_per_loop = nhlls * nrows;
+        size_t nblocks = nblock_per_cmp * ncmp_per_loop;
+        auto ydim = (nblocks + 65535 - 1) / 65535;
+        uint32_t *register_sums;
+        dim3 griddims(nblocks < 65535 ? nblocks: 65535, ydim);
+        if((ce = cudaMalloc((void **)&sizes, ncmp_per_loop * sizeof(uint32_t))))
+            throw CudaError(ce, "Failed to malloc for row");
+        if((ce = cudaMalloc((void **)&register_sums, ncmp_per_loop * mem_per_block)))
+            throw CudaError(ce, "Failed to malloc for row");
         // This means work per block before updating will be mem_per_block / nblocks
-        
-        calc_sizes_large<<<nblocks,1024,mem_per_block>>>(p, l2, nhlls, nblocks, mem_per_block, sizes);
-        throw std::runtime_error("Current implementation is limited to 1024 by 1024 comparisons. TODO: fix this with a reimplementation");
+        for(int i = 0; i < (nhlls + (nrows - 1)) / nrows; ++i) {
+            cudaMemset(register_sums, 0, ncmp_per_loop * mem_per_block); // zero registers
+            calc_sizes_row<<<griddims,256,mem_per_block>>>(p, l2, nhlls, nrows, mem_per_block, register_sums, sizes, nblock_per_cmp);
+            if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
+            cudaMemcpy(sizes, ret.data(), ncmp_per_loop * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+        }
+        cudaFree(register_sums);
     } else {
+        if((ce = cudaMalloc((void **)&sizes, nb)))
+            throw CudaError(ce, "Failed to malloc");
         calc_sizes_1024<<<nhlls,(nhlls+1)/2,m>>>(p, l2, nhlls, sizes);
+        if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
+        if((ce = cudaMemcpy(ret.data(), sizes, nb, cudaMemcpyDeviceToHost))) throw CudaError(ce, "Failed to copy device to host");
     }
-#endif
     if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
     if((ce = cudaGetLastError())) throw CudaError(ce, "");
     auto t2 = hrc::now();
     rets = (t2 - t).count();
     std::fprintf(stderr, "Time: %zu\n", rets);
     std::fprintf(stderr, "Finished kernel\n");
-    std::vector<uint32_t> ret(nc2);
-    if((ce = cudaMemcpy(ret.data(), sizes, nb, cudaMemcpyDeviceToHost))) throw CudaError(ce, "Failed to copy device to host");
     //thrust::copy(sizes, sizes + ret.size(), ret.begin());
     cudaFree(sizes);
     return ret;

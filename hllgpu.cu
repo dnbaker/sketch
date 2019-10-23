@@ -27,12 +27,14 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "Finished making now copy\n");
     std::vector<float> cards;
     cards.reserve(hlls.size());
+#if 0
     int mgs, bs, gs;
     cudaError_t ce;
-    if((ce = cudaOccupancyMaxPotentialBlockSize(&mgs, &bs, calc_sizes_large, 0, 0)))
+    if((ce = cudaOccupancyMaxPotentialBlockSize(&mgs, &bs, calc_sizes_, 0, 0)))
         throw CudaError(ce, "Failed to infer best block size and so on.");
     gs = (hlls.size() * hlls.size() / 2 + (bs - 1)) / bs;
     std::fprintf(stderr, "mgs: %d. bs: %d. gs: %d\n", mgs, bs, gs);
+#endif
     for(auto &h: hlls) cards.push_back(h.report());
     for(size_t i = 0; i < hlls.size(); std::fprintf(stderr, "size: %lf\n", hlls[i++].report()));
     std::vector<uint8_t> cd(n << p);
