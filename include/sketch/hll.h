@@ -323,7 +323,7 @@ public:
         return ret;
     }
     //DEC_GT(_mm256_cmpgt_epu8_mask);
-#elif __SSE2__
+#elif __SSE4_1__
     using SType = __m128i;
     using MaskType = SIMDHolder;
     DEC_MAX(_mm_max_epu8);
@@ -339,7 +339,7 @@ public:
         return ret;
     }
 #else
-#  error("Need at least SSE2")
+#  error("Need at least SSE4.1")
 #endif
 #undef DEC_MAX
 #undef DEC_GT
@@ -406,26 +406,6 @@ public:
     DEC_INC(16)
     DEC_INC(32)
     DEC_INC(64)
-#if 0
-    template<typename T>
-    void inc_counts16(T &arr) const {
-        static_assert(std::is_integral<std::decay_t<decltype(arr[0])>>::value, "Counts must be integral.");
-        unroller<T, 0, nel16s> ur;
-        ur.op16(*this, arr);
-    }
-    template<typename T>
-    void inc_arr32(T &arr) const {
-        static_assert(std::is_integral<std::decay_t<decltype(arr[0])>>::value, "Counts must be integral.");
-        unroller<T, 0, nel32s> ur;
-        ur.op32(*this, arr);
-    }
-    template<typename T>
-    void inc_arr64(T &arr) const {
-        static_assert(std::is_integral<std::decay_t<decltype(arr[0])>>::value, "Counts must be integral.");
-        unroller<T, 0, nel64s> ur;
-        ur.op64(*this, arr);
-    }
-#endif
 #undef DEC_INC
     static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
 };

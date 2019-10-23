@@ -17,7 +17,7 @@ FLAGS=-O1 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Ivec/blaze -I
       -DXXH_INLINE_ALL  \
 	  -Wno-attributes -Wno-pragmas -Wno-ignored-qualifiers
 
-CXXFLAGS=$(FLAGS) -Wreorder
+CXXFLAGS=$(FLAGS) -Wreorder  \
 
 PYCONF?=python3-config
 
@@ -34,7 +34,7 @@ all: $(EX)
 run_tests: $(EX) lztest
 	for i in $(EX) lztest; do ./$$i; done
 
-STD?=-std=c++14
+STD?= -std=c++14
 
 GPUFLAGS= -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp
 

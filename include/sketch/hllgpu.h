@@ -49,10 +49,11 @@ INLINE double origest(const T &p, unsigned l2) {
     auto m = size_t(1) << l2;
     const double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
     double s = p[0];
-    CUDA_PRAGMA("unroll 8")
+    SK_UNROLL(8)
+    //_Pragma("GCC unroll 8")
     for(auto i = 1u; i < 64 - l2 + 1; ++i) {
 #if __CUDA_ARCH__
-        s += ::ldexp(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        s += ldexp(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
 #else
         s += std::ldexp(p[i], -i);
 #endif
@@ -93,57 +94,10 @@ template<typename T, typename T2, typename T3, typename=typename std::enable_if<
              std::is_integral<T>::value && std::is_integral<T2>::value && std::is_integral<T3>::value
          >::type>
 __device__ __host__ static inline T ij2ind(T i, T2 j, T3 n) {
-    return i < j ? (((i) * (n * 2 - i - 1)) / 2 + j - (i + 1)): (((j) * (n * 2 - j - 1)) / 2 + i - (j + 1));
+    if(i > j) {auto tmp = i; i = j; j = tmp;}
+    const auto mim1 = -(i + 1);
+    return (i * (n * 2 + mim1)) / 2 + j + mim1;
 }
-
-
-__global__ void calc_sizes(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
-    extern __shared__ int shared[];
-    uint32_t *sums = (uint32_t *)shared;
-    for(int i = 0; i < 64; ++i) sums[i] = 0;
-    size_t nelem = size_t(1) << l2;
-    auto gid = blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x + threadIdx.x;
-    auto tid = threadIdx.y * blockDim.x + threadIdx.x;
-    auto gsz = blockDim.x * blockDim.y;
-    auto hllid = (gid  + gsz - 1) / gsz, hllrem = (gid % gsz);
-    int nreg_each = (nelem + gsz - 1) / gsz;
-    if(hllid >= nhlls)
-        return;
-    uint32_t arr[64]{0};
-    auto hp = p + nelem * hllid;
-    //auto nblocks = (nhlls + 63) / 64;
-    __syncthreads();
-    for(unsigned i = nreg_each * hllrem;  i < min(size_t((nreg_each * (hllrem + 1))), nelem); ++i) {
-        ++arr[hp[i]];
-    }
-    for(auto i = 0u; i < 64; ++i) {
-        atomicAdd(sums + i, hp[i]);
-    }
-    __syncthreads();
-    if(tid == 0)
-        sizes[hllid] = origest(sums, l2);
-}
-#if 0
-__host__ std::vector<uint32_t> all_pairs(const uint8_t *p, unsigned l2, size_t nhlls) {
-    size_t nc2 = (nhlls * (nhlls - 1)) / 2;
-    uint32_t *sizes;
-    size_t nb = sizeof(uint32_t) * nhlls;
-    cudaError_t ce;
-    if((ce = cudaMalloc((void **)&sizes, nb)))
-        throw ce;
-    //size_t nblocks = 1;
-    std::fprintf(stderr, "About to launch kernel\n");
-    calc_sizes<<<64,threads,64 * sizeof(uint32_t)/*,nhlls * sizeof(float)*/>>>(p, l2, nhlls, sizes);
-    std::fprintf(stderr, "Finished kernel\n");
-    cudaDeviceSynchronize();
-    std::vector<uint32_t> ret(nhlls);
-    if(cudaMemcpy(ret.data(), sizes, nhlls * sizeof(uint32_t), cudaMemcpyDeviceToHost)) throw 3;
-    //thrust::copy(sizes, sizes + ret.size(), ret.begin());
-    cudaFree(sizes);
-    return ret;
-}
-#endif
-
 
 
 __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {

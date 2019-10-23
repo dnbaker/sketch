@@ -29,7 +29,7 @@ int main(int argc, char *argv[]) {
     cards.reserve(hlls.size());
     int mgs, bs, gs;
     cudaError_t ce;
-    if((ce = cudaOccupancyMaxPotentialBlockSize(&mgs, &bs, calc_sizes, 0, 0)))
+    if((ce = cudaOccupancyMaxPotentialBlockSize(&mgs, &bs, calc_sizes_large, 0, 0)))
         throw CudaError(ce, "Failed to infer best block size and so on.");
     gs = (hlls.size() * hlls.size() / 2 + (bs - 1)) / bs;
     std::fprintf(stderr, "mgs: %d. bs: %d. gs: %d\n", mgs, bs, gs);

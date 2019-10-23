@@ -3,16 +3,6 @@
 #define SKETCH_MACROS_H__
 
 
-// Versioning
-#define sk__str__(x) #x
-#define sk__xstr__(x) sk__str__(x)
-#define SKETCH_SHIFT 16
-#define SKETCH_MAJOR 0
-#define SKETCH_MINOR 7
-#define SKETCH_VERSION_INTEGER (SKETCH_MAJOR << SKETCH_SHIFT) | SKETCH_MINOR
-#define SKETCH_VERSION SKETCH_MAJOR.SKETCH_MINOR
-#define SKETCH_VERSION_STR sk__xstr__(SKETCH_VERSION)
-
 
 // INLINE
 #ifndef INLINE
@@ -52,7 +42,6 @@
 #endif
 
 #ifdef __CUDACC__
-#  define UNROLLSTR sk__xstr__("unroll" #x)
 #  define CUDA_PRAGMA(x) _Pragma(x)
 #  define CUDA_ONLY(...) __VA_ARGS__
 #else
@@ -60,12 +49,20 @@
 #  define CUDA_ONLY(...)
 #endif
 
+#define CPP_PASTE(...) sk__xstr__(__VA_ARGS__)
+#define CPP_PASTE_UNROLL(...) sk__xstr__("unroll" __VA_ARGS__)
 
-#ifdef INCLUDE_CLHASH_H_
-#  define ENABLE_CLHASH 1
-#elif ENABLE_CLHASH
-#  include "clhash.h"
+#ifdef __CUDA_ARCH__
+#  define SK_UNROLL(...) _Pragma(CPP_PASTE(unroll __VA_ARGS__))
+#elif defined(__clang__)
+#  define SK_UNROLL(...) _Pragma(CPP_PASTE(unroll __VA_ARGS__))
+#elif defined(__GNUC__) && __GNUC__ > 8
+#  define SK_UNROLL(...) _Pragma(CPP_PASTE(GCC unroll __VA_ARGS__))
+#else
+#  define SK_UNROLL(...)
 #endif
+
+
 
 #if !NDEBUG
 #  define DBG_ONLY(...) __VA_ARGS__

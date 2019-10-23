@@ -28,10 +28,18 @@
 #  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
 #endif
 
+
+#ifdef INCLUDE_CLHASH_H_
+#  define ENABLE_CLHASH 1
+#elif ENABLE_CLHASH
+#  include "clhash.h"
+#endif
+
+
 #if __AES__
 #include "aesctr/aesctr.h"
 #else
-#error("__AES__ not provided. Did you use -march=native?")
+#include "aesctr/wy.h"
 #endif
 
 #if ZWRAP_USE_ZSTD
@@ -39,6 +47,17 @@
 #else
 #  include <zlib.h>
 #endif
+
+// Versioning
+#define sk__str__(x) #x
+#define sk__xstr__(x) sk__str__(x)
+#define SKETCH_SHIFT 16
+#define SKETCH_MAJOR 0
+#define SKETCH_MINOR 7
+#define SKETCH_VERSION_INTEGER (SKETCH_MAJOR << SKETCH_SHIFT) | SKETCH_MINOR
+#define SKETCH_VERSION SKETCH_MAJOR.SKETCH_MINOR
+#define SKETCH_VERSION_STR sk__xstr__(SKETCH_VERSION)
+
 
 #include "./sseutil.h"
 #include "./div.h"
@@ -90,7 +109,7 @@ using namespace integral;
 #if __AES__
 using DefaultRNGType = aes::AesCtr<uint64_t, 2>;
 #else
-using DefaultRNGType = std::mt19937_64;
+using DefaultRNGType =  wy::WyHash<uint64_t, 2>;
 #endif
 
 template<typename BloomType>
