@@ -180,11 +180,11 @@ static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz failed.");
 #endif
 
 template<typename T>
-static INLINE unsigned ilog2(T x) noexcept {
+static constexpr INLINE unsigned ilog2(T x) noexcept {
     return sizeof(T) * CHAR_BIT - clz(x) - 1;
 }
 template<typename T>
-static INLINE T roundup(T x) noexcept {
+static constexpr INLINE T roundup(T x) noexcept {
     --x;
     x |= x >> 1;
     x |= x >> 2;
