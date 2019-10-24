@@ -179,7 +179,7 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
             throw CudaError(ce, "Failed to malloc for row");
 #if USE_THRUST
         thrust::device_vector<uint32_t> tv((64 - l2 + 1) * ncmp_per_loop);
-        uint32_t *register_sums(tv.data());
+        uint32_t *register_sums(raw_pointer_cast(tv.data()));
 #else
         uint32_t *register_sums;
         if((ce = cudaMalloc((void **)&register_sums, ncmp_per_loop * mem_per_block)))
@@ -189,7 +189,7 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
         for(int i = 0; i < (nhlls + (nrows - 1)) / nrows; ++i) {
             // zero registers
 #if USE_THRUST
-            thrust::fill(tv.begin(), tv.end());
+            thrust::fill(tv.begin(), tv.end(), 0u);
 #else
             cudaMemset(register_sums, 0, ncmp_per_loop * mem_per_block);
 #endif

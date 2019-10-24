@@ -68,13 +68,13 @@ hpython: pybbmh.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-%: testsrc/%.cpp kthread.o $(HEADERS) sleef.h
+%: testsrc/%.cpp kthread.o $(HEADERS) #sleef.h
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS) sleef.h
+heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS) #sleef.h
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-divtest: testsrc/divtest.cpp kthread.o $(HEADERS) sleef.h
+divtest: testsrc/divtest.cpp kthread.o $(HEADERS) # sleef.h
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 %: src/%.cu
