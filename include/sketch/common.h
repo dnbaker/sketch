@@ -22,11 +22,6 @@
 #include "libpopcnt/libpopcnt.h"
 #include "compact_vector/include/compact_vector.hpp"
 
-#ifndef _VEC_H__
-#  define NO_SLEEF
-#  define NO_BLAZE
-#  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
-#endif
 
 
 #ifdef INCLUDE_CLHASH_H_

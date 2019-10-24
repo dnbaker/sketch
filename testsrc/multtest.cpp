@@ -1,4 +1,8 @@
-#include "vec/vec.h"
+#ifndef _VEC_H__
+#  define NO_SLEEF
+#  define NO_BLAZE
+#  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
+#endif
 #include "mult.h"
 #include "hll.h"
 #include "hk.h"
@@ -17,7 +21,7 @@ int main (int argc, char *argv[]) {
     int tbsz = argc == 1 ? 1 << 13: std::atoi(argv[1]);
     int ntbls = argc <= 2 ? 6: std::atoi(argv[2]);
     size_t nitems = 1 << (20 - 6);
-#if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
+#if !defined(NO_BLAZE) && (VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED)
     CWSamples<> zomg(100, 1000);
 #endif
     realccm_t<> rc(0.999, 10, 20, 8);
