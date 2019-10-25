@@ -40,6 +40,25 @@ INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
     ++arr[x1>>24];
 }
 
+#ifdef __CUDACC__
+template<typename T, typename T2, typename T3, typename=typename std::enable_if<
+             std::is_integral<T>::value && std::is_integral<T2>::value && std::is_integral<T3>::value
+         >::type>
+__device__ __host__ static inline T ij2ind(T i, T2 j, T3 n) {
+#define ARRAY_ACCESS(row, column) (((row) * (n * 2 - row - 1)) / 2 + column - (row + 1))
+    const auto i1 = min(i, j), j1 = min(j, i);
+    return ARRAY_ACCESS(i1, j1);
+#undef ARRAY_ACCESS
+}
+__host__ __device__ INLINE void set_lut_portion(uint32_t i, uint32_t jstart, uint32_t jend, uint32_t n, uint64_t *lut) {
+    SK_UNROLL(8)
+    for(;jstart < jend; ++jstart) {
+        lut[ij2ind(i, jstart, n)] = (uint64_t(i) << 32) | jstart;
+    }
+}
+
+#endif // __CUDACC__
+
 template<typename T>
 CUDA_ONLY(__host__ __device__)
 INLINE double origest(const T &p, unsigned l2) {
@@ -47,7 +66,6 @@ INLINE double origest(const T &p, unsigned l2) {
     const double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
     double s = p[0];
     SK_UNROLL(8)
-    //_Pragma("GCC unroll 8")
     for(auto i = 1u; i < 64 - l2 + 1; ++i) {
 #if __CUDA_ARCH__
         s += ldexpf(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
@@ -87,14 +105,7 @@ auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *SK_RESTRICT, Al
 }
 
 #ifdef __CUDACC__
-template<typename T, typename T2, typename T3, typename=typename std::enable_if<
-             std::is_integral<T>::value && std::is_integral<T2>::value && std::is_integral<T3>::value
-         >::type>
-__device__ __host__ static inline T ij2ind(T i, T2 j, T3 n) {
-    if(i > j) {auto tmp = i; i = j; j = tmp;}
-    const auto mim1 = -(i + 1);
-    return (i * (n * 2 + mim1)) / 2 + j + mim1;
-}
+
 
 
 __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uint32_t *sizes) {
@@ -113,23 +124,49 @@ __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uin
     __syncthreads();
     uint32_t arr[60]{0};
     hp = p + (threadIdx.x << l2);
-    CUDA_PRAGMA("unroll 8")
+    SK_UNROLL(8)
     for(int i = 0; i < (1L << l2); i += 4) {
         increment_maxes(arr, *(unsigned *)&hp[i], *(unsigned *)&registers[i]);
     }
     sizes[gid] = origest(arr, l2);
 }
 
+#if 0
+__host__ INLINE uint3 calculate_indices(uint32_t block_id, uint32_t nhlls, uint16_t nblock_per_cmp) {
+    // Think it through: is there any reason why you have to work in rows at all?
+    const int cmp_ind = block_id / nblock_per_cmp;
+    const auto ij = ind2ij(cmp_id, nhlls);
+    // ind2ij is WRONG, needs to be written.
+    // Is there a simple function for this?
+    //if(cmp_ind :
+    return uint3(ij.x, ij.y, cmp_ind);
+}
+#endif
+
 __global__ void calc_sizes_row(const uint8_t *SK_RESTRICT p, unsigned l2, unsigned nhlls,
-                               unsigned nrows, unsigned mem_per_block,
+                               unsigned nrows, unsigned starting_rownum, unsigned mem_per_block,
                                uint32_t *SK_RESTRICT register_sums,
                                uint32_t *SK_RESTRICT sizes, uint16_t nblock_per_cmp) {
     extern __shared__ int shared[];
     auto sptr = reinterpret_cast<uint32_t *>(&shared[0]);
+
     const int block_id = blockIdx.x +
                          blockIdx.y * gridDim.x;
-    if(block_id > nrows * nhlls)
-        return;
+
+    const int cmp_ind = block_id / nblock_per_cmp + starting_rownum;
+    // TODO: back-calculate indices for chunk
+    // Generalize to not be limited to row sizes but arbitrary chunks
+    // Dispatch
+    // ???
+    // PROFIT
+#if 0
+    const uint3 = calculate_indices(block_id, nhlls, nblock_per_cmp);
+#endif
+    auto ncmp = nrows * nhlls;
+    if(cmp_ind > ncmp) return;
+
+    auto nblocks = ncmp * nblock_per_cmp;
+
     const int global_tid = block_id * blockDim.x + threadIdx.x;
     auto tid = threadIdx.x;
     const int nl2s = 64 - l2 + 1;
@@ -186,14 +223,10 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
             throw CudaError(ce, "Failed to malloc for row");
 #endif
         // This means work per block before updating will be mem_per_block / nblocks
-        for(int i = 0; i < (nhlls + (nrows - 1)) / nrows; ++i) {
+        for(int i = 0; i < (nhlls + (nrows - 1)) / nrows; i += nrows) {
             // zero registers
-#if USE_THRUST
-            thrust::fill(tv.begin(), tv.end(), 0u);
-#else
             cudaMemset(register_sums, 0, ncmp_per_loop * mem_per_block);
-#endif
-            calc_sizes_row<<<griddims,256,mem_per_block>>>(p, l2, nhlls, nrows, mem_per_block, register_sums, sizes, nblock_per_cmp);
+            calc_sizes_row<<<griddims,256,mem_per_block>>>(p, l2, nhlls, nrows, i, mem_per_block, register_sums, sizes, nblock_per_cmp);
             if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
             cudaMemcpy(sizes, ret.data(), ncmp_per_loop * sizeof(uint32_t), cudaMemcpyDeviceToHost);
         }
