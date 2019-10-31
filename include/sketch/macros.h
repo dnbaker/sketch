@@ -17,11 +17,19 @@
 // OpenMP
 
 #ifdef _OPENMP
-#define OMP_PRAGMA(...) _Pragma(__VA_ARGS__)
-#define OMP_ONLY(...) __VA_ARGS__
+#  ifndef OMP_PRAGMA
+#    define OMP_PRAGMA(...) _Pragma(__VA_ARGS__)
+#  endif
+#  ifndef OMP_ONLY
+#     define OMP_ONLY(...) __VA_ARGS__
+#  endif
 #else
-#define OMP_PRAGMA(...)
-#define OMP_ONLY(...)
+#  ifndef OMP_PRAGMA
+#    define OMP_PRAGMA(...)
+#  endif
+#  ifndef OMP_ONLY
+#    define OMP_ONLY(...)
+#  endif
 #endif
 
 

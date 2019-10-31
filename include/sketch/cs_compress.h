@@ -12,13 +12,21 @@
 
 namespace sketch {
 
+/***
+   Utilities for compressing and decompressing
+  */
+
 //template<typename FT, bool SO>
 //blaze::Dynamic
 
 // TODO: write a generic method compatible with pytorch/ATen
+// TODO: allow different value generation:
+//       1. exponential distribution (Woodruff-Zhang transform)
+//       2. Random Laplace Transforms (Random Laplace Feature Maps for Semigroup Kernels on Histograms, Quasi-Monte Carlo Feature Maps for Shift-Invariant Kernels)
+//       3. Quasi Random Fourier Transform
 
-template<typename C>
-auto cs_compress(const C &in, size_t newdim, const KWiseHasherSet<4> &hf) {
+template<typename C, typename Hasher=KWiseHasherSet<4>>
+auto cs_compress(const C &in, size_t newdim, const Hasher &hf) {
     //using FT = std::decay_t<decltype(*std::begin(in))>;
     if(newdim > in.size()) throw 1;
     const size_t ns = hf.size();
@@ -34,16 +42,17 @@ auto cs_compress(const C &in, size_t newdim, const KWiseHasherSet<4> &hf) {
     }
     return ret;
 }
-template<typename C>
-auto cs_decompress(const C &in, size_t newdim, size_t olddim, const KWiseHasherSet<4> &hf) {
+template<typename C, typename OutC, typename Hasher=KWiseHasherSet<4>,
+         typename=std::enable_if_t<!std::is_arithmetic<OutC>::value>>
+auto &cs_decompress(const C &in, const Hasher &hf, OutC &ret) {
+    PREC_REQ(in.size() % hf.size() == 0, "in dimension must be divisible by hf count");
+    size_t olddim = in.size() / hf.size();
+    size_t newdim = ret.size();
     const size_t ns = hf.size();
-    //if(newdim < in.size())
     schism::Schismatic<uint32_t> div(olddim);
-    //using FT = std::decay_t<decltype(*std::begin(in))>;
-    C ret(newdim);
     OMP_PRAGMA("omp parallel for")
     for(size_t i = 0; i < newdim; ++i) {
-        sketch::common::detail::tmpbuffer<float, 8> mem(hf.size());
+        sketch::common::detail::tmpbuffer<float, 9> mem(hf.size());
         auto tmp = mem.get();
         for(unsigned j = 0; j < ns; ++j) {
             auto hv = hf(i, j);
@@ -52,6 +61,13 @@ auto cs_decompress(const C &in, size_t newdim, size_t olddim, const KWiseHasherS
         common::sort::insertion_sort(tmp, tmp + hf.size());
         ret[i] = (tmp[ns >> 1] + tmp[(ns - 1) >> 1]) * .5; 
     }
+    return ret;
+}
+
+template<typename C, typename OutC=C, typename Hasher=KWiseHasherSet<4>>
+auto cs_decompress(const C &in, const Hasher &hf, size_t newdim) {
+    OutC ret(newdim);
+    cs_decompress<C, OutC, Hasher>(in, hf, ret);
     return ret;
 }
 

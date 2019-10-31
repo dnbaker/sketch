@@ -9,8 +9,8 @@ int main() {
     auto step1 = cs_compress(init, 100, hf);
     auto step1_1= cs_compress(init_1, 100, hf);
     auto step1_2 = cs_compress(init, 13, hf);
-    auto step2 = cs_decompress(step1, 1000, 100, hf);
-    auto step2_1 = cs_decompress(step1_1, 1000, 100, hf);
+    auto step2 = cs_decompress(step1, hf, 1000);
+    auto step2_1 = cs_decompress(step1_1, hf, 1000);
     // top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, const KWiseHasherSet<4> &hf, unsigned k) 
     auto topind = top_indices_from_compressed(step1, 1000, 100, hf, 20);
     std::fprintf(stderr, "topind sizes: %zu, %zu\n", topind.first.size(), topind.second.size());
