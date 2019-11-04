@@ -50,19 +50,20 @@ inline int densifybin(Container &hashes) {
     return 1;
 }
 
-template<typename T, typename Allocator>
-static inline double harmonic_cardinality_estimate_impl(const std::vector<T, Allocator> &minvec) {
-    assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
-    const double num = is_pow2(minvec.size()) ? std::ldexp(1., sizeof(T) * CHAR_BIT - ilog2(minvec.size()))
+template<typename Cont>
+static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
+    using VT = typename Cont::value_type;
+    assert(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>()) == minvec.end());
+    const double num = is_pow2(minvec.size()) ? std::ldexp(1., sizeof(VT) * CHAR_BIT - ilog2(minvec.size()))
                                               : double(UINT64_C(-1)) / minvec.size();
     const double s = std::accumulate(minvec.begin(), minvec.end(), 0., [num](double sum, const auto v) {return sum + v / num;});
     return std::pow(minvec.size(), 2) / s;
     // TODO: this could be accelerated with pre-inverting num, std::accumulate, _mm{,256,512}_add_epi*T, and _mm512_reduce_add_epi*T
 }
 
-template<typename T, typename Allocator>
-static inline double harmonic_cardinality_estimate_diffmax_impl(const std::vector<T, Allocator> &minvec, const double num) {
-    return std::pow(minvec.size(), 2) / std::accumulate(minvec.begin(), minvec.end(), 0., [num](double sum, const auto v) {return sum + v / num;});
+template<typename Cont>
+static inline double harmonic_cardinality_estimate_diffmax_impl(const Cont &minvec, const double num) {
+    return std::pow(minvec.size(), 2) / std::accumulate(std::begin(minvec), std::end(minvec), 0., [num](double sum, const auto v) {return sum + v / num;});
     // TODO: this could be accelerated with pre-inverting num, std::accumulate, _mm{,256,512}_add_epi*T, and _mm512_reduce_add_epi*T
 }
 
@@ -74,7 +75,7 @@ static inline double harmonic_cardinality_estimate(std::vector<T, Allocator> &mi
             return 0.;
         }
     }
-    return harmonic_cardinality_estimate_impl<T>(minvec);
+    return harmonic_cardinality_estimate_impl(minvec);
 }
 
 template<typename T, typename Allocator>
@@ -168,8 +169,9 @@ public:
         std::swap(tmp, core_);
     }
     bool operator==(const FinalDivBBitMinHash &o) const {
-#define H(x) (this->x == o.x)
-        return H(nbuckets_) && H(core_);// Removed b_ and est_cardinality_, since the sets are the same, and that's what really matters.
+#define H__(x) (this->x == o.x)
+        return H__(nbuckets_) && H__(core_);// Removed b_ and est_cardinality_, since the sets are the same, and that's what really matters.
+#undef H__
     }
     FinalDivBBitMinHash(const std::string &path): FinalDivBBitMinHash(path.data()) {}
     FinalDivBBitMinHash(const char *path): est_cardinality_(0), nbuckets_(0), b_(0) {
@@ -193,11 +195,14 @@ public:
         ssize_t ret = sizeof(arr);
         b_ = arr[0];
         nbuckets_ = arr[1];
+        PREC_REQ(b_ * nbuckets_ % 64 == 0, "b * nbuckets must be divisible by 64");
         if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw std::runtime_error("Could not read from file.");
         ret += sizeof(est_cardinality_);
         core_.resize(b_ * nbuckets_ / 64 + (b_ * nbuckets_ % 64 != 0));
-        gzread(fp, core_.data(), sizeof(core_[0]) * core_.size());
-        ret += sizeof(core_[0]) * core_.size();
+        const size_t expected = sizeof(core_[0]) * core_.size();
+        if(gzread(fp, core_.data(), expected) != ssize_t(expected))
+            throw ZlibError(std::string("Failed to read core from file"));
+        ret += expected;
         return ret;
     }
     DBSKETCH_WRITE_STRING_MACROS
@@ -398,8 +403,9 @@ struct SuperMinHash {
 #if VERBOSE_AF
     std::atomic<size_t> inner_loop_count_;
 #endif
-
     uint64_t seed_;
+
+    static_assert(sizeof(typename RNGType::result_type) == sizeof(uint32_t), "must generate 32-bit values");
 
 
     std::vector<CountType>  p_;
@@ -420,8 +426,6 @@ struct SuperMinHash {
 #endif
         b_.back() = m_;
         assert(m_ <= std::numeric_limits<CountType>::max());
-        if(bbits_ == 0)
-            bbits_ = needed_bits();
     }
     void free() {
         auto p(std::move(p_));
@@ -492,19 +496,16 @@ struct SuperMinHash {
 #if VERBOSE_AF
             ++inner_loop_count_;
 #endif
-            uint32_t r = gen();
             uint32_t k = pol_.mod(gen());
             assert(k < m_);
-            if(q_[j] != i_) {
-                q_[j] = i_;
-                p_[j] = j;
-            }
-            if(q_[k] != i_) {
-                q_[k] = i_;
-                p_[k] = k;
-            }
+            auto qfunc = [&](auto x) {
+                if(q_[x] != i_)
+                    q_[x] = i_, p_[x] = x;
+            };
+            qfunc(j);
+            qfunc(k);
             std::swap(p_[k], p_[j]);
-            auto crj = (uint64_t(j) << 32) | r;
+            auto crj = (uint64_t(j) << 32) | gen();
             if(crj < h_[p_[j]]) {
                 auto jprime = std::min(m_ - 1, uint32_t(h_[p_[j]] >> 32));
                 h_[p_[j]] = crj;
@@ -526,13 +527,13 @@ struct SuperMinHash {
         size_t ret = h_.size();
         ret = gzwrite(fp, &ret, sizeof(ret));
         char buf[sizeof(*this)];
+        std::memcpy(buf, this, sizeof(*this));
 #define CLEAR_CON(x) std::memset(buf + offsetof(SuperMinHash, x), 0, sizeof(x))
         CLEAR_CON(p_);
         CLEAR_CON(q_);
         CLEAR_CON(h_);
         CLEAR_CON(b_);
 #undef CLEAR_CON
-        std::memcpy(buf, this, sizeof(*this));
         ret += gzwrite(fp, buf, sizeof(buf));
         ret += gzwrite(fp, p_.data(), sizeof(p_[0]) * p_.size());
         ret += gzwrite(fp, h_.data(), sizeof(h_[0]) * h_.size());
