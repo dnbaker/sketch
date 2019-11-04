@@ -3,9 +3,9 @@
 #include <random>
 #include "ccm.h" // Count-min sketch
 #ifndef NO_BLAZE
-#if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
-#include "./vec/blaze/blaze/Math.h"
-#endif
+#  if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
+#    include "./vec/blaze/blaze/Math.h"
+#  endif
 #endif
 
 #include "hk.h"
@@ -65,7 +65,13 @@ public:
     }
     realccm_t(): realccm_t(1.-1e-7) {}
     void rescale(size_t exp=rescale_frequency_) {
-        auto scale_div = std::pow(scale_, exp);
+        const auto scale_div = std::pow(scale_, exp);
+#ifndef NO_BLAZE
+        blaze::CustomMatrix<FType, blaze::aligned, blaze::unpadded> tmp(this->data_.data(), this->nhashes_, size_t(1) << this->subtbl_sz_);
+        assert(this->data_.size() == (this->nhashes_ << this->subtbl_sz_));
+        assert(tmp.rows() * tmp.columns() == (this->data_.size()));
+        tmp *= scale_div;
+#else
         auto ptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data());
         auto eptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data() + this->data_.size());
         auto mul = FSpace::set1(scale_div);
@@ -76,6 +82,7 @@ public:
         FType *rptr = reinterpret_cast<FType *>(ptr);
         while(rptr < this->data_.data() + this->data_.size())
             *rptr++ *= scale_div;
+#endif
     }
     void flush_rescaling() {
         size_t exp = total_added_ % rescale_frequency_;
