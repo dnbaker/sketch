@@ -59,8 +59,9 @@ static inline double sqrl2(const std::vector<T, AllocatorType> &v, const std::ve
     tmpbuffer<double, 8> mem(nhashes);
     double *ptr = mem.get();
 #if defined(_BLAZE_MATH_CUSTOMMATRIX_H_)
-    blaze::CustomMatrix<T, blaze::aligned, blaze::unpadded> lv(v.data(), nhashes, size_t(1) << l2sz);
-                                                            rv(v2.data(), nhashes, size_t(1) << l2sz);
+    using CM = blaze::CustomMatrix<T, blaze::aligned, blaze::unpadded>;
+    const CM lv(v.data(), nhashes, size_t(1) << l2sz);
+    const CM rv(v2.data(), nhashes, size_t(1) << l2sz);
     for(auto i = 0u; i < lv.rows(); ++i) {
         ptr[i] = blaze::norm(row(lv, i) * row(rv, i)); // Elementwise multiplication
     }
@@ -75,9 +76,6 @@ static inline double sqrl2(const std::vector<T, AllocatorType> &v, const std::ve
         ptr[i] = std::sqrt(full_sum);
     }
 #endif
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
     return median(ptr, nhashes);
 }
 
@@ -111,9 +109,6 @@ static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, co
         ptr[i] = std::sqrt(sum);
     }
     return median(ptr, nhashes);
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
@@ -129,9 +124,6 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
         } while(start != end);
         ptr[i] = std::sqrt(sum);
     }
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
     return median(ptr, nhashes);
 }
 
@@ -149,11 +141,6 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
         ptr[i] = std::sqrt(sum);
     }
     return median(ptr, nhashes);
-#if 0
-    common::sort::insertion_sort(ptr, ptr + nhashes);
-    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    return ret;
-#endif
 }
 
 template<typename T>
@@ -278,9 +265,6 @@ public:
         }
 #if WJMETH0
         return median(counts.get(), nhashes_);
-        //auto cptr = counts.get();
-        //sort::insertion_sort(cptr, p);
-        //return (cptr[(nhashes_ >> 1)] + cptr[(nhashes_ - 1 ) >> 1]) * .5;
 #elif MINMETH
         return minest;
 #else
