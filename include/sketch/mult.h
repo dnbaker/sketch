@@ -4,7 +4,7 @@
 #include "ccm.h" // Count-min sketch
 #ifndef NO_BLAZE
 #  if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
-#    include "./vec/blaze/blaze/Math.h"
+#    include "blaze/Math.h"
 #  endif
 #endif
 
