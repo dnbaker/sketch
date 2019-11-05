@@ -36,11 +36,7 @@
 #endif
 
 
-#if __AES__
-#include "aesctr/aesctr.h"
-#else
 #include "aesctr/wy.h"
-#endif
 
 #if ZWRAP_USE_ZSTD
 #  include "zstd_zlibwrapper.h"
@@ -53,7 +49,7 @@
 #define sk__xstr__(x) sk__str__(x)
 #define SKETCH_SHIFT 16
 #define SKETCH_MAJOR 0
-#define SKETCH_MINOR 7
+#define SKETCH_MINOR 8
 #define SKETCH_VERSION_INTEGER (SKETCH_MAJOR << SKETCH_SHIFT) | SKETCH_MINOR
 #define SKETCH_VERSION SKETCH_MAJOR.SKETCH_MINOR
 #define SKETCH_VERSION_STR sk__xstr__(SKETCH_VERSION)
@@ -65,17 +61,6 @@
 #include "./policy.h"
 #include "./exception.h"
 #include "./integral.h"
-
-
-
-
-
-
-#ifndef ASSERT_INT_T
-#  define ASSERT_INT_T(T) typename=typename ::std::enable_if<::std::is_integral<(T)>::value>::type
-#endif
-
-
 
 
 #ifndef DBSKETCH_WRITE_STRING_MACROS
@@ -106,11 +91,7 @@ inline namespace common {
 using namespace hash;
 using namespace integral;
 
-#if __AES__
-using DefaultRNGType = aes::AesCtr<uint64_t, 2>;
-#else
 using DefaultRNGType =  wy::WyHash<uint64_t, 2>;
-#endif
 
 template<typename BloomType>
 inline double jaccard_index(const BloomType &h1, const BloomType &h2) {

@@ -28,8 +28,8 @@ int main(int argc, char *argv[]) {
     ccm_t cmsexact(nbits, l2sz, nhashes), cmsexact2(nbits, l2sz, nhashes);
     sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, sketch::common::WangHash, false> cmswithnonminmal(nbits, l2sz, nhashes);
     sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, sketch::common::WangHash, false> cmswithfloats(nbits, l2sz, nhashes);
-    cs_t cmscs(l2sz, nhashes * 4);
-    cs4w_t cmscs4w(l2sz, nhashes * 4), cmscs4w2(l2sz, nhashes * 4);
+    cs_t cmscs(l2sz, nhashes);
+    cs4w_t cmscs4w(l2sz, nhashes), cmscs4w2(l2sz, nhashes);
     sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
     ccmbase_t<update::Increment, DefaultStaticCompactVectorType<4>> static_cm(nbits, l2sz, nhashes);
 #if __cplusplus >= 201703L

@@ -31,8 +31,8 @@ endif
 NVCC?=nvcc
 EX=$(patsubst testsrc/%.cpp,%,$(wildcard testsrc/*.cpp))
 all: $(EX)
-run_tests: $(EX) lztest
-	for i in $(EX) lztest; do ./$$i; done
+setup_tests: $(EX) lztest
+	echo $(EX) lztest > tmpfiles.txt
 
 STD?= -std=c++14
 
@@ -89,7 +89,7 @@ divtest: testsrc/divtest.cpp kthread.o $(HEADERS) sleef.h
 %_d: src/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-lztest: testsrc/test.cpp kthread.o $(HEADERS)
+lztest: testsrc/hlltest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
 
 dev_test_p: dev_test.cpp kthread.o hll.h

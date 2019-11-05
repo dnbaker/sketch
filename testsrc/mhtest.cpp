@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
         // Part 2: verify merging of final sketches
         size_t n = 10000;
         RangeMinHash<uint64_t> rmh1(20), rmh2(20);
-        aes::AesCtr<uint64_t> gen1(13), gen2(1337);
+        common::DefaultRNGType gen1(13), gen2(1337);
         for(size_t i = n; i--;) {
             rmh1.addh(gen1());
             rmh2.addh(gen2());

@@ -5,6 +5,9 @@
 #include "hash.h"
 #include "update.h"
 #include "median.h"
+#ifndef NO_BLAZE
+#  include "blaze/Math.h"
+#endif
 
 namespace sketch {
 
@@ -13,9 +16,15 @@ using common::detail::tmpbuffer;
 
 namespace detail {
 template<typename T, typename AllocatorType>
-static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
-    tmpbuffer<float, 8> mem(nhashes);
-    float *ptr = mem.get();
+static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<double, 8> mem(nhashes);
+    double *ptr = mem.get();
+#if defined(_BLAZE_MATH_CUSTOMMATRIX_H_)
+    blaze::CustomMatrix<T, blaze::aligned, blaze::unpadded> data(v.data(), nhashes, size_t(1) << l2sz);
+    for(size_t i = 0; i < data.rows(); ++i) {
+        ptr[i] = blaze::norm(row(data, i));
+    }
+#else
     using VT = typename vec::SIMDTypes<T>::VType;
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
@@ -40,55 +49,43 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhash
             full_sum += *p1 * *p1, ++p1;
         ptr[i] = full_sum;
     }
+#endif
     return std::sqrt(median(ptr, nhashes));
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
 }
+
 template<typename T, typename AllocatorType>
-static inline float sqrl2(const std::vector<T, AllocatorType> &v, const std::vector<T, AllocatorType> &v2, uint32_t nhashes, uint32_t l2sz) {
+static inline double sqrl2(const std::vector<T, AllocatorType> &v, const std::vector<T, AllocatorType> &v2, uint32_t nhashes, uint32_t l2sz) {
     assert(v.size() == v2.size());
-    tmpbuffer<float, 8> mem(nhashes);
-    float *ptr = mem.get();
+    tmpbuffer<double, 8> mem(nhashes);
+    double *ptr = mem.get();
+#if defined(_BLAZE_MATH_CUSTOMMATRIX_H_)
+    using CM = blaze::CustomMatrix<T, blaze::aligned, blaze::unpadded>;
+    const CM lv(v.data(), nhashes, size_t(1) << l2sz);
+    const CM rv(v2.data(), nhashes, size_t(1) << l2sz);
+    for(auto i = 0u; i < lv.rows(); ++i) {
+        ptr[i] = blaze::norm(row(lv, i) * row(rv, i)); // Elementwise multiplication
+    }
+#else
     using VT = typename vec::SIMDTypes<T>::VType;
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
     for(size_t i = 0; i < nhashes; ++i) {
-        const T *p1 = &v[i << l2sz], *p2 = &v2[i<<l2sz], *p1e = &v[(i + 1) << l2sz];
-        // portable SIMD absolute value is hard, ignore it.
-#if 0
-        const bool is_aligned = VT::aligned(v.data()) && VT::aligned(v2.data());
-        static constexpr size_t ct = VS::COUNT;
-        while(p1e - p1 > ct) {
-            auto lv = VS::load(p1), VS::load(p2);
-            const auto lv = *reinterpret_cast<const VT *>(p1);
-            const auto rv = *reinterpret_cast<const VT *>(p2);
-            sum = VS::add(sum, VS::abs(VS::mul(lv, rv)));
-            p1 += ct;
-            p2 += ct;
-        }
-        T full_sum = sum.sum();
-        while(p1 < p1e)
-            full_sum += *p1++ * *p2++;
-#endif
+        auto p1 = &v[i << l2sz], p2 = &v2[i << l2sz], p1e = &v[(i + 1) << l2sz];
         T full_sum = std::abs(*p1++ * *p2++);
-        while(p1 != p1e) full_sum += std::abs(*p1++ * *p2++);
-
+        while(p1 != p1e) full_sum += std::pow(*p1++ * *p2++, 2);
         ptr[i] = std::sqrt(full_sum);
     }
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
+#endif
     return median(ptr, nhashes);
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
-    tmpbuffer<float, 8> mem(nhashes);
-    float *ptr = mem.get();
+static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<double, 8> mem(nhashes);
+    double *ptr = mem.get();
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
-        float sum = 0;
+        double sum = 0;
         while(start != end) {
             int64_t val = v[start++];
             sum += val * val;
@@ -99,12 +96,12 @@ static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uin
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, const compact::vector<T1, BITS, T2, Allocator> &v2, uint32_t nhashes, uint32_t l2sz) {
-    tmpbuffer<float, 8> mem(nhashes);
-    float *ptr = mem.get();
+static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, const compact::vector<T1, BITS, T2, Allocator> &v2, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<double, 8> mem(nhashes);
+    double *ptr = mem.get();
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
-        float sum = 0;
+        double sum = 0;
         while(start != end) {
             sum += v[start] * v2[start];
             ++start;
@@ -112,9 +109,6 @@ static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, con
         ptr[i] = std::sqrt(sum);
     }
     return median(ptr, nhashes);
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
@@ -130,9 +124,6 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
         } while(start != end);
         ptr[i] = std::sqrt(sum);
     }
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
     return median(ptr, nhashes);
 }
 
@@ -150,11 +141,6 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
         ptr[i] = std::sqrt(sum);
     }
     return median(ptr, nhashes);
-#if 0
-    common::sort::insertion_sort(ptr, ptr + nhashes);
-    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    return ret;
-#endif
 }
 
 template<typename T>
@@ -279,9 +265,6 @@ public:
         }
 #if WJMETH0
         return median(counts.get(), nhashes_);
-        //auto cptr = counts.get();
-        //sort::insertion_sort(cptr, p);
-        //return (cptr[(nhashes_ >> 1)] + cptr[(nhashes_ - 1 ) >> 1]) * .5;
 #elif MINMETH
         return minest;
 #else
@@ -545,6 +528,7 @@ public:
         seeds_((nh_ + (nph_ - 1)) / nph_ - 1),
         seedseed_(seedseed)
     {
+        std::fprintf(stderr, "csbase_t called with %u np and %u nh, now with a size of %zu\n", np, nh, core_.size());
         DEPRECATION_WARNING("csbase_t will be deprecated in favor of cs4wbase_t moving forward.");
         DefaultRNGType gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
@@ -770,12 +754,15 @@ class cs4wbase_t {
 public:
     cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137):
         np_(np),
+        nh_(nh),
         mask_((1ull << np_) - 1),
         seedseed_(seedseed),
         hf_(seedseed)
     {
         nh_ += (nh % 2 == 0);
         core_.resize(nh_ << np_);
+        std::fprintf(stderr, "nh: %u. np: %u. size should be: %zu. Found size: %zu\n", nh_, np_, size_t(nh_) << np_, core_.size());
+        POST_REQ(core_.size() == (nh_ << np_), "core must be properly sized");
     }
     double l2est() const {
         return sqrl2(core_, nh_, np_);

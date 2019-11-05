@@ -11,25 +11,27 @@ using namespace mh;
 int main() {
     static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
 
-    BBitMinHasher<uint64_t> b1(10, 4), b2(10, 4);
-    b1.addh(1);
-    b1.addh(4);
-    b1.addh(137);
+    {
+        BBitMinHasher<uint64_t> b1(10, 4), b2(10, 4);
+        b1.addh(1);
+        b1.addh(4);
+        b1.addh(137);
 
-    b2.addh(1);
-    b2.addh(4);
-    b2.addh(17);
-    auto f1 = b1.cfinalize(), f2 = b2.cfinalize();
-    std::fprintf(stderr, "f1 popcount: %" PRIu64 "\n", f1.popcnt());
-    std::fprintf(stderr, "f2 popcount: %" PRIu64 "\n", f2.popcnt());
-    b1.show();
-    b2.show();
-    auto b3 = b1 + b2;
-    b3.show();
-    auto f3 = b3.finalize();
-    std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());
-    auto neqb12 = f1.equal_bblocks(f2);
-    std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(neqb12), size_t(f1.equal_bblocks(f1)));
+        b2.addh(1);
+        b2.addh(4);
+        b2.addh(17);
+        auto f1 = b1.cfinalize(), f2 = b2.cfinalize();
+        std::fprintf(stderr, "f1 popcount: %" PRIu64 "\n", f1.popcnt());
+        std::fprintf(stderr, "f2 popcount: %" PRIu64 "\n", f2.popcnt());
+        b1.show();
+        b2.show();
+        auto b3 = b1 + b2;
+        b3.show();
+        auto f3 = b3.finalize();
+        std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());
+        auto neqb12 = f1.equal_bblocks(f2);
+        std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(neqb12), size_t(f1.equal_bblocks(f1)));
+    }
 
     for(size_t i = 7; i <= 14; i += 2) {
         for(const auto b: {7u, 13u, 14u, 17u, 9u}) {
@@ -41,10 +43,9 @@ int main() {
             hll::hll_t h1(i), h2(i);
             uint64_t seed = h1.hash(h1.hash(i) ^ h1.hash(b));
 #if SIMPLE_HASH
-            using HasherType = hash::XorMultiplyNVec;
+            using HasherType = hash::WangHash;
 #else
             using HasherType = hash::MultiplyAddXoRotNVec<33>;
-            BBitMinHasher<uint64_t, hash::MultiplyAddXoRotNVec<33>> b1(i, b, 1, seed), b2(i, b, 1, seed), b3(i, b, 1, seed);
 #endif
             BBitMinHasher<uint64_t, HasherType> b1(i, b, 1, seed), b2(i, b, 1, seed), b3(i, b, 1, seed);
             size_t dbval = 1.5 * (size_t(1) << i);
@@ -53,7 +54,8 @@ int main() {
             CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(i, b);
             DefaultRNGType gen(137);
             size_t shared = 0, b1c = 0, b2c = 0;
-            for(size_t i = 500000; --i;) {
+            constexpr size_t niter = 500000;
+            for(size_t i = niter; --i;) {
 #if SIMPLE_HASH
                 auto v = i;
 #else
@@ -83,20 +85,25 @@ int main() {
             b1.densify();
             b2.densify();
             auto f1 = b1.finalize(), f2 = b2.finalize(), f3 = b3.finalize();
-            b1 += b2;
+            auto est = (b1 + b2).cardinality_estimate();
+            assert((b1 + b2).cardinality_estimate() == b1.union_size(b2));
+            assert(std::abs(est - niter < niter * 3 / 100.) || !std::fprintf(stderr, "est: %lf\n", est));
+            //b1 += b2;
             auto f12 = b1.finalize();
             auto fdb1 = db1.finalize();
             auto fdb2 = db2.finalize();
-            //std::fprintf(stderr, "About to finalize with %zu for i and %u for b\n", i, b);
             auto smh1 = smhp2.finalize(16), smh2 = smhp21.finalize(16);
             auto smhd1 = smhdp.finalize(16), smhd2 = smhdp1.finalize(16);
+            assert(smh1.jaccard_index(smh1) == 1.);
+            assert(std::abs(smh1.jaccard_index(smh2) - .5) < 0.05);
+
             std::fprintf(stderr, "with ss=%zu, smh1 and itself: %lf. 2 and 2/1 jaccard? %lf/%lf\n", size_t(1) << i, double(smh1.jaccard_index(smh1)), double(smh2.jaccard_index(smh1)), smh1.jaccard_index(smh2));
             std::fprintf(stderr, "smh1 card %lf, smh2 %lf\n", smh1.est_cardinality_, smh2.est_cardinality_);
             std::fprintf(stderr, "with ss=%zu, smhd1 and itself: %lf. 2 and 2/1 jaccard? %lf/%lf\n", size_t(1) << i, double(smhd1.jaccard_index(smhd1)), double(smhd2.jaccard_index(smhd1)), smhd1.jaccard_index(smhd2));
-            //auto fdb3 = db3.finalize();
             std::fprintf(stderr, "Expected Cardinality [shared:%zu/b1:%zu/b2:%zu]\n", shared, b1c, b2c);
             std::fprintf(stderr, "h1 est %lf, h2 est: %lf\n", h1.report(), h2.report());
             std::fprintf(stderr, "Estimate Harmonicard [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(HARMONIC_MEAN), b2.cardinality_estimate(HARMONIC_MEAN));
+            std::fprintf(stderr, "Estimate div Harmonicard [b1:%lf/b2:%lf]\n", db1.cardinality_estimate(HARMONIC_MEAN), db2.cardinality_estimate(HARMONIC_MEAN));
             std::fprintf(stderr, "Estimate HLL [b1:%lf/b2:%lf/b3:%lf]\n", b1.cardinality_estimate(HLL_METHOD), b2.cardinality_estimate(HLL_METHOD), b3.cardinality_estimate(HLL_METHOD));
             std::fprintf(stderr, "Estimate arithmetic mean [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(ARITHMETIC_MEAN), b2.cardinality_estimate(ARITHMETIC_MEAN));
             std::fprintf(stderr, "Estimate (median) b1:%lf/b2:%lf]\n", b1.cardinality_estimate(MEDIAN), b2.cardinality_estimate(MEDIAN));
@@ -110,6 +117,8 @@ int main() {
             //assert(sizeof(cb13res) == sizeof(uint64_t) * 4);
             //std::fprintf(stderr, "cb13res %lf, %lf\n", cb13res.weighted_jaccard_index(), cb13res.jaccard_index());
             cb1.finalize().write("ZOMG.cb");
+            decltype(cb1.finalize()) cbr("ZOMG.cb");
+            assert(cbr == cb1.finalize());
             auto whl = b1.make_whll();
             std::fprintf(stderr, "whl card: %lf/%zu vs expected %lf/%lf/%lf\n", whl.cardinality_estimate(), whl.core_.size(), f1.est_cardinality_, h1.report(), whl.union_size(whl));
         }

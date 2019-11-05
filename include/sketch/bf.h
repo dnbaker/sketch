@@ -221,7 +221,7 @@ public:
         sum1 = Space::add(sum1, popcnt_fn(l1.simd_));\
         sum2 = Space::add(sum2, popcnt_fn(l2.simd_));\
         tmp = Space::or_fn(l1.simd_, l2.simd_); \
-        sum2 = Space::add(sumu, popcnt_fn(tmp));
+        sumu = Space::add(sumu, popcnt_fn(tmp));
 
         if(core_.size() / Space::COUNT >= 8) {
             REPEAT_7(PERFORM_ITER)
@@ -238,13 +238,17 @@ public:
         uint64_t usumu = sum_of_u64s(sumu);
         return static_cast<double>(usum1 + usum2 - usumu) / usumu;
     }
-    double jaccard_index(const bfbase_t &other) const {
-        if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
-        auto &oc = other.core_;
+    INLINE std::array<double, 3> full_set_comparison(const bfbase_t &o) const {
+        PREC_REQ(m() == o.m(), "Same size required.");
+        auto &oc = o.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         Space::VType l1 = *op++, l2 = *tc++;
         Space::VType tmp;
-        Space::Type sum1(Space::set1(0)), sum2 = sum1, sumu = sum1;
+        Space::Type sum1, sum2, sumu;
+        sum1 = popcnt_fn(l1.simd_);
+        sum2 = popcnt_fn(l2.simd_);
+        tmp = Space::or_fn(l1.simd_, l2.simd_);
+        sumu = popcnt_fn(tmp);
 
         if(core_.size() / Space::COUNT >= 8) {
             REPEAT_7(PERFORM_ITER)
@@ -257,18 +261,58 @@ public:
         while(op < endp) {
             PERFORM_ITER
         }
-        uint64_t usum1 = sum_of_u64s(sum1);
-        uint64_t usum2 = sum_of_u64s(sum2);
-        uint64_t usumu = sum_of_u64s(sumu);
-#undef PERFORM_ITER
-        double set1_est = -std::log(1 - static_cast<double>(usum1) / m()) * m() / nh_;
-        double set2_est = -std::log(1 - static_cast<double>(usum2) / m()) * other.m() / nh_;
-        double union_est = -std::log(1 - static_cast<double>(usumu) / m()) * m() / nh_;
+        double usum1 = sum_of_u64s(sum1);
+        double usum2 = sum_of_u64s(sum2);
+        double usumu = sum_of_u64s(sumu);
+        const auto div = double(m()) / nh_;
+        const auto nminv = -1. / m();
+        double set1_est = -std::log1p(usum1 * nminv) * div;
+        double set2_est = -std::log1p(usum2 * nminv) * div;
+        double union_est = -std::log1p(usumu * nminv) * div;
         double olap = set1_est + set2_est - union_est;
-#if !NDEBUG
-        double ji = olap / union_est;
-        std::fprintf(stderr, "set est 1: %lf. set est 2: %lf. Union est: %lf. Olap est: %lf. JI est: %lf\n", set1_est, set2_est, union_est, olap, ji);
+        std::array<double, 3> ret;
+        ret[2] = set1_est + set2_est - olap;
+        ret[0] -= ret[2];
+        ret[1] -= ret[2];
+        ret[2] = std::max(ret[2], 0.);
+        return ret;
+    }
+    double jaccard_index(const bfbase_t &other) const {
+        if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
+        auto &oc = other.core_;
+        const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
+        Space::VType l1 = *op++, l2 = *tc++;
+        Space::VType tmp;
+        Space::Type sum1, sum2, sumu;
+        sum1 = popcnt_fn(l1.simd_);
+        sum2 = popcnt_fn(l2.simd_);
+        tmp = Space::or_fn(l1.simd_, l2.simd_);
+        sumu = popcnt_fn(tmp);
+
+        if(core_.size() / Space::COUNT >= 8) {
+            REPEAT_7(PERFORM_ITER)
+            // Handle the last 7 times after initialization
+            for(size_t i(1); i < core_.size() / Space::COUNT / 8;++i) {
+                REPEAT_8(PERFORM_ITER)
+            }
+        }
+        const Type *endp = reinterpret_cast<const Type *>(&oc[oc.size()]);
+        while(op < endp) {
+            PERFORM_ITER
+        }
+        double usum1 = sum_of_u64s(sum1);
+        double usum2 = sum_of_u64s(sum2);
+        double usumu = sum_of_u64s(sumu);
+#if VERBOSE_AF
+        std::fprintf(stderr, "sum1: %" PRIu64 ". sum2: %" PRIu64 ". sumu: %" PRIu64 ".\n",
+                     usum1, usum2, usumu);
 #endif
+        const auto div = double(m()) / nh_;
+        const auto nminv = -1. / m();
+        double set1_est = -std::log1p(usum1 * nminv) * div;
+        double set2_est = -std::log1p(usum2 * nminv) * div;
+        double union_est = -std::log1p(usumu * nminv) * div;
+        double olap = set1_est + set2_est - union_est;
         return olap / union_est;
     }
 
@@ -636,6 +680,7 @@ static inline double intersection_size(const BloomType &h1, const BloomType &h2)
 
 #undef REPEAT_7
 #undef REPEAT_8
+#undef PERFORM_ITER
 
 } // namespace bf
 } // namespace sketch

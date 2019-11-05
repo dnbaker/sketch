@@ -17,6 +17,7 @@ struct SizePow2Policy {
     }
     size_t nelem() const {return size_t(mask_) + 1;}
     static size_t arg2vecsize(size_t arg) {return size_t(1) << nelem2arg(arg);}
+    auto divmod(T rv) const {return schism::div_t<T>{rv >> shift_, rv & mask_};}
     T mod(T rv) const {
         return rv & mask_;
     }
@@ -35,6 +36,7 @@ struct SizeDivPolicy {
     static size_t arg2vecsize(size_t arg) {return arg;}
     T mod(T rv) const {return div_.mod(rv);}
     T div(T rv) const {return div_.div(rv);}
+    auto divmod(T rv) const {return div_.divmod(rv);}
     SizeDivPolicy(T div): div_(div) {}
 };
 

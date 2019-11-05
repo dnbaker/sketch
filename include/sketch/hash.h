@@ -7,6 +7,7 @@
 #include <climits>
 #include <memory>
 #include "vec/vec.h"
+#include "fixed_vector.h"
 
 namespace sketch {
 inline namespace hash {
@@ -341,6 +342,42 @@ struct HasherSet {
         return hashers_[ind](v);
     }
     uint64_t operator()(uint64_t v) const {throw std::runtime_error("Should not be called.");}
+};
+template<typename Hasher=WangHash>
+struct XORSeedHasherSet {
+    static constexpr size_t ALN = sizeof(vec::SIMDTypes<uint64_t>);
+    Hasher hasher_;
+    fixed::vector<uint64_t, ALN> seeds_;
+    template<typename...Args>
+    XORSeedHasherSet(size_t nh, uint64_t seedseed=137, Args &&... args):
+        hasher_(std::forward<Args>(args)...),
+        seeds_(nh)
+    {
+        std::mt19937_64 mt(seedseed);
+        for(unsigned i = 0; i < nh; seeds_[i++] = mt());
+    }
+    size_t size() const {return seeds_.size();}
+    uint64_t operator()(uint64_t v, unsigned ind) const {
+        return hasher_(v ^ seeds_[ind]);
+    }
+    fixed::vector<uint64_t> operator()(uint64_t v) const {
+        using VT = typename vec::SIMDTypes<uint64_t>::VType;
+        VT broadcast = vec::SIMDTypes<uint64_t>::set1(v);
+        fixed::vector<uint64_t> ret(size());
+        size_t i = 0;
+        while(i + vec::SIMDTypes<uint64_t>::COUNT < size()) {
+            VT tmpv = vec::SIMDTypes<uint64_t>::xor_fn(
+                vec::SIMDTypes<uint64_t>::load(reinterpret_cast<const typename vec::SIMDTypes<uint64_t>::Type *>(&seeds_[i])),
+                broadcast.simd_
+            );
+            tmpv.for_each([&](uint64_t hv) {
+                ret[i++] = hv;
+            });
+        }
+        for(;i < size();++i)
+            ret[i] = hasher_(v ^ seeds_[i]);
+        return ret;
+    }
 };
 
 template<size_t k>

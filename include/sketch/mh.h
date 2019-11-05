@@ -395,6 +395,11 @@ struct FinalRMinHash {
     }
     template<typename Alloc>
     FinalRMinHash(const std::vector<T, Alloc> &ofirst): first(ofirst.size()) {std::copy(ofirst.begin(), ofirst.end(), first.begin()); sort();}
+    template<typename It>
+    FinalRMinHash(It start, It end): first(std::distance(start, end)) {
+        std::copy(start, end, first.begin());
+        sort();
+    }
     template<typename Alloc, typename=std::enable_if_t<std::is_same<Alloc, allocator>::value>>
     FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(std::move(ofirst)) {
         sort();
@@ -1015,8 +1020,8 @@ public:
             case 16: return ComparePolicy::U16;
             case 32: return ComparePolicy::U32;
             case 64: return ComparePolicy::U64;
+            default: return ComparePolicy::Manual;
         }
-        return ComparePolicy::Manual;
     }
     // Encoding and decoding table entries
     auto get_lzc(uint64_t entry) const {
