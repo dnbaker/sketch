@@ -204,10 +204,6 @@ public:
     auto end() const {return minimizers_.end();}
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
-        CONST_IF(std::is_same<Cmp, std::less<>>::value) std::fprintf(stderr, "cmp is less\n");
-        CONST_IF(std::is_same<Cmp, std::greater<>>::value) std::fprintf(stderr, "cmp is gt\n");
-        CONST_IF(std::is_same<Cmp, std::less<T>>::value) std::fprintf(stderr, "cmp is less\n");
-        CONST_IF(std::is_same<Cmp, std::greater<T>>::value) std::fprintf(stderr, "cmp is gt\n");
         return common::intersection_size(o, *this, cmp_);
     }
     double jaccard_index(const RangeMinHash &o) const {
