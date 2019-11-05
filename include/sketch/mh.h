@@ -395,6 +395,11 @@ struct FinalRMinHash {
     }
     template<typename Alloc>
     FinalRMinHash(const std::vector<T, Alloc> &ofirst): first(ofirst.size()) {std::copy(ofirst.begin(), ofirst.end(), first.begin()); sort();}
+    template<typename It>
+    FinalRMinHash(It start, It end): first(std::distance(start, end)) {
+        std::copy(start, end, first.begin());
+        sort();
+    }
     template<typename Alloc, typename=std::enable_if_t<std::is_same<Alloc, allocator>::value>>
     FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(std::move(ofirst)) {
         sort();
