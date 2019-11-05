@@ -31,8 +31,8 @@ endif
 NVCC?=nvcc
 EX=$(patsubst testsrc/%.cpp,%,$(wildcard testsrc/*.cpp))
 all: $(EX)
-run_tests: $(EX) lztest
-	for i in $(EX) lztest; do ./$$i; done
+setup_tests: $(EX) lztest
+	echo $(EX) lztest > tmpfiles.txt
 
 STD?= -std=c++14
 

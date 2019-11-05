@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
         assert(t.est_err() >= std::abs(val - t.report()));
         fprintf(stderr, "JMLE Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
                 val, t.report(), t.est_err(), std::abs(val - t.report()), t.est_err() >= std::abs(val - t.report()) ? "true": "false", ertl_ml_estimate(t), std::abs(ertl_ml_estimate(t) - val));
-        assert(t.est_err() >= 2. * std::abs(val - t.report()));
+        assert(t.est_err() >= /*2. * */std::abs(val - t.report()));
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
                 val, tmf.report(), tmf.est_err(), std::abs(val - tmf.report()), tmf.est_err() >= std::abs(val - tmf.report()) ? "true": "false", ertl_ml_estimate(tmf), std::abs(ertl_ml_estimate(tmf) - val));
         hll::VType tmpv = static_cast<uint64_t>(1337);
