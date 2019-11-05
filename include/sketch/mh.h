@@ -1015,8 +1015,8 @@ public:
             case 16: return ComparePolicy::U16;
             case 32: return ComparePolicy::U32;
             case 64: return ComparePolicy::U64;
+            default: return ComparePolicy::Manual;
         }
-        return ComparePolicy::Manual;
     }
     // Encoding and decoding table entries
     auto get_lzc(uint64_t entry) const {
