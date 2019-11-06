@@ -4,7 +4,7 @@
 
 
 namespace sketch {
-namespace bf {
+inline namespace bf {
 
 
 // TODO: add a compact, 6-bit version
@@ -59,7 +59,7 @@ public:
 
     // Constructor
     template<typename... Args>
-    explicit bfbase_t(size_t l2sz, unsigned nhashes, uint64_t seedval, Args &&... args):
+    explicit bfbase_t(size_t l2sz, unsigned nhashes, uint64_t seedval=137, Args &&... args):
         np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), hf_(std::forward<Args>(args)...), seedseed_(seedval)
     {
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
@@ -182,7 +182,7 @@ public:
     }
 
     unsigned intersection_count(const bfbase_t &other) const {
-        if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
+        PREC_REQ(same_params(other), "Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
         Space::VType tmp;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
@@ -208,20 +208,45 @@ public:
         return sum_of_u64s(sum);
     }
 
+    double union_size(const bfbase_t &other) const {
+        PREC_REQ(same_params(other), "Can't compare different-sized bloom filters.");
+        auto &oc = other.core_;
+        const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
+        Space::VType l1 = *op++, l2 = *tc++;
+        Space::Type sumu = popcnt_fn(Space::or_fn(l1.simd_, l2.simd_));
+
+#define PERFORM_ITER \
+        l1 = *op++; l2 = *tc++; \
+        l1.simd_ = Space::or_fn(l1.simd_, l2.simd_); \
+        sumu = Space::add(sumu, popcnt_fn(l1.simd_));
+
+        if(core_.size() / Space::COUNT >= 8) {
+            REPEAT_7(PERFORM_ITER)
+            // Handle the last 7 times after initialization
+            for(size_t i(1); i < core_.size() / Space::COUNT / 8;++i) {
+                REPEAT_8(PERFORM_ITER)
+            }
+        }
+        for(const Type *endp = reinterpret_cast<const Type *>(&oc[oc.size()]); op < endp;) {
+            PERFORM_ITER
+        }
+        uint64_t usumu = sum_of_u64s(sumu);
+        const int ldv = -(int32_t(np_) + OFFSET);
+        return std::log1p(-std::ldexp(usumu, ldv)) / ((nh_) * std::log1p(std::ldexp(-1., ldv)));
+    }
     double setbit_jaccard_index(const bfbase_t &other) const {
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         Space::VType l1 = *op++, l2 = *tc++;
-        Space::VType tmp;
-        Space::Type sum1(Space::set1(0)), sum2 = sum1, sumu = sum1;
-
+        Space::Type sum1(popcnt_fn(l1.simd_)), sum2 = popcnt_fn(l2.simd_), sumu = popcnt_fn(popcnt_fn(l1.simd_ | l2.simd_));
+#undef PERFORM_ITER
 #define PERFORM_ITER \
         l1 = *op++; l2 = *tc++; \
         sum1 = Space::add(sum1, popcnt_fn(l1.simd_));\
         sum2 = Space::add(sum2, popcnt_fn(l2.simd_));\
-        tmp = Space::or_fn(l1.simd_, l2.simd_); \
-        sumu = Space::add(sumu, popcnt_fn(tmp));
+        l1.simd_ = Space::or_fn(l1.simd_, l2.simd_); \
+        sumu = Space::add(sumu, popcnt_fn(l1.simd_));
 
         if(core_.size() / Space::COUNT >= 8) {
             REPEAT_7(PERFORM_ITER)
@@ -243,12 +268,11 @@ public:
         auto &oc = o.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         Space::VType l1 = *op++, l2 = *tc++;
-        Space::VType tmp;
         Space::Type sum1, sum2, sumu;
         sum1 = popcnt_fn(l1.simd_);
         sum2 = popcnt_fn(l2.simd_);
-        tmp = Space::or_fn(l1.simd_, l2.simd_);
-        sumu = popcnt_fn(tmp);
+        l1.simd_ = Space::or_fn(l1.simd_, l2.simd_);
+        sumu = popcnt_fn(l1.simd_);
 
         if(core_.size() / Space::COUNT >= 8) {
             REPEAT_7(PERFORM_ITER)
@@ -282,12 +306,11 @@ public:
         auto &oc = other.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         Space::VType l1 = *op++, l2 = *tc++;
-        Space::VType tmp;
         Space::Type sum1, sum2, sumu;
         sum1 = popcnt_fn(l1.simd_);
         sum2 = popcnt_fn(l2.simd_);
-        tmp = Space::or_fn(l1.simd_, l2.simd_);
-        sumu = popcnt_fn(tmp);
+        l1.simd_ = Space::or_fn(l1.simd_, l2.simd_);
+        sumu = popcnt_fn(l1.simd_);
 
         if(core_.size() / Space::COUNT >= 8) {
             REPEAT_7(PERFORM_ITER)
@@ -686,7 +709,7 @@ static inline double intersection_size(const BloomType &h1, const BloomType &h2)
 #undef REPEAT_8
 #undef PERFORM_ITER
 
-} // namespace bf
+} // inline namespace bf
 } // namespace sketch
 
 #endif // #ifndef CRUEL_BLOOM_H__

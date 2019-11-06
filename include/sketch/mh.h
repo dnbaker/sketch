@@ -15,7 +15,7 @@
  */
 
 namespace sketch {
-namespace minhash {
+inline namespace minhash {
 
 #define SET_SKETCH(x) const auto &sketch() const {return x;} auto &sketch() {return x;}
 
@@ -1277,6 +1277,6 @@ double jaccard_index(const T &a, const T &b) {
 }
 
 
-} // namespace minhash
+} // inline namespace minhash
 namespace mh = minhash;
 } // namespace sketch

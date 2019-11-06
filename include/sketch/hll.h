@@ -3,7 +3,9 @@
 #include "common.h"
 #include "hash.h"
 
-namespace sketch { namespace hll { namespace detail {
+namespace sketch {
+inline namespace hll {
+namespace detail {
 
 // Based off https://github.com/oertl/hyperloglog-sketch-estimation-paper/blob/master/c%2B%2B/cardinality_estimation.hpp
 template<typename FloatType>
@@ -43,7 +45,7 @@ static constexpr FloatType gen_tau(FloatType x) {
 
 
 namespace sketch {
-namespace hll {
+inline namespace hll {
 enum EstimationMethod: uint8_t {
     ORIGINAL       = 0,
     ERTL_IMPROVED  = 1,

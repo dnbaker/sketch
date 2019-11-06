@@ -66,6 +66,7 @@ auto wz_compress(const C &in, size_t newdim, const Hasher &hf, double p) {
     }
     return ret;
 }
+
 template<typename C, typename OutC, typename Hasher=KWiseHasherSet<4>,
          typename=std::enable_if_t<!std::is_arithmetic<OutC>::value>,
          typename RNG=blaze::RNG>

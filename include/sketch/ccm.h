@@ -11,7 +11,7 @@
 
 namespace sketch {
 
-namespace cm {
+inline namespace cm {
 using common::detail::tmpbuffer;
 
 namespace detail {
