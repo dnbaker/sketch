@@ -694,7 +694,7 @@ public:
     }
     using final_type = FinalBBitMinHash;
     static constexpr size_t NBITS = sizeof(T) * CHAR_BIT;
-    BBitMinHasher(unsigned p): BBitMinHasher(p, NBITS) {}
+    BBitMinHasher(unsigned p): BBitMinHasher(p, NBITS - p) {}
     template<typename... Args>
     BBitMinHasher(unsigned p, unsigned b, Args &&... args):
         core_(size_t(1) << p, detail::default_val<T>()), b_(b), p_(p), hf_(std::forward<Args>(args)...)
