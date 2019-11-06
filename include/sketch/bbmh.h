@@ -1461,15 +1461,12 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
 #    else /* has avx2 not not 512 */
             default: {
                 const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2);
-#if !NDEBUG
-                const __m256i *vpe = reinterpret_cast<const __m256i *>(pe);
-#endif
                 auto lsum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < 1ull << (l2szfloor - 8u); ++i) {
                     vp1 += b_;
                     vp2 += b_;
                     lsum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), lsum);
-                    assert(vp1 <= vpe);
+                    assert(vp1 <= reinterpret_cast<const __m256i *>(pe));
                 }
                 sum = common::sum_of_u64s(lsum);
                 break;

@@ -25,7 +25,6 @@ struct modsketch_t {
     final_type finalize() const {
         return final_type(set.begin(), set.end());
     }
-    // TODO: finalize to sorted hash sets
 };
 
 } // mod

@@ -15,6 +15,8 @@ static constexpr uint64_t bitmask(size_t n) {
 }
 
 inline namespace hk {
+template<typename HKType, typename ValueType, typename Hasher, typename Allocator, typename HashSetFingerprint, typename, typename>
+class HeavyKeeperHeap;
 
 template<size_t fpsize, size_t ctrsize=64-fpsize, typename Hasher=hash::WangHash, typename Policy=policy::SizeDivPolicy<uint64_t>, typename RNG=wy::WyHash<uint64_t>, typename Allocator=common::Allocator<uint64_t>>
 class HeavyKeeper {
@@ -25,6 +27,8 @@ class HeavyKeeper {
         uint64_t &count() {return this->first;}
         uint64_t &fp() {return this->second;}
     };
+    template<typename HK, typename VT, typename H, typename A, typename HS, typename, typename>
+    friend class HeavyKeeperHeap;
 
     // Members
     Policy pol_;
@@ -296,8 +300,10 @@ public:
     uint64_t addh(value_type &&x) {
         const auto hv = hk_.hash(x);
         auto old_count = hk_.query(hv);
-        if(hashes_.find(hv) != hashes_.end())
+        if(hashes_.find(hv) != hashes_.end()) {
+            hk_.add(hv);
             goto end;
+        }
         if(heap_.size() < heap_.capacity()) {
             heap_.emplace_back(std::move(x));
             hk_.add(hv);
@@ -316,14 +322,20 @@ public:
                     old_count = 0;
                     goto end;
                 }
-                hk_.add(hv);
+                if(old_count == cmpcount + 1 || old_count == cmpcount) {
+                    // 3.4:Optimization 2 -- selective increment
+                    // Note: we will replace the top of the heap even if
+                    // cmpcount is nmin if the new hashvalue is smaller,
+                    // as the items themselves are equivalent
+                    hk_.add(hv);
 
-                std::pop_heap(heap_.begin(), heap_.end(), Comparator(hk_));
-                hashes_.erase(hash(heap_.back()));
-                hashes_.emplace(hv);
-                heap_.back() = std::move(x);
-                assert(hashes_.size() == heap_.size());
-                std::push_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+                    std::pop_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+                    hashes_.erase(hash(heap_.back()));
+                    hashes_.emplace(hv);
+                    heap_.back() = std::move(x);
+                    assert(hashes_.size() == heap_.size());
+                    std::push_heap(heap_.begin(), heap_.end(), Comparator(hk_));
+                }
             }
         }
         end:
@@ -347,12 +359,12 @@ public:
         }
         return std::make_tuple(std::move(ret), std::move(counts), std::move(hashfps));
     }
-    auto finalize() const {
+    auto finalize() const & {
         auto ret = to_container();
         return ret;
     }
-    auto finalize() { // Consumes and destroys
-        for(auto it = heap_.end(); it != heap_.begin(); std::pop_heap(heap_.begin(), it--, Comparator(hk_)));
+    auto finalize() && { // Consumes and destroys
+        sort::default_sort(heap_.begin(), heap_.end(), Comparator(hk_));
         std::vector<hashfp_t, common::Allocator<hashfp_t>> hashfps;
         std::vector<size_t, common::Allocator<size_t>> counts;
         hashfps.reserve(heap_.size());
@@ -380,7 +392,7 @@ struct HeavyKeeperHeavyHitters: public HeavyKeeperHeap<Args...> {
     using super::value_type;
     size_t mc_;
     HeavyKeeperHeavyHitters(size_t mincount, size_t n, HKType &&hk): super(n, std::move(hk)), mc_(mincount) {
-        
+
     }
 
     void addh(typename super::value_type &&x) {

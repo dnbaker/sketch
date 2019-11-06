@@ -397,15 +397,19 @@ public:
         VType *els(reinterpret_cast<VType *>(core_.data()));
         const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
         if(core_.size() / Space::COUNT >= 8) {
-            for(i = 0; i < (core_.size() / (Space::COUNT));) {
-#define AND_ITER els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_); ++i;
-                REPEAT_8(AND_ITER)
-#undef AND_ITER
-            }
-        } else {
-            for(i = 0; i < (core_.size() / Space::COUNT); ++i)
+            for(i = 0; i < (core_.size() / (Space::COUNT)); i += 8) {
                 els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_);
-        }
+                els[i + 1].simd_ = Space::and_fn(els[i + 1].simd_, oels[i + 1].simd_);
+                els[i + 2].simd_ = Space::and_fn(els[i + 2].simd_, oels[i + 2].simd_);
+                els[i + 3].simd_ = Space::and_fn(els[i + 3].simd_, oels[i + 3].simd_);
+                els[i + 4].simd_ = Space::and_fn(els[i + 4].simd_, oels[i + 4].simd_);
+                els[i + 5].simd_ = Space::and_fn(els[i + 5].simd_, oels[i + 5].simd_);
+                els[i + 6].simd_ = Space::and_fn(els[i + 6].simd_, oels[i + 6].simd_);
+                els[i + 7].simd_ = Space::and_fn(els[i + 7].simd_, oels[i + 7].simd_);
+            }
+        } else
+            for(i = 0; i < (core_.size() / Space::COUNT);
+                els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_), ++i);
         return *this;
     }
 

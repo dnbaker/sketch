@@ -267,7 +267,11 @@ struct Card {
             for(size_t i = 1; i < data_.size(); std::fprintf(fp, ",%f", data_[i++]));
         }
     };
-#define access operator[]
+#ifndef NDEBUG
+#  define __vector_access operator[]
+#else
+#  define __vector_access at
+#endif
     ResultType report() const {
         const CounterType max_val = *std::max_element(core_.begin(), core_.end()),
                           nvals = max_val + 1;
@@ -279,7 +283,7 @@ struct Card {
             size_t core_offset = i << r_;
             size_t arr_offset = nvals * i;
             for(size_t j = 0; j < size_t(1) << r_; ++j) {
-                ++arr.access(core_.access(j + core_offset) + arr_offset);
+                ++arr.__vector_access(core_.__vector_access(j + core_offset) + arr_offset);
             }
         }
 #if VERBOSE_AF
@@ -305,7 +309,7 @@ struct Card {
                 sum += j * pmeans[i-j] * f_i[j];
             f_i[i] = -1.0*pmeans[i]/(pmeans[0]*(logpm0))-sum/(i*pmeans[0]);
         }
-#undef access
+#undef __vector_access
         for(size_t i=1; i<nvals; f_i[i] = std::abs(f_i[i] * f_i[0]), ++i);
         return ResultType{std::move(f_i), total_added_.load()};
     }
