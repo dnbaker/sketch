@@ -12,6 +12,12 @@
 
 namespace sketch {
 
+inline namespace rnla {
+enum Transform {
+    CountSketch = 0,
+    WoodruffZhang = 1
+};
+
 /***
    Utilities for compressing and decompressing
   */
@@ -21,18 +27,22 @@ namespace sketch {
 
 // TODO: write a generic method compatible with pytorch/ATen
 //       (this actually does work, assuming we're working on the last level of a packedtensoraccessor), just not on GPU yet.
-//       1. exponential distribution (Woodruff-Zhang transform) [TODONE]
-//       2. Random Laplace Transforms (Random Laplace Feature Maps for Semigroup Kernels on Histograms, Quasi-Monte Carlo Feature Maps for Shift-Invariant Kernels)
+//       1. Random Laplace Transforms (Random Laplace Feature Maps for Semigroup Kernels on Histograms, Quasi-Monte Carlo Feature Maps for Shift-Invariant Kernels)
+//       2. Tensor sketch: Count Sketch, but perform FFT on inputs and IFFT on outputs
 //       3. Quasi Random Fourier Transform
 //
+//
 
-template<typename C, typename Hasher=KWiseHasherSet<4>>
-auto cs_compress(const C &in, size_t newdim, const Hasher &hf) {
+
+template<typename C, typename C2, typename Hasher=KWiseHasherSet<4>>
+auto &cs_compress(const C &in, C2 &ret, size_t newdim, const Hasher &hf) {
     //using FT = std::decay_t<decltype(*std::begin(in))>;
     if(newdim > in.size()) throw 1;
+    std::memset(&ret[0], 0, sizeof(ret[0]) * ret.size());
+    PREC_REQ(newdim <= in.size(), "newdim cannot be larger");
     const size_t ns = hf.size();
     schism::Schismatic<uint32_t> div(newdim);
-    C ret(newdim * ns);
+    PREC_REQ(ret.size() == newdim * ns, "out size doesn't match parameters");
     for(unsigned j = 0; j < ns; ++j) {
         for(unsigned i = 0; i < in.size(); ++i) {
             const auto v = in[i];
@@ -43,14 +53,23 @@ auto cs_compress(const C &in, size_t newdim, const Hasher &hf) {
     }
     return ret;
 }
-template<typename C, typename Hasher=KWiseHasherSet<4>, typename RNG=blaze::RNG>
-auto wz_compress(const C &in, size_t newdim, const Hasher &hf, double p) {
+
+template<typename C, typename Hasher=KWiseHasherSet<4>>
+auto cs_compress(const C &in, size_t newdim, const Hasher &hf) {
+    C ret(newdim * hf.size());
+    cs_compress(in, ret, newdim, hf);
+    return ret;
+}
+
+template<typename C, typename C2, typename Hasher=KWiseHasherSet<4>, typename SamplingDist=std::exponential_distribution<double>,
+         typename RNG=blaze::RNG>
+auto &wz_compress(const C &in, C2 &out, size_t newdim, const Hasher &hf, double p) {
     //using FT = std::decay_t<decltype(*std::begin(in))>;
     if(newdim > in.size()) throw 1;
     const size_t ns = hf.size();
     schism::Schismatic<uint32_t> div(newdim);
-    C ret(newdim * ns);
-    std::exponential_distribution<double> gen(p);
+    SamplingDist gen(p);
+    std::memset(&out[0], 0, sizeof(out[0]) * out.size());
     for(unsigned j = 0; j < ns; ++j) {
         for(unsigned i = 0; i < in.size(); ++i) {
             const auto v = in[i];
@@ -59,11 +78,18 @@ auto wz_compress(const C &in, size_t newdim, const Hasher &hf, double p) {
             auto ind = dm.rem * ns + j;
             RNG rng(dm.quot >> 1);
             const double mult = gen(rng) * (dm.quot & 1 ? 1: -1);
-            ret.operator[](ind) += v * mult;
+            out.operator[](ind) += v * mult;
         }
         // TODO: decompress.
         // Sample using the same seed, just multiply by inverse
     }
+    return out;
+}
+
+template<typename C, typename C2=C, typename Hasher=KWiseHasherSet<4>, typename RNG=blaze::RNG>
+auto wz_compress(const C &in, size_t newdim, const Hasher &hf, double p) {
+    C2 ret(newdim * hf.size());
+    wz_compress(in, ret, newdim, hf, p);
     return ret;
 }
 
@@ -94,8 +120,15 @@ auto &wz_decompress(const C &in, const Hasher &hf, OutC &ret, double p) {
     return ret;
 }
 
+template<typename C, typename OutC=C, typename Hasher=KWiseHasherSet<4>, typename RNG=blaze::RNG>
+auto wz_decompress(const C &in, size_t outdim, const Hasher &hs, double p) {
+    OutC ret(outdim);
+    wz_decompress(in, hs, ret, p);
+    return ret;
+}
+
 template<typename C, typename OutC, typename Hasher=KWiseHasherSet<4>,
-         typename=std::enable_if_t<!std::is_arithmetic<OutC>::value>>
+         typename=std::enable_if_t<!std::is_arithmetic<Hasher>::value>>
 auto &cs_decompress(const C &in, const Hasher &hf, OutC &ret) {
     PREC_REQ(in.size() % hf.size() == 0, "in dimension must be divisible by hf count");
     size_t olddim = in.size() / hf.size();
@@ -117,7 +150,7 @@ auto &cs_decompress(const C &in, const Hasher &hf, OutC &ret) {
 }
 
 template<typename C, typename OutC=C, typename Hasher=KWiseHasherSet<4>>
-auto cs_decompress(const C &in, const Hasher &hf, size_t newdim) {
+auto cs_decompress(const C &in, size_t newdim, const Hasher &hf) {
     OutC ret(newdim);
     cs_decompress<C, OutC, Hasher>(in, hf, ret);
     return ret;
@@ -163,5 +196,65 @@ auto top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, cons
     return ret;
 }
 
+template<typename HasherSetType=XORSeedHasherSet<>>
+struct SketchApplicator {
+protected:
+    size_t in_, out_;
+    double p_;
+    const Transform tx_;
+    HasherSetType hs_;
+public:
+    SketchApplicator(size_t indim, size_t outdim, uint64_t seed=13, double p=1., Transform tx=CountSketch):
+        in_(indim), out_(outdim), p_(p), tx_(tx), hs_(seed)
+    {
+        PREC_REQ(tx == CountSketch || tx == WoodruffZhang, "Unsupported");
+    }
+    template<typename C, typename C2>
+    auto &compress(const C &in, C2 &out) const {
+        assert(in_ == in.size());
+        switch(tx_) {
+            case CountSketch:
+                return cs_compress(in, out, out_, hs_);
+            case WoodruffZhang:
+                return wz_compress(in, out, out_, hs_, p_);
+            default: __builtin_unreachable();
+        }
+    }
+    template<typename C, typename C2>
+    auto &decompress(const C &in, C2 &out) const {
+        assert(out_ * hs_.size() == in.size());
+        switch(tx_) {
+            case CountSketch:
+                return cs_decompress(in, hs_, out);
+            case WoodruffZhang:
+                return wz_decompress(in, hs_, out, p_);
+            default: __builtin_unreachable();
+        }
+    }
+    template<typename C>
+    auto decompress(const C &in) const {
+        assert(out_ * hs_.size() == in.size());
+        switch(tx_) {
+            case CountSketch:
+                return cs_decompress(in, out_, hs_);
+            case WoodruffZhang:
+                return wz_decompress(in, out_, hs_, p_);
+            default: __builtin_unreachable();
+        }
+    }
+    template<typename C>
+    auto compress(const C &in) const {
+        assert(in_ == in.size());
+        switch(tx_) {
+            case CountSketch:
+                return cs_compress(in, out_, hs_);
+            case WoodruffZhang:
+                return wz_compress(in, out_, hs_, p_);
+            default: __builtin_unreachable();
+        }
+    }
+};
+
+} // rnla
 
 } // sketch
