@@ -16,7 +16,7 @@
 #include "./vac.h"
 #include "./hbb.h"
 #include "./mod.h"
-#include "./cs_compress.h"
+#include "./rnla.h"
 
 #ifdef __CUDACC__
 #include "hllgpu.h"
