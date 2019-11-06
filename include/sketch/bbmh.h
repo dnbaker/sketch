@@ -8,7 +8,7 @@
 #endif
 
 namespace sketch {
-namespace minhash {
+inline namespace minhash {
 
 namespace detail {
 
@@ -690,7 +690,7 @@ class BBitMinHasher {
     Hasher hf_;
 public:
     void free() {
-        std::vector<T>().swap(core_);
+        std::vector<T, common::Allocator<T>>().swap(core_);
     }
     using final_type = FinalBBitMinHash;
     static constexpr size_t NBITS = sizeof(T) * CHAR_BIT;
