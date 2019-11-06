@@ -410,6 +410,10 @@ struct HeavyKeeperHeavyHitters: public HeavyKeeperHeap<Args...> {
             ret.resize(counts.size());
         return std::make_tuple(std::move(ret), std::move(counts), std::move(hashfps));
     }
+    uint64_t addh(const typename super::value_type &x) {
+        auto tmp(x);
+        return addh(std::move(tmp));
+    }
     uint64_t addh(typename super::value_type &&x) {
         const auto hv = this->hk_.hash(x);
         auto old_count = this->hk_.query(hv);
