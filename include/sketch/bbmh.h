@@ -768,7 +768,7 @@ public:
     }
     double jaccard_index(const BBitMinHasher &o) const {
         auto it = core_.begin(), oit = o.core_.begin();
-        size_t ret = *it++ == *oit;
+        size_t ret = *it++ == *oit++;
         do {
             ret += *it++ == *oit++;
         } while(it != core_.end());
