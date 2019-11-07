@@ -738,7 +738,7 @@ public:
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_JOINT_MLE) {}
     explicit hllbase_t(): hllbase_t(size_t(0), EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
     template<typename... Args>
-    hllbase_t(const std::string &path, Args &&... args): hllbase_t(path.data(), std::forward<Args>(args)...) {}
+    hllbase_t(const std::string &path, Args &&... args): hf_(std::forward<Args>(args)...) {read(path);}
     template<typename... Args>
     hllbase_t(gzFile fp, Args &&... args): hllbase_t(size_t(0), ERTL_MLE, ERTL_JOINT_MLE, std::forward<Args>(args)...) {this->read(fp);}
 
@@ -1059,9 +1059,7 @@ public:
         read(fp);
         gzclose(fp);
     }
-    void read(const std::string &path) {
-        read(path.data());
-    }
+    void read(const std::string &path) {read(path.data());}
     void write(int fileno) const {
         uint32_t bf[]{is_calculated_, estim_, jestim_, 137};
 #define CHWR(fn, obj, sz) if(__builtin_expect(::write(fn, (obj), (sz)) != ssize_t(sz), 0)) throw std::runtime_error(std::string("Failed to write to disk in ") + __PRETTY_FUNCTION__)
