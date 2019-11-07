@@ -964,6 +964,9 @@ public:
     FinalBBitMinHash(const char *path): est_cardinality_(0), b_(0), p_(0) {
         read(path);
     }
+    FinalBBitMinHash(gzFile fp): est_cardinality_(0), b_(0), p_(0) {
+        read(fp);
+    }
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
     template<typename T, typename Hasher=common::WangHash>

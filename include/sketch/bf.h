@@ -70,6 +70,9 @@ public:
     explicit bfbase_t(const std::string &path) {
         read(path);
     }
+    explicit bfbase_t(gzFile fp) {
+        read(fp);
+    }
     void reseed(uint64_t seedseed=0) {
         if(seedseed == 0) seedseed = seedseed_;
         std::mt19937_64 mt(seedseed);
