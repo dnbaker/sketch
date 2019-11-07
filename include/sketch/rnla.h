@@ -30,15 +30,14 @@ enum Transform {
 //       1. Random Laplace Transforms (Random Laplace Feature Maps for Semigroup Kernels on Histograms, Quasi-Monte Carlo Feature Maps for Shift-Invariant Kernels)
 //       2. Tensor sketch: Count Sketch, but perform FFT on inputs and IFFT on outputs
 //       3. Quasi Random Fourier Transform
-//
+//       4. Full matrix processing
 //
 
 
 template<typename C, typename C2, typename Hasher=KWiseHasherSet<4>>
 auto &cs_compress(const C &in, C2 &ret, size_t newdim, const Hasher &hf) {
-    //using FT = std::decay_t<decltype(*std::begin(in))>;
     if(newdim > in.size()) throw 1;
-    std::memset(&ret[0], 0, sizeof(ret[0]) * ret.size());
+    std::fill(ret.begin(), ret.end(), static_cast<std::decay_t<decltype(ret[0])>>(0));
     PREC_REQ(newdim <= in.size(), "newdim cannot be larger");
     const size_t ns = hf.size();
     schism::Schismatic<uint32_t> div(newdim);
@@ -54,6 +53,26 @@ auto &cs_compress(const C &in, C2 &ret, size_t newdim, const Hasher &hf) {
     return ret;
 }
 
+template<typename FT, typename C2, bool SO, typename Hasher=KWiseHasherSet<4>>
+auto &cs_compress(const blaze::CompressedVector<FT, SO> &in, C2 &ret, size_t newdim, const Hasher &hf=Hasher()) {
+    if(newdim > in.size()) throw 1;
+    std::fill(ret.begin(), ret.end(), static_cast<std::decay_t<decltype(ret[0])>>(0));
+    PREC_REQ(newdim <= in.size(), "newdim cannot be larger");
+    const size_t ns = hf.size();
+    schism::Schismatic<uint32_t> div(newdim);
+    PREC_REQ(ret.size() == newdim * ns, "out size doesn't match parameters");
+    for(const auto &pair: in) {
+        const auto idx = pair.index();
+        const auto v = pair.value();
+        for(unsigned j = 0; j < ns; ++j) {
+            auto hv = hf(idx, j);
+            auto ind = div.mod(hv >> 1) * ns + j;
+            ret[ind] += v * (hv & 1 ? 1: -1);
+        }
+    }
+    return ret;
+}
+
 template<typename C, typename Hasher=KWiseHasherSet<4>>
 auto cs_compress(const C &in, size_t newdim, const Hasher &hf) {
     C ret(newdim * hf.size());
@@ -61,19 +80,47 @@ auto cs_compress(const C &in, size_t newdim, const Hasher &hf) {
     return ret;
 }
 
+// Note: cs_compress could be a special case of wz_compress with Samplingist always returning 1
+// or make it always a function of the remainder.
+
 template<typename C, typename C2, typename Hasher=KWiseHasherSet<4>, typename SamplingDist=std::exponential_distribution<double>,
          typename RNG=blaze::RNG>
 auto &wz_compress(const C &in, C2 &out, size_t newdim, const Hasher &hf, double p) {
     //using FT = std::decay_t<decltype(*std::begin(in))>;
+    std::fill(out.begin(), out.end(), static_cast<std::decay_t<decltype(out[0])>>(0));
     if(newdim > in.size()) throw 1;
     const size_t ns = hf.size();
     schism::Schismatic<uint32_t> div(newdim);
     SamplingDist gen(p);
-    std::memset(&out[0], 0, sizeof(out[0]) * out.size());
     for(unsigned j = 0; j < ns; ++j) {
         for(unsigned i = 0; i < in.size(); ++i) {
             const auto v = in[i];
             auto hv = hf(i, j);
+            auto dm = div.divmod(hv);
+            auto ind = dm.rem * ns + j;
+            RNG rng(dm.quot >> 1);
+            const double mult = gen(rng) * (dm.quot & 1 ? 1: -1);
+            out.operator[](ind) += v * mult;
+        }
+        // TODO: decompress.
+        // Sample using the same seed, just multiply by inverse
+    }
+    return out;
+}
+
+template<typename FT, bool SO, typename C2, typename Hasher=KWiseHasherSet<4>, typename SamplingDist=std::exponential_distribution<double>,
+         typename RNG=blaze::RNG>
+auto &wz_compress(const blaze::CompressedVector<FT> &in, C2 &out, size_t newdim, const Hasher &hf, double p) {
+    //using FT = std::decay_t<decltype(*std::begin(in))>;
+    std::fill(out.begin(), out.end(), static_cast<std::decay_t<decltype(out[0])>>(0));
+    if(newdim > in.size()) throw 1;
+    const size_t ns = hf.size();
+    schism::Schismatic<uint32_t> div(newdim);
+    SamplingDist gen(p);
+    for(const auto &p: in) {
+        for(unsigned j = 0; j < ns; ++j) {
+            const auto v = p.value();
+            auto hv = hf(p.index(), j);
             auto dm = div.divmod(hv);
             auto ind = dm.rem * ns + j;
             RNG rng(dm.quot >> 1);
