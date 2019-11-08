@@ -345,7 +345,7 @@ struct HasherSet {
 };
 template<typename Hasher=WangHash>
 struct XORSeedHasherSet {
-    static constexpr size_t ALN = sizeof(vec::SIMDTypes<uint64_t>);
+    static constexpr size_t ALN = sizeof(vec::SIMDTypes<uint64_t>::VType);
     Hasher hasher_;
     fixed::vector<uint64_t, ALN> seeds_;
     template<typename...Args>

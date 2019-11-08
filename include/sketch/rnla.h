@@ -67,7 +67,12 @@ auto &cs_compress(const blaze::CompressedVector<FT, SO> &in, C2 &ret, size_t new
         for(unsigned j = 0; j < ns; ++j) {
             auto hv = hf(idx, j);
             auto ind = div.mod(hv >> 1) * ns + j;
-            ret[ind] += v * (hv & 1 ? 1: -1);
+            const auto upv = v * (hv & 1 ? 1: -1);
+#ifndef NOT_THREADSAFE
+            ret.operator[](ind) += upv;
+#else
+            std::atomic_fetch_add(&ret[ind], upv);
+#endif
         }
     }
     return ret;
@@ -99,8 +104,12 @@ auto &wz_compress(const C &in, C2 &out, size_t newdim, const Hasher &hf, double 
             auto dm = div.divmod(hv);
             auto ind = dm.rem * ns + j;
             RNG rng(dm.quot >> 1);
-            const double mult = gen(rng) * (dm.quot & 1 ? 1: -1);
-            out.operator[](ind) += v * mult;
+            const double mult = gen(rng) * (dm.quot & 1 ? 1: -1) * v;
+#ifndef NOT_THREADSAFE
+            out.operator[](ind) += mult;
+#else
+            std::atomic_fetch_add(&out[ind], mult);
+#endif
         }
         // TODO: decompress.
         // Sample using the same seed, just multiply by inverse
@@ -251,8 +260,8 @@ protected:
     const Transform tx_;
     HasherSetType hs_;
 public:
-    SketchApplicator(size_t indim, size_t outdim, uint64_t seed=13, double p=1., Transform tx=CountSketch):
-        in_(indim), out_(outdim), p_(p), tx_(tx), hs_(seed)
+    SketchApplicator(size_t indim, size_t outdim, unsigned nh=3, uint64_t seed=13, double p=1., Transform tx=CountSketch):
+        in_(indim), out_(outdim), p_(p), tx_(tx), hs_(nh, seed)
     {
         PREC_REQ(tx == CountSketch || tx == WoodruffZhang, "Unsupported");
     }

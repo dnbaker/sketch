@@ -21,5 +21,7 @@ int main() {
     std::fprintf(stderr, "topind2 sizes: %zu, %zu\n", topind2.first.size(), topind2.second.size());
     for(const auto i: topind2.first)
         std::fprintf(stderr, "wooo %lf\n", double(i));
+    std::fprintf(stderr, "run\n");
     sketch::SketchApplicator<> sa(100, 10);
+    std::fprintf(stderr, "alloc'd\n");
 }
