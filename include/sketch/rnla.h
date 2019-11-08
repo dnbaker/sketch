@@ -36,8 +36,9 @@ enum Transform {
 
 template<typename C, typename C2, typename Hasher=KWiseHasherSet<4>>
 auto &cs_compress(const C &in, C2 &ret, size_t newdim, const Hasher &hf) {
+    using VT = std::decay_t<decltype(ret[0])>;
     if(newdim > in.size()) throw 1;
-    std::fill(ret.begin(), ret.end(), static_cast<std::decay_t<decltype(ret[0])>>(0));
+    std::fill(ret.begin(), ret.end(), static_cast<VT>(0));
     PREC_REQ(newdim <= in.size(), "newdim cannot be larger");
     const size_t ns = hf.size();
     schism::Schismatic<uint32_t> div(newdim);
@@ -47,7 +48,8 @@ auto &cs_compress(const C &in, C2 &ret, size_t newdim, const Hasher &hf) {
             const auto v = in[i];
             auto hv = hf(i, j);
             auto ind = div.mod(hv >> 1) * ns + j;
-            ret.operator[](ind) += v * (hv & 1 ? 1: -1);
+            auto upv = v * (hv & 1 ? 1: -1);
+            ret[ind] += upv;
         }
     }
     return ret;
@@ -55,8 +57,9 @@ auto &cs_compress(const C &in, C2 &ret, size_t newdim, const Hasher &hf) {
 
 template<typename FT, typename C2, bool SO, typename Hasher=KWiseHasherSet<4>>
 auto &cs_compress(const blaze::CompressedVector<FT, SO> &in, C2 &ret, size_t newdim, const Hasher &hf=Hasher()) {
+    using VT = std::decay_t<decltype(ret[0])>;
     if(newdim > in.size()) throw 1;
-    std::fill(ret.begin(), ret.end(), static_cast<std::decay_t<decltype(ret[0])>>(0));
+    std::fill(ret.begin(), ret.end(), static_cast<VT>(0));
     PREC_REQ(newdim <= in.size(), "newdim cannot be larger");
     const size_t ns = hf.size();
     schism::Schismatic<uint32_t> div(newdim);
@@ -68,11 +71,7 @@ auto &cs_compress(const blaze::CompressedVector<FT, SO> &in, C2 &ret, size_t new
             auto hv = hf(idx, j);
             auto ind = div.mod(hv >> 1) * ns + j;
             const auto upv = v * (hv & 1 ? 1: -1);
-#ifndef NOT_THREADSAFE
-            ret.operator[](ind) += upv;
-#else
-            std::atomic_fetch_add(&ret[ind], upv);
-#endif
+            ret[ind] += upv;
         }
     }
     return ret;
@@ -105,11 +104,7 @@ auto &wz_compress(const C &in, C2 &out, size_t newdim, const Hasher &hf, double 
             auto ind = dm.rem * ns + j;
             RNG rng(dm.quot >> 1);
             const double mult = gen(rng) * (dm.quot & 1 ? 1: -1) * v;
-#ifndef NOT_THREADSAFE
             out.operator[](ind) += mult;
-#else
-            std::atomic_fetch_add(&out[ind], mult);
-#endif
         }
         // TODO: decompress.
         // Sample using the same seed, just multiply by inverse
