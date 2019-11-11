@@ -123,21 +123,27 @@ INLINE auto matching_bits(const __m128i *s1, const __m128i *s2, uint16_t b) {
 #endif
 
 #if __AVX2__
-INLINE auto matching_bits(const __m256i *s1, const __m256i *s2, uint16_t b) {
+INLINE auto sbit_accum(const __m256i *s1, const __m256i *s2, uint16_t b) {
     __m256i match = ~(*s1++ ^ *s2++);
     while(--b)
         match &= ~(*s1++ ^ *s2++);
-    return popcnt256(match);
+    return match;
+}
+INLINE auto matching_bits(const __m256i *s1, const __m256i *s2, uint16_t b) {
+    return popcnt256(sbit_accum(s1, s2, b));
 }
 #endif
 
 
 #if HAS_AVX_512
-INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
+INLINE auto sbit_accum(const __m512i *s1, const __m512i *s2, uint16_t b) {
     __m512i match = ~(*s1++ ^ *s2++);
     while(--b)
         match &= ~(*s1++ ^ *s2++);
-    return popcnt512(match);
+    return match;
+}
+INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
+    return popcnt512(sbit_accum(s1, s2, b));
 }
 #endif
 
@@ -935,9 +941,24 @@ public:
         hv <<= this->p_; hv >>= this->p_; // Clear top values. We could also shift/mask, but that requires two other constants vs 1.
         if(ref < hv)
             ref = hv, counters_[ind] = 1;
-        else ref += (ref == hv);
+        else if(ref == hv) ++ref;
     }
     FinalCountingBBitMinHash<CountingType> finalize(uint32_t b=0, MHCardinalityMode mode=HARMONIC_MEAN) const;
+    std::pair<CountingType, CountingType> multiset_comparison(const CountingBBitMinHasher &o) const {
+        PREC_REQ(this->size() == o.size(), "Can't compare different-sized sketches");
+        CountingType shared_sum = 0, total_sum = 0;
+        for(size_t i = 0; i < this->size(); ++i) {
+            if(this->core_[i] == o.core_[i]) {
+                shared_sum += std::min(this->counters_[i], o.counters_[i]);
+                total_sum += std::max(this->counters_[i], o.counters_[i]);
+            } else total_sum += this->counters_[i] + o.counters_[i];
+        }
+        return std::make_pair(shared_sum, total_sum);
+    }
+    auto histogram_intersection(const CountingType &o) const {
+        auto p = multiset_comparison(o);
+        return double(p.first) / double(p.second);
+    }
 };
 
 
@@ -1363,7 +1384,8 @@ FinalDivBBitMinHash DivBBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
 template<typename CountingType, typename>
 struct FinalCountingBBitMinHash: public FinalBBitMinHash {
     std::vector<CountingType, Allocator<CountingType>> counters_;
-    FinalCountingBBitMinHash(FinalBBitMinHash &&tmp, const std::vector<CountingType, Allocator<CountingType>> &counts): FinalBBitMinHash(std::move(tmp)), counters_(counts) {}
+    FinalCountingBBitMinHash(FinalBBitMinHash &&tmp, const std::vector<CountingType, Allocator<CountingType>> &counts): FinalBBitMinHash(std::move(tmp)), counters_(counts), cached_sum_(std::accumulate(counters_.begin(), counters_.end(), CountingType(0))) {}
+    CountingType cached_sum_;
     FinalCountingBBitMinHash(unsigned p, unsigned b, double est): FinalBBitMinHash(p, b, est), counters_(size_t(1) << this->p_) {}
     FinalCountingBBitMinHash(std::string path) {
         this->read(path);
@@ -1381,6 +1403,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
         ssize_t nb = counters_.size() * sizeof(counters_[0]);
         if(gzread(fp, counters_.data(), nb) != nb) throw std::runtime_error("reading from file failed");
         ret += nb;
+        cached_sum_ = std::accumulate(counters_.begin(), counters_.end(), CountingType(0));
         return ret;
     }
     bool operator==(const FinalCountingBBitMinHash &o) {
@@ -1418,7 +1441,6 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
         PREC_REQ(o.core_.size() == core_.size(), "mismatched sizes");
         const uint64_t *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
         assert(b_ <= 64 || !std::fprintf(stderr, "b_: %u\n", b_) || (7 < 64)); // b_ > 64 not yet supported, though it could be done with a larger hash
-        uint64_t matched_sum = 0;
         assert(o.core_.size() == core_.size());
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
         auto l2szfloor = p_;
@@ -1427,7 +1449,17 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
             case 6: {
                 auto match = ~(*p1++ ^ *p2++);
                 while(p1 != pe) match &= ~(*p1++ ^ *p2++);
-                sum = popcount(match);
+                if(match) {
+                    sum = popcount(match);
+                    do {
+                        auto ind = ctz(match);
+                        total_sum += std::min(counters_[ind], o.counters_[ind]);
+                        auto t = match & -match;
+                        match &= t;
+                    } while(match);
+                } else {
+                    sum = 0;
+                }
                 break;
             }
             case 7: {
@@ -1435,27 +1467,101 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 __m128i match = ~(*vp1++ ^ *vp2++);
                 while(vp1 != vpe)
                     match &= ~(*vp1++ ^ *vp2++);
-                sum = popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
+                uint64_t v1 = common::vatpos(match, 0), v2 = common::vatpos(match, 1);
+                sum = popcount(v1) + popcount(v2);
+                if(v1) {
+                    do {
+                        auto ind = ctz(v1);
+                        total_sum += std::min(counters_[ind], o.counters_[ind]);
+                        auto t = v1 & -v1;
+                        v1 &= t;
+                    }  while(v1);
+                }
+                if(v2) {
+                    do {
+                        auto ind = ctz(v2);
+                        total_sum += std::min(counters_[ind + 64], o.counters_[ind + 64]);
+                        auto t = v2 & -v2;
+                        v2 &= t;
+                    }  while(v2);
+                }
                 break;
             }
 #if __AVX2__
             case 8: {
-                sum = common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_));
+                auto bv = detail::sbit_accum(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_);
+                sum = common::sum_of_u64s(popcnt256(bv));
+                if(sum) {
+                    for(size_t i = 0; i < 4; ++i) {
+                        auto v = common::vatpos(bv, i);
+                        if(v) {
+                            auto offset = i * 64;
+                            do {
+                                auto ind = ctz(v);
+                                total_sum += std::min(counters_[ind + offset], o.counters_[ind + offset]);
+                                auto t = v & -v;
+                                v &= t;
+                            } while(v);
+                        }
+                    }
+                }
                 break;
             }
 #  if HAS_AVX_512
             case 9: {
-                sum = common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_));
+                auto bv = detail::sbit_accum(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_);
+                sum = common::sum_of_u64s(popcnt512(bv));
+                if(sum) {
+                    for(size_t i = 0; i < 8; ++i) {
+                        auto v = common::vatpos(bv, i);
+                        if(v) {
+                            do {
+                            auto offset = i * 64;
+                            auto ind = ctz(v);
+                            total_sum += std::min(counters_[ind + offset], o.counters_[ind + offset]);
+                            auto t = v & -v;
+                            v &= t;
+                            } while(v);
+                        }
+                    }
+                }
                 break;
             }
             default: {
                 // Process each 'b' remainder block in
+                uint64_t offset = 0;
                 const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2), *vpe = reinterpret_cast<const __m512i *>(pe);
-                auto lsum = detail::matching_bits(vp1, vp2, b_);
+                auto bv = detail::sbit_accum(vp1, vp2, b_);
+                auto lsum = popcnt512(bv);
+                for(size_t i = 0; i < 8; ++i) {
+                    auto v = common::vatpos(bv, i);
+                    if(v) {
+                        do {
+                            auto ind = ctz(v);
+                            total_sum += std::min(counters_[ind + offset], o.counters_[ind + offset]);
+                            auto t = v & -v;
+                            v &= t;
+                        } while(v);
+                    }
+                    offset += 64;
+                }
                 for(size_t i = 1; i < (size_t(1) << (l2szfloor - 9u)); ++i) {
                     vp1 += b_;
                     vp2 += b_;
-                    lsum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), lsum);
+                    bv = detail::sbit_accum(vp1, vp2, b_);
+                    lsum = _mm512_add_epi64(popcnt512(bv), lsum);
+                    for(size_t i = 0; i < 8; ++i) {
+                        auto v = common::vatpos(bv, i);
+                        if(v) {
+                            do {
+                                auto ind = ctz(v);
+                                total_sum += std::min(counters_[ind + offset], o.counters_[ind + offset]);
+                                auto t = v & -v;
+                                v &= t;
+                            } while(v);
+                        }
+                        offset += 64;
+                    }
                 }
                 assert((value_type*)vp1 == &core_[core_.size()]);
                 sum = common::sum_of_u64s(lsum);
@@ -1464,12 +1570,39 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
 #    else /* has avx2 not not 512 */
             default: {
                 const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2);
-                auto lsum = detail::matching_bits(vp1, vp2, b_);
+                auto bv = detail::sbit_accum(vp1, vp2, b_);
+                auto lsum = popcnt256(bv);
+                uint64_t offset = 0;
+                for(size_t i = 0; i < 4; ++i) {
+                    auto v = common::vatpos(bv, i);
+                    if(v) {
+                        do {
+                            auto ind = ctz(v);
+                            total_sum += std::min(counters_[ind + offset], o.counters_[ind + offset]);
+                            auto t = v & -v;
+                            v &= t;
+                        } while(v);
+                    }
+                    offset += 64;
+                }
                 for(size_t i = 1; i < 1ull << (l2szfloor - 8u); ++i) {
                     vp1 += b_;
                     vp2 += b_;
-                    lsum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), lsum);
+                    bv = detail::sbit_accum(vp1, vp2, b_);
+                    lsum = _mm256_add_epi64(popcnt256(bv), lsum);
                     assert(vp1 <= reinterpret_cast<const __m256i *>(pe));
+                    for(size_t i = 0; i < 4; ++i) {
+                        auto v = common::vatpos(bv, i);
+                        if(v) {
+                            do {
+                                auto ind = ctz(v);
+                                total_sum += std::min(counters_[ind + offset], o.counters_[ind + offset]);
+                                auto t = v & -v;
+                                v &= t;
+                            } while(v);
+                        }
+                        offset += 64;
+                    }
                 }
                 sum = common::sum_of_u64s(lsum);
                 break;
@@ -1481,18 +1614,51 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
                 __m128i match = ~(*vp1++ ^ *vp2++);
                 for(unsigned b = b_; --b;match &= ~(*vp1++ ^ *vp2++));
-                auto lsum = popcount(vatpos(match, 0)) + popcount(vatpos(match, 1));
+                auto v1 = vatpos(match, 0), v2 = vatpos(match, 1);
+                auto lsum = popcount(v1) + popcount(v2);
+                if(v1) {
+                    do {
+                        auto ind = ctz(v1);
+                        total_sum += std::min(counters_[ind], o.counters_[ind]);
+                        v1 &= (v1 & -v1);
+                    } while(v1);
+                }
+                if(v2) {
+                    do {
+                        auto ind = ctz(v2);
+                        total_sum += std::min(counters_[ind + 64], o.counters_[ind + 64]);
+                        v2 &= (v2 & -v2);
+                    } while(v2);
+                }
+                uint64_t offset = 128;
                 while((uint64_t *)vp1 + 2 <= (uint64_t *)vpe) {
                     match = ~(*vp1++ ^ *vp2++);
                     for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
-                    lsum += popcount(vatpos(match, 0)) + popcount(vatpos(match, 1));
+                    v1 = vatpos(match, 0), v2 vatpos(match, 1);
+                    lsum += popcount(v1) + popcount(v2);
+                    if(v1) {
+                        do {
+                            auto ind = ctz(v1);
+                            total_sum += std::min(counters_[ind + offset], o.counters_[ind + offset]);
+                            v1 &= (v1 & -v1);
+                        } while(v1);
+                    }
+                    offset += 64;
+                    if(v2) {
+                        do {
+                            auto ind = ctz(v2);
+                            total_sum += std::min(counters_[ind + offset], o.counters_[ind + offset]);
+                            v2 &= (v2 & -v2);
+                        } while(v2);
+                    }
+                    offset += 64;
                 }
                 sum = lsum;
                 break;
             }
 #endif
         } // switch(l2szfloor)
-        HistResult ret{matched_sum, common::sum_of_u64s(total_sum), sum, core_.size() * sizeof(core_[0]) * sizeof(char)};
+        HistResult ret{total_sum, cached_sum_ + o.cached_sum_ - total_sum, sum, core_.size() * sizeof(core_[0]) * sizeof(char)};
         return ret;
     }
 };

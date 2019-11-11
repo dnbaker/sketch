@@ -654,7 +654,6 @@ public:
         do {
             auto v = *it++;
             if(v == 0) continue;
-#ifndef NO_BF_FOREACH_UNROLL
             auto nnz = popcount(v);
             assert(nnz);
             auto nloops = (nnz + 7) / 8u;
@@ -673,7 +672,8 @@ public:
                 } while(--nloops);
                 assert(v == 0);
             }
-#else
+#if 0
+            // Equivalent to
             while(v) {
                 uint64_t t = v & -v;
                 assert((t & (t - 1)) == 0);

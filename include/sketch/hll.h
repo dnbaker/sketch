@@ -1225,10 +1225,40 @@ public:
             //std::fprintf(stderr, "newv %u is not more than %u\n", lzt, oldv);
         }
     }
+    auto super_report() const {return super::report();}
     auto report() {return cest_;}
     auto report() const {return cest_;}
     auto creport() {return cest_;}
     auto creport() const {return cest_;}
+    shllbase_t &merge_UNSTABLE(const shllbase_t &o) {
+        PREC_REQ(this->size() == o.size(), "must be same size");
+        SK_UNROLL(8)
+        for(size_t i = 0; i < this->size(); ++i) {
+            auto oldv = this->core_[i], ov = o.core_[i];
+            if(ov > oldv) {
+                cest_ += 1./ std::ldexp(s_, -int(this->np_));
+                s_ -= std::ldexp(1., -int(oldv));
+                if(ov != 64 - this->np_)
+                    s_ += std::ldexp(1., -int(ov));
+                this->core_[i] = ov;
+            }
+        }
+    }
+    double uest_UNSTABLE(const shllbase_t &o) const {
+        PREC_REQ(this->size() == o.size(), "must be same size");
+        double cest = cest_, s = s_;;
+        SK_UNROLL(8)
+        for(size_t i = 0; i < this->size(); ++i) {
+            auto oldv = this->core_[i], ov = o.core_[i];
+            if(ov > oldv) {
+                cest += 1./ std::ldexp(s_, -int(this->np_));
+                s -= std::ldexp(1., -int(oldv));
+                if(ov != 64 - this->np_)
+                    s += std::ldexp(1., -int(ov));
+            }
+        }
+        return cest;
+    }
     using final_type = shllbase_t;
 };
 
