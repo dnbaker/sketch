@@ -1165,8 +1165,74 @@ public:
     }
 #endif
 };
-
 using hll_t = hllbase_t<>;
+
+template<typename HashStruct=WangHash>
+class shllbase_t: public hllbase_t<HashStruct> {
+    // See Edith Cohen - All-Distances Sketches, Revisited: HIP Estimators for Massive Graphs Analysis
+    // and
+    // Daniel Ting - Streamed Approximate Counting of Distinct Elements
+    using super = hllbase_t<HashStruct>;
+    double cest_;
+    double s_;
+    // Streaming HyperLogLog
+    // Note: composition is not supported, at least not in a principled way.
+    // Better estimates on original cardinalities should help the union, but it will
+    // not enjoy the asymptotic improvements necessarily.
+#ifndef NOT_THREADSAFE
+    bool warning_emitted = false;
+#endif
+public:
+    template<typename...Args>
+    shllbase_t(Args &&...args): super(std::forward<Args>(args)...), cest_(0), s_(this->core_.size()) {}
+    INLINE void addh(uint64_t element) {
+        element = this->hf_(element);
+        add(element);
+    }
+    auto full_set_comparison(const shllbase_t &o) const {
+        auto union_est = super::union_size(o);
+        auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
+        return std::array<double, 3>{this->cest_ - isz, o.cest_ - isz, std::max(this->cest_ + o.cest_ - union_est, 0.)};
+    }
+    auto jaccard_index(const shllbase_t &o) const {
+        auto union_est = super::union_size(o);
+        auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
+        return isz / union_est;
+    }
+    auto containment_index(const shllbase_t &o) const {
+        auto union_est = super::union_size(o);
+        auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
+        return isz / this->cest_;
+    }
+    INLINE void add(uint64_t hashval) {
+#ifndef NOT_THREADSAFE
+        if(!warning_emitted) {
+            warning_emitted = true;
+            std::fprintf(stderr, "Warning: shllbase_t is not threadsafe\n");
+        }
+#endif
+        const uint32_t index(hashval >> this->q());
+        const uint8_t lzt(clz(((hashval << 1)|1) << (this->np_ - 1)) + 1);
+        auto oldv = this->core_[index];
+        if(lzt > oldv) {
+            cest_ += 1. / std::ldexp(s_, -int(this->np_));
+            s_ -= std::ldexp(1., -int(oldv));
+            if(lzt != 64 - this->np_)
+                s_ += std::ldexp(1., -int(lzt));
+            this->core_[index] = lzt;
+            //std::fprintf(stderr, "news: %f. newc: %f\n", s_, cest_);
+        } else {
+            //std::fprintf(stderr, "newv %u is not more than %u\n", lzt, oldv);
+        }
+    }
+    auto report() {return cest_;}
+    auto report() const {return cest_;}
+    auto creport() {return cest_;}
+    auto creport() const {return cest_;}
+    using final_type = shllbase_t;
+};
+
+using shll_t = shllbase_t<>;
 
 // Returns the size of the set intersection
 template<typename HllType>
@@ -1709,7 +1775,7 @@ struct wh119_t {
         return (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
     }
 };
-}
+} // whll
 } // namespace sketch
 
 #endif // #ifndef HLL_H_
