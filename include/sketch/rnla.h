@@ -2,7 +2,11 @@
 #include "blaze/Math.h"
 #include "div.h"
 #include "common.h"
+#include "median.h"
 #include <queue>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 namespace sketch {
 
@@ -313,25 +317,32 @@ struct RNLASketcher {
 };
 
 
-template<typename FloatType=float, template<typename...> class DistType=std::cauchy_distribution>
+
+template<typename FloatType=float, template<typename...> class DistType=std::cauchy_distribution,
+         typename Norm=blaze::L1Norm>
 struct PStableSketcher: public RNLASketcher<FloatType> {
+    // Does not work.
 protected:
+    using mtype = blaze::CompressedMatrix<FloatType>;
     using super = RNLASketcher<FloatType>;
-    std::unique_ptr<blaze::DynamicMatrix<FloatType>> tx_;
+    std::unique_ptr<mtype> tx_;
     uint64_t seed_;
     DistType<FloatType> dist_;
     bool dense_;
+    Norm norm_;
 public:
-    template<typename T>
-    static auto p(const T &x) {
-        return NotImplementedError("Override this, please");
-    }
-    PStableSketcher(size_t ntables, size_t destdim, uint64_t sourcedim=0, uint64_t seed=137, bool dense=true): super(ntables, destdim), seed_(seed), dense_(dense) {
+    PStableSketcher(size_t ntables, size_t destdim, uint64_t sourcedim=0, uint64_t seed=137, bool dense=true, Norm &&norm=Norm()): super(ntables, destdim), seed_(seed), dense_(dense) {
         if(sourcedim) {
             if(!dense_) throw 1;
             blaze::RNG gen(seed_);
-            tx_.reset(new blaze::DynamicMatrix<FloatType>(ntables * destdim, sourcedim));
-            *tx_ = forEach(*tx_, [&](auto x) {return dist_(gen);});
+            tx_.reset(new mtype(ntables * destdim, sourcedim));
+            auto &tx = *tx_;
+            for(size_t sind = 0; sind < sourcedim; ++sind) {
+                for(size_t st = 0; st < ntables; ++st) {
+                    auto ind = gen() % destdim;
+                    tx(st * destdim + ind, sind) = dist_(gen);
+                }
+            }
         }
     }
     PStableSketcher(const PStableSketcher &o): seed_(o.seed_), dist_(o.dist_), dense_(o.dense) {
@@ -347,12 +358,15 @@ public:
         ret += o;
         return ret;
     }
-    template<bool SO>
-    void add(const blaze::Vector<FloatType, SO> &x) {
-        if(tx_->get()) {
+    template<typename FT, template<typename, bool> class ContainerTemplate>
+    void add(const ContainerTemplate<FT, blaze::columnVector> &x) {
+        if(tx_.get()) {
             auto tmp = (*tx_) * x;
             for(size_t i = 0; i < this->ntables(); ++i) {
                 row(this->mat_, i) += subvector(tmp, i * this->destdim(), this->destdim());
+#if VERBOSE_AF
+                std::cout << row(this->mat_, i) << '\n';
+#endif
             }
             // tmp now has size k * 
         } else {
@@ -360,8 +374,35 @@ public:
             for(size_t i = 0; i < this->ntables(); ++i) {
                 auto r = row(this->mat_, i);
                 for(size_t i = 0; i < x.size(); ++i) {
-                    r[indgen() % this->destdim()] += dist_(vgen()) * x[i];
+                    r[indgen() % this->destdim()] += dist_(vgen) * x[i];
                 }
+#if VERBOSE_AF
+                std::cout << r << '\n';
+#endif
+            }
+        }
+    }
+    template<typename FT, template<typename, bool> class ContainerTemplate>
+    void add(const ContainerTemplate<FT, blaze::rowVector> &x) {
+        if(tx_.get()) {
+            auto tmp = (*tx_) * trans(x);
+            for(size_t i = 0; i < this->ntables(); ++i) {
+                row(this->mat_, i) += trans(subvector(tmp, i * this->destdim(), this->destdim()));
+#if VERBOSE_AF
+                std::cout << row(this->mat_, i) << '\n';
+#endif
+            }
+            // tmp now has size k * 
+        } else {
+            wy::WyHash<uint64_t, 0> vgen(seed_), indgen(vgen());
+            for(size_t i = 0; i < this->ntables(); ++i) {
+                auto r = row(this->mat_, i);
+                for(size_t i = 0; i < x.size(); ++i) {
+                    r[indgen() % this->destdim()] += dist_(vgen) * x[i];
+                }
+#if VERBOSE_AF
+                std::cout << r << '\n';
+#endif
             }
         }
     }
@@ -369,7 +410,7 @@ public:
         sketch::common::detail::tmpbuffer<FloatType> tmpvs(this->ntables());
         auto ptr = tmpvs.get();
         for(size_t i = 0; i < tmpvs.size(); ++i)
-            ptr[i] = this->p(row(this->mat_, i));
+            ptr[i] = this->norm(row(this->mat_, i));
         return median(ptr, this->ntables());
     }
     void add(size_t hv, double w) {
@@ -383,16 +424,15 @@ public:
         }
     }
     bool dense() {return dense_;}
+    template<typename T>
+    auto norm(const T &x) const {return norm_(x);}
 };
 
 template<typename FT>
-struct IndykSketcher: public PStableSketcher<FT, std::cauchy_distribution> {
+struct IndykSketcher: public PStableSketcher<FT, std::cauchy_distribution, blaze::L2Norm> {
+    using super = PStableSketcher<FT, std::cauchy_distribution, blaze::L2Norm>;
     template<typename...Args>
-    IndykSketcher(Args &&...args): PStableSketcher<FT, std::cauchy_distribution>(std::forward<Args>(args)...) {
-    }
-    template<typename T>
-    static auto p(const T &x) {
-        return l1Norm(x);
+    IndykSketcher(Args &&...args): super(std::forward<Args>(args)...) {
     }
 };
 

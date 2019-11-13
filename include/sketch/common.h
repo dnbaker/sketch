@@ -285,6 +285,7 @@ struct tmpbuffer {
     tmpbuffer(tmpbuffer &&o) = delete;
     tmpbuffer& operator=(const tmpbuffer &o) = delete;
     tmpbuffer& operator=(tmpbuffer &&o) = delete;
+    size_t size() const {return n_;}
     T *get() {
         return ptr_;
     }

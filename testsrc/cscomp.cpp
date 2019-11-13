@@ -24,6 +24,18 @@ int main() {
     std::fprintf(stderr, "run\n");
     sketch::SketchApplicator<> sa(100, 10);
     std::fprintf(stderr, "alloc'd\n");
-    sketch::IndykSketcher<float> is(4, 100, 400, 137);
-    auto n = is.p(init_1);
+    sketch::IndykSketcher<double> is(5, 30, 1000, 137);
+    //size_t ntables, size_t destdim, uint64_t sourcedim=0,
+    auto n = is.norm(init_1);
+    wy::WyHash<uint64_t, 8> gen;
+    double reall1sum = 0.;
+    for(size_t i = 0; i < 1000; ++i) {
+        std::cauchy_distribution<double> dist;
+        is.add(trans(init_1));
+        reall1sum += l1Norm(init_1);
+        for(auto &i: init_1)
+            i = std::abs(dist(gen));
+    }
+    std::fprintf(stderr, "pnorm: %f. real: %f\n", is.pnorm(), reall1sum);
+    assert(std::abs(is.pnorm() - reall1sum) / reall1sum * 100. <= 5.);
 }
