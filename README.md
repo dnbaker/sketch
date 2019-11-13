@@ -31,11 +31,10 @@ All have been accelerated with SIMD parallelism where possible, most are composa
         2. Power of two partitions are supported in BBitMinHasher, which is finalized into a FinalBBitMinHash sketch. This is faster than the alternative.
         3. We also support arbitrary divisions using fastmod64 with DivBBitMinHasher and its corresponding final sketch, FinalDivBBitMinHash.
     3. One-permutation counting bbit minhash
-        1. In progress
-        2. Not threadsafe.
+        1. Not threadsafe.
 8. HeavyKeeper
     1. hk.h
-    2. Not threadsafe current.
+    2. Not threadsafe currently.
     3. Reference: https://www.usenix.org/conference/atc18/presentation/gong
     4. A seemingly unilateral improvement over count-min sketches.
         1. One drawback is the inability to delete items, which makes it unsuitable for sliding windows.
@@ -84,7 +83,7 @@ To use:
 
 ```c++
 using namespace sketch;
-hll::hll_t hll(20); // Use 2**20 bytes for this structure
+hll::hll_t hll(14); // Use 2**14 bytes for this structure
 // Add hashed values for each element to the structure.
 for(uint64_t i(0); i < 10000000ull; ++i) hll.addh(i);
 fprintf(stderr, "Elements estimated: %lf. Error bounds: %lf.\n", hll.report(), hll.est_err());
@@ -100,14 +99,6 @@ which allows you to write `sketch::bf_t` and `sketch::hll_t` without the subname
 By default, updates to the hyperloglog structure to occur using atomic operations, though threading should be handled by the calling code. Otherwise, the flag `-DNOT_THREADSAFE` should be passed. The cost of this is relatively minor, but in single-threaded situations, this would be preferred.
 
 ## Python bindings
-Python bindings are available via pybind11 and then imported through hll.py. hll.py calls an object's __hash__ function. To link against python2, change the "python3-" in the Makefile to "python-".
-
-
-#### Temporary buffers: alloca vs malloc
-Fairly often, we use small buffers for temporary data, such as finding medians of streams. For performance, it can be [better to use alloca](https://www.gnu.org/software/libc/manual/html_node/Advantages-of-Alloca.html).
-We use an `tmpbuffer` class template for holding these, which defaults to using alloca for small allocations.
-
-If your compiler does not support alloca or you would rather avoid using the stack, the flag `-DAVOID_ALLOCA` is sufficient to replace these
-small allocations with ones outsourced to malloc, implementations of which often have specially designated small buffers for use.
+Python bindings are available via pybind11. Simply `cd python && python setup.py install`.
 
 

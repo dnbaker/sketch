@@ -3,7 +3,9 @@
 #include "common.h"
 #include "hash.h"
 
-namespace sketch { namespace hll { namespace detail {
+namespace sketch {
+inline namespace hll {
+namespace detail {
 
 // Based off https://github.com/oertl/hyperloglog-sketch-estimation-paper/blob/master/c%2B%2B/cardinality_estimation.hpp
 template<typename FloatType>
@@ -43,7 +45,7 @@ static constexpr FloatType gen_tau(FloatType x) {
 
 
 namespace sketch {
-namespace hll {
+inline namespace hll {
 enum EstimationMethod: uint8_t {
     ORIGINAL       = 0,
     ERTL_IMPROVED  = 1,
@@ -734,13 +736,11 @@ public:
     }
     explicit hllbase_t(size_t np, HashStruct &&hs): hllbase_t(np, ERTL_MLE, (JointEstimationMethod)ERTL_JOINT_MLE, std::move(hs)) {}
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_JOINT_MLE) {}
-    explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
+    explicit hllbase_t(): hllbase_t(size_t(0), EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
     template<typename... Args>
-    hllbase_t(const char *path, Args &&... args): hf_(std::forward<Args>(args)...) {read(path);}
+    hllbase_t(const std::string &path, Args &&... args): hf_(std::forward<Args>(args)...) {read(path);}
     template<typename... Args>
-    hllbase_t(const std::string &path, Args &&... args): hllbase_t(path.data(), std::forward<Args>(args)...) {}
-    template<typename... Args>
-    hllbase_t(gzFile fp, Args &&... args): hllbase_t(0, ERTL_MLE, ERTL_JOINT_MLE, std::forward<Args>(args)...) {this->read(fp);}
+    hllbase_t(gzFile fp, Args &&... args): hllbase_t(size_t(0), ERTL_MLE, ERTL_JOINT_MLE, std::forward<Args>(args)...) {this->read(fp);}
 
     // Call sum to recalculate if you have changed contents.
     void sum() const {
@@ -1059,9 +1059,7 @@ public:
         read(fp);
         gzclose(fp);
     }
-    void read(const std::string &path) {
-        read(path.data());
-    }
+    void read(const std::string &path) {read(path.data());}
     void write(int fileno) const {
         uint32_t bf[]{is_calculated_, estim_, jestim_, 137};
 #define CHWR(fn, obj, sz) if(__builtin_expect(::write(fn, (obj), (sz)) != ssize_t(sz), 0)) throw std::runtime_error(std::string("Failed to write to disk in ") + __PRETTY_FUNCTION__)
@@ -1167,8 +1165,104 @@ public:
     }
 #endif
 };
-
 using hll_t = hllbase_t<>;
+
+template<typename HashStruct=WangHash>
+class shllbase_t: public hllbase_t<HashStruct> {
+    // See Edith Cohen - All-Distances Sketches, Revisited: HIP Estimators for Massive Graphs Analysis
+    // and
+    // Daniel Ting - Streamed Approximate Counting of Distinct Elements
+    using super = hllbase_t<HashStruct>;
+    double cest_;
+    double s_;
+    // Streaming HyperLogLog
+    // Note: composition is not supported, at least not in a principled way.
+    // Better estimates on original cardinalities should help the union, but it will
+    // not enjoy the asymptotic improvements necessarily.
+#ifndef NOT_THREADSAFE
+    bool warning_emitted = false;
+#endif
+public:
+    template<typename...Args>
+    shllbase_t(Args &&...args): super(std::forward<Args>(args)...), cest_(0), s_(this->core_.size()) {}
+    INLINE void addh(uint64_t element) {
+        element = this->hf_(element);
+        add(element);
+    }
+    auto full_set_comparison(const shllbase_t &o) const {
+        auto union_est = super::union_size(o);
+        auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
+        return std::array<double, 3>{this->cest_ - isz, o.cest_ - isz, std::max(this->cest_ + o.cest_ - union_est, 0.)};
+    }
+    auto jaccard_index(const shllbase_t &o) const {
+        auto union_est = super::union_size(o);
+        auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
+        return isz / union_est;
+    }
+    auto containment_index(const shllbase_t &o) const {
+        auto union_est = super::union_size(o);
+        auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
+        return isz / this->cest_;
+    }
+    INLINE void add(uint64_t hashval) {
+#ifndef NOT_THREADSAFE
+        if(!warning_emitted) {
+            warning_emitted = true;
+            std::fprintf(stderr, "Warning: shllbase_t is not threadsafe\n");
+        }
+#endif
+        const uint32_t index(hashval >> this->q());
+        const uint8_t lzt(clz(((hashval << 1)|1) << (this->np_ - 1)) + 1);
+        auto oldv = this->core_[index];
+        if(lzt > oldv) {
+            cest_ += 1. / std::ldexp(s_, -int(this->np_));
+            s_ -= std::ldexp(1., -int(oldv));
+            if(lzt != 64 - this->np_)
+                s_ += std::ldexp(1., -int(lzt));
+            this->core_[index] = lzt;
+            //std::fprintf(stderr, "news: %f. newc: %f\n", s_, cest_);
+        } else {
+            //std::fprintf(stderr, "newv %u is not more than %u\n", lzt, oldv);
+        }
+    }
+    auto super_report() const {return super::report();}
+    auto report() {return cest_;}
+    auto report() const {return cest_;}
+    auto creport() {return cest_;}
+    auto creport() const {return cest_;}
+    shllbase_t &merge_UNSTABLE(const shllbase_t &o) {
+        PREC_REQ(this->size() == o.size(), "must be same size");
+        SK_UNROLL(8)
+        for(size_t i = 0; i < this->size(); ++i) {
+            auto oldv = this->core_[i], ov = o.core_[i];
+            if(ov > oldv) {
+                cest_ += 1./ std::ldexp(s_, -int(this->np_));
+                s_ -= std::ldexp(1., -int(oldv));
+                if(ov != 64 - this->np_)
+                    s_ += std::ldexp(1., -int(ov));
+                this->core_[i] = ov;
+            }
+        }
+    }
+    double uest_UNSTABLE(const shllbase_t &o) const {
+        PREC_REQ(this->size() == o.size(), "must be same size");
+        double cest = cest_, s = s_;;
+        SK_UNROLL(8)
+        for(size_t i = 0; i < this->size(); ++i) {
+            auto oldv = this->core_[i], ov = o.core_[i];
+            if(ov > oldv) {
+                cest += 1./ std::ldexp(s_, -int(this->np_));
+                s -= std::ldexp(1., -int(oldv));
+                if(ov != 64 - this->np_)
+                    s += std::ldexp(1., -int(ov));
+            }
+        }
+        return cest;
+    }
+    using final_type = shllbase_t;
+};
+
+using shll_t = shllbase_t<>;
 
 // Returns the size of the set intersection
 template<typename HllType>
@@ -1711,7 +1805,7 @@ struct wh119_t {
         return (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
     }
 };
-}
+} // whll
 } // namespace sketch
 
 #endif // #ifndef HLL_H_

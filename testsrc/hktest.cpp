@@ -77,9 +77,12 @@ void run_hk_point() {
     for(const auto &pair: svec) {
         std::fprintf(stderr, "%u:%s", pair.second, pair.first.data());
     }
+    HeavyKeeper<32,32> hkcp(hk);
     HeavyKeeperHeap<HeavyKeeper<32,32>, uint64_t> hkh(20, std::move(hk));
+    HeavyKeeperHeavyHitters<HeavyKeeper<32,32>, uint64_t> hkhh(.2, 20, std::move(hkcp));
     for(const size_t item: items) {
         hkh.addh(item);
+        hkhh.addh(item);
     }
     auto c = hkh.to_container();
     for(const auto &x: std::get<0>(c)) std::fprintf(stderr, "Element: %zu. Count: %zu\n", size_t(x), size_t(hkh.est_count(x)));

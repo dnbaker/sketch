@@ -11,7 +11,7 @@
 
 namespace sketch {
 
-namespace cm {
+inline namespace cm {
 using common::detail::tmpbuffer;
 
 namespace detail {
@@ -528,7 +528,6 @@ public:
         seeds_((nh_ + (nph_ - 1)) / nph_ - 1),
         seedseed_(seedseed)
     {
-        std::fprintf(stderr, "csbase_t called with %u np and %u nh, now with a size of %zu\n", np, nh, core_.size());
         DEPRECATION_WARNING("csbase_t will be deprecated in favor of cs4wbase_t moving forward.");
         DefaultRNGType gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
@@ -611,9 +610,7 @@ public:
     }
     INLINE auto add(uint64_t hv, unsigned subidx) noexcept {
 #if !NDEBUG
-        //std::fprintf(stderr, "Value: %d is about to be incremented at index %u\n", unsigned(index(hv, subidx)));
         at_pos(hv, subidx) += sign(hv);
-        //std::fprintf(stderr, "Value: %d was supposedly incremented by sign %d. Index: %zu/%zu\n", unsigned(at_pos(hv, subidx)), sign(hv), index(hv, subidx), core_.size());
         return at_pos(hv, subidx);
 #else
         return at_pos(hv, subidx) += sign(hv);
@@ -761,7 +758,6 @@ public:
     {
         nh_ += (nh % 2 == 0);
         core_.resize(nh_ << np_);
-        std::fprintf(stderr, "nh: %u. np: %u. size should be: %zu. Found size: %zu\n", nh_, np_, size_t(nh_) << np_, core_.size());
         POST_REQ(core_.size() == (nh_ << np_), "core must be properly sized");
     }
     double l2est() const {

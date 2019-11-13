@@ -15,7 +15,7 @@
  */
 
 namespace sketch {
-namespace minhash {
+inline namespace minhash {
 
 #define SET_SKETCH(x) const auto &sketch() const {return x;} auto &sketch() {return x;}
 
@@ -430,9 +430,8 @@ struct FinalRMinHash {
         sort();
     }
     FinalRMinHash(const std::string &s): FinalRMinHash(s.data()) {}
-    FinalRMinHash(const char *infname) {
-        this->read(infname);
-    }
+    FinalRMinHash(gzFile fp) {read(fp);}
+    FinalRMinHash(const char *infname) {read(infname);}
     size_t size() const {return first.size();}
 protected:
     FinalRMinHash() {}
@@ -706,6 +705,9 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
     double count_sum_l2norm_;
     using count_type = CountType;
     using key_type = T;
+    FinalCRMinHash(gzFile fp) {
+        this->read(fp);
+    }
     FinalCRMinHash(const std::string &path): FinalCRMinHash(path.data()) {}
     FinalCRMinHash(const char *path) {
         this->read(path);
@@ -1277,6 +1279,6 @@ double jaccard_index(const T &a, const T &b) {
 }
 
 
-} // namespace minhash
+} // inline namespace minhash
 namespace mh = minhash;
 } // namespace sketch
