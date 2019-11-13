@@ -3,12 +3,6 @@
 #include "div.h"
 #include "common.h"
 #include <queue>
-#if 0
-#if __cplusplus <= 201703L
-#error("Need c++20")
-#endif
-#include <concepts>
-#endif
 
 namespace sketch {
 
@@ -131,8 +125,6 @@ auto &wz_compress(const blaze::CompressedVector<FT> &in, C2 &out, size_t newdim,
             const double mult = gen(rng) * (dm.quot & 1 ? 1: -1);
             out.operator[](ind) += v * mult;
         }
-        // TODO: decompress.
-        // Sample using the same seed, just multiply by inverse
     }
     return out;
 }
@@ -303,6 +295,104 @@ public:
                 return wz_compress(in, out_, hs_, p_);
             default: __builtin_unreachable();
         }
+    }
+};
+
+template<typename FloatType=float>
+struct RNLASketcher {
+    // nr: number of sketches/subtables
+    // nc: dimension of sketches, e.g., dimensionality projected *to*
+    auto       &mat()       & {return this->mat_;}
+    const auto &mat() const & {return this->mat_;}
+    auto && release() {return std::move(this->mat_);}
+    auto ntables() const {return mat_.rows();}
+    auto destdim() const {return mat_.columns();}
+    blaze::DynamicMatrix<FloatType> mat_;
+    RNLASketcher(size_t nr, size_t nc): mat_(nr, nc, static_cast<FloatType>(0)) {}
+    // nr == number of subtables
+};
+
+
+template<typename FloatType=float, template<typename...> class DistType=std::cauchy_distribution>
+struct PStableSketcher: public RNLASketcher<FloatType> {
+protected:
+    using super = RNLASketcher<FloatType>;
+    std::unique_ptr<blaze::DynamicMatrix<FloatType>> tx_;
+    uint64_t seed_;
+    DistType<FloatType> dist_;
+    bool dense_;
+public:
+    template<typename T>
+    static auto p(const T &x) {
+        return NotImplementedError("Override this, please");
+    }
+    PStableSketcher(size_t ntables, size_t destdim, uint64_t sourcedim=0, uint64_t seed=137, bool dense=true): super(ntables, destdim), seed_(seed), dense_(dense) {
+        if(sourcedim) {
+            if(!dense_) throw 1;
+            blaze::RNG gen(seed_);
+            tx_.reset(new blaze::DynamicMatrix<FloatType>(ntables * destdim, sourcedim));
+            *tx_ = forEach(*tx_, [&](auto x) {return dist_(gen);});
+        }
+    }
+    PStableSketcher(const PStableSketcher &o): seed_(o.seed_), dist_(o.dist_), dense_(o.dense) {
+        tx_.reset(new blaze::DynamicMatrix<FloatType>(*o.tx_)); // manually call copy
+    }
+    PStableSketcher &operator+=(const PStableSketcher &o) {
+        PREC_REQ(dense() == o.dense(), "must both be dense or not");
+        PREC_REQ(seed_ == o.seed_, "must have the same seed");
+        this->mat_ += o.mat_;
+    }
+    PStableSketcher operator+(const PStableSketcher &o) {
+        PStableSketcher ret = *this;
+        ret += o;
+        return ret;
+    }
+    template<bool SO>
+    void add(const blaze::Vector<FloatType, SO> &x) {
+        if(tx_->get()) {
+            auto tmp = (*tx_) * x;
+            for(size_t i = 0; i < this->ntables(); ++i) {
+                row(this->mat_, i) += subvector(tmp, i * this->destdim(), this->destdim());
+            }
+            // tmp now has size k * 
+        } else {
+            wy::WyHash<uint64_t, 0> vgen(seed_), indgen(vgen());
+            for(size_t i = 0; i < this->ntables(); ++i) {
+                auto r = row(this->mat_, i);
+                for(size_t i = 0; i < x.size(); ++i) {
+                    r[indgen() % this->destdim()] += dist_(vgen()) * x[i];
+                }
+            }
+        }
+    }
+    auto pnorm() const {
+        sketch::common::detail::tmpbuffer<FloatType> tmpvs(this->ntables());
+        auto ptr = tmpvs.get();
+        for(size_t i = 0; i < tmpvs.size(); ++i)
+            ptr[i] = this->p(row(this->mat_, i));
+        return median(ptr, this->ntables());
+    }
+    void add(size_t hv, double w) {
+        wy::WyHash<uint64_t, 0> gen(hv);
+        for(size_t i = 0; i < this->ntables(); ++i) {
+            auto r = row(this->mat_, i);
+            auto v = gen();
+            auto ind = v % this->destdim(), rem = v / this->destdim();
+            wy::WyHash<uint64_t, 0> lrg(rem);
+            r[ind] = dist_(lrg);
+        }
+    }
+    bool dense() {return dense_;}
+};
+
+template<typename FT>
+struct IndykSketcher: public PStableSketcher<FT, std::cauchy_distribution> {
+    template<typename...Args>
+    IndykSketcher(Args &&...args): PStableSketcher<FT, std::cauchy_distribution>(std::forward<Args>(args)...) {
+    }
+    template<typename T>
+    static auto p(const T &x) {
+        return l1Norm(x);
     }
 };
 

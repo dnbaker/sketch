@@ -24,4 +24,6 @@ int main() {
     std::fprintf(stderr, "run\n");
     sketch::SketchApplicator<> sa(100, 10);
     std::fprintf(stderr, "alloc'd\n");
+    sketch::IndykSketcher<float> is(4, 100, 400, 137);
+    auto n = is.p(init_1);
 }
