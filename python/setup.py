@@ -1,11 +1,10 @@
-from setuptools import setup, Extension
+from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 import subprocess
 import sys
 import setuptools
 
-tmp = subprocess.check_output(["git", "describe", "--abbrev=4"]).decode().strip().split('-')
-__version__ = "_".join(tmp)
+__version__ = subprocess.check_output(["git", "describe", "--abbrev=4"]).decode().strip().split('-')[0]
 
 
 
@@ -23,7 +22,10 @@ class get_pybind_include(object):
         return pybind11.get_include(self.user)
 
 
-extra_compile_args = ['-march=native', '-Wno-char-subscripts', '-Wno-unused-function', '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv', '-lz', '-fopenmp']
+extra_compile_args = ['-march=native',
+                      '-Wno-char-subscripts', '-Wno-unused-function',
+                       '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv',
+                        '-lz', '-fopenmp', '-lgomp']
 
 include_dirs=[
     # Path to pybind11 headers
@@ -84,6 +86,8 @@ def cpp_flag(compiler):
                        'is needed!')
 
 
+extra_link_opts = ["-lgomp", "-lz"]
+
 class BuildExt(build_ext):
     """A custom build extension for adding compiler-specific options."""
     c_opts = {
@@ -115,7 +119,7 @@ class BuildExt(build_ext):
         for ext in self.extensions:
             ext.extra_compile_args = opts
             ext.extra_compile_args += extra_compile_args
-            ext.extra_link_args = link_opts
+            ext.extra_link_args = link_opts + extra_link_opts
         build_ext.build_extensions(self)
 
 setup(
@@ -131,4 +135,5 @@ setup(
     setup_requires=['pybind11>=2.4'],
     cmdclass={'build_ext': BuildExt},
     zip_safe=False,
+    packages=find_packages()
 )
