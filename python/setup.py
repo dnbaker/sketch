@@ -4,8 +4,8 @@ import subprocess
 import sys
 import setuptools
 
-tmp = subprocess.check_output(["git", "describe", "--abbrev=4"]).decode().strip().split('.')
-__version__ = '.'.join(tmp[:-1]) + tmp[-1].split("-")[0]
+tmp = subprocess.check_output(["git", "describe", "--abbrev=4"]).decode().strip().split('-')
+__version__ = "_".join(tmp)
 
 
 
@@ -25,21 +25,29 @@ class get_pybind_include(object):
 
 extra_compile_args = ['-march=native', '-Wno-char-subscripts', '-Wno-unused-function', '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv', '-lz', '-fopenmp']
 
+include_dirs=[
+    # Path to pybind11 headers
+    get_pybind_include(),
+    get_pybind_include(user=True),
+   "../",
+   "../libpopcnt",
+   "../include",
+   "../vec",
+   "..",
+   "../pybind11/include"
+]
 ext_modules = [
     Extension(
         'hll',
         ['hll.cpp'],
-        include_dirs=[
-            # Path to pybind11 headers
-            get_pybind_include(),
-            get_pybind_include(user=True),
-           "../",
-           "../libpopcnt",
-           "../include",
-           "../vec",
-           "..",
-           "../pybind11/include"
-        ],
+        include_dirs=include_dirs,
+        language='c++',
+        extra_compile_args=extra_compile_args
+    ),
+    Extension(
+        'bbmh',
+        ['bbmh.cpp'],
+        include_dirs=include_dirs,
         language='c++',
         extra_compile_args=extra_compile_args
     ),
@@ -111,7 +119,7 @@ class BuildExt(build_ext):
         build_ext.build_extensions(self)
 
 setup(
-    name='hll',
+    name='sketch',
     version=__version__,
     author='Daniel Baker',
     author_email='dnb@cs.jhu.edu',
