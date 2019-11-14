@@ -734,13 +734,13 @@ public:
         std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
 #endif
     }
-    explicit hllbase_t(size_t np, HashStruct &&hs): hllbase_t(np, ERTL_MLE, (JointEstimationMethod)ERTL_JOINT_MLE, std::move(hs)) {}
-    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_JOINT_MLE) {}
-    explicit hllbase_t(): hllbase_t(size_t(0), EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
+    explicit hllbase_t(size_t np, HashStruct &&hs): hllbase_t(np, ERTL_MLE, (JointEstimationMethod)ERTL_MLE, std::move(hs)) {}
+    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_MLE) {}
+    explicit hllbase_t(): hllbase_t(size_t(0), EstimationMethod::ERTL_MLE, (JointEstimationMethod)ERTL_MLE) {}
     template<typename... Args>
     hllbase_t(const std::string &path, Args &&... args): hf_(std::forward<Args>(args)...) {read(path);}
     template<typename... Args>
-    hllbase_t(gzFile fp, Args &&... args): hllbase_t(size_t(0), ERTL_MLE, ERTL_JOINT_MLE, std::forward<Args>(args)...) {this->read(fp);}
+    hllbase_t(gzFile fp, Args &&... args): hllbase_t(size_t(0), ERTL_MLE, (JointEstimationMethod)ERTL_MLE, std::forward<Args>(args)...) {this->read(fp);}
 
     // Call sum to recalculate if you have changed contents.
     void sum() const {
@@ -1106,7 +1106,6 @@ public:
             }
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
-        std::fprintf(stderr, "jestim is ERTL_JOINT_MLE: %s\n", JESTIM_STRINGS[jestim_]);
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
