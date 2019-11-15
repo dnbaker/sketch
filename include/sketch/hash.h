@@ -6,6 +6,7 @@
 #include <vector>
 #include <climits>
 #include <memory>
+#include "aesctr/wy.h"
 #include "vec/vec.h"
 #include "fixed_vector.h"
 
