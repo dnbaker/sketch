@@ -354,12 +354,14 @@ template<typename Container, typename F>
 void for_each_delta_decode(const Container &c, const F &func) {
     throw NotImplementedError("delta decoding is currently incorrect. DO NOT USE.");
     using T = std::decay_t<decltype(*std::begin(c))>;
+#if 0
     auto it = std::begin(c);
     for(T cv = *it++;;) {
         func(cv);
         if(it == std::end(c)) break;
         else cv += *it++;
     }
+#endif
 }
 
 #ifdef __CUDACC__

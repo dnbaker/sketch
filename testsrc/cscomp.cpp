@@ -24,7 +24,7 @@ int main() {
     std::fprintf(stderr, "run\n");
     sketch::SketchApplicator<> sa(100, 10);
     std::fprintf(stderr, "alloc'd\n");
-    sketch::IndykSketcher<double> is(5, 30, 1000, 137);
+    sketch::IndykSketcher<double> is(5, 50, 1000, 137);
     //size_t ntables, size_t destdim, uint64_t sourcedim=0,
     auto n = is.norm(init_1);
     wy::WyHash<uint64_t, 8> gen;
@@ -38,4 +38,21 @@ int main() {
     }
     std::fprintf(stderr, "pnorm: %f. real: %f\n", is.pnorm(), reall1sum);
     assert(std::abs(is.pnorm() - reall1sum) / reall1sum * 100. <= 5.);
+    auto pn = is.pnorms();
+    std::fprintf(stderr, "pnorms [n:%zu]\t", is.ntables());
+    for(const auto p: pn)
+        std::fprintf(stderr, "%f,", p);
+    std::fputc('\n', stderr);
+    sketch::IndykSketcher<double> is2(7, 100, 0), is3(7, 100, 0);
+    size_t sn = 20000;
+    size_t nl = 1, nr = 20;
+    for(size_t i = 0; i < sn; ++i) {
+        is2.addh(i, nl), is3.addh(i + sn / 2, nr);
+        std::swap(nl, nr);
+    }
+    //assert((is2.pnorm() - sn) / sn * 100. <= 12.);
+    //assert((is3.pnorm() - sn) / sn * 100. <= 12.);
+    auto us = is2.union_size(is3);
+    std::fprintf(stderr, "us: %f. n1 %f, n2 %f\n", us, is2.pnorm(), is3.pnorm());
+    std::fprintf(stderr, "True union l1: %zu. est: %f\n", sn * 21, us);
 }

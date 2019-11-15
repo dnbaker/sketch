@@ -161,8 +161,7 @@ auto &wz_decompress(const C &in, const Hasher &hf, OutC &ret, double p) {
             RNG rng(dm.quot >> 1);
             tmp[j] = in[dm.rem * ns + j] / gen(rng) * (dm.quot & 1 ? 1: -1);
         }
-        common::sort::insertion_sort(tmp, tmp + hf.size());
-        ret[i] = (tmp[ns >> 1] + tmp[(ns - 1) >> 1]) * .5;
+        ret[i] = median(tmp, hf.size());
     }
     return ret;
 }
@@ -190,8 +189,7 @@ auto &cs_decompress(const C &in, const Hasher &hf, OutC &ret) {
             auto hv = hf(i, j);
             tmp[j] = in[div.mod(hv >> 1) * ns + j] * (hv & 1 ? 1: -1);
         }
-        common::sort::insertion_sort(tmp, tmp + hf.size());
-        ret[i] = (tmp[ns >> 1] + tmp[(ns - 1) >> 1]) * .5;
+        ret[i] = median(tmp, hf.size());
     }
     return ret;
 }
@@ -224,7 +222,7 @@ auto top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, cons
             tmp[j] = in.operator[](div.mod(hv >> 1) * ns + j) * (hv & 1 ? 1: -1);
         }
         common::sort::insertion_sort(tmp, tmp + hf.size());
-        std::pair<FT, unsigned> pair = std::make_pair((tmp[ns >> 1] + tmp[(ns - 1) >> 1]) * .5, unsigned(i));
+        std::pair<FT, unsigned> pair = std::make_pair(median(tmp, hf.size()), unsigned(i));
         OMP_PRAGMA("omp critical")
         {
             pq.push(pair);
@@ -325,12 +323,14 @@ struct PStableSketcher: public RNLASketcher<FloatType> {
 protected:
     using mtype = blaze::CompressedMatrix<FloatType>;
     using super = RNLASketcher<FloatType>;
+    using this_type = PStableSketcher;
     std::unique_ptr<mtype> tx_;
     uint64_t seed_;
     DistType<FloatType> dist_;
     bool dense_;
     Norm norm_;
 public:
+    using final_type = this_type;
     PStableSketcher(size_t ntables, size_t destdim, uint64_t sourcedim=0, uint64_t seed=137, bool dense=true, Norm &&norm=Norm()): super(ntables, destdim), seed_(seed), dense_(dense) {
         if(sourcedim) {
             if(!dense_) throw 1;
@@ -357,6 +357,19 @@ public:
         PStableSketcher ret = *this;
         ret += o;
         return ret;
+    }
+    double union_size(const PStableSketcher &o) const {
+        PREC_REQ(o.mat_.rows() == this->mat_.rows(), "Mismatched row counts");
+        PREC_REQ(o.mat_.columns() == this->mat_.columns(), "Mismatched row counts");
+        sketch::common::detail::tmpbuffer<FloatType> tmpvs(this->ntables());
+        sketch::common::detail::tmpbuffer<FloatType> tmpv2(this->ntables());
+        auto p = tmpvs.get(), p2 = tmpv2.get();;
+        for(size_t i = 0; i < this->ntables(); ++i) {
+            p[i] = norm(row(this->mat_, i) + row(o.mat_, i));
+            p2[i] = norm(row(this->mat_, i));
+        }
+        std::fprintf(stderr, "my l1norm: %f\n", median(p2, this->ntables()));
+        return median(p, this->ntables());
     }
     template<typename FT, template<typename, bool> class ContainerTemplate>
     void add(const ContainerTemplate<FT, blaze::columnVector> &x) {
@@ -413,17 +426,31 @@ public:
             ptr[i] = this->norm(row(this->mat_, i));
         return median(ptr, this->ntables());
     }
-    void add(size_t hv, double w) {
+    std::vector<FloatType> pnorms() const {
+        sketch::common::detail::tmpbuffer<FloatType> tmpvs(this->ntables());
+        auto ptr = tmpvs.get();
+        for(size_t i = 0; i < tmpvs.size(); ++i)
+            ptr[i] = this->norm(row(this->mat_, i));
+        common::sort::default_sort(ptr, ptr + this->ntables());
+        return std::vector<FloatType>(ptr, ptr + this->ntables());
+    }
+    void addh(size_t hv, double w=1.) {
+#if 1
         wy::WyHash<uint64_t, 0> gen(hv);
         for(size_t i = 0; i < this->ntables(); ++i) {
             auto r = row(this->mat_, i);
+            assert(r.size() == this->destdim());
             auto v = gen();
             auto ind = v % this->destdim(), rem = v / this->destdim();
-            wy::WyHash<uint64_t, 0> lrg(rem);
-            r[ind] = dist_(lrg);
+            wy::WyHash<uint64_t, 0> lrg(nosiam::wy61hash(rem, 4, 137));
+            r[ind] += dist_(lrg) * w;
         }
+#else
+        blaze::CompressVector<FT, blaze::rowVector> cv;
+        cv.reserfve(this->ntables());
+#endif
     }
-    bool dense() {return dense_;}
+    bool dense() const {return dense_;}
     template<typename T>
     auto norm(const T &x) const {return norm_(x);}
 };

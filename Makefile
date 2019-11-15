@@ -36,7 +36,9 @@ setup_tests: $(EX) lztest
 
 STD?= -std=c++14
 
-GPUFLAGS= -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp
+CCBIN?=-ccbin=clang++
+
+GPUFLAGS= $(CCBIN) -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp
 
 INCLUDES=-I`$(PYCONF) --includes` -Ipybind11/include
 SUF=`$(PYCONF) --extension-suffix`
@@ -80,8 +82,8 @@ divtest: testsrc/divtest.cpp kthread.o $(HEADERS) sleef.h
 %: src/%.cu
 	$(NVCC) $< -o $@ $(GPUFLAGS)
 
-%.o: %.cu
-	$(NVCC) $< -c -o $@ $(GPUFLAGS)
+#%.o: %.cu
+#	$(NVCC) $< -c -o $@ $(GPUFLAGS)
 
 %: benchmark/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DNDEBUG=1 $< -o $@ -lz

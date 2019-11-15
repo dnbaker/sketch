@@ -23,17 +23,18 @@ class vector {
 public:
     using value_type = T;
     static T *allocate(size_t nelem) {
-        T *ret;
+        void *ret;
         const size_t nb = nelem * sizeof(T);
         CONST_IF(aln) {
-            if(posix_memalign((void **)&ret, aln, nb)) goto fail;
+            if(posix_memalign(&ret, aln, nb)) {
+                throw std::bad_alloc();
+            }
         } else {
-            if((ret = static_cast<T *>(std::malloc(nb))) == nullptr) goto fail;
+            if((ret = std::malloc(nb)) == nullptr) {
+                throw std::bad_alloc();
+            }
         }
-        return ret;
-        fail:
-        throw std::bad_alloc();
-        return nullptr;
+        return static_cast<T *>(ret);
     }
     template<typename It>
     vector(It i1, It i2): data_(allocate(std::distance(i1, i2))), n_(std::distance(i1, i2)) {

@@ -53,7 +53,7 @@ INLINE double origest(const T &p, unsigned l2) {
     //_Pragma("GCC unroll 8")
     for(auto i = 1u; i < 64 - l2 + 1; ++i) {
 #if __CUDA_ARCH__
-        s += ldexp(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        s += ldexpf(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
 #else
         s += std::ldexp(p[i], -i);
 #endif

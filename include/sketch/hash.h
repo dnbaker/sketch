@@ -249,9 +249,9 @@ INLINE uint64_t mod61(uint64_t x) {
     if(x >= mod) x -= mod;
     return x;
 }
+
 INLINE uint64_t mulmod61(uint64_t x1, uint64_t x2) {
-    __uint128_t tmp = x1; tmp *= x2;
-    return mod61(tmp);
+    return mod61(__uint128_t(x1) * x2);
 }
 
 template<size_t n>
@@ -263,6 +263,18 @@ inline uint64_t i61hash(uint64_t x, const std::array<uint64_t, n> & keys) {
         if(i % 8 == 0) tsum = mod61(tsum);
         xp = mulmod61(xp, x);
         tsum += mulmod61(xp, keys[i]);
+    }
+	return mod61(tsum);
+}
+inline uint64_t wy61hash(uint64_t x, size_t n, uint64_t seed) {
+    wy::WyHash<uint64_t, 0> gen(seed);
+    uint64_t tsum = gen();
+    tsum += mulmod61(x, gen());
+    uint64_t xp = x;
+    for(size_t i = 2; i < n; ++i) {
+        tsum = mod61(tsum);
+        xp = mulmod61(xp, x);
+        tsum += mulmod61(xp, gen());
     }
 	return mod61(tsum);
 }
