@@ -353,8 +353,8 @@ std::vector<T, Alloc> delta_encode(const std::vector<T, Alloc> &x) {
 template<typename Container, typename F>
 void for_each_delta_decode(const Container &c, const F &func) {
     throw NotImplementedError("delta decoding is currently incorrect. DO NOT USE.");
-    using T = std::decay_t<decltype(*std::begin(c))>;
 #if 0
+    using T = std::decay_t<decltype(*std::begin(c))>;
     auto it = std::begin(c);
     for(T cv = *it++;;) {
         func(cv);
