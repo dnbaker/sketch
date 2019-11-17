@@ -977,14 +977,13 @@ struct phll_t {
     template<typename C>
     double register_estimate(const C &counts) const {
         assert(std::accumulate(counts.begin(), counts.end(), size_t(0)) == size());
-        for(const auto v: counts) std::fprintf(stderr, "v: %u\n", v);
         long double sum = counts[0];
         long double inv = 1./ base, prod = inv;
         for(int i = 1; i < 16; ++i) {
             sum += counts[i] * prod;
             prod *= inv;
         }
-        return core_.size() / sum * 36.17;
+        return core_.size() / sum * 36.17; // Empircally found, no good reasoning.
     }
     phll_t &operator+=(const phll_t &o) {
         using hll::detail::SIMDHolder;

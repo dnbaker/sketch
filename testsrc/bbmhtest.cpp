@@ -33,7 +33,7 @@ int main() {
         std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(neqb12), size_t(f1.equal_bblocks(f1)));
     }
 
-    for(size_t i = 7; i <= 16; i += 2) {
+    for(size_t i = 7; i <= 14; i += 2) {
         for(const auto b: {7u, 13u, 14u, 17u, 9u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             SuperMinHash<policy::SizePow2Policy> smhp2(1 << i);
@@ -52,7 +52,7 @@ int main() {
             DivBBitMinHasher<uint64_t> db1(dbval, b), db2(dbval, b), db3(dbval, b);
             //DivBBitMinHasher<uint64_t> fb(i, b);
             CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(i, b);
-            DefaultRNGType gen(137);
+            DefaultRNGType gen(137 + (i * b));
             size_t shared = 0, b1c = 0, b2c = 0;
             constexpr size_t niter = 50000000;
             for(size_t i = niter; --i;) {
@@ -87,7 +87,7 @@ int main() {
             auto f1 = b1.finalize(), f2 = b2.finalize(), f3 = b3.finalize();
             auto est = (b1 + b2).cardinality_estimate();
             assert((b1 + b2).cardinality_estimate() == b1.union_size(b2));
-            //assert(std::abs(est - niter < niter * 3 / 100.) || !std::fprintf(stderr, "est: %lf\n", est));
+            assert(i <= 9 || std::abs(est - niter < niter * 5 / 100.) || !std::fprintf(stderr, "est: %lf\n", est));
             //b1 += b2;
             auto f12 = b1.finalize();
             auto fdb1 = db1.finalize();
@@ -96,7 +96,7 @@ int main() {
             auto smhd1 = smhdp.finalize(16), smhd2 = smhdp1.finalize(16);
             assert(smh1.jaccard_index(smh1) == 1.);
             std::fprintf(stderr, "estimate: %f\n", smh1.jaccard_index(smh2));
-            //assert(std::abs(smh1.jaccard_index(smh2) - .5) < 0.05);
+            assert(std::abs(smh1.jaccard_index(smh2) - .5) < 0.05);
 
             std::fprintf(stderr, "with ss=%zu, smh1 and itself: %lf. 2 and 2/1 jaccard? %lf/%lf\n", size_t(1) << i, double(smh1.jaccard_index(smh1)), double(smh2.jaccard_index(smh1)), smh1.jaccard_index(smh2));
             std::fprintf(stderr, "smh1 card %lf, smh2 %lf\n", smh1.est_cardinality_, smh2.est_cardinality_);
