@@ -120,6 +120,7 @@ int main() {
             decltype(cb1.finalize()) cbr("ZOMG.cb");
             assert(cbr == cb1.finalize());
             auto whl = b1.make_whll();
+            auto phl = b1.make_packed16hll();
             std::fprintf(stderr, "whl card: %lf/%zu vs expected %lf/%lf/%lf\n", whl.cardinality_estimate(), whl.core_.size(), f1.est_cardinality_, h1.report(), whl.union_size(whl));
         }
     }
