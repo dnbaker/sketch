@@ -345,13 +345,25 @@ public:
             }
         }
     }
-    PStableSketcher(const PStableSketcher &o): seed_(o.seed_), dist_(o.dist_), dense_(o.dense) {
-        tx_.reset(new blaze::DynamicMatrix<FloatType>(*o.tx_)); // manually call copy
+    PStableSketcher(const PStableSketcher &o): super(o.ntables(), o.destdim()), seed_(o.seed_), dist_(o.dist_), dense_(o.dense_) {
+        if(o.tx_) tx_.reset(new mtype(*o.tx_)); // manually call copy
+    }
+    PStableSketcher &operator-=(const PStableSketcher &o) {
+        PREC_REQ(dense() == o.dense(), "must both be dense or not");
+        PREC_REQ(seed_ == o.seed_, "must have the same seed");
+        this->mat_ -= o.mat_;
+        return *this;
+    }
+    PStableSketcher operator-(const PStableSketcher &o) {
+        PStableSketcher ret = *this;
+        ret -= o;
+        return ret;
     }
     PStableSketcher &operator+=(const PStableSketcher &o) {
         PREC_REQ(dense() == o.dense(), "must both be dense or not");
         PREC_REQ(seed_ == o.seed_, "must have the same seed");
         this->mat_ += o.mat_;
+        return *this;
     }
     PStableSketcher operator+(const PStableSketcher &o) {
         PStableSketcher ret = *this;
