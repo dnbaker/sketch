@@ -931,18 +931,28 @@ struct phll_t {
     phll_t(const std::vector<uint8_t, Allocator<uint8_t>> &v): core_(v) {}
     phll_t(const phll_t &o) = default;
     phll_t(phll_t &&o)      = default;
-    size_t size() const {return core_.size();}
+    size_t size() const {return core_.size() << 1;}
+    static constexpr long double base = 16.;
+#if 0
+    static constexpr std::array<double, 16> lut {
+        // Powers of base
+        1.,
+        0.042059381019761137022, 0.0017689915317654432338, 7.4402688855253665116e-05, 3.1293310394578491419e-06,
+        1.3161772652552284465e-07, 5.5357601088916873674e-09, 2.328306436538698874e-10, 9.7927127545143427921e-12,
+        4.1187543695919336411e-13, 1.7323225935747322261e-14, 7.2860416012300470146e-16, 3.0644639983196504646e-17,
+        1.2888945892666683434e-18, 5.4210108624275342071e-20, 2.2800436137510356729e-21
+    };
+#endif
     INLINE double cardinality_estimate() const {
-        std::array<uint32_t, 64> counts{0};
+        std::array<uint32_t, 16> counts{0};
         for(const auto v: core_) {
             ++counts[v >> 4];
             ++counts[v&0xFu];
         }
-        int p = ilog2(core_.size()) + 1;
-        return register_estimate(counts, p, 64 - p);
+        return register_estimate(counts);
     }
     INLINE double union_size(const phll_t &o) const {
-        std::array<uint32_t, 64> counts{0};
+        std::array<uint32_t, 16> counts{0};
         if(size() < sizeof(Space::COUNT)) {
             for(size_t i = 0; i < core_.size(); ++i) {
                 ++counts[std::max(core_[i] >> 4, o.core_[i] >> 4)];
@@ -961,18 +971,20 @@ struct phll_t {
                 lv.for_each([&](auto x) {++counts[x];});
             }
         }
-        int p = ilog2(core_.size()) + 1;
-        return register_estimate(counts, p, 64 - p);
+        return register_estimate(counts);
 
     }
     template<typename C>
-    double register_estimate(const C &counts, int p, int q) const {
-        static constexpr long double base = std::pow(std::ldexp(1., 64), 1./15);
+    double register_estimate(const C &counts) const {
+        assert(std::accumulate(counts.begin(), counts.end(), size_t(0)) == size());
+        for(const auto v: counts) std::fprintf(stderr, "v: %u\n", v);
         long double sum = counts[0];
-        for(ssize_t i = 1; i < 64 - p + 1; ++i) {
-            sum += static_cast<long double>(counts[i]) * (std::pow(base, -i));
+        long double inv = 1./ base, prod = inv;
+        for(int i = 1; i < 16; ++i) {
+            sum += counts[i] * prod;
+            prod *= inv;
         }
-        return static_cast<long double>(std::pow(core_.size(), 2) / sum) / std::sqrt(base);
+        return core_.size() / sum * 36.17;
     }
     phll_t &operator+=(const phll_t &o) {
         using hll::detail::SIMDHolder;
