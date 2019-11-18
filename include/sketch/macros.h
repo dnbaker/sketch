@@ -33,12 +33,14 @@
 #endif
 
 
-#if __CUDACC__ || __GNUC__ || __clang__
-#  define SK_RESTRICT __restrict__
-#elif _MSC_VER
-#  define SK_RESTRICT __restrict
-#else
-#  define SK_RESTRICT
+#ifndef SK_RESTRICT
+#  if __CUDACC__ || __GNUC__ || __clang__
+#    define SK_RESTRICT __restrict__
+#  elif _MSC_VER
+#    define SK_RESTRICT __restrict
+#  else
+#    define SK_RESTRICT
+#  endif
 #endif
 
 #ifdef __CUDA_ARCH__

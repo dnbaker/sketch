@@ -48,9 +48,6 @@ HEADERS=$(wildcard include/sketch/*.h)
 SAN=-fsanitize=undefined -fsanitize=address
 PYTHON?=python3
 
-sleef.h:
-	+cd vec/sleef && mkdir -p build && cd build && cmake .. && $(MAKE) && cd ../../../ && ln -s vec/sleef//build/include/sleef.h sleef.h
-
 python: $(HEADERS) python/hll.cpp python/setup.py
 	cd python && $(PYTHON) setup.py install
 
@@ -70,13 +67,13 @@ hpython: pybbmh.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-%: testsrc/%.cpp kthread.o $(HEADERS) sleef.h
+%: testsrc/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS) sleef.h
+heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-divtest: testsrc/divtest.cpp kthread.o $(HEADERS) sleef.h
+divtest: testsrc/divtest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 %: src/%.cu
