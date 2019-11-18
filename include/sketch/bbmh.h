@@ -149,6 +149,85 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
 
 } // namespace detail
 
+struct phll_t {
+    std::vector<uint8_t, Allocator<uint8_t>> core_;
+    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &&v): core_(std::move(v)) {}
+    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &v): core_(std::move(v)) {}
+    phll_t(const std::vector<uint8_t, Allocator<uint8_t>> &v): core_(v) {}
+    phll_t(const phll_t &o) = default;
+    phll_t(phll_t &&o)      = default;
+    size_t size() const {return core_.size() << 1;}
+    static constexpr long double base = 16.;
+    INLINE double cardinality_estimate() const {
+        std::array<uint32_t, 16> counts{0};
+        for(const auto v: core_) {
+            ++counts[v >> 4];
+            ++counts[v&0xFu];
+        }
+        return register_estimate(counts);
+    }
+    INLINE double union_size(const phll_t &o) const {
+        std::array<uint32_t, 16> counts{0};
+        if(size() < sizeof(Space::COUNT)) {
+            for(size_t i = 0; i < core_.size(); ++i) {
+                ++counts[std::max(core_[i] >> 4, o.core_[i] >> 4)];
+                ++counts[std::max(core_[i] & 0xFu, o.core_[i] & 0xFu)];
+            }
+        } else {
+            const Space::Type *ptr = static_cast<const Space::Type *>(static_cast<const void *>(core_.data())),
+                               *optr = static_cast<const Space::Type *>(static_cast<const void *>(o.core_.data()));
+            const auto lmask = Space::set1(0x0F0F0F0F0F0F0F0F), umask = Space::set1(0xF0F0F0F0F0F0F0F0);
+            for(size_t i = 0; i < core_.size() / Space::COUNT; ++i) {
+                Space::VType lhs = Space::load(ptr + i), rhs = Space::load(optr + i);
+                auto getbits = [&](auto mask) {return hll::detail::SIMDHolder::max_fn(Space::and_fn(lhs.simd_, mask), Space::and_fn(rhs.simd_, mask));};
+                Space::VType lv = getbits(lmask);
+                lv.for_each([&](auto x) {++counts[x];});
+                lv = Space::srli(getbits(umask), 4);
+                lv.for_each([&](auto x) {++counts[x];});
+            }
+        }
+        return register_estimate(counts);
+
+    }
+    template<typename C>
+    double register_estimate(const C &counts) const {
+        assert(std::accumulate(counts.begin(), counts.end(), size_t(0)) == size());
+        long double sum = counts[0];
+        long double inv = 1./ base, prod = inv;
+        for(int i = 1; i < 16; ++i) {
+            sum += counts[i] * prod;
+            prod *= inv;
+        }
+        return core_.size() / sum * 36.17; // Empircally found, no good reasoning.
+    }
+    phll_t &operator+=(const phll_t &o) {
+        using hll::detail::SIMDHolder;
+        PREC_REQ(size() == o.size(), "must have matching sizes");
+        if(size() < sizeof(Space::COUNT)) {
+            for(size_t i = 0; i < core_.size(); ++i) {
+                core_[i] = (std::max(core_[i] >> 4, o.core_[i] >> 4) << 4) |
+                            std::max(core_[i] & 0xFu, o.core_[i] & 0xFu);
+            }
+        } else {
+            const Space::Type *ptr = static_cast<const Space::Type *>(static_cast<const void *>(core_.data())),
+                               *optr = static_cast<const Space::Type *>(static_cast<const void *>(o.core_.data()));
+            const auto lmask = Space::set1(0x0F0F0F0F0F0F0F0F), umask = Space::set1(0xF0F0F0F0F0F0F0F0);
+            for(size_t i = 0; i < core_.size() / Space::COUNT; ++i) {
+                Space::VType lhs = Space::load(ptr + i), rhs = Space::load(optr + i);
+                auto getbits = [&](auto mask) {return SIMDHolder::max_fn(Space::and_fn(lhs.simd_, mask), Space::and_fn(rhs.simd_, mask));};
+                Space::store(reinterpret_cast<Space::Type *>(core_.data() + i * Space::COUNT),
+                             getbits(lmask) | getbits(umask));
+            }
+        }
+        return *this;
+    }
+    phll_t operator+(const phll_t &o) const {
+        phll_t ret(*this);
+        ret += o;
+        return ret;
+    }
+};
+
 
 template<template<typename> class Policy, typename RNGType, typename CountType>
 struct SuperMinHash;
@@ -909,8 +988,8 @@ public:
     }
     auto make_packed16hll() const {
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size() >> 1);
-        static constexpr long double base = std::pow(std::ldexp(1., 64), 1./15);
-        static constexpr long double d = 1.L / std::log(base);
+        static const long double base = std::pow(std::ldexp(1., 64), 1./15);
+        static const long double d = 1.L / std::log(base);
         for(size_t i = 0; i < retvec.size(); ++i) {
             auto reg2val = [dv=detail::default_val<T>(),d=d] (auto x) {
                 return __builtin_expect(x == 0, 0) ? uint8_t(15)
@@ -924,94 +1003,6 @@ public:
     }
 };
 
-struct phll_t {
-    std::vector<uint8_t, Allocator<uint8_t>> core_;
-    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &&v): core_(std::move(v)) {}
-    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &v): core_(std::move(v)) {}
-    phll_t(const std::vector<uint8_t, Allocator<uint8_t>> &v): core_(v) {}
-    phll_t(const phll_t &o) = default;
-    phll_t(phll_t &&o)      = default;
-    size_t size() const {return core_.size() << 1;}
-    static constexpr long double base = 16.;
-#if 0
-    static constexpr std::array<double, 16> lut {
-        // Powers of base
-        1.,
-        0.042059381019761137022, 0.0017689915317654432338, 7.4402688855253665116e-05, 3.1293310394578491419e-06,
-        1.3161772652552284465e-07, 5.5357601088916873674e-09, 2.328306436538698874e-10, 9.7927127545143427921e-12,
-        4.1187543695919336411e-13, 1.7323225935747322261e-14, 7.2860416012300470146e-16, 3.0644639983196504646e-17,
-        1.2888945892666683434e-18, 5.4210108624275342071e-20, 2.2800436137510356729e-21
-    };
-#endif
-    INLINE double cardinality_estimate() const {
-        std::array<uint32_t, 16> counts{0};
-        for(const auto v: core_) {
-            ++counts[v >> 4];
-            ++counts[v&0xFu];
-        }
-        return register_estimate(counts);
-    }
-    INLINE double union_size(const phll_t &o) const {
-        std::array<uint32_t, 16> counts{0};
-        if(size() < sizeof(Space::COUNT)) {
-            for(size_t i = 0; i < core_.size(); ++i) {
-                ++counts[std::max(core_[i] >> 4, o.core_[i] >> 4)];
-                ++counts[std::max(core_[i] & 0xFu, o.core_[i] & 0xFu)];
-            }
-        } else {
-            const Space::Type *ptr = static_cast<const Space::Type *>(static_cast<const void *>(core_.data())),
-                               *optr = static_cast<const Space::Type *>(static_cast<const void *>(o.core_.data()));
-            const auto lmask = Space::set1(0x0F0F0F0F0F0F0F0F), umask = Space::set1(0xF0F0F0F0F0F0F0F0);
-            for(size_t i = 0; i < core_.size() / Space::COUNT; ++i) {
-                Space::VType lhs = Space::load(ptr + i), rhs = Space::load(optr + i);
-                auto getbits = [&](auto mask) {return hll::detail::SIMDHolder::max_fn(Space::and_fn(lhs.simd_, mask), Space::and_fn(rhs.simd_, mask));};
-                Space::VType lv = getbits(lmask);
-                lv.for_each([&](auto x) {++counts[x];});
-                lv = Space::srli(getbits(umask), 4);
-                lv.for_each([&](auto x) {++counts[x];});
-            }
-        }
-        return register_estimate(counts);
-
-    }
-    template<typename C>
-    double register_estimate(const C &counts) const {
-        assert(std::accumulate(counts.begin(), counts.end(), size_t(0)) == size());
-        long double sum = counts[0];
-        long double inv = 1./ base, prod = inv;
-        for(int i = 1; i < 16; ++i) {
-            sum += counts[i] * prod;
-            prod *= inv;
-        }
-        return core_.size() / sum * 36.17; // Empircally found, no good reasoning.
-    }
-    phll_t &operator+=(const phll_t &o) {
-        using hll::detail::SIMDHolder;
-        PREC_REQ(size() == o.size(), "must have matching sizes");
-        if(size() < sizeof(Space::COUNT)) {
-            for(size_t i = 0; i < core_.size(); ++i) {
-                core_[i] = (std::max(core_[i] >> 4, o.core_[i] >> 4) << 4) |
-                            std::max(core_[i] & 0xFu, o.core_[i] & 0xFu);
-            }
-        } else {
-            const Space::Type *ptr = static_cast<const Space::Type *>(static_cast<const void *>(core_.data())),
-                               *optr = static_cast<const Space::Type *>(static_cast<const void *>(o.core_.data()));
-            const auto lmask = Space::set1(0x0F0F0F0F0F0F0F0F), umask = Space::set1(0xF0F0F0F0F0F0F0F0);
-            for(size_t i = 0; i < core_.size() / Space::COUNT; ++i) {
-                Space::VType lhs = Space::load(ptr + i), rhs = Space::load(optr + i);
-                auto getbits = [&](auto mask) {return SIMDHolder::max_fn(Space::and_fn(lhs.simd_, mask), Space::and_fn(rhs.simd_, mask));};
-                Space::store(reinterpret_cast<Space::Type *>(core_.data() + i * Space::COUNT),
-                             getbits(lmask) | getbits(umask));
-            }
-        }
-        return *this;
-    }
-    phll_t operator+(const phll_t &o) const {
-        phll_t ret(*this);
-        ret += o;
-        return ret;
-    }
-};
 
 template<typename HashStruct=WangHash>
 class WideHyperLogLogHasher: public BBitMinHasher<uint64_t, HashStruct> {
