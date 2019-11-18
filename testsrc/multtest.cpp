@@ -1,4 +1,3 @@
-#include "vec/vec.h"
 #include "mult.h"
 #include "hll.h"
 #include "hk.h"
