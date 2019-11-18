@@ -23,8 +23,10 @@ PYCONF?=python3-config
 
 ifeq ($(shell uname),Darwin)
     UNDEFSTR=-undefined dynamic_lookup
+    SLEEF_COMPILER=clang
 else
     UNDEFSTR=
+    SLEEF_COMPILER=$(CC)
 endif
 
 
@@ -70,13 +72,13 @@ hpython: pybbmh.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-%: testsrc/%.cpp kthread.o $(HEADERS) sleef.h
+%: testsrc/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS) sleef.h
+heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-divtest: testsrc/divtest.cpp kthread.o $(HEADERS) sleef.h
+divtest: testsrc/divtest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 %: src/%.cu
