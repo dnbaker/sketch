@@ -1,12 +1,12 @@
 #ifndef DNB_SKETCH_MULTIPLICITY_H__
 #define DNB_SKETCH_MULTIPLICITY_H__
-#include <random>
-#include "ccm.h" // Count-min sketch
 #ifndef NO_BLAZE
 #  if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
 #    include "blaze/Math.h"
 #  endif
 #endif
+#include <random>
+#include "ccm.h" // Count-min sketch
 
 #include "hk.h"
 #include <cstdarg>
@@ -18,7 +18,7 @@ namespace sketch {
 
 namespace cws {
 
-#if !defined(NO_BLAZE) && (VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED)
+#if defined(_BLAZE_MATH_MATRIX_H_) && (VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED)
 template<typename FType=float>
 struct CWSamples {
     using MType = blaze::DynamicMatrix<float>;

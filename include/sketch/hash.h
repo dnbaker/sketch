@@ -1,13 +1,19 @@
 #ifndef DBSKETCH_HASH_H__
 #define DBSKETCH_HASH_H__
 #include <cstdint>
+#include <cassert>
 #include <array>
-#include <type_traits>
-#include <vector>
 #include <climits>
 #include <memory>
+#include <random>
+#include <type_traits>
+#include <vector>
 #include "aesctr/wy.h"
-#include "vec/vec.h"
+#ifndef _VEC_H__
+#  define NO_SLEEF
+#  define NO_BLAZE
+#  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
+#endif
 #include "fixed_vector.h"
 
 namespace sketch {

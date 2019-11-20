@@ -23,8 +23,10 @@ PYCONF?=python3-config
 
 ifeq ($(shell uname),Darwin)
     UNDEFSTR=-undefined dynamic_lookup
+    SLEEF_COMPILER=clang
 else
     UNDEFSTR=
+    SLEEF_COMPILER=$(CC)
 endif
 
 
