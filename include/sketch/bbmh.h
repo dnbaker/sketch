@@ -1749,7 +1749,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 while((uint64_t *)vp1 + 2 <= (uint64_t *)vpe) {
                     match = ~(*vp1++ ^ *vp2++);
                     for(unsigned b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
-                    v1 = vatpos(match, 0), v2 vatpos(match, 1);
+                    v1 = vatpos(match, 0), v2 = vatpos(match, 1);
                     lsum += popcount(v1) + popcount(v2);
                     if(v1) {
                         do {
