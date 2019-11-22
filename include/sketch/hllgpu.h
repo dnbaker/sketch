@@ -27,18 +27,51 @@ CUDA_ONLY(__host__ __device__)
 INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
 #if __CUDA_ARCH__
     x1 = __vmaxu4(x1, x2);
-#else
-    // Manual
-    unsigned x3 = std::max(x1>>24, x2>>24);
-    x3 <<= 8;
-    x3 |= std::max((x1 >> 16) & 0xFFu, (x2 >> 16) & 0xFFu);
-    x3 <<= 8;
-    x3 |= std::max((x1 >> 8) & 0xFFu, (x2 >> 8) & 0xFFu);
-    x1 = (x3 << 8) | std::max(x1 & 0xFFu, x2 & 0xFFu);
     ++arr[x1&0xFFu];
     ++arr[(x1>>8)&0xFFu];
     ++arr[(x1>>16)&0xFFu];
     ++arr[x1>>24];
+#else
+    // Manual
+    ++arr[max(x1>>24, x2>>24)];
+    ++arr[max((x1 >> 16) & 0xFFu, (x2 >> 16) & 0xFFu)];
+    ++arr[max((x1 >> 8) & 0xFFu, (x2 >> 8) & 0xFFu)];
+    ++arr[max(x1&0xFFu, x2&0xFFu)];
+#endif
+}
+
+template<typename T>
+CUDA_ONLY(__host__ __device__)
+INLINE void bbit_increment_matches(T &SK_RESTRICT ret, unsigned x1, unsigned x2) {
+    ret += popcount(~x1 ^ x2);
+}
+
+template<typename T>
+CUDA_ONLY(__host__ __device__)
+INLINE void increment_maxes_packed16(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
+#if __CUDA_ARCH__
+    static constexpr unsigned mask = 0x0F0F0F0Fu;
+    unsigned tmp1 = x1 & mask, tmp2 = x2 & mask;
+    tmp1 = __vmaxu4(tmp1, tmp2);
+    ++arr[tmp1&0xFu];
+    ++arr[(tmp1>>8)&0xFu];
+    ++arr[(tmp1>>16)&0xFu];
+    ++arr[tmp1>>24];
+    tmp1 = __vmaxu4((x1>>4)&mask, (x2>>4)&mask);
+    ++arr[tmp1&0xFu];
+    ++arr[(tmp1>>8)&0xFu];
+    ++arr[(tmp1>>16)&0xFu];
+    ++arr[tmp1>>24];
+#else
+    // Manual
+    ++arr[max(x1>>28, x2>>28)];
+    ++arr[max((x1>>24)&0xFu, (x2>>24)&0xFu)];
+    ++arr[max((x1>>20)&0xFu, (x2>>20)&0xFu)];
+    ++arr[max((x1>>16)&0xFu, (x2>>16)&0xFu)];
+    ++arr[max((x1>>12)&0xFu, (x2>>12)&0xFu)];
+    ++arr[max((x1>>8)&0xFu, (x2>>8)&0xFu)];
+    ++arr[max((x1>>4)&0xFu, (x2>>4)&0xFu)];
+    ++arr[max(x1&0xFu, x2&0xFu)];
 #endif
 }
 
@@ -194,6 +227,7 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
     return ret;
 }
 #endif
+
 
 } // sketch
 

@@ -54,7 +54,7 @@ int main() {
             CountingBBitMinHasher<uint64_t, uint32_t> cb1(i, b), cb2(i, b), cb3(i, b);
             DefaultRNGType gen(137 + (i * b));
             size_t shared = 0, b1c = 0, b2c = 0;
-            constexpr size_t niter = 50000000;
+            constexpr size_t niter = 5000000;
             for(size_t i = niter; --i;) {
 #if SIMPLE_HASH
                 auto v = i;
