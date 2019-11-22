@@ -27,7 +27,6 @@ static constexpr FloatType gen_sigma(FloatType x) {
 template<typename FloatType>
 static constexpr FloatType gen_tau(FloatType x) {
     if (x == 0. || x == 1.) {
-        //std::fprintf(stderr, "x is %f\n", (float)x);
         return 0.;
     }
     FloatType z(1-x), tmp(0.), y(1.), zp(x);

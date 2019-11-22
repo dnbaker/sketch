@@ -50,9 +50,6 @@ HEADERS=$(wildcard include/sketch/*.h)
 SAN=-fsanitize=undefined -fsanitize=address
 PYTHON?=python3
 
-sleef.h:
-	+cd vec/sleef && mkdir -p build && cd build && cmake .. && $(MAKE) && cd ../../../ && ln -s vec/sleef//build/include/sleef.h sleef.h
-
 python: $(HEADERS) python/hll.cpp python/setup.py
 	cd python && $(PYTHON) setup.py install
 
