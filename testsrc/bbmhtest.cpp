@@ -8,6 +8,14 @@ using namespace mh;
 #define SIMPLE_HASH 1
 #endif
 
+template<typename T>
+struct scope_executor {
+    T x_;
+    scope_executor(T &&x): x_(std::move(x)) {}
+    scope_executor(const T &x): x_(x) {}
+    ~scope_executor() {x_();}
+};
+
 int main() {
     static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
 
@@ -119,6 +127,8 @@ int main() {
             //std::fprintf(stderr, "cb13res %lf, %lf\n", cb13res.weighted_jaccard_index(), cb13res.jaccard_index());
             cb1.finalize().write("ZOMG.cb");
             decltype(cb1.finalize()) cbr("ZOMG.cb");
+            auto deleter = []() {if(std::system("rm ZOMG.cb")) throw std::runtime_error("Failed to delete ZOMG.cb");};
+            scope_executor<decltype(deleter)> se(deleter);
             assert(cbr == cb1.finalize());
             //cbr.histogram_sums(cb2.finalize()).print();
             auto whl = b1.make_whll();
@@ -127,5 +137,4 @@ int main() {
             std::fprintf(stderr, "whl card: %lf/%zu vs expected %lf/%lf/%lf\n", whl.cardinality_estimate(), whl.core_.size(), f1.est_cardinality_, h1.report(), whl.union_size(whl));
         }
     }
-    if(std::system("rm ZOMG.cb")) throw std::runtime_error("Failed to delete ZOMG.cb");
 }
