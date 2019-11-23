@@ -52,8 +52,8 @@ inline int densifybin(Container &hashes) {
 
 
 template<typename Cont>
-static inline double harmonic_cardinality_estimate_diffmax_impl(const Cont &minvec, const double num) {
-    const double s = std::accumulate(minvec.begin(), minvec.end(), static_cast<long double>(0), [num](auto sum, const auto v) {return sum + v / num;});
+static inline double harmonic_cardinality_estimate_diffmax_impl(const Cont &minvec, const long double num) {
+    const long double s = std::accumulate(minvec.begin(), minvec.end(), static_cast<long double>(0), [num](auto sum, const auto v) {return sum + v / num;});
     return s ? std::pow(minvec.size(), 2) / s: 0.;
 }
 
@@ -61,8 +61,8 @@ template<typename Cont>
 static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
     using VT = typename Cont::value_type;
     assert(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>()) == minvec.end());
-    const double num = is_pow2(minvec.size()) ? std::ldexp(1., sizeof(VT) * CHAR_BIT - ilog2(minvec.size()))
-                                              : double(UINT64_C(-1)) / minvec.size();
+    const long double num = is_pow2(minvec.size()) ? std::ldexp(static_cast<long double>(1.), sizeof(VT) * CHAR_BIT - ilog2(minvec.size()))
+                                              : ((long double)UINT64_C(-1)) / minvec.size();
     return harmonic_cardinality_estimate_diffmax_impl(minvec, num);
 }
 
@@ -305,6 +305,9 @@ public:
         if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != ssize_t(core_.size() * sizeof(core_[0])), 0)) throw std::runtime_error("Could not write to file");
         ret += sizeof(core_[0]) * core_.size();
         return ret;
+    }
+    size_t nmatches(const FinalDivBBitMinHash &o) const {
+        return equal_bblocks(o);
     }
     double frac_equal(const FinalDivBBitMinHash &o) const {
         // TODO: needs more dragons
@@ -723,6 +726,7 @@ public:
         assert(core_.size() % 64 == 0);
         if(b_ < 1 || b_ > 64) throw "a party";
     }
+    void show() const {for(const auto v: core_) std::fprintf(stderr, "%zu\t", size_t(v)); std::fputc(stderr, '\n');}
     void addh(T val) {val = hf_(val);add(val);}
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
@@ -796,6 +800,7 @@ public:
             throw std::runtime_error(buf);
         }
     }
+    //void show() const {for(const auto v: core_) std::fprintf(stderr, "%zu\t", size_t(v)); std::fputc(v, '\n');}
     void reset() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
@@ -856,6 +861,12 @@ public:
             default: return 0.7213 / (1 + 1.079/m);
         }
     }
+    size_t nmatches(const BBitMinHasher &o) const {
+        size_t ret = core_[0] == o.core_[0];
+        for(size_t i = 1; i < core_.size(); ++i)
+            ret += core_[i] == o.core_[i];
+        return ret;
+    }
     double jaccard_index(const BBitMinHasher &o) const {
         auto it = core_.begin(), oit = o.core_.begin();
         size_t ret = *it++ == *oit++;
@@ -865,31 +876,33 @@ public:
         return double(ret) / core_.size();
     }
     double union_size(const BBitMinHasher &o) const {
-        auto it = core_.begin(), oit = o.core_.begin();
-        const double numinv = 1. / std::ldexp(1., NBITS - p_);
+        //auto it = core_.begin(), oit = o.core_.begin();
+        const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);
         auto f = [numinv](const auto v) {return v * numinv;};
-        double tmp = f(std::min(*it++, *oit++));
-        do {
-            tmp += f(std::min(*it++, *oit++));
-        } while(it != core_.end());
+        long double tmp = 0.;
+        for(size_t i = 0; i < core_.size(); ++i) {
+            auto v = std::min(core_[i], o.core_[i]);
+            tmp += f(v != detail::default_val<T>() ? v: (std::numeric_limits<T>::max() >> p_));
+        }
         return std::pow(core_.size(), 2) / tmp;
     }
     double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
         if(std::find_if(core_.begin(), core_.end(), [](auto x) {return x != detail::default_val<T>();}) == core_.end())
             return 0.; // Empty sketch
-        const double num = std::ldexp(1., sizeof(T) * CHAR_BIT - p_);
+        if(likely(mode == HARMONIC_MEAN)) {
+            const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);
+            auto f = [numinv](const auto v) {return v * numinv;};
+            long double tmp = 0.;
+            for(const auto v: core_)
+                tmp += f(v != detail::default_val<T>() ? v: (std::numeric_limits<T>::max() >> p_));
+            return std::pow(core_.size(), 2) / tmp;
+        }
+        const long double num = std::ldexp(static_cast<long double>(1.), sizeof(T) * CHAR_BIT - p_);
         double sum;
         using CT = std::decay_t<decltype(core_)>;
         CT tmp;
         const auto *ptr = &core_;
-        if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) { // Copy and calculate from densified.
-            tmp = core_;
-            detail::densifybin(tmp);
-            ptr = &tmp;
-        }
         switch(mode) {
-        case HARMONIC_MEAN: // Dampens outliers
-            return detail::harmonic_cardinality_estimate(const_cast<CT &>(*ptr), false);
         case ARITHMETIC_MEAN: // better? Still not great.
             return arithmean(ptr->begin(), ptr->end(), [num](auto x) {return num / x;}) * core_.size();
         case MEDIAN: {
@@ -1301,6 +1314,9 @@ public:
     uint64_t nmin() const {
         return uint64_t(1) << p_;
     }
+    size_t nmatches(const FinalBBitMinHash &o) const {
+        return equal_bblocks(o);
+    }
     double jaccard_index(const FinalBBitMinHash &o) const {
         /*
          * reference: https://arxiv.org/abs/1802.03914.
@@ -1350,8 +1366,16 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
     assert(core_.size() % 64 == 0);
     const auto *ptr = &core_;
     std::decay_t<decltype(core_)> tmp;
-    if(std::find(core_.begin(), core_.end(), detail::default_val<T>()) != core_.end()) {
+    size_t ndef;
+    double cest = -1.;
+    if((ndef = std::count_if(core_.begin(), core_.end(), [](auto x) {return x == detail::default_val<T>();}))) {
+#ifndef NDEBUG
+        std::fprintf(stderr, "requires densification: %zu/%zu need to be densified\n", ndef, core_.size());
+#endif
         tmp = core_;
+        std::replace(tmp.begin(), tmp.end(), detail::default_val<T>(), std::numeric_limits<T>::max() >> p_);
+        cest = detail::harmonic_cardinality_estimate_impl(tmp);
+        std::replace(tmp.begin(), tmp.end(), std::numeric_limits<T>::max() >> p_, detail::default_val<T>());
         int ret = detail::densifybin(tmp);
         if(ret < 0) {
             throw std::runtime_error("Could not densify empty sketch");
@@ -1361,8 +1385,8 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
         ptr = &tmp;
     }
     const auto &core_ref = *ptr;
+    if(cest < 0) cest = detail::harmonic_cardinality_estimate_impl(core_ref);
     assert(std::find(core_ref.begin(), core_ref.end(), detail::default_val<T>()) == core_ref.end());
-    double cest = detail::harmonic_cardinality_estimate_impl(core_ref);
     using detail::getnthbit;
     using detail::setnthbit;
     FinalBBitMinHash ret(p_, b, cest);
@@ -1387,9 +1411,11 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
         // Pack an SSE2 element for each 1 << (p_ - 7)
         switch(p_) {
         case 6:
-                for(size_t _b = 0; _b < b; ++_b)
-                    for(size_t i = 0; i < 64u; ++i)
-                        ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
+            for(size_t _b = 0; _b < b; ++_b) {
+                auto ptr = ret.core_.data() + (_b * sizeof(uint64_t)/sizeof(FinalType));
+                for(size_t i = 0; i < (sizeof(uint64_t) * CHAR_BIT); ++i)
+                    setnthbit(ptr, i, getnthbit(core_ref[i], _b));
+            }
             CASE_6_TEST
             break;
         SET_CASE(7, __m128i, p_);
