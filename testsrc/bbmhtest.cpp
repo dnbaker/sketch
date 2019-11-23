@@ -47,34 +47,36 @@ void verify_correctness() {
     }
 }
 
+void verify_popcount() {
+    BBitMinHasher<uint64_t> b1(10, 4), b2(10, 4);
+    b1.addh(1);
+    b1.addh(4);
+    b1.addh(137);
+
+    b2.addh(1);
+    b2.addh(4);
+    b2.addh(17);
+    auto f1 = b1.cfinalize(), f2 = b2.cfinalize();
+    std::fprintf(stderr, "f1 popcount: %" PRIu64 "\n", f1.popcnt());
+    std::fprintf(stderr, "f2 popcount: %" PRIu64 "\n", f2.popcnt());
+    b1.show();
+    b2.show();
+    auto b3 = b1 + b2;
+    b3.show();
+    auto f3 = b3.finalize();
+    std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());
+    auto neqb12 = f1.equal_bblocks(f2);
+    std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(neqb12), size_t(f1.equal_bblocks(f1)));
+}
+
 int main(int argc, char *argv[]) {
     verify_correctness();
+    verify_popcount();
     static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
     const unsigned long long niter = argc == 1 ? 5000000uLL: std::strtoull(argv[1], nullptr, 10);
-    {
-        BBitMinHasher<uint64_t> b1(10, 4), b2(10, 4);
-        b1.addh(1);
-        b1.addh(4);
-        b1.addh(137);
-
-        b2.addh(1);
-        b2.addh(4);
-        b2.addh(17);
-        auto f1 = b1.cfinalize(), f2 = b2.cfinalize();
-        std::fprintf(stderr, "f1 popcount: %" PRIu64 "\n", f1.popcnt());
-        std::fprintf(stderr, "f2 popcount: %" PRIu64 "\n", f2.popcnt());
-        b1.show();
-        b2.show();
-        auto b3 = b1 + b2;
-        b3.show();
-        auto f3 = b3.finalize();
-        std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());
-        auto neqb12 = f1.equal_bblocks(f2);
-        std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(neqb12), size_t(f1.equal_bblocks(f1)));
-    }
 
     for(size_t i = 7; i <= 14; i += 2) {
-        for(const auto b: {13u, 7u, 14u, 17u, 9u}) {
+        for(const auto b: {13u, 7u, 14u, 17u, 9u, 3u, 1u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             SuperMinHash<policy::SizePow2Policy> smhp2(1 << i);
             SuperMinHash<policy::SizeDivPolicy>  smhdp(1 << i);

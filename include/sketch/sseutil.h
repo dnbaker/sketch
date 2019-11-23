@@ -9,9 +9,17 @@ namespace sse {
 
 #ifndef unlikely
 #  if __GNUC__  || __clang__ || defined(BUILTIN_EXPECT_AVAILABLE)
-#    define unlikely(x) __builtin_expect((x), 0)
+#    define unlikely(x) __builtin_expect((x) != 0, 0)
 #  else
 #    define unlikely(x) (x)
+#  endif
+#endif
+
+#ifndef likely
+#  if __GNUC__  || __clang__ || defined(BUILTIN_EXPECT_AVAILABLE)
+#    define likely(x) __builtin_expect((x) != 0, 1)
+#  else
+#    define likely(x) (x)
 #  endif
 #endif
 
