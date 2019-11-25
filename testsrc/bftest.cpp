@@ -50,6 +50,7 @@ int main(int argc, char *argv[]) {
         if(bfl.is_set(i))
             assert(std::find(srs.begin(), srs.end(), i) != srs.end());
     }
+    sparsebf_t<uint32_t> sbf(bfl);
 #if 0
     sketch::common::for_each_delta_decode(srs, [&bfl](size_t x) {
         assert(bfl.is_set(x));});

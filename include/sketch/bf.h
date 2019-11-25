@@ -19,7 +19,25 @@ static constexpr size_t optimal_nhashes(size_t l2sz, size_t est_cardinality) {
     return ipart + double(ipart) != fpart; // Always round up?
 }
 
-template<typename HashStruct=WangHash>
+template<typename HashStruct=WangHash>class bfbase_t;
+
+template<typename T=::std::uint32_t, typename Alloc=Allocator<T>>
+struct sparsebf_t {
+    using value_type = T;
+    using allocator_type = Alloc;
+    std::vector<T, Alloc> core_;
+    unsigned nh_, tsz_;
+    sparsebf_t(std::vector<T, Alloc> &&o, size_t nhashes, size_t tablesz): core_(std::move(o)), nh_(nhashes), tsz_(tablesz) {}
+    sparsebf_t(const std::vector<T, Alloc> &o, size_t nhashes, size_t tablesz): core_(o), nh_(nhashes), tsz_(tablesz) {}
+    template<typename Hash>
+    sparsebf_t(const bfbase_t<Hash> &dense);
+    size_t popcnt() const {return core_.size();}
+    auto nhashes()  const {return nh_;}
+    template<typename Hash>
+    double jaccard_index(const bfbase_t<Hash> &o);
+};
+
+template<typename HashStruct>
 class bfbase_t {
 // Blocked bloom filter implementation.
 // To make it general, the actual point of entry is a 64-bit integer hash function.
@@ -655,7 +673,6 @@ public:
             auto v = *it++;
             if(v == 0) continue;
             auto nnz = popcount(v);
-            assert(nnz);
             auto nloops = (nnz + 7) / 8u;
             uint64_t t;
             // nloops is guaranteed to be at least one because otherwise v would have heen 0
@@ -691,6 +708,11 @@ public:
         return ret;
     }
 };
+
+template<typename T, typename Alloc> template<typename Hash>
+sparsebf_t<T, Alloc>::sparsebf_t(const bfbase_t<Hash> &dense): core_(dense.template to_sparse_representation<T, allocator_type>()), nh_(dense.nhashes()), tsz_(dense.m()) {
+    
+}
 
 using bf_t = bfbase_t<>;
 

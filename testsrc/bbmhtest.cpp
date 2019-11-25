@@ -23,12 +23,18 @@ void verify_correctness() {
     for(const auto nitems: nitems) {
         for(const auto p: plens) {
             BBitMinHasher<uint64_t> bb(p, 40);
+            BBitMinHasher<uint64_t> onebb(p, 1);
+            BBitMinHasher<uint64_t> onebb2(p, 1);
+            BBitMinHasher<uint64_t> onebb3(p, 1);
             BBitMinHasher<uint64_t> bb2(p, 40);
             BBitMinHasher<uint64_t> bb3(p, 40);
             BBitMinHasher<uint64_t> bb4(p, 40);
             for(size_t i = 0; i < nitems; ++i) {
                 bb.addh(i);
                 bb3.addh(i + nitems / 10);
+                onebb.addh(i);
+                onebb2.addh(i + nitems * 9 / 10);
+                onebb3.addh(i + nitems / 10);
                 bb2.addh(i + nitems / 2);
                 bb4.addh(i + nitems);
             }
@@ -43,6 +49,10 @@ void verify_correctness() {
             assert(neq12 == bbneq12);
             assert(neq13 == bbneq13);
             assert(neq14 == bbneq14);
+            onebb.densify(); onebb2.densify();
+            auto fl1 = onebb.finalize(), fl2 = onebb2.finalize(), fl3 = onebb3.finalize();
+            std::fprintf(stderr, "[p=%u,b=1,n=%zu] ji: %f (should be %f). one-permutation estimate: %f\n", p, nitems, fl1.jaccard_index(fl2), 1./19, onebb.jaccard_index(onebb2));
+            std::fprintf(stderr, "[p=%u,b=1,n=%zu] ji: %f (should be %f). one-permutation estimate: %f\n", p, nitems, fl1.jaccard_index(fl3), 9./11, onebb.jaccard_index(onebb3));
         }
     }
 }
@@ -130,7 +140,7 @@ int main(int argc, char *argv[]) {
             std::fprintf(stderr, "union est by union: %f. by union_size: %f. difference: %12e\n", est, usest, (est - usest));
             assert(est == usest);
             auto f1 = b1.finalize(), f2 = b2.finalize(), f3 = b3.finalize();
-            assert(i <= 9 || std::abs(est - niter < niter * 5 / 100.) || !std::fprintf(stderr, "est: %lf\n", est));
+            assert(i <= 9 || std::abs(est - niter) < niter * 5 / 100. || !std::fprintf(stderr, "est: %lf\n", est));
             //b1 += b2;
             auto f12 = b1.finalize();
             auto fdb1 = db1.finalize();

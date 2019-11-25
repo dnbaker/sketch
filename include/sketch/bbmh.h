@@ -726,7 +726,7 @@ public:
         assert(core_.size() % 64 == 0);
         if(b_ < 1 || b_ > 64) throw "a party";
     }
-    void show() const {for(const auto v: core_) std::fprintf(stderr, "%zu\t", size_t(v)); std::fputc(stderr, '\n');}
+    void show() const {for(const auto v: core_) std::fprintf(stderr, "%zu\t", size_t(v)); std::fputc('\n', stderr);}
     void addh(T val) {val = hf_(val);add(val);}
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
