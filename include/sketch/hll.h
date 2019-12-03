@@ -1022,12 +1022,12 @@ public:
     void write(const char *path, bool write_gz=true) const {
         if(write_gz) {
             gzFile fp(gzopen(path, "wb"));
-            if(!fp) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + path);
+            if(!fp) throw ZlibError(Z_ERRNO, std::string("Could not open file at '") + path + "' for writing");
             write(fp);
             gzclose(fp);
         } else {
             std::FILE *fp(std::fopen(path, "wb"));
-            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at '") + path + "' for writing");
             write(fileno(fp));
             std::fclose(fp);
         }
@@ -1054,14 +1054,20 @@ public:
     }
     void read(const char *path) {
         gzFile fp(gzopen(path, "rb"));
-        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at '") + path + "' for reading");
         read(fp);
         gzclose(fp);
     }
     void read(const std::string &path) {read(path.data());}
     void write(int fileno) const {
         uint32_t bf[]{is_calculated_, estim_, jestim_, 137};
-#define CHWR(fn, obj, sz) if(__builtin_expect(::write(fn, (obj), (sz)) != ssize_t(sz), 0)) throw std::runtime_error(std::string("Failed to write to disk in ") + __PRETTY_FUNCTION__)
+#define CHWR(fn, obj, sz) \
+    do {\
+    if(__builtin_expect(::write(fn, (obj), (sz)) != ssize_t(sz), 0)) \
+        throw std::runtime_error( \
+            std::string("[") + __PRETTY_FUNCTION__ + std::string("Failed to write to disk at fd ") + std::to_string(fileno)); \
+    } while(0)
+
         CHWR(fileno, bf, sizeof(bf));
         CHWR(fileno, &np_, sizeof(np_));
         CHWR(fileno, &value_, sizeof(value_));
@@ -1385,12 +1391,12 @@ public:
     void write(const char *fn, bool write_gz) {
         if(write_gz) {
             gzFile fp = gzopen(fn, "wb");
-            if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
+            if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for writing at ") + fn);
             this->write(fp);
             gzclose(fp);
         } else {
             std::FILE *fp = std::fopen(fn, "wb");
-            if(fp == nullptr) throw std::runtime_error("Could not open file.");
+            if(fp == nullptr) throw std::runtime_error("Could not open file for writing.");
             this->write(fileno(fp));
             std::fclose(fp);
         }
@@ -1413,7 +1419,7 @@ public:
     }
     void read(const char *fn) {
         gzFile fp = gzopen(fn, "rb");
-        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for reading at ") + fn);
         gzclose(fp);
     }
     template<typename T, typename Hasher=std::hash<T>>
@@ -1460,7 +1466,7 @@ public:
     auto m() const {return hlls_[0].size();}
     void write(const char *fn) const {
         gzFile fp = gzopen(fn, "wb");
-        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for reading at ") + fn);
         this->write(fp);
         gzclose(fp);
     }
@@ -1470,7 +1476,7 @@ public:
     }
     void read(const char *fn) {
         gzFile fp = gzopen(fn, "rb");
-        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for reading at ") + fn);
         this->read(fp);
         gzclose(fp);
     }
