@@ -388,6 +388,11 @@ public:
 #endif
             addh(std::hash<std::string>{}(element)); // IE, do if not replaced.
     }
+    template<typename T>
+    auto addh(const T &x) {
+        uint64_t hv = hf_(x);
+        return add(hv);
+    }
     // Reset.
     void clear() {
         static constexpr const size_t MEMSET_CUTOFF = 1ull << 16;

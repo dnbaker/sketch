@@ -229,6 +229,11 @@ public:
 #endif
     }
     VectorType &ref() {return data_;}
+    template<typename T>
+    auto addh(const T &x) {
+        uint64_t hv = hf_(x);
+        return add(hv);
+    }
     auto addh(uint64_t val) {return add(val);}
     auto addh_val(uint64_t val) {return add(val);}
     template<typename T>
@@ -528,7 +533,7 @@ public:
         seeds_((nh_ + (nph_ - 1)) / nph_ - 1),
         seedseed_(seedseed)
     {
-        DEPRECATION_WARNING("csbase_t will be deprecated in favor of cs4wbase_t moving forward.");
+        //DEPRECATION_WARNING("csbase_t will be deprecated in favor of cs4wbase_t moving forward.");
         DefaultRNGType gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
         // Just to make sure that simd addh is always accessing owned memory.
@@ -552,6 +557,16 @@ public:
             }
         }
         return median(counts.get(), nh_);
+    }
+    template<typename T>
+    CounterType addh_val(const T &x) {
+        uint64_t hv = hf_(x);
+        return addh_val(hv);
+    }
+    template<typename T>
+    void addh(const T &x) {
+        uint64_t hv = hf_(x);
+        addh(hv);
     }
     void addh(uint64_t val) {
         uint64_t v = hf_(val);
@@ -738,6 +753,11 @@ class cs4wbase_t {
     */
     static_assert(std::is_signed<CounterType>::value, "CounterType must be signed");
 
+    // Note: in order to hash other types, you'd need to subclass the HasherSet
+    // class in hash.h and provide an overload for your type, or hash the items
+    // yourself and insert them first.
+    // This is more cumbersome.
+
     std::vector<CounterType, Allocator<CounterType>> core_;
     uint32_t np_, nh_;
     uint64_t mask_;
@@ -754,7 +774,7 @@ public:
         nh_(nh),
         mask_((1ull << np_) - 1),
         seedseed_(seedseed),
-        hf_(seedseed)
+        hf_(nh_, seedseed)
     {
         nh_ += (nh % 2 == 0);
         core_.resize(nh_ << np_);
@@ -774,6 +794,13 @@ public:
     }
     auto nhashes() const {return nh_;}
     auto p() const {return np_;}
+    template<typename T>
+    auto addh(const T &x) {return addh_val(x);}
+    template<typename T>
+    auto addh_val(const T &x) {
+        uint64_t hv = hf_(x);
+        return addh_val(hv);
+    }
     auto addh(uint64_t val) {return addh_val(val);}
     void subh(uint64_t val) {
         for(unsigned added = 0; added < nh_; ++added)
