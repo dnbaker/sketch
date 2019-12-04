@@ -79,6 +79,7 @@ To build and run the hll test case:
 make test && ./test
 ```
 
+### Example
 To use:
 
 ```c++
