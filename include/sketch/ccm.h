@@ -431,11 +431,12 @@ public:
             //std::fprintf(stderr, "Now updated\n");
         } else { // not conservative update. This means we support deletions
             ret = std::numeric_limits<decltype(ret)>::max();
+            const auto maxv = 1ull << nbits_;
             while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
                 Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
                     for(unsigned k(0); k < nperhash64;) {
                         auto ref = data_.operator[](((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
-                        updater_(ref, 1u << nbits_);
+                        updater_(ref, maxv);
                         ret = std::min(ret, ssize_t(ref));
                     }
                 });
@@ -445,7 +446,7 @@ public:
                 uint64_t hv = hash(val ^ seeds_[seedind++]);
                 for(unsigned k(0), e = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); k != e;) {
                     auto ref = data_.operator[](((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
-                    updater_(ref, 1u << nbits_);
+                    updater_(ref, maxv);
                     ret = std::min(ret, ssize_t(ref));
                 }
             }

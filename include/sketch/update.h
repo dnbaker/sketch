@@ -8,7 +8,8 @@ struct Increment {
     // Saturates
     template<typename T, typename IntType>
     void operator()(T &ref, IntType maxval) const {
-        ref = ref + (ref < maxval);
+        if(static_cast<IntType>(ref) < maxval)
+            ref = ref + 1;
         //ref += (ref < maxval);
     }
     template<typename T, typename Container, typename IntType>
