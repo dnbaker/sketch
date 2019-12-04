@@ -92,8 +92,10 @@ fprintf(stderr, "Elements estimated: %lf. Error bounds: %lf.\n", hll.report(), h
 The other structures work with a similar interface. See the type constructors for more information or view [10xdash](https://github.com/dnbaker/10xdash) for examples on using the
 same interface for a variety of data structures.
 
-Simply `#include sketch/<header_name>`, or, for one include `#include <sketch/sketch.h>`, which places all subnamespaces in the sketch namespace,
+Simply `#include sketch/<header_name>`, or, for one include `#include <sketch/sketch.h>`,
 which allows you to write `sketch::bf_t` and `sketch::hll_t` without the subnamespaces.
+
+We use inline namespacese for individual types of sketches, e.g., `sketch::minhash` or `sketch::hll` can be used for clarity, or `sketch::hll_t` can be used, omitting the `hll` namespace.
 
 ### Multithreading
 By default, updates to the hyperloglog structure to occur using atomic operations, though threading should be handled by the calling code. Otherwise, the flag `-DNOT_THREADSAFE` should be passed. The cost of this is relatively minor, but in single-threaded situations, this would be preferred.
