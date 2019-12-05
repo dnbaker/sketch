@@ -69,6 +69,10 @@ int main(int argc, char *argv[]) {
     for(const auto j: items) {
         if(j == 137) {
             std::fprintf(stderr, "approx: %i, exact %i, histcs %i, cmscs4w %i\n", int(cms.est_count(137)), int(cmsexact.est_count(137)), int(cmscs.est_count(137)), cmscs4w.addh(137));
+            assert(std::abs(ssize_t(cms.est_count(137)) - (1000 + TIMES)) <= 20);
+            assert(std::abs(ssize_t(cmsexact.est_count(137)) - (1000 + TIMES)) < 10);
+            assert(std::abs(ssize_t(cmscs.est_count(137)) - (1000 + TIMES)) < 10);
+            assert(std::abs(ssize_t(cmscs4w.est_count(137)) - (1000 + TIMES)) < 10);
         }
         //std::fprintf(stderr, "est count: %zu\n", size_t(cms.est_count(j)));
         auto exact_count = j == 137 ? 1000 + TIMES: (j & 0xFF) == 0 ? 200: TIMES;
