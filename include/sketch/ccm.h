@@ -338,9 +338,11 @@ public:
                 auto index = subtbl_sz_ * nhdone++ + (hv & mask_);
                 indices.push_back(index);
             }
+#if 0
             if(val == 137) {
                 for(const auto v: indices) std::fprintf(stderr, "index for 137: %u\n", unsigned(v));
             }
+#endif
             best_indices.push_back(indices[0]);
             ssize_t minval = data_.operator[](indices[0]);
             for(size_t i(1); i < indices.size(); ++i) {
@@ -419,7 +421,7 @@ class csbase_t {
      * not weigh over the other items with the opposite sign. Treat these as 0s.
     */
     std::vector<CounterType, Allocator<CounterType>> core_;
-    uint32_t np_, nh_, nph_;
+    uint32_t np_, nh_;
     const HashStruct hf_;
     uint64_t mask_;
     std::vector<CounterType, Allocator<CounterType>> seeds_;
@@ -430,16 +432,14 @@ class csbase_t {
 public:
     template<typename...Args>
     csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
-        core_(uint64_t(nh) << np), np_(np), nh_(nh), nph_(64 / (np + 1)), hf_(std::forward<Args>(args)...),
+        core_(uint64_t(nh) << np), np_(np), nh_(nh), hf_(std::forward<Args>(args)...),
         mask_((1ull << np_) - 1),
-        seeds_((nh_ + (nph_ - 1)) / nph_ - 1),
+        seeds_(nh_),
         seedseed_(seedseed)
     {
         //DEPRECATION_WARNING("csbase_t will be deprecated in favor of cs4wbase_t moving forward.");
         DefaultRNGType gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
-        // Just to make sure that simd addh is always accessing owned memory.
-        while(seeds_.size() < sizeof(Space::Type) / sizeof(uint64_t)) seeds_.emplace_back(gen());
     }
     double l2est() const {
         return sqrl2(core_, nh_, np_);
@@ -448,16 +448,11 @@ public:
         tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), *cptr++ = add(v, added++));
         auto it = seeds_.begin();
-        while(added < nh_) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                *cptr++ = add(v, added++);
-                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
-            }
-        }
+        *cptr++ = add(v, 0);
+        unsigned ind = 1;
+        while(ind < nh_)
+            *cptr++ = add(hf_(*it++ ^ val), ind++);
         return median(counts.get(), nh_);
     }
     template<typename T>
@@ -465,23 +460,18 @@ public:
         uint64_t hv = hf_(x);
         return addh_val(hv);
     }
-    template<typename T>
+    template<typename T, typename=std::enable_if_t<!std::is_arithmetic<T>::value>>
     void addh(const T &x) {
         uint64_t hv = hf_(x);
         addh(hv);
     }
     void addh(uint64_t val) {
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), add(v, added++));
         auto it = seeds_.begin();
-        while(added < nh_) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                add(v, added++);
-                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
-            }
-        }
+        add(v, 0);
+        unsigned ind = 1;
+        while(ind < nh_)
+            add(hf_(*it++ ^ val), ind++);
     }
     template<typename Func>
     void for_each_register(const Func &func) {
@@ -495,31 +485,21 @@ public:
     }
     void subh(uint64_t val) {
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), sub(v, added++));
         auto it = seeds_.begin();
-        while(added < nh_) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                sub(v, added++);
-                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
-            }
-        }
+        sub(v, 0);
+        unsigned ind = 1;
+        while(ind < nh_)
+            sub(hf_(*it++ ^ val), ind++);
     }
     auto subh_val(uint64_t val) {
         tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), *cptr++ = sub(v, added++));
         auto it = seeds_.begin();
-        while(added < nh_) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                *cptr++ = sub(v, added++);
-                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
-            }
-        }
+        *cptr++ = sub(v, 0);
+        unsigned ind = 1;
+        while(ind < nh_)
+            *cptr++ = sub(hf_(*it++ ^ val), ind++);
         return median(counts.get(), nh_);
     }
     INLINE size_t index(uint64_t hv, unsigned subidx) const noexcept {
@@ -532,6 +512,9 @@ public:
 #else
         return at_pos(hv, subidx) += sign(hv);
 #endif
+    }
+    INLINE auto vatpos(uint64_t hv, unsigned subidx) const noexcept {
+        return at_pos(hv, subidx) * sign(hv);
     }
     INLINE auto sub(uint64_t hv, unsigned subidx) noexcept {
         return at_pos(hv, subidx) -= sign(hv);
@@ -547,55 +530,19 @@ public:
     INLINE int sign(uint64_t hv) const {
         return hv & (1ul << np_) ? 1: -1;
     }
-    INLINE void subh(Space::VType hv) noexcept {
-        unsigned gadded = 0;
-        Space::VType(hf_(hv)).for_each([&](uint64_t v) {
-            for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
-                sub(v, gadded++);
-        });
-        for(auto it = seeds_.begin(); gadded < nh_;) {
-            unsigned lastgadded = gadded;
-            Space::VType(hf_(Space::xor_fn(Space::set1(*it++), hv))).for_each([&](uint64_t v) {
-                unsigned added;
-                for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); sub(v, added++), v >>= (np_ + 1));
-                gadded = added;
-            });
-        }
-    }
-    INLINE void addh(Space::VType hv) noexcept {
-        unsigned gadded = 0;
-        Space::VType(hf_(hv)).for_each([&](uint64_t v) {
-            for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
-                add(v, gadded++);
-        });
-        for(auto it = seeds_.begin(); gadded < nh_;) {
-            unsigned lastgadded = gadded;
-            Space::VType(hf_(Space::xor_fn(Space::set1(*it++), hv))).for_each([&](uint64_t v) {
-                unsigned added;
-                for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); add(v, added++), v >>= (np_ + 1));
-                gadded = added;
-            });
-        }
-    }
     CounterType est_count(uint64_t val) const {
         common::detail::tmpbuffer<CounterType> mem(nh_);
-        CounterType *ptr = mem.get(), *p = ptr;
+        CounterType *ptr = mem.get();
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1))
-            *p++ = at_pos(v, added++) * sign(v);
-        if(added == nh_) goto end;
-        for(auto it = seeds_.begin();;) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = 0; k < nph_; ++k, v >>= (np_ + 1)) {
-                *p++ = at_pos(v, added++) * sign(v);
-                if(added == nh_) goto end;
-            }
+        auto it = seeds_.begin();
+        *ptr++ = vatpos(v, 0);
+        for(unsigned ind = 1;ind < nh_; ++it, ++ptr, ++ind) {
+            auto hv = hf_(*it ^ val);
+            *ptr = vatpos(hv, ind);
         }
-        end:
         //std::for_each(mem.get(), mem.get() + nh_, [p=mem.get()](const auto &x) {std::fprintf(stderr, "Count estimate for ind %zd is %u\n", &x - p, int32_t(x));});
         ///
-        return median(ptr, nh_);
+        return median(mem.get(), nh_);
     }
     csbase_t &operator+=(const csbase_t &o) {
         precondition_require(o.size() == this->size(), "tables must have the same size\n");
