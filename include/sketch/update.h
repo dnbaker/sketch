@@ -9,12 +9,12 @@ struct Increment {
     template<typename T, typename IntType>
     void operator()(T &ref, IntType maxval) const {
         if(static_cast<IntType>(ref) < maxval)
-            ref = ref + 1;
+            ref = static_cast<IntType>(ref) + 1;
         //ref += (ref < maxval);
     }
     template<typename T, typename Container, typename IntType>
     void operator()(std::vector<T> &ref, Container &con, IntType nbits) const {
-            unsigned count = con[ref[0]];
+            int64_t count = con[ref[0]];
             ++count;
             if(range_check<typename std::decay_t<decltype(*(std::declval<Container>().cbegin()))>>(nbits, count) == 0) {
                 for(const auto el: ref)
