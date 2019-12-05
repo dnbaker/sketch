@@ -793,16 +793,16 @@ public:
 
         return median(cp2, nh_);
     }
+    auto addh(uint64_t val) {return addh_val(val);}
     auto nhashes() const {return nh_;}
     auto p() const {return np_;}
-    template<typename T>
-    auto addh(const T &x) {return addh_val(x);}
-    template<typename T>
+    template<typename T, typename=std::enable_if_t<!std::is_arithmetic<T>::value>>
     auto addh_val(const T &x) {
         uint64_t hv = hf_(x);
         return addh_val(hv);
     }
-    auto addh(uint64_t val) {return addh_val(val);}
+    template<typename T>
+    auto addh(const T &x) {return addh_val(x);}
     void subh(uint64_t val) {
         for(unsigned added = 0; added < nh_; ++added)
             sub(val, added);
