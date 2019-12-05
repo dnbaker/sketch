@@ -96,7 +96,7 @@ same interface for a variety of data structures.
 Simply `#include sketch/<header_name>`, or, for one include `#include <sketch/sketch.h>`,
 which allows you to write `sketch::bf_t` and `sketch::hll_t` without the subnamespaces.
 
-We use inline namespacese for individual types of sketches, e.g., `sketch::minhash` or `sketch::hll` can be used for clarity, or `sketch::hll_t` can be used, omitting the `hll` namespace.
+We use inline namespaces for individual types of sketches, e.g., `sketch::minhash` or `sketch::hll` can be used for clarity, or `sketch::hll_t` can be used, omitting the `hll` namespace.
 
 ### Multithreading
 By default, updates to the hyperloglog structure to occur using atomic operations, though threading should be handled by the calling code. Otherwise, the flag `-DNOT_THREADSAFE` should be passed. The cost of this is relatively minor, but in single-threaded situations, this would be preferred.

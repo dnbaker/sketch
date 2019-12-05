@@ -68,31 +68,11 @@ static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
 
 template<typename T, typename Allocator>
 static inline double harmonic_cardinality_estimate(std::vector<T, Allocator> &minvec, bool densify=false) {
-#if 0
-    if(densify) {
-        if(detail::densifybin(minvec) < 0) {
-            std::fprintf(stderr, "Failed to densify for harmonic cardinality\n");
-            return 0.;
-        }
-    }
-#endif
     return harmonic_cardinality_estimate_impl(minvec);
 }
 
 template<typename T, typename Allocator>
 static inline double harmonic_cardinality_estimate(const std::vector<T, Allocator> &minvec) {
-#if 0
-    if(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) != minvec.end()) {
-        std::vector<T, Allocator> tmp = minvec; // copy
-        int ret = detail::densifybin(tmp);
-        if(ret < 0) {
-            throw std::runtime_error("Could not densify empty sketch.");
-        }
-        assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
-        return harmonic_cardinality_estimate_impl(tmp);
-    } // Else don't worry about it, just do the thing.
-    assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
-#endif
     return harmonic_cardinality_estimate_impl(minvec);
 }
 
@@ -800,7 +780,6 @@ public:
             throw std::runtime_error(buf);
         }
     }
-    //void show() const {for(const auto v: core_) std::fprintf(stderr, "%zu\t", size_t(v)); std::fputc(v, '\n');}
     void reset() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
