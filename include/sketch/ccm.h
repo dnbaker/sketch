@@ -777,6 +777,7 @@ public:
         seedseed_(seedseed),
         hf_(nh_, seedseed)
     {
+        assert(hf_.size() == nh_);
         nh_ += (nh % 2 == 0);
         core_.resize(nh_ << np_);
         POST_REQ(core_.size() == (nh_ << np_), "core must be properly sized");
@@ -796,13 +797,18 @@ public:
     auto addh(uint64_t val) {return addh_val(val);}
     auto nhashes() const {return nh_;}
     auto p() const {return np_;}
+    template<typename T, typename=std::enable_if_t<std::is_arithmetic<T>::value>>
+    auto addh_val(T x) {
+        uint64_t hv = hf_(static_cast<uint64_t>(x));
+        return addh_val(hv);
+    }
     template<typename T, typename=std::enable_if_t<!std::is_arithmetic<T>::value>>
     auto addh_val(const T &x) {
         uint64_t hv = hf_(x);
         return addh_val(hv);
     }
-    template<typename T>
-    auto addh(const T &x) {return addh_val(x);}
+    template<typename T,  typename=std::enable_if_t<std::is_arithmetic<T>::value>>
+    auto addh(T x) {return addh_val(static_cast<uint64_t>(x));}
     void subh(uint64_t val) {
         for(unsigned added = 0; added < nh_; ++added)
             sub(val, added);
@@ -823,14 +829,14 @@ public:
         auto &ref = at_pos(hv, subidx);
         if(ref != std::numeric_limits<CounterType>::max()) // easy branch to predict
             ref += sign(hv);
-        return ref;
+        return ref * sign(hv);
     }
     INLINE auto sub(uint64_t hv, unsigned subidx) noexcept {
         hv = hf_(hv, subidx);
         auto &ref = at_pos(hv, subidx);
         if(ref != std::numeric_limits<CounterType>::min()) // easy branch to predict
             ref -= sign(hv);
-        return ref;
+        return ref * sign(hv);
     }
     INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
         assert(index(hv, subidx) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
