@@ -42,12 +42,12 @@ struct PowerOfTwo {
 #if !NDEBUG
         std::fprintf(stderr, "maxval: %zu. ref: %zu\n", size_t(maxval), size_t(ref));
 #endif
-        if(unsigned(ref) == 0) ref = 1;
+        if(static_cast<IntType>(ref) == 0) ref = 1;
         else {
             if(ref >= maxval) return;
             if(__builtin_expect(nbits_ < ref, 0)) gen_ = rng_(), nbits_ = 64;
-            const unsigned oldref = ref;
-            ref = ref + ((gen_ & (UINT64_C(-1) >> (64 - unsigned(ref)))) == 0);
+            const IntType oldref = ref;
+            ref = oldref + ((gen_ & (UINT64_C(-1) >> (64 - oldref))) == 0);
             gen_ >>= oldref, nbits_ -= oldref;
         }
     }
