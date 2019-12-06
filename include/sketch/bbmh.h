@@ -181,7 +181,7 @@ struct phll_t {
             sum += counts[i] * prod;
             prod *= inv;
         }
-        return core_.size() / sum * 36.17; // Empircally found, no good reasoning.
+        return core_.size() / sum * 139.8695413542; // Empirically found, no good reasoning.
     }
     phll_t &operator+=(const phll_t &o) {
         using hll::detail::SIMDHolder;
@@ -996,7 +996,7 @@ public:
     }
     auto make_packed16hll() const {
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size() >> 1);
-        static const long double base = std::pow(std::ldexp(1., 64), 1./15);
+        static const long double base = 16;
         static const long double d = 1.L / std::log(base);
         for(size_t i = 0; i < retvec.size(); ++i) {
             auto reg2val = [dv=detail::default_val<T>(),d=d] (auto x) {
