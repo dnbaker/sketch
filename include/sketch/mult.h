@@ -46,7 +46,7 @@ struct Gamma21 {
     INLINE double operator()(Gen &x) const {
         double ret = x();
         ret *= x;
-        ret = std::log(ret);
+        ret = -std::log(ret);
         return ret;
     }
 };
