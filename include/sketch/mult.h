@@ -12,6 +12,7 @@
 #include <cstdarg>
 #include <cmath>
 #include <mutex>
+#include <shared_mutex>
 #include "./xxHash/xxh3.h"
 
 namespace sketch {
@@ -38,6 +39,18 @@ struct CWSamples {
 };
 #endif
 
+struct Gamma21 {
+    mutable std::uniform_real_distribution<double> urd_;
+    // use mutable so that the member function can be const
+    template<typename Gen>
+    INLINE double operator()(Gen &x) const {
+        double ret = x();
+        ret *= x;
+        ret = std::log(ret);
+        return ret;
+    }
+};
+
 template<typename FType=float, typename HashStruct=common::WangHash, size_t decay_interval=0, bool conservative=false>
 class realccm_t: public cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
     using super = cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
@@ -54,7 +67,11 @@ class realccm_t: public cm::ccmbase_t<update::Increment,std::vector<FType, Alloc
 
     FType scale_, scale_inv_, scale_cur_;
     std::atomic<uint64_t> total_added_;
+#if __cplusplus <= 201703L
     std::mutex mut_;
+#else
+    std::shared_mutex mut_;
+#endif
 public:
     FType decay_rate() const {return scale_;}
     void addh(uint64_t val, FType inc=1.) {this->add(val, inc);}
@@ -91,12 +108,13 @@ public:
     }
     FType add(const uint64_t val, FType inc) {
         ++total_added_; // I don't care about ordering, I just want it to be atomic.
+        std::shared_lock<decltype(mut_)> sloc(mut_);
         CONST_IF(decay) {
+            std::lock_guard<decltype(mut_)> lock(mut_);
             inc *= scale_cur_;
             scale_cur_ *= scale_inv_;
             if(total_added_ % rescale_frequency_ == 0u) { // Power of two, bitmask is efficient
                 {
-                    std::lock_guard<decltype(mut_)> lock(mut_);
                     rescale();
                 }
                 scale_cur_ = scale_; // So when we multiply inc by scale_cur, the insertion happens at 1

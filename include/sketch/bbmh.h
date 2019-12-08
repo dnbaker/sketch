@@ -961,15 +961,28 @@ public:
         ret += o;
         return ret;
     }
-    std::vector<uint32_t> cudapack(uint64_t b=0) const {
+    std::vector<uint32_t> cudapack32(uint64_t b=0) const {
         // Lower simd, higher parallelism
         b = b ? b: b_;
-        PREC_REQ(b <= 64, "b can't be > 64");
+        PREC_REQ(b <= 32, "b can't be > 64");
         PREC_REQ(p_ >= 5, "p must be >= 5 for this");
         std::vector<uint32_t> ret(b * (core_.size() >> 5));
         for(size_t i = 0; i < core_.size(); ++i) {
             for(unsigned bi = 0; bi < b; ++bi) {
                 detail::setnthbit(&ret[(i >> 5) * b + bi], (core_[i] >> bi) & 1);
+            }
+        }
+        return ret;
+    }
+    std::vector<uint64_t> cudapack64(uint64_t b=0) const {
+        // Lower simd, higher parallelism
+        b = b ? b: b_;
+        PREC_REQ(b <= 64, "b can't be > 64");
+        PREC_REQ(p_ >= 6, "p must be >= 5 for this");
+        std::vector<uint64_t> ret(b * (core_.size() >> 6));
+        for(size_t i = 0; i < core_.size(); ++i) {
+            for(unsigned bi = 0; bi < b; ++bi) {
+                detail::setnthbit(&ret[(i >> 6) * b + bi], (core_[i] >> bi) & 1);
             }
         }
         return ret;
@@ -989,7 +1002,7 @@ public:
                 retvec[i] = 0;
             } else {
                 long double v = core_[i];
-                retvec[i] = v ? uint8_t(maxv - ceil(std::log(v) * d)) /*- 1*/: uint8_t(255);
+                retvec[i] = v ? uint8_t(maxv - std::ceil(std::log(v) * d)) /*- 1*/: uint8_t(255);
             }
         }
         return whll::wh119_t(retvec, base);
