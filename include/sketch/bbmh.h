@@ -764,7 +764,6 @@ class ICWSampler {
     static_assert(std::is_integral<KT>::value, "KT must be integral");
     std::vector<KT> keys_;
     std::vector<FT> vals_;
-    std::vector<FT> r_, c_, b_;
     std::vector<CT> t_;
     std::mutex mut_;
     FT l1sum_ = 0.;
@@ -772,28 +771,20 @@ class ICWSampler {
     // TODO: consider HIP/CUDA port
 public:
     ICWSampler(size_t n, uint64_t seed=0) {
-        DefaultRNGType rng(seed);
-        Gamma21<FT> gen;
-        r_.resize(n);
-        c_.resize(n);
-        b_.resize(n);
-        auto f = [&](auto &x) {x = gen(rng);};
-        std::for_each(r_.begin(), r_.end(), f);
-        std::for_each(c_.begin(), c_.end(), f);
-        std::for_each(b_.begin(), b_.end(), [&](auto &x) {x = gen.urd_(rng);});
         keys_.resize(n, std::numeric_limits<KT>::max());
         vals_.resize(n, std::numeric_limits<FT>::max());
+        t_.resize(n, std::numeric_limits<CT>::max());
     }
     void addh(KT key, FT count) {
+        if(count <= static_cast<FT>(0)) return;
+        wy::WyRand<uint32_t, 2> rng;
+        Gamma21<FT> gamgen;
+        std::uniform_real_distribution<FT> urd;
         l1sum_ += std::abs(count);
         // Don't add a key twice, it's bad.
-        if(count <= static_cast<FT>(0)) return;
         auto lc = std::log(count);
-        auto rit = r_.begin();
-        auto cit = c_.begin();
-        auto bit = b_.begin();
-        for(size_t i = 0; i < r_.size(); ++i) {
-            auto r = r_[i]; auto c = c_[i]; auto b = b_[i];
+        for(size_t i = 0; i < size(); ++i) {
+            auto r = gamgen(rng), c = gamgen(rng), b = urd(rng);
             const auto t = std::floor(lc / r + b);
             const auto y = std::exp(r * (t - b));
             const auto a = c / (y * std::exp(r));
@@ -820,7 +811,7 @@ public:
         auto vec = to_vector();
         return div_bbit_finalize(b, vec, l1sum_);
     }
-    size_t size() const {return r_.size();}
+    size_t size() const {return vals_.size();}
 };
 
 struct phll_t;
