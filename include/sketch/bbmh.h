@@ -6,6 +6,7 @@
 #if !NDEBUG
 #include <cstdarg>
 #endif
+#include <mutex>
 
 namespace sketch {
 inline namespace minhash {
@@ -754,6 +755,73 @@ public:
     FinalDivBBitMinHash cfinalize(unsigned b=0) const {return finalize(b);}
 };
 
+
+template<typename FT=float, typename KT=uint64_t, typename CT=uint32_t>
+class ICWSampler {
+    // https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/36928.pdf
+    // Improved Consistent Sampling, Weighted Minhash and L1 Sketching, Sergey Ioffe
+    static_assert(std::is_floating_point<FT>::value, "FT must be floating point");
+    static_assert(std::is_integral<KT>::value, "KT must be integral");
+    std::vector<KT> keys_;
+    std::vector<FT> vals_;
+    std::vector<FT> r_, c_, b_;
+    std::vector<CT> t_;
+    std::mutex mut_;
+    FT l1sum_ = 0.;
+    // TODO: reduce comparisons for low-count items (See 3.4)
+    // TODO: consider HIP/CUDA port
+public:
+    ICWSampler(size_t n, uint64_t seed=0) {
+        DefaultRNGType rng(seed);
+        Gamma21<FT> gen;
+        r_.resize(n);
+        c_.resize(n);
+        b_.resize(n);
+        auto f = [&](auto &x) {x = gen(rng);};
+        std::for_each(r_.begin(), r_.end(), f);
+        std::for_each(c_.begin(), c_.end(), f);
+        std::for_each(b_.begin(), b_.end(), [&](auto &x) {x = gen.urd_(rng);});
+        keys_.resize(n, std::numeric_limits<KT>::max());
+        vals_.resize(n, std::numeric_limits<FT>::max());
+    }
+    void addh(KT key, FT count) {
+        l1sum_ += std::abs(count);
+        // Don't add a key twice, it's bad.
+        if(count <= static_cast<FT>(0)) return;
+        auto lc = std::log(count);
+        auto rit = r_.begin();
+        auto cit = c_.begin();
+        auto bit = b_.begin();
+        for(size_t i = 0; i < r_.size(); ++i) {
+            auto r = r_[i]; auto c = c_[i]; auto b = b_[i];
+            const auto t = std::floor(lc / r + b);
+            const auto y = std::exp(r * (t - b));
+            const auto a = c / (y * std::exp(r));
+            if(a < vals_[i]) {
+                std::lock_guard<decltype(mut_)> guard(mut_);
+                if(a < vals_[i]) { // Second check, in case this was changed while we waited for the lock
+                    vals_[i] = a;
+                    keys_[i] = key;
+                    t_[i] = t;
+                }
+            }
+        }
+    }
+    std::vector<KT> to_vector() const {
+        std::vector<KT> ret(size());
+        XXH3PairHasher xh;
+        for(size_t i = 0; i < size(); ++i)
+            ret[i] = xh(keys_[i], t_[i]);
+        return ret;
+    }
+    using final_type = FinalDivBBitMinHash;
+    final_type finalize(unsigned b=64u) const {
+        b = std::min(b, 64u);
+        auto vec = to_vector();
+        return div_bbit_finalize(b, vec, l1sum_);
+    }
+    size_t size() const {return r_.size();}
+};
 
 struct phll_t;
 

@@ -15,6 +15,7 @@
 #  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
 #endif
 #include "fixed_vector.h"
+#include "./xxHash/xxh3.h"
 
 namespace sketch {
 inline namespace hash {
@@ -808,6 +809,28 @@ struct XorMultiplyN: XorMultiplyNVec{
     XorMultiplyN(): XorMultiplyNVec(n) {}
 };
 
+struct XXH3PairHasher {
+    template<typename CType>
+    uint64_t hash(uint64_t x, CType count) const {
+       return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
+    template<typename CType>
+    uint64_t operator()(uint64_t x, CType count) const {
+        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
+};
+template<typename FT=double>
+struct Gamma21 {
+    mutable std::uniform_real_distribution<FT> urd_;
+    // use mutable so that the member function can be const
+    template<typename Gen>
+    FT operator()(Gen &x) const {
+        FT ret = urd_(x);
+        ret *= urd_(x);
+        ret = -std::log(ret);
+        return ret;
+    }
+};
 } // namespace hash
 } // namespace sketch
 
