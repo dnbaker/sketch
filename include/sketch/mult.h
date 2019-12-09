@@ -17,6 +17,17 @@
 
 namespace sketch {
 
+struct XXH3PairHasher {
+    template<typename CType>
+    uint64_t hash(uint64_t x, CType count) const {
+       return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
+    template<typename CType>
+    uint64_t operator()(uint64_t x, CType count) const {
+        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
+};
+
 namespace cws {
 
 #if defined(_BLAZE_MATH_MATRIX_H_) && (VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED)
@@ -39,16 +50,69 @@ struct CWSamples {
 };
 #endif
 
+template<typename FT=double>
 struct Gamma21 {
-    mutable std::uniform_real_distribution<double> urd_;
+    mutable std::uniform_real_distribution<FT> urd_;
     // use mutable so that the member function can be const
     template<typename Gen>
-    INLINE double operator()(Gen &x) const {
-        double ret = x();
-        ret *= x;
+    FT operator()(Gen &x) const {
+        FT ret = urd_(x);
+        ret *= urd_(x);
         ret = -std::log(ret);
         return ret;
     }
+};
+
+template<typename FT=float, typename KT=uint64_t>
+class ICWSampler {
+    static_assert(std::is_floating_point<FT>::value, "FT must be floating point");
+    static_assert(std::is_integral<KT>::value, "KT must be integral");
+    std::vector<KT> keys_;
+    std::vector<FT> vals_;
+    std::vector<FT> r_, c_, b_, y_;
+    std::mutex mut_;
+public:
+    ICWSampler(size_t n, uint64_t seed=0) {
+        DefaultRNGType rng(seed);
+        Gamma21<FT> gen;
+        r_.resize(n);
+        c_.resize(n);
+        b_.resize(n);
+        auto f = [&](auto &x) {x = gen(rng);};
+        std::for_each(r_.begin(), r_.end(), f);
+        std::for_each(c_.begin(), c_.end(), f);
+        std::for_each(b_.begin(), b_.end(), [&](auto &x) {x = gen.urd_(rng);});
+        keys_.resize(n, std::numeric_limits<KT>::max());
+        vals_.resize(n, std::numeric_limits<FT>::max());
+    }
+    void addh(KT key, FT count) {
+        auto lc = std::log(count);
+        auto rit = r_.begin();
+        auto cit = c_.begin();
+        auto bit = b_.begin();
+        for(size_t i = 0; i < r_.size(); ++i) {
+            auto r = r_[i];
+            auto c = c_[i];
+            auto b = b_[i];
+            auto cval = vals_[i];
+            auto y = std::exp(r * (std::floor(lc / r + b) - b));
+            auto a = c / (y * std::exp(r));
+            if(a < cval) {
+                std::lock_guard<decltype(mut_)> guard(mut_);
+                vals_[i] = a;
+                keys_[i] = key;
+                y_[i] = y;
+            }
+        }
+    }
+    std::vector<KT> to_vector() const {
+        std::vector<KT> ret(size());
+        XXH3PairHasher xh;
+        for(size_t i = 0; i < size(); ++i)
+            ret[i] = xh(keys_[i], y_[i]);
+        return ret;
+    }
+    size_t size() const {return r_.size();}
 };
 
 template<typename FType=float, typename HashStruct=common::WangHash, size_t decay_interval=0, bool conservative=false>
@@ -343,16 +407,6 @@ struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, fi
 
 namespace wj { // Weighted jaccard
 
-struct XXH3PairHasher {
-    template<typename CType>
-    uint64_t hash(uint64_t x, CType count) const {
-       return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
-    }
-    template<typename CType>
-    uint64_t operator()(uint64_t x, CType count) const {
-        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
-    }
-};
 
 struct WangPairHasher: public hash::WangHash {
     template<typename CType>
