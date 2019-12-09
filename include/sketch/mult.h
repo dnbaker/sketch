@@ -65,6 +65,8 @@ struct Gamma21 {
 
 template<typename FT=float, typename KT=uint64_t>
 class ICWSampler {
+    // https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/36928.pdf
+    // Improved Consistent Sampling, Weighted Minhash and L1 Sketching, Sergey Ioffe
     static_assert(std::is_floating_point<FT>::value, "FT must be floating point");
     static_assert(std::is_integral<KT>::value, "KT must be integral");
     std::vector<KT> keys_;
