@@ -1769,7 +1769,45 @@ struct wh119_t {
     {
         assert(!(core_.size() & (core_.size() - 1)));
     }
+    size_t size() const {return core_.size();}
+    auto m() const {return size();}
+    uint8_t p() const {return ilog2(size());}
     wh119_t(const std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(s), wh_base_(base) {}
+    wh119_t &operator+=(const wh119_t &o) {
+        PREC_REQ(size() == o.size(), "mismatched sketch sizes.");
+        unsigned i;
+#if HAS_AVX_512 || __AVX2__ || __SSE2__
+        if(m() >= sizeof(Type)) {
+#if HAS_AVX_512 && __AVX512BW__
+            __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
+            const __m512i *oels(reinterpret_cast<const __m512i *>(o.core_.data()));
+            for(i = 0; i < m() >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]); // mm512_max_epu8 is available on with AVX512BW :(
+#elif __AVX2__
+            __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
+            const __m256i *oels(reinterpret_cast<const __m256i *>(o.core_.data()));
+            for(i = 0; i < m() * sizeof(uint8_t) / sizeof(__m256i); ++i) {
+                assert(reinterpret_cast<const char *>(&els[i]) < reinterpret_cast<const char *>(&core_[core_.size()]));
+                els[i] = _mm256_max_epu8(els[i], oels[i]);
+            }
+#else // __SSE2__
+            __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
+            const __m128i *oels(reinterpret_cast<const __m128i *>(o.core_.data()));
+            for(i = 0; i < m() >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
+#endif /* #if (HAS_AVX_512 && __AVX512BW__) || __AVX2__ || true */
+
+            if(m() < sizeof(Type)) for(;i < m(); ++i) core_[i] = std::max(core_[i], o.core_[i]);
+        } else {
+#endif /* #if HAS_AVX_512 || __AVX2__ || __SSE2__ */
+            std::transform(core_.data(), core_.data() + core_.size(), o.core_.data(), core_.data(), [](auto x, auto y) {return std::max(x, y);});
+#if HAS_AVX_512 || __AVX2__ || __SSE2__
+        }
+#endif
+    }
+    wh119_t operator+(const wh119_t &o) const {
+        auto ret = *this;
+        ret += o;
+        return ret;
+    }
     double cardinality_estimate() const {
         std::array<uint32_t, 256> counts{0};
         PREC_REQ(is_pow2(core_.size()), "Size must be a power of two");
@@ -1789,7 +1827,6 @@ struct wh119_t {
         double mysz = cardinality_estimate(), osz = o.cardinality_estimate();
         return (mysz + osz - us) / us;
     }
-    size_t size() const {return core_.size();}
     double union_size(const wh119_t &o) const {return union_size(o.core_);}
     double union_size(const std::vector<uint8_t, Allocator<uint8_t>> &o) const {
         PREC_REQ(o.size() == size(), "mismatched sizes");

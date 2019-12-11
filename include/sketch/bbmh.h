@@ -6,6 +6,7 @@
 #if !NDEBUG
 #include <cstdarg>
 #endif
+#include <mutex>
 
 namespace sketch {
 inline namespace minhash {
@@ -68,31 +69,11 @@ static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
 
 template<typename T, typename Allocator>
 static inline double harmonic_cardinality_estimate(std::vector<T, Allocator> &minvec, bool densify=false) {
-#if 0
-    if(densify) {
-        if(detail::densifybin(minvec) < 0) {
-            std::fprintf(stderr, "Failed to densify for harmonic cardinality\n");
-            return 0.;
-        }
-    }
-#endif
     return harmonic_cardinality_estimate_impl(minvec);
 }
 
 template<typename T, typename Allocator>
 static inline double harmonic_cardinality_estimate(const std::vector<T, Allocator> &minvec) {
-#if 0
-    if(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) != minvec.end()) {
-        std::vector<T, Allocator> tmp = minvec; // copy
-        int ret = detail::densifybin(tmp);
-        if(ret < 0) {
-            throw std::runtime_error("Could not densify empty sketch.");
-        }
-        assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
-        return harmonic_cardinality_estimate_impl(tmp);
-    } // Else don't worry about it, just do the thing.
-    assert(std::find(minvec.begin(), minvec.end(), detail::default_val<T>()) == minvec.end());
-#endif
     return harmonic_cardinality_estimate_impl(minvec);
 }
 
@@ -216,8 +197,7 @@ struct phll_t {
             sum += counts[i] * prod;
             prod *= inv;
         }
-        //return (std::pow(core_.size(), 2) / sum) / std::sqrt(base_);
-        return core_.size() / sum * 139.86954135429482; // Empircally found, no good reasoning.
+        return core_.size() / sum * 139.86954135429482;
     }
     phll_t &operator+=(const phll_t &o) {
         using hll::detail::SIMDHolder;
@@ -792,6 +772,64 @@ public:
 };
 
 
+template<typename FT=float, typename KT=uint64_t, typename CT=uint32_t>
+class ICWSampler {
+    // https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/36928.pdf
+    // Improved Consistent Sampling, Weighted Minhash and L1 Sketching, Sergey Ioffe
+    static_assert(std::is_floating_point<FT>::value, "FT must be floating point");
+    static_assert(std::is_integral<KT>::value, "KT must be integral");
+    std::vector<KT> keys_;
+    std::vector<FT> vals_;
+    std::vector<CT> t_;
+    std::mutex mut_;
+    FT l1sum_ = 0.;
+    // TODO: reduce comparisons for low-count items (See 3.4)
+    // TODO: consider HIP/CUDA port
+public:
+    ICWSampler(size_t n, uint64_t seed=0) {
+        keys_.resize(n, std::numeric_limits<KT>::max());
+        vals_.resize(n, std::numeric_limits<FT>::max());
+        t_.resize(n, std::numeric_limits<CT>::max());
+    }
+    void addh(KT key, FT count) {
+        if(count <= static_cast<FT>(0)) return;
+        wy::WyRand<uint32_t, 2> rng;
+        Gamma21<FT> gamgen;
+        std::uniform_real_distribution<FT> urd;
+        l1sum_ += std::abs(count);
+        // Don't add a key twice, it's bad.
+        auto lc = std::log(count);
+        for(size_t i = 0; i < size(); ++i) {
+            auto r = gamgen(rng), c = gamgen(rng), b = urd(rng);
+            const auto t = std::floor(lc / r + b);
+            const auto y = std::exp(r * (t - b));
+            const auto a = c / (y * std::exp(r));
+            if(a < vals_[i]) {
+                std::lock_guard<decltype(mut_)> guard(mut_);
+                if(a < vals_[i]) { // Second check, in case this was changed while we waited for the lock
+                    vals_[i] = a;
+                    keys_[i] = key;
+                    t_[i] = t;
+                }
+            }
+        }
+    }
+    std::vector<KT> to_vector() const {
+        std::vector<KT> ret(size());
+        XXH3PairHasher xh;
+        for(size_t i = 0; i < size(); ++i)
+            ret[i] = xh(keys_[i], t_[i]);
+        return ret;
+    }
+    using final_type = FinalDivBBitMinHash;
+    final_type finalize(unsigned b=64u) const {
+        b = std::min(b, 64u);
+        auto vec = to_vector();
+        return div_bbit_finalize(b, vec, l1sum_);
+    }
+    size_t size() const {return vals_.size();}
+};
+
 struct phll_t;
 
 template<typename T, typename Hasher=common::WangHash>
@@ -817,7 +855,6 @@ public:
             throw std::runtime_error(buf);
         }
     }
-    //void show() const {for(const auto v: core_) std::fprintf(stderr, "%zu\t", size_t(v)); std::fputc(v, '\n');}
     void reset() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
@@ -999,15 +1036,28 @@ public:
         ret += o;
         return ret;
     }
-    std::vector<uint32_t> cudapack(uint64_t b=0) const {
+    std::vector<uint32_t> cudapack32(uint64_t b=0) const {
         // Lower simd, higher parallelism
         b = b ? b: b_;
-        PREC_REQ(b <= 64, "b can't be > 64");
+        PREC_REQ(b <= 32, "b can't be > 64");
         PREC_REQ(p_ >= 5, "p must be >= 5 for this");
         std::vector<uint32_t> ret(b * (core_.size() >> 5));
         for(size_t i = 0; i < core_.size(); ++i) {
             for(unsigned bi = 0; bi < b; ++bi) {
                 detail::setnthbit(&ret[(i >> 5) * b + bi], (core_[i] >> bi) & 1);
+            }
+        }
+        return ret;
+    }
+    std::vector<uint64_t> cudapack64(uint64_t b=0) const {
+        // Lower simd, higher parallelism
+        b = b ? b: b_;
+        PREC_REQ(b <= 64, "b can't be > 64");
+        PREC_REQ(p_ >= 6, "p must be >= 5 for this");
+        std::vector<uint64_t> ret(b * (core_.size() >> 6));
+        for(size_t i = 0; i < core_.size(); ++i) {
+            for(unsigned bi = 0; bi < b; ++bi) {
+                detail::setnthbit(&ret[(i >> 6) * b + bi], (core_[i] >> bi) & 1);
             }
         }
         return ret;
@@ -1027,7 +1077,7 @@ public:
                 retvec[i] = 0;
             } else {
                 long double v = core_[i];
-                retvec[i] = v ? uint8_t(maxv - ceil(std::log(v) * d)) /*- 1*/: uint8_t(255);
+                retvec[i] = v ? uint8_t(maxv - std::ceil(std::log(v) * d)) /*- 1*/: uint8_t(255);
             }
         }
         return whll::wh119_t(retvec, base);
@@ -1035,9 +1085,8 @@ public:
     auto make_packed16hll() const {
         std::fprintf(stderr, "TODO [%s]: update estimation to account for lowering the radix for p_ >= 8\n", __PRETTY_FUNCTION__);
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size() >> 1);
-        auto maxv = core_.size() >= 256u ? 16: 15;
-        const long double base = std::pow(std::ldexp(1., 64), 1. / maxv);
-        const long double d = 1.L / std::log(base);
+        static const long double base = 16;
+        static const long double d = 1.L / std::log(base);
         for(size_t i = 0; i < retvec.size(); ++i) {
             auto reg2val = [dv=detail::default_val<T>(),d=d] (auto x) {
                 return __builtin_expect(x == 0, 0) ? uint8_t(15)

@@ -8,3 +8,4 @@ while read line
 do
   ./$line
 done < tmpfiles.txt
+rm tmpfiles.txt

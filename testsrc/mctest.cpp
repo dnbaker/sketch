@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "exact method stack space: %zu\theap space:%zu\n", x, y);
     size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 100000;
     std::vector<uint64_t> items;
-    std::mt19937_64 mt;
+    std::mt19937_64 mt(nitems ^ (std::mt19937_64(nhashes)()));
     while(items.size() < nitems) items.emplace_back(mt());
     for(const auto el: cms.ref()) {
         assert(unsigned(el) == 0);
@@ -68,7 +68,11 @@ int main(int argc, char *argv[]) {
     size_t tot = 0;
     for(const auto j: items) {
         if(j == 137) {
-            std::fprintf(stderr, "approx: %i, exact %i, histcs %i\n", int(cms.est_count(137)), int(cmsexact.est_count(137)), int(cmscs.est_count(137)));
+            std::fprintf(stderr, "approx: %i, exact %i, histcs %i, cmscs4w %i\n", int(cms.est_count(137)), int(cmsexact.est_count(137)), int(cmscs.est_count(137)), cmscs4w.addh(137));
+            //assert(std::abs(ssize_t(cms.est_count(137)) - (1000 + TIMES)) <= 20 || nitems > 200000);
+            assert(std::abs(ssize_t(cmsexact.est_count(137)) - (1000 + TIMES)) < 10 || nitems != 100000);
+            assert(std::abs(ssize_t(cmscs.est_count(137)) - (1000 + TIMES)) < 10 || nitems != 100000);
+            assert(std::abs(ssize_t(cmscs4w.est_count(137)) - (1000 + TIMES)) < 10 || nitems != 100000);
         }
         //std::fprintf(stderr, "est count: %zu\n", size_t(cms.est_count(j)));
         auto exact_count = j == 137 ? 1000 + TIMES: (j & 0xFF) == 0 ? 200: TIMES;
@@ -88,7 +92,7 @@ int main(int argc, char *argv[]) {
         std::fprintf(stderr, "Exact %" PRIi64 "\t%" PRIu64 "\n", k, histexact[k]);
     }
     hset.clear();
-    std::fprintf(stderr, "Did th hset cms\n");
+    std::fprintf(stderr, "Did the hset cms\n");
     for(const auto &pair: histapprox) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
     for(const auto k: hset) {
@@ -124,15 +128,4 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "folded with 1\n");
     auto folded_composed2 = composed4w.fold(2);
     std::fprintf(stderr, "folded with 2\n");
-#if 0
-    double nonmin_man = 0;
-    cmswithnonminmal.for_each_register([&](const auto &x) {nonmin_man += x * x;});
-    nonmin_man = std::sqrt(nonmin_man);
-    double twf = cmswithfloats.l2est();
-    nonmin_man = 0;
-    cmswithfloats.for_each_register([&](const auto &x) {nonmin_man += x * x;});
-    nonmin_man = std::sqrt(nonmin_man);
-    std::fprintf(stderr, "float: %lf. man: %lf\n", twf, nonmin_man);
-    std::fprintf(stderr, "cmsexact: %lf\n", cmsexact.l2est());
-#endif
 }

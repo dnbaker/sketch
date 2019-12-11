@@ -42,12 +42,6 @@ INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
 
 template<typename T>
 CUDA_ONLY(__host__ __device__)
-INLINE void bbit_increment_matches(T &SK_RESTRICT ret, unsigned x1, unsigned x2) {
-    ret += popcount(~x1 ^ x2);
-}
-
-template<typename T>
-CUDA_ONLY(__host__ __device__)
 INLINE void increment_maxes_packed16(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
 #if __CUDA_ARCH__
     static constexpr unsigned mask = 0x0F0F0F0Fu;
