@@ -135,13 +135,15 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
 
 struct phll_t {
     std::vector<uint8_t, Allocator<uint8_t>> core_;
-    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &&v): core_(std::move(v)) {}
-    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &v): core_(std::move(v)) {}
-    phll_t(const std::vector<uint8_t, Allocator<uint8_t>> &v): core_(v) {}
+    const double                             base_;
+    volatile mutable double                   est_ = -1.;
+    static auto make_base(size_t coresize) {return coresize > 128 ? 16.: std::pow(std::ldexp(1., 64), 1. / 15.);}
+    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &&v): core_(std::move(v)), base_(make_base(core_.size()))  {}
+    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &v): core_(std::move(v)), base_(make_base(core_.size())) {}
+    phll_t(const std::vector<uint8_t, Allocator<uint8_t>> &v): core_(v), base_(make_base(core_.size())) {}
     phll_t(const phll_t &o) = default;
     phll_t(phll_t &&o)      = default;
     size_t size() const {return core_.size() << 1;}
-    static constexpr long double base = 16.;
     INLINE double cardinality_estimate() const {
         std::array<uint32_t, 16> counts{0};
         for(const auto v: core_) {
@@ -149,6 +151,19 @@ struct phll_t {
             ++counts[v&0xFu];
         }
         return register_estimate(counts);
+    }
+    std::array<double, 3> full_set_comparison(const phll_t &o) const {
+        if(est_ < 0.) est_ = cardinality_estimate();
+        if(o.est_ < 0.) o.est_ = o.cardinality_estimate();
+        auto us = union_size(o);
+        auto is = est_ + o.est_ - us;
+        double me_only = est_ > is ? est_ - is: 0.,
+               o_only  = o.est_ > is ? o.est_ - is: 0.;
+        return std::array<double, 3>{{me_only, o_only, is}};
+    }
+    INLINE double jaccard_index(const phll_t &o) const {
+        auto fs = full_set_comparison(o);
+        return fs[2] / (fs[0] + fs[1] + fs[2]);
     }
     INLINE double union_size(const phll_t &o) const {
         std::array<uint32_t, 16> counts{0};
@@ -177,12 +192,12 @@ struct phll_t {
     double register_estimate(const C &counts) const {
         assert(std::accumulate(counts.begin(), counts.end(), size_t(0)) == size());
         long double sum = counts[0];
-        long double inv = 1./ base, prod = inv;
+        long double inv = 1./ base_, prod = inv;
         for(int i = 1; i < 16; ++i) {
             sum += counts[i] * prod;
             prod *= inv;
         }
-        return core_.size() / sum * 139.8695413542; // Empirically found, no good reasoning.
+        return core_.size() / sum * 139.86954135429482;
     }
     phll_t &operator+=(const phll_t &o) {
         using hll::detail::SIMDHolder;
@@ -297,6 +312,7 @@ public:
     uint64_t nmin() const {
         return nbuckets_;
     }
+    size_t nblocks() const {return nmin();}
     double jaccard_index(const FinalDivBBitMinHash &o) const {
         /*
          * reference: https://arxiv.org/abs/1802.03914.
@@ -1067,6 +1083,7 @@ public:
         return whll::wh119_t(retvec, base);
     }
     auto make_packed16hll() const {
+        std::fprintf(stderr, "TODO [%s]: update estimation to account for lowering the radix for p_ >= 8\n", __PRETTY_FUNCTION__);
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size() >> 1);
         static const long double base = 16;
         static const long double d = 1.L / std::log(base);
@@ -1182,6 +1199,9 @@ public:
     }
     FinalBBitMinHash(gzFile fp): est_cardinality_(0), b_(0), p_(0) {
         read(fp);
+    }
+    size_t nblocks() const {
+        return size_t(1) << p_;
     }
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
@@ -1382,7 +1402,7 @@ public:
         double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
         return is / est_cardinality_;
     }
-};
+}; // FinalBBitMinHash
 
 INLINE double jaccard_index(const FinalBBitMinHash &a, const FinalBBitMinHash &b) {
     return a.jaccard_index(b);

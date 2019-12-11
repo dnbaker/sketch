@@ -16,6 +16,8 @@ struct scope_executor {
     ~scope_executor() {x_();}
 };
 
+static bool superverbose = false;
+
 void verify_correctness() {
     std::vector<size_t> nitems = {50, 50000, 5000000};
     std::vector<unsigned> plens(11);
@@ -51,8 +53,10 @@ void verify_correctness() {
             assert(neq14 == bbneq14);
             onebb.densify(); onebb2.densify();
             auto fl1 = onebb.finalize(), fl2 = onebb2.finalize(), fl3 = onebb3.finalize();
-            std::fprintf(stderr, "[p=%u,b=1,n=%zu] ji: %f (should be %f). one-permutation estimate: %f\n", p, nitems, fl1.jaccard_index(fl2), 1./19, onebb.jaccard_index(onebb2));
-            std::fprintf(stderr, "[p=%u,b=1,n=%zu] ji: %f (should be %f). one-permutation estimate: %f\n", p, nitems, fl1.jaccard_index(fl3), 9./11, onebb.jaccard_index(onebb3));
+            if(superverbose) {
+                std::fprintf(stderr, "[p=%u,b=1,n=%zu] ji: %f (should be %f). one-permutation estimate: %f\n", p, nitems, fl1.jaccard_index(fl2), 1./19, onebb.jaccard_index(onebb2));
+                std::fprintf(stderr, "[p=%u,b=1,n=%zu] ji: %f (should be %f). one-permutation estimate: %f\n", p, nitems, fl1.jaccard_index(fl3), 9./11, onebb.jaccard_index(onebb3));
+            }
         }
     }
 }
@@ -69,10 +73,12 @@ void verify_popcount() {
     auto f1 = b1.cfinalize(), f2 = b2.cfinalize();
     std::fprintf(stderr, "f1 popcount: %" PRIu64 "\n", f1.popcnt());
     std::fprintf(stderr, "f2 popcount: %" PRIu64 "\n", f2.popcnt());
+#if 0
     b1.show();
     b2.show();
+#endif
     auto b3 = b1 + b2;
-    b3.show();
+    //b3.show();
     auto f3 = b3.finalize();
     std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());
     auto neqb12 = f1.equal_bblocks(f2);
@@ -80,13 +86,14 @@ void verify_popcount() {
 }
 
 int main(int argc, char *argv[]) {
+    superverbose = std::find_if(argv, argv + argc, [](auto x) {return std::strcmp(x, "--superverbose") == 0;}) != argv + argc;
     verify_correctness();
     verify_popcount();
     ICWSampler<float, uint64_t> sampler(1024);
     static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
     const unsigned long long niter = argc == 1 ? 5000000uLL: std::strtoull(argv[1], nullptr, 10);
 
-    for(size_t i = 7; i <= 14; i += 2) {
+    for(size_t i = 7; i <= 15; i += 2) {
         for(const auto b: {13u, 7u, 14u, 17u, 9u, 3u, 1u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             SuperMinHash<policy::SizePow2Policy> smhp2(1 << i);
