@@ -332,6 +332,7 @@ public:
     uint64_t nmin() const {
         return nbuckets_;
     }
+    size_t nblocks() const {return nmin();}
     double jaccard_index(const FinalDivBBitMinHash &o) const {
         /*
          * reference: https://arxiv.org/abs/1802.03914.
@@ -1150,6 +1151,9 @@ public:
     FinalBBitMinHash(gzFile fp): est_cardinality_(0), b_(0), p_(0) {
         read(fp);
     }
+    size_t nblocks() const {
+        return size_t(1) << p_;
+    }
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
     template<typename T, typename Hasher=common::WangHash>
@@ -1349,7 +1353,7 @@ public:
         double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
         return is / est_cardinality_;
     }
-};
+}; // FinalBBitMinHash
 
 INLINE double jaccard_index(const FinalBBitMinHash &a, const FinalBBitMinHash &b) {
     return a.jaccard_index(b);

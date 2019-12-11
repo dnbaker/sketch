@@ -73,10 +73,12 @@ void verify_popcount() {
     auto f1 = b1.cfinalize(), f2 = b2.cfinalize();
     std::fprintf(stderr, "f1 popcount: %" PRIu64 "\n", f1.popcnt());
     std::fprintf(stderr, "f2 popcount: %" PRIu64 "\n", f2.popcnt());
+#if 0
     b1.show();
     b2.show();
+#endif
     auto b3 = b1 + b2;
-    b3.show();
+    //b3.show();
     auto f3 = b3.finalize();
     std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());
     auto neqb12 = f1.equal_bblocks(f2);
