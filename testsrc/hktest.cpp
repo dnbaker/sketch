@@ -31,7 +31,7 @@ namespace std {
 }
 
 void run_random() {
-    size_t d = 10000;
+    size_t d = nelem;
     auto p = std::make_unique<uint64_t[]>(d);
     std::vector<uint32_t> n(d);
     wy::WyRand<uint64_t, 2> wy(d);

@@ -1802,6 +1802,7 @@ struct wh119_t {
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
         }
 #endif
+        return *this;
     }
     wh119_t operator+(const wh119_t &o) const {
         auto ret = *this;

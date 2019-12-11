@@ -8,7 +8,7 @@ using namespace sketch::cm;
 using namespace sketch;
 
 int main(int argc, char *argv[]) {
-    int nbits = 12, l2sz = 18, nhashes = 8, c;
+    int nbits = 12, l2sz = 18, nhashes = 3, c;
     //if(argc == 1) goto usage;
     while((c = getopt(argc, argv, "n:l:b:h")) >= 0) {
         switch(c) {
@@ -66,6 +66,7 @@ int main(int argc, char *argv[]) {
     std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs, hist4w;
     size_t missing = 0;
     size_t tot = 0;
+    double ssqe4w = 0., ssqe2w = 0.;
     for(const auto j: items) {
         if(j == 137) {
             std::fprintf(stderr, "approx: %i, exact %i, histcs %i, cmscs4w %i\n", int(cms.est_count(137)), int(cmsexact.est_count(137)), int(cmscs.est_count(137)), cmscs4w.addh(137));
@@ -83,7 +84,12 @@ int main(int argc, char *argv[]) {
         ++hist4w[cmscs4w.est_count(j) - exact_count];
         missing += csest == 0;
         ++tot;
+        ssqe4w += std::pow(cmscs4w.est_count(j) - exact_count, 2);
+        ssqe2w += std::pow(csest - exact_count, 2);
     }
+    ssqe4w = std::sqrt(ssqe4w);
+    ssqe2w = std::sqrt(ssqe2w);
+    std::fprintf(stderr, "ssqe (2w): %f. ssqe (4w): %f\n", ssqe2w, ssqe4w);
     std::fprintf(stderr, "missing %zu of %zu\n", missing, items.size());
     std::vector<int64_t> hset;
     for(const auto &pair: histexact) hset.push_back(pair.first);

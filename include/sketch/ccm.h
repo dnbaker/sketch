@@ -287,43 +287,6 @@ public:
         return true;
     }
     static constexpr bool is_increment = std::is_same<UpdateStrategy, update::Increment>::value;
-    ssize_t sub(const uint64_t val) {
-        throw std::runtime_error("Needs fixing");
-        CONST_IF(!is_increment) {
-            std::fprintf(stderr, "Can't delete from an approximate counting sketch.");
-            return std::numeric_limits<ssize_t>::min();
-        }
-        CONST_IF(unlikely(!supports_deletion())) {
-            std::fprintf(stderr, "Can't delete from a conservative update scheme sketch.");
-            return std::numeric_limits<ssize_t>::min();
-        }
-        unsigned nhdone = 0, seedind = 0;
-        const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
-        const auto nbitsperhash = l2sz_;
-        const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
-        Space::VType vb = Space::set1(val), tmp;
-        ssize_t ret = std::numeric_limits<decltype(ret)>::max();
-        while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
-            Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
-                for(unsigned k(0); k < nperhash64;) {
-                    auto ref = data_[((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
-                    ref = ref - 1;
-                    ret = std::min(ret, ssize_t(ref));
-                }
-            });
-            seedind += Space::COUNT;
-        }
-        while(nhdone < nhashes_) {
-            uint64_t hv = hash(val ^ seeds_[seedind]);
-            for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone);) {
-                auto ref = data_[((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
-                ref = ref - 1;
-                ret = std::min(ret, ssize_t(ref));
-            }
-            ++seedind;
-        }
-        return ret;
-    }
     ssize_t add(const uint64_t val) {
         unsigned nhdone = 0;
         ssize_t ret;
