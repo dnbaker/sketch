@@ -1236,7 +1236,7 @@ public:
     auto creport() const {return cest_;}
     shllbase_t &merge_UNSTABLE(const shllbase_t &o) {
         PREC_REQ(this->size() == o.size(), "must be same size");
-        SK_UNROLL(8)
+        SK_UNROLL_8
         for(size_t i = 0; i < this->size(); ++i) {
             auto oldv = this->core_[i], ov = o.core_[i];
             if(ov > oldv) {
@@ -1251,7 +1251,7 @@ public:
     double uest_UNSTABLE(const shllbase_t &o) const {
         PREC_REQ(this->size() == o.size(), "must be same size");
         double cest = cest_, s = s_;;
-        SK_UNROLL(8)
+        SK_UNROLL_8
         for(size_t i = 0; i < this->size(); ++i) {
             auto oldv = this->core_[i], ov = o.core_[i];
             if(ov > oldv) {

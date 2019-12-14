@@ -75,7 +75,7 @@ INLINE double origest(const T &p, unsigned l2) {
     auto m = size_t(1) << l2;
     const double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
     double s = p[0];
-    SK_UNROLL(8)
+    SK_UNROLL_8
     //_Pragma("GCC unroll 8")
     for(auto i = 1u; i < 64 - l2 + 1; ++i) {
 #if __CUDA_ARCH__
