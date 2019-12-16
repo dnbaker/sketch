@@ -21,26 +21,30 @@ class vector {
     T *data_;
     size_t n_;
 public:
+    using value_type = T;
     static T *allocate(size_t nelem) {
-        T *ret;
+        void *ret;
         const size_t nb = nelem * sizeof(T);
         CONST_IF(aln) {
-            if(posix_memalign((void **)&ret, aln, nb)) goto fail;
+            if(posix_memalign(&ret, aln, nb)) {
+                throw std::bad_alloc();
+            }
         } else {
-            if((ret = static_cast<T *>(std::malloc(nb))) == nullptr) goto fail;
+            if((ret = std::malloc(nb)) == nullptr) {
+                throw std::bad_alloc();
+            }
         }
-        return ret;
-        fail:
-        throw std::bad_alloc();
-        return nullptr;
+        return static_cast<T *>(ret);
     }
     template<typename It>
     vector(It i1, It i2): data_(allocate(std::distance(i1, i2))), n_(std::distance(i1, i2)) {
         std::copy(i1, i2, data_);
     }
-    vector(size_t n): data_(allocate(n)), n_(n) {
+    vector(size_t n, T initial_value=T()): data_(allocate(n)), n_(n) {
+        std::fill_n(data_, n_, initial_value);
     }
     ~vector() {std::free(data_);}
+    vector(): data_(nullptr), n_(0) {}
     vector &operator=(const vector &o) {
         auto tmp = static_cast<T *>(std::realloc(data_, o.n_ * sizeof(T)));
         if(tmp == nullptr) throw std::bad_alloc();
@@ -48,6 +52,20 @@ public:
         n_ = o.n_;
         std::copy(o.data_, o.data_ + n_, data_);
         return *this;
+    }
+    void resize(size_t newsize, const T initial_value=T()) {
+        if(newsize <= n_) {
+            n_ = newsize;
+            return;
+        }
+        auto tmp = allocate(newsize);
+        CONST_IF(std::is_trivially_destructible<T>::value) {
+            std::copy(data_, data_ + n_, tmp);
+        } else {
+            std::move(data_, data_ + n_, tmp);
+        }
+        std::fill_n(tmp + n_, newsize - n_, initial_value);
+        data_ = tmp;
     }
     vector &operator=(vector &&o) {
         std::free(data_);
@@ -71,7 +89,13 @@ public:
     const T &operator[](size_t k) const {return data_[k];}
     const T *data() const {return data_;}
     T       *data()       {return data_;}
-
+    T &front() {return data_[0];}
+    const T &front() const {return data_[0];}
+    T &back() {return data_[n_ - 1];}
+    const T &back() const {return data_[n_ - 1];}
+    void fill(const T val) {
+        std::fill(this->begin(), this->end(), val);
+    }
     bool operator<(const vector &o) const {
         return std::lexicographical_compare(begin(), end(), o.begin(), o.end());
     }

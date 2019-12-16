@@ -38,6 +38,9 @@ int main(int argc, char *argv[]) {
     bf_t bfl(8, 1, 137);
     for(size_t i = 0; i < 100; ++i)
         bfl.addh(i);
+    auto bfji = bfl.jaccard_index(bfl);
+    std::fprintf(stderr, "jiwith self: %f\n", bfji);
+    assert(bfji == 1.);
     auto srs = bfl.template to_sparse_representation<uint32_t>();
     assert(srs.size() == bfl.popcnt());
     for(const auto e: srs) {
@@ -47,6 +50,7 @@ int main(int argc, char *argv[]) {
         if(bfl.is_set(i))
             assert(std::find(srs.begin(), srs.end(), i) != srs.end());
     }
+    sparsebf_t<uint32_t> sbf(bfl);
 #if 0
     sketch::common::for_each_delta_decode(srs, [&bfl](size_t x) {
         assert(bfl.is_set(x));});

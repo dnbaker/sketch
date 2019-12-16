@@ -5,7 +5,7 @@
 #include "cbf.h"
 
 namespace sketch {
-namespace fhll {
+inline namespace fhll {
 
 template<typename HashType=WangHash>
 class fhllbase_t {
@@ -107,7 +107,7 @@ public:
 };
 using pcfhll_t = pcbfhllbase_t<hll::WangHash>;
 
-} // namespace fhll
+} // inline namespace fhll
 } // namespace sketch
 
 #endif // #ifndef FILTER_HLL_H__

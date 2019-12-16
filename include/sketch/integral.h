@@ -240,19 +240,23 @@ CUDA_ONLY(__host__ __device__) INLINE auto popcount(int val) noexcept {
     return popcount(unsigned(val));
 }
 
+#if defined(__MMX__) || defined(__SSE2__) || defined(__SSE4_1__) || defined(__SSE4_2__)
 INLINE unsigned popcount(__m64 val) noexcept {return popcount(*reinterpret_cast<uint64_t *>(&val));}
-#if 0
-__device__ INLINE auto popcount(uint64_t val) noexcept {
-    return __popcll(val);
-}
-__device__ INLINE auto popcount(int64_t val) noexcept {
-    return __popcll(val);
-}
-__device__ INLINE auto popcount(uint32_t val) noexcept {
-    return __popc(val);
-}
-__device__ INLINE auto popcount(int32_t val) noexcept {
-    return __popc(val);
+#elif !defined(__CUDA_ARCH__)
+template<typename T>
+INLINE unsigned popcount(const T x) {
+    size_t i = 0;
+    unsigned ret = 0;
+    while(i + 1 <= sizeof(x) / 8) {
+        ret += popcount(reinterpret_cast<const uint64_t *>(&x)[i++]);
+    }
+    while(i + 1 <= sizeof(x) / 4) {
+        ret += popcount(reinterpret_cast<const uint32_t *>(&x)[i++]);
+    }
+    while(i + 1 <= sizeof(x)) {
+        ret += popcount(uint32_t(reinterpret_cast<const uint8_t *>(&x)[i++]));
+    }
+    return ret;
 }
 #endif
 
@@ -269,14 +273,20 @@ INLINE uint64_t sum_of_u64s(const T val) noexcept {
     return sum;
 }
 
-#if defined(__AVX512F__) || defined(__KNCNI__)
-#  if (__clang__ &&__clang_major__ >= 4) || (__GNUC__ && __GNUC__ >= 7)
-#define AVX512_REDUCE_OPERATIONS_ENABLED 1
+#ifndef AVX512_REDUCE_OPERATIONS_ENABLED
+#  if (defined(__AVX512F__) || defined(__KNCNI__)) && ((defined(__clang__) && __clang_major__ >= 4) \
+                                                    || (defined(__GNUC__) && __GNUC__ >= 7))
+#    define AVX512_REDUCE_OPERATIONS_ENABLED 1
+#  else
+#    define AVX512_REDUCE_OPERATIONS_ENABLED 0
+#  endif
+#endif
+
+#if AVX512_REDUCE_OPERATIONS_ENABLED
 template<>
 INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) noexcept {
     return _mm512_reduce_add_epi64(val);
 }
-#  endif
 #endif
 
 

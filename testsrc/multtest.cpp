@@ -1,15 +1,10 @@
-#ifndef _VEC_H__
-#  define NO_SLEEF
-#  define NO_BLAZE
-#  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
-#endif
 #include "mult.h"
 #include "hll.h"
 #include "hk.h"
 #include "ccm.h"
 using namespace sketch;
 using namespace cws;
-using PairHasher = wj::XXH3PairHasher;
+using PairHasher = XXH3PairHasher;
 
 using H = HeavyKeeper<7,9>;
 using C = cm::ccmbase_t<>;

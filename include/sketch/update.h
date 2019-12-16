@@ -8,12 +8,13 @@ struct Increment {
     // Saturates
     template<typename T, typename IntType>
     void operator()(T &ref, IntType maxval) const {
-        ref = ref + (ref < maxval);
+        if(static_cast<IntType>(ref) < maxval)
+            ref = static_cast<IntType>(ref) + 1;
         //ref += (ref < maxval);
     }
     template<typename T, typename Container, typename IntType>
     void operator()(std::vector<T> &ref, Container &con, IntType nbits) const {
-            unsigned count = con[ref[0]];
+            int64_t count = con[ref[0]];
             ++count;
             if(range_check<typename std::decay_t<decltype(*(std::declval<Container>().cbegin()))>>(nbits, count) == 0) {
                 for(const auto el: ref)
@@ -41,12 +42,12 @@ struct PowerOfTwo {
 #if !NDEBUG
         std::fprintf(stderr, "maxval: %zu. ref: %zu\n", size_t(maxval), size_t(ref));
 #endif
-        if(unsigned(ref) == 0) ref = 1;
+        if(static_cast<IntType>(ref) == 0) ref = 1;
         else {
             if(ref >= maxval) return;
             if(__builtin_expect(nbits_ < ref, 0)) gen_ = rng_(), nbits_ = 64;
-            const unsigned oldref = ref;
-            ref = ref + ((gen_ & (UINT64_C(-1) >> (64 - unsigned(ref)))) == 0);
+            const IntType oldref = ref;
+            ref = oldref + ((gen_ & (UINT64_C(-1) >> (64 - oldref))) == 0);
             gen_ >>= oldref, nbits_ -= oldref;
         }
     }

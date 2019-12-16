@@ -40,12 +40,15 @@
 #endif
 
 // Versioning
-#define SKETCH_SHIFT 16
+#define sk__str__(x) #x
+#define sk__xstr__(x) sk__str__(x)
+#define SKETCH_SHIFT 8
 #define SKETCH_MAJOR 0
-#define SKETCH_MINOR 8
-#define SKETCH_VERSION_INTEGER (SKETCH_MAJOR << SKETCH_SHIFT) | SKETCH_MINOR
-#define SKETCH_VERSION SKETCH_MAJOR.SKETCH_MINOR
-#define SKETCH_VERSION_STR sk__xstr__(SKETCH_VERSION)
+#define SKETCH_MINOR 9
+#define SKETCH_REVISION 1
+#define SKETCH_VERSION_INTEGER ((((SKETCH_MAJOR << SKETCH_SHIFT) | SKETCH_MINOR) << SKETCH_SHIFT) | SKETCH_REVISION)
+#define SKETCH_VERSION SKETCH_MAJOR.SKETCH_MINOR##SKETCH_REVISION
+#define SKETCH_VERSION_STR sk__xstr__(SKETCH_MAJOR.SKETCH_MINOR.SKETCH_REVISION)
 
 
 #include "./sseutil.h"
@@ -62,7 +65,7 @@
     ssize_t write(const char *path, int compression=6) const {\
         std::string mode = compression ? std::string("wb") + std::to_string(compression): std::string("wT");\
         gzFile fp = gzopen(path, mode.data());\
-        if(!fp) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + path);\
+        if(!fp) throw ZlibError(Z_ERRNO, std::string("[") + __PRETTY_FUNCTION__ + "] " + std::string("Could not open file at '") + path + "' for writing");\
         auto ret = write(fp);\
         gzclose(fp);\
         return ret;\
@@ -72,7 +75,7 @@
     ssize_t read(const std::string &path) {return read(path.data());}\
     ssize_t read(const char *path) {\
         gzFile fp = gzopen(path, "rb");\
-        if(!fp) throw std::runtime_error(std::string("Could not open file at ") + path);\
+        if(!fp) throw std::runtime_error(std::string("Could not open file at '") + path + "' for reading");\
         ssize_t ret = read(fp);\
         gzclose(fp);\
         return ret;\
@@ -278,6 +281,7 @@ struct tmpbuffer {
     tmpbuffer(tmpbuffer &&o) = delete;
     tmpbuffer& operator=(const tmpbuffer &o) = delete;
     tmpbuffer& operator=(tmpbuffer &&o) = delete;
+    size_t size() const {return n_;}
     T *get() {
         return ptr_;
     }

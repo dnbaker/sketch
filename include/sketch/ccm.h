@@ -5,17 +5,26 @@
 #include "hash.h"
 #include "update.h"
 #include "median.h"
+#ifndef NO_BLAZE
+#  include "blaze/Math.h"
+#endif
 
 namespace sketch {
 
-namespace cm {
+inline namespace cm {
 using common::detail::tmpbuffer;
 
 namespace detail {
 template<typename T, typename AllocatorType>
-static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
-    tmpbuffer<float, 8> mem(nhashes);
-    float *ptr = mem.get();
+static inline double sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<double, 8> mem(nhashes);
+    double *ptr = mem.get();
+#if defined(_BLAZE_MATH_CUSTOMMATRIX_H_)
+    blaze::CustomMatrix<T, blaze::aligned, blaze::unpadded> data(v.data(), nhashes, size_t(1) << l2sz);
+    for(size_t i = 0; i < data.rows(); ++i) {
+        ptr[i] = blaze::norm(row(data, i));
+    }
+#else
     using VT = typename vec::SIMDTypes<T>::VType;
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
@@ -40,55 +49,43 @@ static inline float sqrl2(const std::vector<T, AllocatorType> &v, uint32_t nhash
             full_sum += *p1 * *p1, ++p1;
         ptr[i] = full_sum;
     }
+#endif
     return std::sqrt(median(ptr, nhashes));
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
 }
+
 template<typename T, typename AllocatorType>
-static inline float sqrl2(const std::vector<T, AllocatorType> &v, const std::vector<T, AllocatorType> &v2, uint32_t nhashes, uint32_t l2sz) {
+static inline double sqrl2(const std::vector<T, AllocatorType> &v, const std::vector<T, AllocatorType> &v2, uint32_t nhashes, uint32_t l2sz) {
     assert(v.size() == v2.size());
-    tmpbuffer<float, 8> mem(nhashes);
-    float *ptr = mem.get();
+    tmpbuffer<double, 8> mem(nhashes);
+    double *ptr = mem.get();
+#if defined(_BLAZE_MATH_CUSTOMMATRIX_H_)
+    using CM = blaze::CustomMatrix<T, blaze::aligned, blaze::unpadded>;
+    const CM lv(v.data(), nhashes, size_t(1) << l2sz);
+    const CM rv(v2.data(), nhashes, size_t(1) << l2sz);
+    for(auto i = 0u; i < lv.rows(); ++i) {
+        ptr[i] = blaze::norm(row(lv, i) * row(rv, i)); // Elementwise multiplication
+    }
+#else
     using VT = typename vec::SIMDTypes<T>::VType;
     using VS = vec::SIMDTypes<T>;
     VT sum = VS::set1(0);
     for(size_t i = 0; i < nhashes; ++i) {
-        const T *p1 = &v[i << l2sz], *p2 = &v2[i<<l2sz], *p1e = &v[(i + 1) << l2sz];
-        // portable SIMD absolute value is hard, ignore it.
-#if 0
-        const bool is_aligned = VT::aligned(v.data()) && VT::aligned(v2.data());
-        static constexpr size_t ct = VS::COUNT;
-        while(p1e - p1 > ct) {
-            auto lv = VS::load(p1), VS::load(p2);
-            const auto lv = *reinterpret_cast<const VT *>(p1);
-            const auto rv = *reinterpret_cast<const VT *>(p2);
-            sum = VS::add(sum, VS::abs(VS::mul(lv, rv)));
-            p1 += ct;
-            p2 += ct;
-        }
-        T full_sum = sum.sum();
-        while(p1 < p1e)
-            full_sum += *p1++ * *p2++;
-#endif
+        auto p1 = &v[i << l2sz], p2 = &v2[i << l2sz], p1e = &v[(i + 1) << l2sz];
         T full_sum = std::abs(*p1++ * *p2++);
-        while(p1 != p1e) full_sum += std::abs(*p1++ * *p2++);
-
+        while(p1 != p1e) full_sum += std::pow(*p1++ * *p2++, 2);
         ptr[i] = std::sqrt(full_sum);
     }
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
+#endif
     return median(ptr, nhashes);
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
-    tmpbuffer<float, 8> mem(nhashes);
-    float *ptr = mem.get();
+static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<double, 8> mem(nhashes);
+    double *ptr = mem.get();
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
-        float sum = 0;
+        double sum = 0;
         while(start != end) {
             int64_t val = v[start++];
             sum += val * val;
@@ -99,12 +96,12 @@ static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, uin
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, const compact::vector<T1, BITS, T2, Allocator> &v2, uint32_t nhashes, uint32_t l2sz) {
-    tmpbuffer<float, 8> mem(nhashes);
-    float *ptr = mem.get();
+static inline double sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, const compact::vector<T1, BITS, T2, Allocator> &v2, uint32_t nhashes, uint32_t l2sz) {
+    tmpbuffer<double, 8> mem(nhashes);
+    double *ptr = mem.get();
     for(size_t i = 0; i < nhashes; ++i) {
         size_t start = i << l2sz, end = (i + 1) << l2sz;
-        float sum = 0;
+        double sum = 0;
         while(start != end) {
             sum += v[start] * v2[start];
             ++start;
@@ -112,9 +109,6 @@ static inline float sqrl2(const compact::vector<T1, BITS, T2, Allocator> &v, con
         ptr[i] = std::sqrt(sum);
     }
     return median(ptr, nhashes);
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //float ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
 }
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
@@ -130,9 +124,6 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
         } while(start != end);
         ptr[i] = std::sqrt(sum);
     }
-    //common::sort::insertion_sort(ptr, ptr + nhashes);
-    //double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    //return ret;
     return median(ptr, nhashes);
 }
 
@@ -150,11 +141,6 @@ static inline double sqrl2(const compact::ts_vector<T1, BITS, T2, Allocator> &v,
         ptr[i] = std::sqrt(sum);
     }
     return median(ptr, nhashes);
-#if 0
-    common::sort::insertion_sort(ptr, ptr + nhashes);
-    double ret = (ptr[nhashes >> 1] + ptr[(nhashes - 1) >> 1]) * .5;
-    return ret;
-#endif
 }
 
 template<typename T>
@@ -233,16 +219,15 @@ public:
         if(__builtin_expect(l2sz < 0, 0)) throw std::runtime_error("l2sz cannot be negative.");
         if(__builtin_expect(nhashes < 0, 0)) throw std::runtime_error("nhashes cannot be negative.");
         std::mt19937_64 mt(seed + 4);
-        auto nperhash64 = lut::nhashesper64bitword[l2sz];
-        while(seeds_.size() * nperhash64 < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
+        while(seeds_.size() < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
         clear();
-#if VERBOSE_AF
-        std::fprintf(stderr, "size of data: %zu\n", data_.size());
-        std::fprintf(stderr, "%i bits for each number, %i is log2 size of each table, %i is the number of subtables. %zu is the number of 64-bit hashes with %u nhashesper64bitword\n", nbits, l2sz, nhashes, seeds_.size(), nperhash64);
-        std::fprintf(stderr, "Size of updater: %zu. seeds length: %zu\n", sizeof(updater_), seeds_.size());
-#endif
     }
     VectorType &ref() {return data_;}
+    template<typename T, typename=std::enable_if_t<!std::is_arithmetic<T>::value>>
+    auto addh(const T &x) {
+        uint64_t hv = hf_(x);
+        return add(hv);
+    }
     auto addh(uint64_t val) {return add(val);}
     auto addh_val(uint64_t val) {return add(val);}
     template<typename T>
@@ -279,9 +264,6 @@ public:
         }
 #if WJMETH0
         return median(counts.get(), nhashes_);
-        //auto cptr = counts.get();
-        //sort::insertion_sort(cptr, p);
-        //return (cptr[(nhashes_ >> 1)] + cptr[(nhashes_ - 1 ) >> 1]) * .5;
 #elif MINMETH
         return minest;
 #else
@@ -298,133 +280,32 @@ public:
     }
     bool may_contain(uint64_t val) const {
         throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
-        unsigned nhdone = 0;
-        Space::VType v;
-        const Space::Type *seeds(reinterpret_cast<Space::Type *>(&seeds_[0]));
-        assert(data_.size() == subtbl_sz_ * nhashes_);
-        while(nhashes_ - nhdone >= Space::COUNT) {
-            v = hash(Space::xor_fn(Space::set1(val), *seeds++));
-            for(unsigned i = 0; i < Space::COUNT; ++i) {
-                if(at_pos(v.arr_[i], nhdone++) == 0) return false;
-                v >>= np();
-            }
-        }
-        while(nhdone < nhashes_) {
-            if(at_pos(v, nhdone++) == 0)
-                return false;
-            v >>= np();
-        }
         return true;
     }
     uint32_t may_contain(Space::VType val) const {
         throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
-        Space::VType tmp, and_val;
-        unsigned nhdone = 0;
-        const Space::Type *seeds(reinterpret_cast<const Space::Type *>(seeds_.data()));
-        and_val = Space::set1(mask_);
-        uint32_t ret = static_cast<uint32_t>(-1) >> ((sizeof(ret) * CHAR_BIT) - Space::COUNT);
-        //uint32_t bitmask;
-        while(nhdone + Space::COUNT < nhashes_) {
-            for(unsigned i = 0; i < Space::COUNT; ++i) {
-                tmp = Space::set1(val.arr_[i]);
-                tmp = hash(Space::xor_fn(tmp.simd_, Space::load(seeds++)));
-                for(unsigned j = 0; j < Space::COUNT; ++i) {
-                    ret &= ~(uint32_t(data_[tmp.arr_[j] + (nhdone++ << np())] == 0) << i);
-                }
-                nhdone -= Space::COUNT;
-            }
-            nhdone += Space::COUNT;
-        }
-        while(nhdone < nhashes_) {
-            for(auto ptr(reinterpret_cast<const uint64_t *>(seeds)); ptr < &seeds_[seeds_.size()];) {
-                tmp = Space::xor_fn(val.simd_, Space::set1(*ptr++));
-                for(unsigned j = 0; j < Space::COUNT; ++j) {
-                    ret &= ~(uint32_t(data_[tmp.arr_[j] + (nhdone << np())] == 0) << j);
-                }
-            }
-            ++nhdone;
-        }
-        return ret;
+        return true;
     }
     static constexpr bool is_increment = std::is_same<UpdateStrategy, update::Increment>::value;
-    ssize_t sub(const uint64_t val) {
-        CONST_IF(!is_increment) {
-            std::fprintf(stderr, "Can't delete from an approximate counting sketch.");
-            return std::numeric_limits<ssize_t>::min();
-        }
-        CONST_IF(unlikely(!supports_deletion())) {
-            std::fprintf(stderr, "Can't delete from a conservative update scheme sketch.");
-            return std::numeric_limits<ssize_t>::min();
-        }
-        unsigned nhdone = 0, seedind = 0;
-        const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
-        const auto nbitsperhash = l2sz_;
-        const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
-        Space::VType vb = Space::set1(val), tmp;
-        ssize_t ret = std::numeric_limits<decltype(ret)>::max();
-        while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
-            Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
-                for(unsigned k(0); k < nperhash64;) {
-                    auto ref = data_[((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
-                    ref = ref - 1;
-                    ret = std::min(ret, ssize_t(ref));
-                }
-            });
-            seedind += Space::COUNT;
-        }
-        while(nhdone < nhashes_) {
-            uint64_t hv = hash(val ^ seeds_[seedind]);
-            for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone);) {
-                auto ref = data_[((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
-                ref = ref - 1;
-                ret = std::min(ret, ssize_t(ref));
-            }
-            ++seedind;
-        }
-        return ret;
-    }
     ssize_t add(const uint64_t val) {
-        unsigned nhdone = 0, seedind = 0;
-        const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
-        const auto nbitsperhash = l2sz_;
-        const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
-        Space::VType vb = Space::set1(val), tmp;
+        unsigned nhdone = 0;
         ssize_t ret;
         CONST_IF(conservative_update) {
             std::vector<uint64_t> indices, best_indices;
             indices.reserve(nhashes_);
             //std::fprintf(stderr, "Doing SIMD stuff\n");
-            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
-                //std::fprintf(stderr, "SIMD\n");
-                Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
-                    for(unsigned k(0); k < nperhash64;) {
-                        const uint32_t index = ((subval >> (k++ * nbitsperhash)) & mask_) + nhdone * subtbl_sz_;
-                        assert(index < data_.size());
-                        assert(index < data_.size() || !std::fprintf(stderr, "nhdone: %u, subtblsz: %zu, index %u. k: %u\n", nhdone, size_t(subtbl_sz_), index, k));
-                        indices.push_back(index);
-                        ++nhdone;
-                    }
-                });
-                seedind += Space::COUNT;
-            }
             //std::fprintf(stderr, "Doing Leftover stuff\n");
             while(nhdone < nhashes_) {
                 assert(seeds_.data());
-                uint64_t hv = hash(val ^ seeds_[seedind]);
-                for(unsigned k(0), e = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); k < e;) {
-                    const uint32_t index = ((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone;
-                    //std::fprintf(stderr, "index: %u.\n", index);
-                    assert(index < data_.size() || !std::fprintf(stderr, "nhdone: %u, subtblsz: %zu, index %u. k: %u\n", nhdone, size_t(subtbl_sz_), index, k));
-                    indices.push_back(index);
-                    if(++nhdone == nhashes_) {
-                        //std::fprintf(stderr, "Going\n");
-                        goto end;
-                    }
-                }
-                ++seedind;
+                uint64_t hv = hash(val, nhdone);
+                auto index = subtbl_sz_ * nhdone++ + (hv & mask_);
+                indices.push_back(index);
             }
-            end:
-            //std::fprintf(stderr, "Now get best\n");
+#if 0
+            if(val == 137) {
+                for(const auto v: indices) std::fprintf(stderr, "index for 137: %u\n", unsigned(v));
+            }
+#endif
             best_indices.push_back(indices[0]);
             ssize_t minval = data_.operator[](indices[0]);
             for(size_t i(1); i < indices.size(); ++i) {
@@ -443,54 +324,28 @@ public:
             //std::fprintf(stderr, "Now updated\n");
         } else { // not conservative update. This means we support deletions
             ret = std::numeric_limits<decltype(ret)>::max();
-            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
-                Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
-                    for(unsigned k(0); k < nperhash64;) {
-                        auto ref = data_.operator[](((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
-                        updater_(ref, 1u << nbits_);
-                        ret = std::min(ret, ssize_t(ref));
-                    }
-                });
-                seedind += Space::COUNT;
-            }
+            const auto maxv = 1ull << nbits_;
+            std::vector<uint64_t> indices{0};
             while(nhdone < nhashes_) {
-                uint64_t hv = hash(val ^ seeds_[seedind++]);
-                for(unsigned k(0), e = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); k != e;) {
-                    auto ref = data_.operator[](((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_);
-                    updater_(ref, 1u << nbits_);
-                    ret = std::min(ret, ssize_t(ref));
-                }
+                uint64_t hv = hash(val, nhdone);
+                auto ind = (hv & mask_) + subtbl_sz_ * nhdone++;
+                indices[0] = ind;
+                updater_(indices, data_, maxv);
+                ret = std::min(ret, ssize_t(data_[ind]));
             }
         }
         return ret + is_increment;
     }
+    auto hash(uint64_t x, unsigned index) const {
+        return hash(x ^ seeds_[index]);
+    }
     uint64_t est_count(uint64_t val) const {
-        const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
-        Space::VType tmp;
-        //const Space::VType and_val = Space::set1(mask_);
-        const Space::VType vb = Space::set1(val);
-        unsigned nhdone = 0, seedind = 0;
-        const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
-        const auto nbitsperhash = l2sz_;
-        uint64_t count = std::numeric_limits<uint64_t>::max();
-        while(nhashes_ - nhdone > Space::COUNT * nperhash64) {
-            Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](const uint64_t subval){
-                for(unsigned k = 0; k < nperhash64; count = std::min(count, uint64_t(data_.operator[](((subval >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++))));
-            });
-            seedind += Space::COUNT;
+        uint64_t ret = -1ull;
+        for(unsigned i = 0; i < nhashes_; ++i) {
+            auto hv = hash(val, i);
+            ret = std::min(ret, uint64_t(data_[(hv & mask_) + subtbl_sz_ * i]));
         }
-        FOREVER {
-            assert(nhdone < nhashes_);
-            uint64_t hv = hash(val ^ seeds_[seedind++]);
-            for(unsigned k = 0, e = std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); k != e; ++k) {
-                uint32_t index = ((hv >> (k * nbitsperhash)) & mask_) + nhdone * subtbl_sz_;
-                assert(index < data_.size());
-                count = std::min(count, uint64_t(data_.operator[](index)));
-                if(++nhdone == nhashes_) goto end;
-            }
-        }
-        end:
-        return updater_.est_count(count);
+        return updater_.est_count(ret);
     }
     ccmbase_t operator+(const ccmbase_t &other) const {
         ccmbase_t cpy = *this;
@@ -529,7 +384,7 @@ class csbase_t {
      * not weigh over the other items with the opposite sign. Treat these as 0s.
     */
     std::vector<CounterType, Allocator<CounterType>> core_;
-    uint32_t np_, nh_, nph_;
+    uint32_t np_, nh_;
     const HashStruct hf_;
     uint64_t mask_;
     std::vector<CounterType, Allocator<CounterType>> seeds_;
@@ -540,16 +395,14 @@ class csbase_t {
 public:
     template<typename...Args>
     csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
-        core_(uint64_t(nh) << np), np_(np), nh_(nh), nph_(64 / (np + 1)), hf_(std::forward<Args>(args)...),
+        core_(uint64_t(nh) << np), np_(np), nh_(nh), hf_(std::forward<Args>(args)...),
         mask_((1ull << np_) - 1),
-        seeds_((nh_ + (nph_ - 1)) / nph_ - 1),
+        seeds_(nh_),
         seedseed_(seedseed)
     {
-        DEPRECATION_WARNING("csbase_t will be deprecated in favor of cs4wbase_t moving forward.");
+        //DEPRECATION_WARNING("csbase_t will be deprecated in favor of cs4wbase_t moving forward.");
         DefaultRNGType gen(np + nh + seedseed);
         for(auto &el: seeds_) el = gen();
-        // Just to make sure that simd addh is always accessing owned memory.
-        while(seeds_.size() < sizeof(Space::Type) / sizeof(uint64_t)) seeds_.emplace_back(gen());
     }
     double l2est() const {
         return sqrl2(core_, nh_, np_);
@@ -558,30 +411,30 @@ public:
         tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), *cptr++ = add(v, added++));
         auto it = seeds_.begin();
-        while(added < nh_) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                *cptr++ = add(v, added++);
-                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
-            }
-        }
+        *cptr++ = add(v, 0);
+        unsigned ind = 1;
+        while(ind < nh_)
+            *cptr++ = add(hf_(*it++ ^ val), ind++);
         return median(counts.get(), nh_);
+    }
+    template<typename T>
+    CounterType addh_val(const T &x) {
+        uint64_t hv = hf_(x);
+        return addh_val(hv);
+    }
+    template<typename T, typename=std::enable_if_t<!std::is_arithmetic<T>::value>>
+    void addh(const T &x) {
+        uint64_t hv = hf_(x);
+        addh(hv);
     }
     void addh(uint64_t val) {
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), add(v, added++));
         auto it = seeds_.begin();
-        while(added < nh_) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                add(v, added++);
-                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
-            }
-        }
+        add(v, 0);
+        unsigned ind = 1;
+        while(ind < nh_)
+            add(hf_(*it++ ^ val), ind++);
     }
     template<typename Func>
     void for_each_register(const Func &func) {
@@ -595,31 +448,21 @@ public:
     }
     void subh(uint64_t val) {
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), sub(v, added++));
         auto it = seeds_.begin();
-        while(added < nh_) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                sub(v, added++);
-                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
-            }
-        }
+        sub(v, 0);
+        unsigned ind = 1;
+        while(ind < nh_)
+            sub(hf_(*it++ ^ val), ind++);
     }
     auto subh_val(uint64_t val) {
         tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1), *cptr++ = sub(v, added++));
         auto it = seeds_.begin();
-        while(added < nh_) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = nph_; k--; v >>= (np_ + 1)) {
-                *cptr++ = sub(v, added++);
-                if(added == nh_) break; // this could be optimized by pre-scanning, I think.
-            }
-        }
+        *cptr++ = sub(v, 0);
+        unsigned ind = 1;
+        while(ind < nh_)
+            *cptr++ = sub(hf_(*it++ ^ val), ind++);
         return median(counts.get(), nh_);
     }
     INLINE size_t index(uint64_t hv, unsigned subidx) const noexcept {
@@ -627,13 +470,14 @@ public:
     }
     INLINE auto add(uint64_t hv, unsigned subidx) noexcept {
 #if !NDEBUG
-        //std::fprintf(stderr, "Value: %d is about to be incremented at index %u\n", unsigned(index(hv, subidx)));
         at_pos(hv, subidx) += sign(hv);
-        //std::fprintf(stderr, "Value: %d was supposedly incremented by sign %d. Index: %zu/%zu\n", unsigned(at_pos(hv, subidx)), sign(hv), index(hv, subidx), core_.size());
         return at_pos(hv, subidx);
 #else
         return at_pos(hv, subidx) += sign(hv);
 #endif
+    }
+    INLINE auto vatpos(uint64_t hv, unsigned subidx) const noexcept {
+        return at_pos(hv, subidx) * sign(hv);
     }
     INLINE auto sub(uint64_t hv, unsigned subidx) noexcept {
         return at_pos(hv, subidx) -= sign(hv);
@@ -649,55 +493,19 @@ public:
     INLINE int sign(uint64_t hv) const {
         return hv & (1ul << np_) ? 1: -1;
     }
-    INLINE void subh(Space::VType hv) noexcept {
-        unsigned gadded = 0;
-        Space::VType(hf_(hv)).for_each([&](uint64_t v) {
-            for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
-                sub(v, gadded++);
-        });
-        for(auto it = seeds_.begin(); gadded < nh_;) {
-            unsigned lastgadded = gadded;
-            Space::VType(hf_(Space::xor_fn(Space::set1(*it++), hv))).for_each([&](uint64_t v) {
-                unsigned added;
-                for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); sub(v, added++), v >>= (np_ + 1));
-                gadded = added;
-            });
-        }
-    }
-    INLINE void addh(Space::VType hv) noexcept {
-        unsigned gadded = 0;
-        Space::VType(hf_(hv)).for_each([&](uint64_t v) {
-            for(uint32_t added = 0; added++ < std::min(nph_, nh_) && gadded < nh_;v >>= (np_ + 1))
-                add(v, gadded++);
-        });
-        for(auto it = seeds_.begin(); gadded < nh_;) {
-            unsigned lastgadded = gadded;
-            Space::VType(hf_(Space::xor_fn(Space::set1(*it++), hv))).for_each([&](uint64_t v) {
-                unsigned added;
-                for(added = lastgadded; added < std::min(lastgadded + nph_, nh_); add(v, added++), v >>= (np_ + 1));
-                gadded = added;
-            });
-        }
-    }
     CounterType est_count(uint64_t val) const {
         common::detail::tmpbuffer<CounterType> mem(nh_);
-        CounterType *ptr = mem.get(), *p = ptr;
+        CounterType *ptr = mem.get();
         uint64_t v = hf_(val);
-        unsigned added;
-        for(added = 0; added < std::min(nph_, nh_); v >>= (np_ + 1))
-            *p++ = at_pos(v, added++) * sign(v);
-        if(added == nh_) goto end;
-        for(auto it = seeds_.begin();;) {
-            v = hf_(*it++ ^ val);
-            for(unsigned k = 0; k < nph_; ++k, v >>= (np_ + 1)) {
-                *p++ = at_pos(v, added++) * sign(v);
-                if(added == nh_) goto end;
-            }
+        auto it = seeds_.begin();
+        *ptr++ = vatpos(v, 0);
+        for(unsigned ind = 1;ind < nh_; ++it, ++ptr, ++ind) {
+            auto hv = hf_(*it ^ val);
+            *ptr = vatpos(hv, ind);
         }
-        end:
         //std::for_each(mem.get(), mem.get() + nh_, [p=mem.get()](const auto &x) {std::fprintf(stderr, "Count estimate for ind %zd is %u\n", &x - p, int32_t(x));});
         ///
-        return median(ptr, nh_);
+        return median(mem.get(), nh_);
     }
     csbase_t &operator+=(const csbase_t &o) {
         precondition_require(o.size() == this->size(), "tables must have the same size\n");
@@ -757,6 +565,11 @@ class cs4wbase_t {
     */
     static_assert(std::is_signed<CounterType>::value, "CounterType must be signed");
 
+    // Note: in order to hash other types, you'd need to subclass the HasherSet
+    // class in hash.h and provide an overload for your type, or hash the items
+    // yourself and insert them first.
+    // This is more cumbersome.
+
     std::vector<CounterType, Allocator<CounterType>> core_;
     uint32_t np_, nh_;
     uint64_t mask_;
@@ -770,12 +583,15 @@ class cs4wbase_t {
 public:
     cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137):
         np_(np),
+        nh_(nh),
         mask_((1ull << np_) - 1),
         seedseed_(seedseed),
-        hf_(seedseed)
+        hf_(nh_, seedseed)
     {
+        assert(hf_.size() == nh_);
         nh_ += (nh % 2 == 0);
         core_.resize(nh_ << np_);
+        POST_REQ(core_.size() == (nh_ << np_), "core must be properly sized");
     }
     double l2est() const {
         return sqrl2(core_, nh_, np_);
@@ -789,9 +605,21 @@ public:
 
         return median(cp2, nh_);
     }
+    auto addh(uint64_t val) {return addh_val(val);}
     auto nhashes() const {return nh_;}
     auto p() const {return np_;}
-    auto addh(uint64_t val) {return addh_val(val);}
+    template<typename T, typename=std::enable_if_t<std::is_arithmetic<T>::value>>
+    auto addh_val(T x) {
+        uint64_t hv = hf_(static_cast<uint64_t>(x));
+        return addh_val(hv);
+    }
+    template<typename T, typename=std::enable_if_t<!std::is_arithmetic<T>::value>>
+    auto addh_val(const T &x) {
+        uint64_t hv = hf_(x);
+        return addh_val(hv);
+    }
+    template<typename T,  typename=std::enable_if_t<std::is_arithmetic<T>::value>>
+    auto addh(T x) {return addh_val(static_cast<uint64_t>(x));}
     void subh(uint64_t val) {
         for(unsigned added = 0; added < nh_; ++added)
             sub(val, added);
@@ -812,14 +640,14 @@ public:
         auto &ref = at_pos(hv, subidx);
         if(ref != std::numeric_limits<CounterType>::max()) // easy branch to predict
             ref += sign(hv);
-        return ref;
+        return ref * sign(hv);
     }
     INLINE auto sub(uint64_t hv, unsigned subidx) noexcept {
         hv = hf_(hv, subidx);
         auto &ref = at_pos(hv, subidx);
         if(ref != std::numeric_limits<CounterType>::min()) // easy branch to predict
             ref -= sign(hv);
-        return ref;
+        return ref * sign(hv);
     }
     INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
         assert(index(hv, subidx) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));

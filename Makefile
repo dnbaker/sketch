@@ -12,7 +12,7 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -pedantic -Wunused-variable -Wno-attributes -Wno-ignored-attributes -Wpedantic \
         -Wno-missing-braces
 
-FLAGS=-O1 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Ivec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
+FLAGS=-O3 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Ivec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing \
       -DXXH_INLINE_ALL  \
 	  -Wno-attributes -Wno-pragmas -Wno-ignored-qualifiers
@@ -23,20 +23,24 @@ PYCONF?=python3-config
 
 ifeq ($(shell uname),Darwin)
     UNDEFSTR=-undefined dynamic_lookup
+    SLEEF_COMPILER=clang
 else
     UNDEFSTR=
+    SLEEF_COMPILER=$(CC)
 endif
 
 
 NVCC?=nvcc
 EX=$(patsubst testsrc/%.cpp,%,$(wildcard testsrc/*.cpp))
 all: $(EX)
-run_tests: $(EX) lztest
-	for i in $(EX) lztest; do ./$$i; done
+setup_tests: $(EX) lztest
+	echo $(EX) lztest > tmpfiles.txt
 
 STD?= -std=c++14
 
-GPUFLAGS= -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp
+#CCBIN?=-ccbin=clang++
+
+GPUFLAGS= $(CCBIN) -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp
 
 INCLUDES=-I`$(PYCONF) --includes` -Ipybind11/include
 SUF=`$(PYCONF) --extension-suffix`
@@ -45,9 +49,6 @@ HEADERS=$(wildcard include/sketch/*.h)
 
 SAN=-fsanitize=undefined -fsanitize=address
 PYTHON?=python3
-
-sleef.h:
-	+cd vec/sleef && mkdir -p build && cd build && cmake .. && $(MAKE) && cd ../../../ && ln -s vec/sleef//build/include/sleef.h sleef.h
 
 python: $(HEADERS) python/hll.cpp python/setup.py
 	cd python && $(PYTHON) setup.py install
@@ -68,20 +69,20 @@ hpython: pybbmh.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
-%: testsrc/%.cpp kthread.o $(HEADERS) #sleef.h
+%: testsrc/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS) #sleef.h
+heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-divtest: testsrc/divtest.cpp kthread.o $(HEADERS) # sleef.h
+divtest: testsrc/divtest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 %: src/%.cu
 	$(NVCC) $< -o $@ $(GPUFLAGS)
 
-%.o: %.cu
-	$(NVCC) $< -c -o $@ $(GPUFLAGS)
+#%.o: %.cu
+#	$(NVCC) $< -c -o $@ $(GPUFLAGS)
 
 %: benchmark/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DNDEBUG=1 $< -o $@ -lz
@@ -89,7 +90,7 @@ divtest: testsrc/divtest.cpp kthread.o $(HEADERS) # sleef.h
 %_d: src/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -fsanitize=leak -fsanitize=undefined -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz
 
-lztest: testsrc/test.cpp kthread.o $(HEADERS)
+lztest: testsrc/hlltest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
 
 dev_test_p: dev_test.cpp kthread.o hll.h

@@ -1,24 +1,25 @@
 #ifndef DNB_SKETCH_MULTIPLICITY_H__
 #define DNB_SKETCH_MULTIPLICITY_H__
+#ifndef NO_BLAZE
+#  if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
+#    include "blaze/Math.h"
+#  endif
+#endif
 #include <random>
 #include "ccm.h" // Count-min sketch
-#ifndef NO_BLAZE
-#if VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED
-#include "./vec/blaze/blaze/Math.h"
-#endif
-#endif
 
 #include "hk.h"
 #include <cstdarg>
 #include <cmath>
 #include <mutex>
-#include "./xxHash/xxh3.h"
+#include <shared_mutex>
 
 namespace sketch {
 
+
 namespace cws {
 
-#if !defined(NO_BLAZE) && (VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED)
+#if defined(_BLAZE_MATH_MATRIX_H_) && (VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED)
 template<typename FType=float>
 struct CWSamples {
     using MType = blaze::DynamicMatrix<float>;
@@ -54,7 +55,11 @@ class realccm_t: public cm::ccmbase_t<update::Increment,std::vector<FType, Alloc
 
     FType scale_, scale_inv_, scale_cur_;
     std::atomic<uint64_t> total_added_;
+#if __cplusplus <= 201703L
     std::mutex mut_;
+#else
+    std::shared_mutex mut_;
+#endif
 public:
     FType decay_rate() const {return scale_;}
     void addh(uint64_t val, FType inc=1.) {this->add(val, inc);}
@@ -65,7 +70,13 @@ public:
     }
     realccm_t(): realccm_t(1.-1e-7) {}
     void rescale(size_t exp=rescale_frequency_) {
-        auto scale_div = std::pow(scale_, exp);
+        const auto scale_div = std::pow(scale_, exp);
+#ifndef NO_BLAZE
+        blaze::CustomMatrix<FType, blaze::aligned, blaze::unpadded> tmp(this->data_.data(), this->nhashes_, size_t(1) << this->subtbl_sz_);
+        assert(this->data_.size() == (this->nhashes_ << this->subtbl_sz_));
+        assert(tmp.rows() * tmp.columns() == (this->data_.size()));
+        tmp *= scale_div;
+#else
         auto ptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data());
         auto eptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data() + this->data_.size());
         auto mul = FSpace::set1(scale_div);
@@ -76,6 +87,7 @@ public:
         FType *rptr = reinterpret_cast<FType *>(ptr);
         while(rptr < this->data_.data() + this->data_.size())
             *rptr++ *= scale_div;
+#endif
     }
     void flush_rescaling() {
         size_t exp = total_added_ % rescale_frequency_;
@@ -84,12 +96,13 @@ public:
     }
     FType add(const uint64_t val, FType inc) {
         ++total_added_; // I don't care about ordering, I just want it to be atomic.
+        std::shared_lock<decltype(mut_)> sloc(mut_);
         CONST_IF(decay) {
+            std::lock_guard<decltype(mut_)> lock(mut_);
             inc *= scale_cur_;
             scale_cur_ *= scale_inv_;
             if(total_added_ % rescale_frequency_ == 0u) { // Power of two, bitmask is efficient
                 {
-                    std::lock_guard<decltype(mut_)> lock(mut_);
                     rescale();
                 }
                 scale_cur_ = scale_; // So when we multiply inc by scale_cur, the insertion happens at 1
@@ -260,7 +273,11 @@ struct Card {
             for(size_t i = 1; i < data_.size(); std::fprintf(fp, ",%f", data_[i++]));
         }
     };
-#define access operator[]
+#ifndef NDEBUG
+#  define __vector_access operator[]
+#else
+#  define __vector_access at
+#endif
     ResultType report() const {
         const CounterType max_val = *std::max_element(core_.begin(), core_.end()),
                           nvals = max_val + 1;
@@ -272,7 +289,7 @@ struct Card {
             size_t core_offset = i << r_;
             size_t arr_offset = nvals * i;
             for(size_t j = 0; j < size_t(1) << r_; ++j) {
-                ++arr.access(core_.access(j + core_offset) + arr_offset);
+                ++arr.__vector_access(core_.__vector_access(j + core_offset) + arr_offset);
             }
         }
 #if VERBOSE_AF
@@ -298,7 +315,7 @@ struct Card {
                 sum += j * pmeans[i-j] * f_i[j];
             f_i[i] = -1.0*pmeans[i]/(pmeans[0]*(logpm0))-sum/(i*pmeans[0]);
         }
-#undef access
+#undef __vector_access
         for(size_t i=1; i<nvals; f_i[i] = std::abs(f_i[i] * f_i[0]), ++i);
         return ResultType{std::move(f_i), total_added_.load()};
     }
@@ -314,16 +331,6 @@ struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, fi
 
 namespace wj { // Weighted jaccard
 
-struct XXH3PairHasher {
-    template<typename CType>
-    uint64_t hash(uint64_t x, CType count) const {
-       return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
-    }
-    template<typename CType>
-    uint64_t operator()(uint64_t x, CType count) const {
-        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
-    }
-};
 
 struct WangPairHasher: public hash::WangHash {
     template<typename CType>

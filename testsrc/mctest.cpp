@@ -8,7 +8,7 @@ using namespace sketch::cm;
 using namespace sketch;
 
 int main(int argc, char *argv[]) {
-    int nbits = 12, l2sz = 18, nhashes = 8, c;
+    int nbits = 12, l2sz = 18, nhashes = 3, c;
     //if(argc == 1) goto usage;
     while((c = getopt(argc, argv, "n:l:b:h")) >= 0) {
         switch(c) {
@@ -28,8 +28,8 @@ int main(int argc, char *argv[]) {
     ccm_t cmsexact(nbits, l2sz, nhashes), cmsexact2(nbits, l2sz, nhashes);
     sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, sketch::common::WangHash, false> cmswithnonminmal(nbits, l2sz, nhashes);
     sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, sketch::common::WangHash, false> cmswithfloats(nbits, l2sz, nhashes);
-    cs_t cmscs(l2sz, nhashes * 4);
-    cs4w_t cmscs4w(l2sz, nhashes * 4), cmscs4w2(l2sz, nhashes * 4);
+    cs_t cmscs(l2sz, nhashes);
+    cs4w_t cmscs4w(l2sz, nhashes), cmscs4w2(l2sz, nhashes);
     sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
     ccmbase_t<update::Increment, DefaultStaticCompactVectorType<4>> static_cm(nbits, l2sz, nhashes);
 #if __cplusplus >= 201703L
@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "exact method stack space: %zu\theap space:%zu\n", x, y);
     size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 100000;
     std::vector<uint64_t> items;
-    std::mt19937_64 mt;
+    std::mt19937_64 mt(nitems ^ (std::mt19937_64(nhashes)()));
     while(items.size() < nitems) items.emplace_back(mt());
     for(const auto el: cms.ref()) {
         assert(unsigned(el) == 0);
@@ -66,9 +66,14 @@ int main(int argc, char *argv[]) {
     std::unordered_map<int64_t, uint64_t> histexact, histapprox, histcs, hist4w;
     size_t missing = 0;
     size_t tot = 0;
+    double ssqe4w = 0., ssqe2w = 0.;
     for(const auto j: items) {
         if(j == 137) {
-            std::fprintf(stderr, "approx: %i, exact %i, histcs %i\n", int(cms.est_count(137)), int(cmsexact.est_count(137)), int(cmscs.est_count(137)));
+            std::fprintf(stderr, "approx: %i, exact %i, histcs %i, cmscs4w %i\n", int(cms.est_count(137)), int(cmsexact.est_count(137)), int(cmscs.est_count(137)), cmscs4w.addh(137));
+            //assert(std::abs(ssize_t(cms.est_count(137)) - (1000 + TIMES)) <= 20 || nitems > 200000);
+            assert(std::abs(ssize_t(cmsexact.est_count(137)) - (1000 + TIMES)) < 10 || nitems != 100000);
+            assert(std::abs(ssize_t(cmscs.est_count(137)) - (1000 + TIMES)) < 10 || nitems != 100000);
+            assert(std::abs(ssize_t(cmscs4w.est_count(137)) - (1000 + TIMES)) < 10 || nitems != 100000);
         }
         //std::fprintf(stderr, "est count: %zu\n", size_t(cms.est_count(j)));
         auto exact_count = j == 137 ? 1000 + TIMES: (j & 0xFF) == 0 ? 200: TIMES;
@@ -79,7 +84,12 @@ int main(int argc, char *argv[]) {
         ++hist4w[cmscs4w.est_count(j) - exact_count];
         missing += csest == 0;
         ++tot;
+        ssqe4w += std::pow(cmscs4w.est_count(j) - exact_count, 2);
+        ssqe2w += std::pow(csest - exact_count, 2);
     }
+    ssqe4w = std::sqrt(ssqe4w);
+    ssqe2w = std::sqrt(ssqe2w);
+    std::fprintf(stderr, "ssqe (2w): %f. ssqe (4w): %f\n", ssqe2w, ssqe4w);
     std::fprintf(stderr, "missing %zu of %zu\n", missing, items.size());
     std::vector<int64_t> hset;
     for(const auto &pair: histexact) hset.push_back(pair.first);
@@ -88,7 +98,7 @@ int main(int argc, char *argv[]) {
         std::fprintf(stderr, "Exact %" PRIi64 "\t%" PRIu64 "\n", k, histexact[k]);
     }
     hset.clear();
-    std::fprintf(stderr, "Did th hset cms\n");
+    std::fprintf(stderr, "Did the hset cms\n");
     for(const auto &pair: histapprox) hset.push_back(pair.first);
     std::sort(hset.begin(), hset.end());
     for(const auto k: hset) {
@@ -124,15 +134,4 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "folded with 1\n");
     auto folded_composed2 = composed4w.fold(2);
     std::fprintf(stderr, "folded with 2\n");
-#if 0
-    double nonmin_man = 0;
-    cmswithnonminmal.for_each_register([&](const auto &x) {nonmin_man += x * x;});
-    nonmin_man = std::sqrt(nonmin_man);
-    double twf = cmswithfloats.l2est();
-    nonmin_man = 0;
-    cmswithfloats.for_each_register([&](const auto &x) {nonmin_man += x * x;});
-    nonmin_man = std::sqrt(nonmin_man);
-    std::fprintf(stderr, "float: %lf. man: %lf\n", twf, nonmin_man);
-    std::fprintf(stderr, "cmsexact: %lf\n", cmsexact.l2est());
-#endif
 }

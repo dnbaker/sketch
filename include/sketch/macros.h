@@ -17,20 +17,30 @@
 // OpenMP
 
 #ifdef _OPENMP
-#define OMP_PRAGMA(...) _Pragma(__VA_ARGS__)
-#define OMP_ONLY(...) __VA_ARGS__
+#  ifndef OMP_PRAGMA
+#    define OMP_PRAGMA(...) _Pragma(__VA_ARGS__)
+#  endif
+#  ifndef OMP_ONLY
+#     define OMP_ONLY(...) __VA_ARGS__
+#  endif
 #else
-#define OMP_PRAGMA(...)
-#define OMP_ONLY(...)
+#  ifndef OMP_PRAGMA
+#    define OMP_PRAGMA(...)
+#  endif
+#  ifndef OMP_ONLY
+#    define OMP_ONLY(...)
+#  endif
 #endif
 
 
-#if __CUDACC__ || __GNUC__ || __clang__
-#  define SK_RESTRICT __restrict__
-#elif _MSC_VER
-#  define SK_RESTRICT __restrict
-#else
-#  define SK_RESTRICT
+#ifndef SK_RESTRICT
+#  if __CUDACC__ || __GNUC__ || __clang__
+#    define SK_RESTRICT __restrict__
+#  elif _MSC_VER
+#    define SK_RESTRICT __restrict
+#  else
+#    define SK_RESTRICT
+#  endif
 #endif
 
 #ifdef __CUDA_ARCH__
@@ -54,17 +64,6 @@
 #define CPP_PASTE(...) sk__xstr__(__VA_ARGS__)
 #define CPP_PASTE_UNROLL(...) sk__xstr__("unroll" __VA_ARGS__)
 
-#ifdef __CUDA_ARCH__
-#  define SK_UNROLL(...) _Pragma(CPP_PASTE(unroll __VA_ARGS__))
-#elif defined(__clang__)
-#  define SK_UNROLL(...) _Pragma(CPP_PASTE(unroll __VA_ARGS__))
-#elif defined(__GNUC__) && __GNUC__ > 8
-#  define SK_UNROLL(...) _Pragma(CPP_PASTE(GCC unroll __VA_ARGS__))
-#else
-#  define SK_UNROLL(...)
-#endif
-
-
 
 #if !NDEBUG
 #  define DBG_ONLY(...) __VA_ARGS__
@@ -80,6 +79,30 @@
 
 #ifndef FOREVER
 #  define FOREVER for(;;)
+#endif
+
+#ifndef SK_UNROLL
+#  define SK_UNROLL _Pragma("message \"The macro, it does nothing\"")
+   // Don't use SK_UNROLL, it only tells you if these below macros are defined.
+#  if defined(__CUDACC__)
+#    define SK_UNROLL_4  _Pragma("unroll 4")
+#    define SK_UNROLL_8  _Pragma("unroll 8")
+#    define SK_UNROLL_16 _Pragma("unroll 16")
+#    define SK_UNROLL_32 _Pragma("unroll 32")
+#    define SK_UNROLL_64 _Pragma("unroll 64")
+#  elif defined(__GNUC__)
+#    define SK_UNROLL_4  _Pragma("GCC unroll 4")
+#    define SK_UNROLL_8  _Pragma("GCC unroll 8")
+#    define SK_UNROLL_16 _Pragma("GCC unroll 16")
+#    define SK_UNROLL_32 _Pragma("GCC unroll 32")
+#    define SK_UNROLL_64 _Pragma("GCC unroll 64")
+#  else
+#    define SK_UNROLL_4
+#    define SK_UNROLL_8
+#    define SK_UNROLL_16
+#    define SK_UNROLL_32
+#    define SK_UNROLL_64
+#  endif
 #endif
 
 #if __has_cpp_attribute(no_unique_address)

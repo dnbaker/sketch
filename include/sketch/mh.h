@@ -15,7 +15,7 @@
  */
 
 namespace sketch {
-namespace minhash {
+inline namespace minhash {
 
 #define SET_SKETCH(x) const auto &sketch() const {return x;} auto &sketch() {return x;}
 
@@ -204,10 +204,6 @@ public:
     auto end() const {return minimizers_.end();}
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
-        CONST_IF(std::is_same<Cmp, std::less<>>::value) std::fprintf(stderr, "cmp is less\n");
-        CONST_IF(std::is_same<Cmp, std::greater<>>::value) std::fprintf(stderr, "cmp is gt\n");
-        CONST_IF(std::is_same<Cmp, std::less<T>>::value) std::fprintf(stderr, "cmp is less\n");
-        CONST_IF(std::is_same<Cmp, std::greater<T>>::value) std::fprintf(stderr, "cmp is gt\n");
         return common::intersection_size(o, *this, cmp_);
     }
     double jaccard_index(const RangeMinHash &o) const {
@@ -395,6 +391,11 @@ struct FinalRMinHash {
     }
     template<typename Alloc>
     FinalRMinHash(const std::vector<T, Alloc> &ofirst): first(ofirst.size()) {std::copy(ofirst.begin(), ofirst.end(), first.begin()); sort();}
+    template<typename It>
+    FinalRMinHash(It start, It end): first(std::distance(start, end)) {
+        std::copy(start, end, first.begin());
+        sort();
+    }
     template<typename Alloc, typename=std::enable_if_t<std::is_same<Alloc, allocator>::value>>
     FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(std::move(ofirst)) {
         sort();
@@ -429,9 +430,8 @@ struct FinalRMinHash {
         sort();
     }
     FinalRMinHash(const std::string &s): FinalRMinHash(s.data()) {}
-    FinalRMinHash(const char *infname) {
-        this->read(infname);
-    }
+    FinalRMinHash(gzFile fp) {read(fp);}
+    FinalRMinHash(const char *infname) {read(infname);}
     size_t size() const {return first.size();}
 protected:
     FinalRMinHash() {}
@@ -705,6 +705,9 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
     double count_sum_l2norm_;
     using count_type = CountType;
     using key_type = T;
+    FinalCRMinHash(gzFile fp) {
+        this->read(fp);
+    }
     FinalCRMinHash(const std::string &path): FinalCRMinHash(path.data()) {}
     FinalCRMinHash(const char *path) {
         this->read(path);
@@ -977,7 +980,7 @@ public:
     }
     void write(const char *path) const {
         gzFile fp = gzopen(path, "wb");
-        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + path);
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for writingn at ") + path);
         this->write(fp);
         gzclose(fp);
     }
@@ -1015,8 +1018,8 @@ public:
             case 16: return ComparePolicy::U16;
             case 32: return ComparePolicy::U32;
             case 64: return ComparePolicy::U64;
+            default: return ComparePolicy::Manual;
         }
-        return ComparePolicy::Manual;
     }
     // Encoding and decoding table entries
     auto get_lzc(uint64_t entry) const {
@@ -1276,6 +1279,6 @@ double jaccard_index(const T &a, const T &b) {
 }
 
 
-} // namespace minhash
+} // inline namespace minhash
 namespace mh = minhash;
 } // namespace sketch

@@ -1,8 +1,8 @@
 #include "pysketch.h"
 
 
-PYBIND11_MODULE(sketch, m) {
-    m.doc() = "HyperLogLog support"; // optional module docstring
+PYBIND11_MODULE(bbmh, m) {
+    m.doc() = "BBitMinHash support";
     py::class_<mh::BBitMinHasher<uint64_t>> (m, "BBitMinHasher")
         .def(py::init<size_t, unsigned>())
         .def("clear", &mh::BBitMinHasher<uint64_t>::clear, "Clear all entries.")

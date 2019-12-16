@@ -3,7 +3,9 @@
 #include "common.h"
 #include "hash.h"
 
-namespace sketch { namespace hll { namespace detail {
+namespace sketch {
+inline namespace hll {
+namespace detail {
 
 // Based off https://github.com/oertl/hyperloglog-sketch-estimation-paper/blob/master/c%2B%2B/cardinality_estimation.hpp
 template<typename FloatType>
@@ -25,7 +27,6 @@ static constexpr FloatType gen_sigma(FloatType x) {
 template<typename FloatType>
 static constexpr FloatType gen_tau(FloatType x) {
     if (x == 0. || x == 1.) {
-        //std::fprintf(stderr, "x is %f\n", (float)x);
         return 0.;
     }
     FloatType z(1-x), tmp(0.), y(1.), zp(x);
@@ -43,7 +44,7 @@ static constexpr FloatType gen_tau(FloatType x) {
 
 
 namespace sketch {
-namespace hll {
+inline namespace hll {
 enum EstimationMethod: uint8_t {
     ORIGINAL       = 0,
     ERTL_IMPROVED  = 1,
@@ -201,7 +202,7 @@ static double calculate_estimate(const CountArrType &counts,
 #endif
         assert(estim != ERTL_MLE);
         double sum = counts[0];
-        for(unsigned i = 1; i < 64; ++i) if(counts[i]) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        for(unsigned i = 1; i < 64 - p; ++i) if(counts[i]) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         //for(unsigned i = 1; i < 64 - p + 1; ++i) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         double value(alpha * m * m / sum);
         if(value < detail::small_range_correction_threshold(m)) {
@@ -732,15 +733,13 @@ public:
         std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
 #endif
     }
-    explicit hllbase_t(size_t np, HashStruct &&hs): hllbase_t(np, ERTL_MLE, (JointEstimationMethod)ERTL_JOINT_MLE, std::move(hs)) {}
-    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_JOINT_MLE) {}
-    explicit hllbase_t(): hllbase_t(0, EstimationMethod::ERTL_MLE, JointEstimationMethod::ERTL_JOINT_MLE) {}
+    explicit hllbase_t(size_t np, HashStruct &&hs): hllbase_t(np, ERTL_MLE, (JointEstimationMethod)ERTL_MLE, std::move(hs)) {}
+    explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_MLE) {}
+    explicit hllbase_t(): hllbase_t(size_t(0), EstimationMethod::ERTL_MLE, (JointEstimationMethod)ERTL_MLE) {}
     template<typename... Args>
-    hllbase_t(const char *path, Args &&... args): hf_(std::forward<Args>(args)...) {read(path);}
+    hllbase_t(const std::string &path, Args &&... args): hf_(std::forward<Args>(args)...) {read(path);}
     template<typename... Args>
-    hllbase_t(const std::string &path, Args &&... args): hllbase_t(path.data(), std::forward<Args>(args)...) {}
-    template<typename... Args>
-    hllbase_t(gzFile fp, Args &&... args): hllbase_t(0, ERTL_MLE, ERTL_JOINT_MLE, std::forward<Args>(args)...) {this->read(fp);}
+    hllbase_t(gzFile fp, Args &&... args): hllbase_t(size_t(0), ERTL_MLE, (JointEstimationMethod)ERTL_MLE, std::forward<Args>(args)...) {this->read(fp);}
 
     // Call sum to recalculate if you have changed contents.
     void sum() const {
@@ -1023,12 +1022,12 @@ public:
     void write(const char *path, bool write_gz=true) const {
         if(write_gz) {
             gzFile fp(gzopen(path, "wb"));
-            if(!fp) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + path);
+            if(!fp) throw ZlibError(Z_ERRNO, std::string("Could not open file at '") + path + "' for writing");
             write(fp);
             gzclose(fp);
         } else {
             std::FILE *fp(std::fopen(path, "wb"));
-            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+            if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at '") + path + "' for writing");
             write(fileno(fp));
             std::fclose(fp);
         }
@@ -1055,16 +1054,20 @@ public:
     }
     void read(const char *path) {
         gzFile fp(gzopen(path, "rb"));
-        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
+        if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at '") + path + "' for reading");
         read(fp);
         gzclose(fp);
     }
-    void read(const std::string &path) {
-        read(path.data());
-    }
+    void read(const std::string &path) {read(path.data());}
     void write(int fileno) const {
         uint32_t bf[]{is_calculated_, estim_, jestim_, 137};
-#define CHWR(fn, obj, sz) if(__builtin_expect(::write(fn, (obj), (sz)) != ssize_t(sz), 0)) throw std::runtime_error(std::string("Failed to write to disk in ") + __PRETTY_FUNCTION__)
+#define CHWR(fn, obj, sz) \
+    do {\
+    if(__builtin_expect(::write(fn, (obj), (sz)) != ssize_t(sz), 0)) \
+        throw std::runtime_error( \
+            std::string("[") + __PRETTY_FUNCTION__ + std::string("Failed to write to disk at fd ") + std::to_string(fileno)); \
+    } while(0)
+
         CHWR(fileno, bf, sizeof(bf));
         CHWR(fileno, &np_, sizeof(np_));
         CHWR(fileno, &value_, sizeof(value_));
@@ -1108,7 +1111,6 @@ public:
             }
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
-        std::fprintf(stderr, "jestim is ERTL_JOINT_MLE: %s\n", JESTIM_STRINGS[jestim_]);
         const auto full_counts = ertl_joint(*this, other);
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
@@ -1167,8 +1169,104 @@ public:
     }
 #endif
 };
-
 using hll_t = hllbase_t<>;
+
+template<typename HashStruct=WangHash>
+class shllbase_t: public hllbase_t<HashStruct> {
+    // See Edith Cohen - All-Distances Sketches, Revisited: HIP Estimators for Massive Graphs Analysis
+    // and
+    // Daniel Ting - Streamed Approximate Counting of Distinct Elements
+    using super = hllbase_t<HashStruct>;
+    double cest_;
+    double s_;
+    // Streaming HyperLogLog
+    // Note: composition is not supported, at least not in a principled way.
+    // Better estimates on original cardinalities should help the union, but it will
+    // not enjoy the asymptotic improvements necessarily.
+#ifndef NOT_THREADSAFE
+    bool warning_emitted = false;
+#endif
+public:
+    template<typename...Args>
+    shllbase_t(Args &&...args): super(std::forward<Args>(args)...), cest_(0), s_(this->core_.size()) {}
+    INLINE void addh(uint64_t element) {
+        element = this->hf_(element);
+        add(element);
+    }
+    auto full_set_comparison(const shllbase_t &o) const {
+        auto union_est = super::union_size(o);
+        auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
+        return std::array<double, 3>{this->cest_ - isz, o.cest_ - isz, std::max(this->cest_ + o.cest_ - union_est, 0.)};
+    }
+    auto jaccard_index(const shllbase_t &o) const {
+        auto union_est = super::union_size(o);
+        auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
+        return isz / union_est;
+    }
+    auto containment_index(const shllbase_t &o) const {
+        auto union_est = super::union_size(o);
+        auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
+        return isz / this->cest_;
+    }
+    INLINE void add(uint64_t hashval) {
+#ifndef NOT_THREADSAFE
+        if(!warning_emitted) {
+            warning_emitted = true;
+            std::fprintf(stderr, "Warning: shllbase_t is not threadsafe\n");
+        }
+#endif
+        const uint32_t index(hashval >> this->q());
+        const uint8_t lzt(clz(((hashval << 1)|1) << (this->np_ - 1)) + 1);
+        auto oldv = this->core_[index];
+        if(lzt > oldv) {
+            cest_ += 1. / std::ldexp(s_, -int(this->np_));
+            s_ -= std::ldexp(1., -int(oldv));
+            if(lzt != 64 - this->np_)
+                s_ += std::ldexp(1., -int(lzt));
+            this->core_[index] = lzt;
+            //std::fprintf(stderr, "news: %f. newc: %f\n", s_, cest_);
+        } else {
+            //std::fprintf(stderr, "newv %u is not more than %u\n", lzt, oldv);
+        }
+    }
+    auto super_report() const {return super::report();}
+    auto report() {return cest_;}
+    auto report() const {return cest_;}
+    auto creport() {return cest_;}
+    auto creport() const {return cest_;}
+    shllbase_t &merge_UNSTABLE(const shllbase_t &o) {
+        PREC_REQ(this->size() == o.size(), "must be same size");
+        SK_UNROLL_8
+        for(size_t i = 0; i < this->size(); ++i) {
+            auto oldv = this->core_[i], ov = o.core_[i];
+            if(ov > oldv) {
+                cest_ += 1./ std::ldexp(s_, -int(this->np_));
+                s_ -= std::ldexp(1., -int(oldv));
+                if(ov != 64 - this->np_)
+                    s_ += std::ldexp(1., -int(ov));
+                this->core_[i] = ov;
+            }
+        }
+    }
+    double uest_UNSTABLE(const shllbase_t &o) const {
+        PREC_REQ(this->size() == o.size(), "must be same size");
+        double cest = cest_, s = s_;;
+        SK_UNROLL_8
+        for(size_t i = 0; i < this->size(); ++i) {
+            auto oldv = this->core_[i], ov = o.core_[i];
+            if(ov > oldv) {
+                cest += 1./ std::ldexp(s_, -int(this->np_));
+                s -= std::ldexp(1., -int(oldv));
+                if(ov != 64 - this->np_)
+                    s += std::ldexp(1., -int(ov));
+            }
+        }
+        return cest;
+    }
+    using final_type = shllbase_t;
+};
+
+using shll_t = shllbase_t<>;
 
 // Returns the size of the set intersection
 template<typename HllType>
@@ -1289,16 +1387,16 @@ public:
         this->add(this->hf_(element));
     }
     uint64_t seed() const {return seed_;}
-    void reseed(uint64_t seed) {seed_= seed_;}
+    void reseed(uint64_t seed) {seed_= seed;}
     void write(const char *fn, bool write_gz) {
         if(write_gz) {
             gzFile fp = gzopen(fn, "wb");
-            if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
+            if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for writing at ") + fn);
             this->write(fp);
             gzclose(fp);
         } else {
             std::FILE *fp = std::fopen(fn, "wb");
-            if(fp == nullptr) throw std::runtime_error("Could not open file.");
+            if(fp == nullptr) throw std::runtime_error("Could not open file for writing.");
             this->write(fileno(fp));
             std::fclose(fp);
         }
@@ -1321,7 +1419,7 @@ public:
     }
     void read(const char *fn) {
         gzFile fp = gzopen(fn, "rb");
-        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for reading at ") + fn);
         gzclose(fp);
     }
     template<typename T, typename Hasher=std::hash<T>>
@@ -1368,7 +1466,7 @@ public:
     auto m() const {return hlls_[0].size();}
     void write(const char *fn) const {
         gzFile fp = gzopen(fn, "wb");
-        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for reading at ") + fn);
         this->write(fp);
         gzclose(fp);
     }
@@ -1378,7 +1476,7 @@ public:
     }
     void read(const char *fn) {
         gzFile fp = gzopen(fn, "rb");
-        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file at ") + fn);
+        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for reading at ") + fn);
         this->read(fp);
         gzclose(fp);
     }
@@ -1671,7 +1769,46 @@ struct wh119_t {
     {
         assert(!(core_.size() & (core_.size() - 1)));
     }
+    size_t size() const {return core_.size();}
+    auto m() const {return size();}
+    uint8_t p() const {return ilog2(size());}
     wh119_t(const std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(s), wh_base_(base) {}
+    wh119_t &operator+=(const wh119_t &o) {
+        PREC_REQ(size() == o.size(), "mismatched sketch sizes.");
+        unsigned i;
+#if HAS_AVX_512 || __AVX2__ || __SSE2__
+        if(m() >= sizeof(Type)) {
+#if HAS_AVX_512 && __AVX512BW__
+            __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
+            const __m512i *oels(reinterpret_cast<const __m512i *>(o.core_.data()));
+            for(i = 0; i < m() >> 6; ++i) els[i] = _mm512_max_epu8(els[i], oels[i]); // mm512_max_epu8 is available on with AVX512BW :(
+#elif __AVX2__
+            __m256i *els(reinterpret_cast<__m256i *>(core_.data()));
+            const __m256i *oels(reinterpret_cast<const __m256i *>(o.core_.data()));
+            for(i = 0; i < m() * sizeof(uint8_t) / sizeof(__m256i); ++i) {
+                assert(reinterpret_cast<const char *>(&els[i]) < reinterpret_cast<const char *>(&core_[core_.size()]));
+                els[i] = _mm256_max_epu8(els[i], oels[i]);
+            }
+#else // __SSE2__
+            __m128i *els(reinterpret_cast<__m128i *>(core_.data()));
+            const __m128i *oels(reinterpret_cast<const __m128i *>(o.core_.data()));
+            for(i = 0; i < m() >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
+#endif /* #if (HAS_AVX_512 && __AVX512BW__) || __AVX2__ || true */
+
+            if(m() < sizeof(Type)) for(;i < m(); ++i) core_[i] = std::max(core_[i], o.core_[i]);
+        } else {
+#endif /* #if HAS_AVX_512 || __AVX2__ || __SSE2__ */
+            std::transform(core_.data(), core_.data() + core_.size(), o.core_.data(), core_.data(), [](auto x, auto y) {return std::max(x, y);});
+#if HAS_AVX_512 || __AVX2__ || __SSE2__
+        }
+#endif
+        return *this;
+    }
+    wh119_t operator+(const wh119_t &o) const {
+        auto ret = *this;
+        ret += o;
+        return ret;
+    }
     double cardinality_estimate() const {
         std::array<uint32_t, 256> counts{0};
         PREC_REQ(is_pow2(core_.size()), "Size must be a power of two");
@@ -1691,7 +1828,6 @@ struct wh119_t {
         double mysz = cardinality_estimate(), osz = o.cardinality_estimate();
         return (mysz + osz - us) / us;
     }
-    size_t size() const {return core_.size();}
     double union_size(const wh119_t &o) const {return union_size(o.core_);}
     double union_size(const std::vector<uint8_t, Allocator<uint8_t>> &o) const {
         PREC_REQ(o.size() == size(), "mismatched sizes");
@@ -1711,7 +1847,7 @@ struct wh119_t {
         return (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
     }
 };
-}
+} // whll
 } // namespace sketch
 
 #endif // #ifndef HLL_H_

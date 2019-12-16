@@ -1,9 +1,7 @@
-#include "vec/welford_sd.h"
 #include "common.h"
 #include "hk.h"
 using namespace sketch;
 using namespace common;
-using stats::OnlineSD;
 
 int main() {
     size_t maxn = 10000000;

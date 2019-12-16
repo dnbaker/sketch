@@ -10,11 +10,14 @@
 #include <random>
 #include <type_traits>
 #include <vector>
+#include "aesctr/wy.h"
 #ifndef _VEC_H__
 #  define NO_SLEEF
 #  define NO_BLAZE
 #  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
 #endif
+#include "fixed_vector.h"
+#include "./xxHash/xxh3.h"
 
 namespace sketch {
 inline namespace hash {
@@ -256,9 +259,9 @@ INLINE uint64_t mod61(uint64_t x) {
     if(x >= mod) x -= mod;
     return x;
 }
+
 INLINE uint64_t mulmod61(uint64_t x1, uint64_t x2) {
-    __uint128_t tmp = x1; tmp *= x2;
-    return mod61(tmp);
+    return mod61(__uint128_t(x1) * x2);
 }
 
 template<size_t n>
@@ -270,6 +273,18 @@ inline uint64_t i61hash(uint64_t x, const std::array<uint64_t, n> & keys) {
         if(i % 8 == 0) tsum = mod61(tsum);
         xp = mulmod61(xp, x);
         tsum += mulmod61(xp, keys[i]);
+    }
+	return mod61(tsum);
+}
+inline uint64_t wy61hash(uint64_t x, size_t n, uint64_t seed) {
+    wy::WyHash<uint64_t, 0> gen(seed);
+    uint64_t tsum = gen();
+    tsum += mulmod61(x, gen());
+    uint64_t xp = x;
+    for(size_t i = 2; i < n; ++i) {
+        tsum = mod61(tsum);
+        xp = mulmod61(xp, x);
+        tsum += mulmod61(xp, gen());
     }
 	return mod61(tsum);
 }
@@ -349,6 +364,42 @@ struct HasherSet {
         return hashers_[ind](v);
     }
     uint64_t operator()(uint64_t v) const {throw std::runtime_error("Should not be called.");}
+};
+template<typename Hasher=WangHash>
+struct XORSeedHasherSet {
+    static constexpr size_t ALN = sizeof(vec::SIMDTypes<uint64_t>::VType);
+    Hasher hasher_;
+    fixed::vector<uint64_t, ALN> seeds_;
+    template<typename...Args>
+    XORSeedHasherSet(size_t nh, uint64_t seedseed=137, Args &&... args):
+        hasher_(std::forward<Args>(args)...),
+        seeds_(nh)
+    {
+        std::mt19937_64 mt(seedseed);
+        for(unsigned i = 0; i < nh; seeds_[i++] = mt());
+    }
+    size_t size() const {return seeds_.size();}
+    uint64_t operator()(uint64_t v, unsigned ind) const {
+        return hasher_(v ^ seeds_[ind]);
+    }
+    fixed::vector<uint64_t> operator()(uint64_t v) const {
+        using VT = typename vec::SIMDTypes<uint64_t>::VType;
+        VT broadcast = vec::SIMDTypes<uint64_t>::set1(v);
+        fixed::vector<uint64_t> ret(size());
+        size_t i = 0;
+        while(i + vec::SIMDTypes<uint64_t>::COUNT < size()) {
+            VT tmpv = vec::SIMDTypes<uint64_t>::xor_fn(
+                vec::SIMDTypes<uint64_t>::load(reinterpret_cast<const typename vec::SIMDTypes<uint64_t>::Type *>(&seeds_[i])),
+                broadcast.simd_
+            );
+            tmpv.for_each([&](uint64_t hv) {
+                ret[i++] = hv;
+            });
+        }
+        for(;i < size();++i)
+            ret[i] = hasher_(v ^ seeds_[i]);
+        return ret;
+    }
 };
 
 template<size_t k>
@@ -760,6 +811,28 @@ struct XorMultiplyN: XorMultiplyNVec{
     XorMultiplyN(): XorMultiplyNVec(n) {}
 };
 
+struct XXH3PairHasher {
+    template<typename CType>
+    uint64_t hash(uint64_t x, CType count) const {
+       return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
+    template<typename CType>
+    uint64_t operator()(uint64_t x, CType count) const {
+        return uint64_t(XXH3_64bits_withSeed(&x, sizeof(x), count));
+    }
+};
+template<typename FT=double>
+struct Gamma21 {
+    mutable std::uniform_real_distribution<FT> urd_;
+    // use mutable so that the member function can be const
+    template<typename Gen>
+    FT operator()(Gen &x) const {
+        FT ret = urd_(x);
+        ret *= urd_(x);
+        ret = -std::log(ret);
+        return ret;
+    }
+};
 } // namespace hash
 } // namespace sketch
 

@@ -1,6 +1,5 @@
 #ifndef HLL_GPU_H__
 #define HLL_GPU_H__
-#include <omp.h>
 #include "hll.h"
 #include "exception.h"
 #include <type_traits>
@@ -40,6 +39,35 @@ INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
     ++arr[x1>>24];
 }
 
+template<typename T>
+CUDA_ONLY(__host__ __device__)
+INLINE void increment_maxes_packed16(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
+#if __CUDA_ARCH__
+    static constexpr unsigned mask = 0x0F0F0F0Fu;
+    unsigned tmp1 = x1 & mask, tmp2 = x2 & mask;
+    tmp1 = __vmaxu4(tmp1, tmp2);
+    ++arr[tmp1&0xFu];
+    ++arr[(tmp1>>8)&0xFu];
+    ++arr[(tmp1>>16)&0xFu];
+    ++arr[tmp1>>24];
+    tmp1 = __vmaxu4((x1>>4)&mask, (x2>>4)&mask);
+    ++arr[tmp1&0xFu];
+    ++arr[(tmp1>>8)&0xFu];
+    ++arr[(tmp1>>16)&0xFu];
+    ++arr[tmp1>>24];
+#else
+    // Manual
+    ++arr[max(x1>>28, x2>>28)];
+    ++arr[max((x1>>24)&0xFu, (x2>>24)&0xFu)];
+    ++arr[max((x1>>20)&0xFu, (x2>>20)&0xFu)];
+    ++arr[max((x1>>16)&0xFu, (x2>>16)&0xFu)];
+    ++arr[max((x1>>12)&0xFu, (x2>>12)&0xFu)];
+    ++arr[max((x1>>8)&0xFu, (x2>>8)&0xFu)];
+    ++arr[max((x1>>4)&0xFu, (x2>>4)&0xFu)];
+    ++arr[max(x1&0xFu, x2&0xFu)];
+#endif
+}
+
 #ifdef __CUDACC__
 template<typename T, typename T2, typename T3, typename=typename std::enable_if<
              std::is_integral<T>::value && std::is_integral<T2>::value && std::is_integral<T3>::value
@@ -65,7 +93,7 @@ INLINE double origest(const T &p, unsigned l2) {
     const auto m = 1u << l2;
     const double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
     double s = p[0];
-    SK_UNROLL(8)
+    SK_UNROLL_8
     for(auto i = 1u; i < 64 - l2 + 1; ++i) {
 #if __CUDA_ARCH__
         s += ldexpf(p[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
@@ -223,13 +251,8 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
             throw CudaError(ce, "Failed to malloc for row");
 #endif
         // This means work per block before updating will be mem_per_block / nblocks
-        for(int i = 0; i < (nhlls + (nrows - 1)) / nrows; i += nrows) {
-            // zero registers
-            cudaMemset(register_sums, 0, ncmp_per_loop * mem_per_block);
-            calc_sizes_row<<<griddims,256,mem_per_block>>>(p, l2, nhlls, nrows, i, mem_per_block, register_sums, sizes, nblock_per_cmp);
-            if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
-            cudaMemcpy(sizes, ret.data(), ncmp_per_loop * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-        }
+        calc_sizes_large<<<nblocks,1024,mem_per_block>>>(p, l2, nhlls, nblocks, mem_per_block, sizes);
+        throw std::runtime_error("Current implementation is limited to 1024 by 1024 comparisons. TODO: fix this with a reimplementation");
     } else {
         if((ce = cudaMalloc((void **)&sizes, nb)))
             throw CudaError(ce, "Failed to malloc");
@@ -248,6 +271,7 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
     return ret;
 }
 #endif
+
 
 } // sketch
 
