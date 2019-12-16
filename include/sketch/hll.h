@@ -202,7 +202,7 @@ static double calculate_estimate(const CountArrType &counts,
 #endif
         assert(estim != ERTL_MLE);
         double sum = counts[0];
-        for(unsigned i = 1; i < 64; ++i) if(counts[i]) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        for(unsigned i = 1; i < 64 - p; ++i) if(counts[i]) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         //for(unsigned i = 1; i < 64 - p + 1; ++i) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         double value(alpha * m * m / sum);
         if(value < detail::small_range_correction_threshold(m)) {

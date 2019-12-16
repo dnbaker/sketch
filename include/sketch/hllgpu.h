@@ -201,7 +201,6 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
         static constexpr size_t nblocks = 0x20000ULL;
         static constexpr size_t mem_per_block = (16 << 20) / nblocks;
         // This means work per block before updating will be mem_per_block / nblocks
-        for(size_t i = 0; i < nv
         calc_sizes_large<<<nblocks,1024,mem_per_block>>>(p, l2, nhlls, nblocks, mem_per_block, sizes);
         throw std::runtime_error("Current implementation is limited to 1024 by 1024 comparisons. TODO: fix this with a reimplementation");
     } else {

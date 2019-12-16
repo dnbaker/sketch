@@ -25,15 +25,13 @@ int main(int argc, char *argv[]) {
         }
     }
     std::fprintf(stderr, "Finished making now copy\n");
-    std::vector<float> cards;
-    cards.reserve(hlls.size());
-    int mgs, bs, gs;
-    cudaError_t ce;
-    if((ce = cudaOccupancyMaxPotentialBlockSize(&mgs, &bs, calc_sizes_large, 0, 0)))
-        throw CudaError(ce, "Failed to infer best block size and so on.");
-    gs = (hlls.size() * hlls.size() / 2 + (bs - 1)) / bs;
-    std::fprintf(stderr, "mgs: %d. bs: %d. gs: %d\n", mgs, bs, gs);
-    for(auto &h: hlls) cards.push_back(h.report());
+    auto cards = std::make_unique<float[]>(hlls.size());
+    size_t i = 0;
+    OMP_PRAGMA("omp parallel for")
+    for(size_t i = 0; i < hlls.size(); ++i) {
+        cards[i] = hlls[i].report();
+    }
+    for(auto &h: hlls) cards[i++] = h.report();
     for(size_t i = 0; i < hlls.size(); std::fprintf(stderr, "size: %lf\n", hlls[i++].report()));
     std::vector<uint8_t> cd(n << p);
     for(size_t i = 0; i < n; ++i) {
@@ -43,8 +41,7 @@ int main(int argc, char *argv[]) {
     if(cudaMalloc((void **)&ddata, (n << p))) throw std::runtime_error("Failed to allocate on device");
     if(cudaMemcpy(ddata, cd.data(), n << p, cudaMemcpyHostToDevice)) throw std::runtime_error("Failed to copy to device");
     std::fprintf(stderr, "Finish copy\n");
-    size_t time;
-    auto sizes = all_pairsu(ddata, p, n, time);
+    std::vector<uint32_t> sizes(uint64_t(hlls.size()) * hlls.size());
     auto s2 = std::vector<uint32_t>(sizes.size());
     auto t = hrc::now();
     for(auto i = 0u; i < hlls.size(); ++i) {
@@ -55,6 +52,7 @@ int main(int argc, char *argv[]) {
     }
     auto t2 = hrc::now();
     size_t time2 = (t2 - t).count();
+    size_t time = time2;
     std::fprintf(stderr, "time diff: %zu\n", time2);
     std::fprintf(stderr, "time ratio: %lf\n", double(time2) / time);
     cudaFree(ddata);

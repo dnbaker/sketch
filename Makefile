@@ -38,7 +38,7 @@ setup_tests: $(EX) lztest
 
 STD?= -std=c++14
 
-CCBIN?=-ccbin=clang++
+#CCBIN?=-ccbin=clang++
 
 GPUFLAGS= $(CCBIN) -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp
 

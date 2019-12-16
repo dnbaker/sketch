@@ -82,18 +82,18 @@
 #ifndef SK_UNROLL
 #  define SK_UNROLL _Pragma("message \"The macro, it does nothing\"")
    // Don't use SK_UNROLL, it only tells you if these below macros are defined.
-#  ifdef __GNUC__
-#    define SK_UNROLL_4  _Pragma("GCC unroll 4")
-#    define SK_UNROLL_8  _Pragma("GCC unroll 8")
-#    define SK_UNROLL_16 _Pragma("GCC unroll 16")
-#    define SK_UNROLL_32 _Pragma("GCC unroll 32")
-#    define SK_UNROLL_64 _Pragma("GCC unroll 64")
-#  elif defined(__CUDACC__)
+#  if defined(__CUDACC__)
 #    define SK_UNROLL_4  _Pragma("unroll 4")
 #    define SK_UNROLL_8  _Pragma("unroll 8")
 #    define SK_UNROLL_16 _Pragma("unroll 16")
 #    define SK_UNROLL_32 _Pragma("unroll 32")
 #    define SK_UNROLL_64 _Pragma("unroll 64")
+#  elif defined(__GNUC__)
+#    define SK_UNROLL_4  _Pragma("GCC unroll 4")
+#    define SK_UNROLL_8  _Pragma("GCC unroll 8")
+#    define SK_UNROLL_16 _Pragma("GCC unroll 16")
+#    define SK_UNROLL_32 _Pragma("GCC unroll 32")
+#    define SK_UNROLL_64 _Pragma("GCC unroll 64")
 #  else
 #    define SK_UNROLL_4
 #    define SK_UNROLL_8
