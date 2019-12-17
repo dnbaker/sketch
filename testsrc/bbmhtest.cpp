@@ -93,8 +93,8 @@ int main(int argc, char *argv[]) {
     static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
     const unsigned long long niter = argc == 1 ? 5000000uLL: std::strtoull(argv[1], nullptr, 10);
 
-    for(size_t i = 7; i <= 15; i += 2) {
-        for(const auto b: {13u, 7u, 14u, 17u, 9u, 3u, 1u}) {
+    for(size_t i = 7; i < 15; i += 2) {
+        for(const auto b: {13u, 7u, 14u, 17u, 3u, 1u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             SuperMinHash<policy::SizePow2Policy> smhp2(1 << i);
             SuperMinHash<policy::SizeDivPolicy>  smhdp(1 << i);

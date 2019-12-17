@@ -21,7 +21,7 @@ INLINE uint64_t nchoose2(T x) {
 
 template<typename T>
 CUDA_ONLY(__host__ __device__)
-INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
+INLINE void increment_maxes(T *arr, unsigned x1, unsigned x2) {
 #if __CUDA_ARCH__
     x1 = __vmaxu4(x1, x2);
 #else
@@ -41,7 +41,7 @@ INLINE void increment_maxes(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
 
 template<typename T>
 CUDA_ONLY(__host__ __device__)
-INLINE void increment_maxes_packed16(T *SK_RESTRICT arr, unsigned x1, unsigned x2) {
+INLINE void increment_maxes_packed16(T *arr, const unsigned x1, const unsigned x2) {
 #if __CUDA_ARCH__
     static constexpr unsigned mask = 0x0F0F0F0Fu;
     unsigned tmp1 = x1 & mask, tmp2 = x2 & mask;
