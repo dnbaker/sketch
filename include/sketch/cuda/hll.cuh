@@ -56,6 +56,7 @@ INLINE void increment_maxes_packed16(T *arr, const unsigned x1, const unsigned x
     ++arr[(tmp1>>16)&0xFu];
     ++arr[tmp1>>24];
 #else
+    using std::max;
     // Manual
     ++arr[max(x1>>28, x2>>28)];
     ++arr[max((x1>>24)&0xFu, (x2>>24)&0xFu)];
@@ -272,6 +273,123 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
 }
 #endif
 
+#ifdef __CUDACC__
+struct GPUDistanceProcessor {
+protected:
+    uint8_t *dmem_; // device memory (for sketches)
+    void *cmem_; // host memory (for returning values)
+    void *drmem_; // device memory (for holding return values)
+    size_t nelem_;
+    size_t entrysize_;
+    size_t numrows_;
+    uint32_t use_float_:1, use_gz_:1;
+    void *fp_;
+public:
+    bool flush_to_file() const {
+        return nelem_ == numrows_;
+    }
+    uint32_t elemsz() const {return use_float_ ? 4: 8;}
+    void perform_flush() {
+        assert(fp_);
+        if(use_gz) {
+            gzFile gfp = static_cast<gzFile>(fp_);
+            if(gzwrite(gfp, cmem_, numrows_ * nelem_ * elemsz()) != nelem_ * numrows_ * elemsz())
+                throw ZlibError("Failed to write to file\n");
+        } else {
+            std::FILE *fp = static_cast<std::FILE *>(fp_);
+            if(std::fwrite(cmem_, elemsz(), nelem_ * numrows_, fp) != nelem_ * numrows_)
+                throw std::runtime_error("Failed to write to file\n");
+        }
+    }
+    void open_fp(const char *fp) {
+        if(use_gz) {
+            if(fp_) gzclose(fp_);
+            fp_ = gzopen(fp, "wb");
+        } else {
+            if(fp_) std::fclose(fp_);
+            fp_ = std::fopen(fp, "w");
+        }
+    }
+    GPUDistanceProcessor(const GPUDistanceProcessor &) = delete;
+    GPUDistanceProcessor(GPUDistanceProcessor &&)      = delete;
+    GPUDistanceProcessor() {
+        std::memset(this, 0, sizeof(*this));
+    }
+    void device_alloc() {
+        size_t nb = entrysize_ * nelem_;
+        cudaError_t ce;
+        if(dmem_ && (ce = cudaFree(dmem_)))
+            throw CudaError(ce, "Failed to free");
+        if(drmem_ && (ce = cudaFree(drmem_)))
+            throw CudaError(ce, "Failed to free");
+        if((ce = cudaMalloc((void **)&dmem_, nb)))
+            throw CudaError(ce, "Failed to alloc");
+        if((ce = cudaMalloc((void **)&drmem_, nelem_ * elemsz() * numrows_)))
+            throw CudaError(ce, "Failed to alloc");
+    }
+    GPUDistanceProcessor(size_t nelem, size_t entrysize, size_t numrows=0, bool use_float=true, bool use_gz=false): nelem_(nelem), entrysize_(entrysize), use_float_(use_float), use_gz_(use_gz)
+    {
+        drmem_ = nullptr;
+        cmem_ = nullptr;
+        dmem_ = nullptr;
+        device_alloc();
+        cudaError_t ce;
+        if((ce = cudaMalloc((void **)&dmem_, nelem * entrysize)))
+            throw CudaError(ce, "Failed to cudamalloc");
+        numrows_ = numrows == 0 ? nelem; // Defaults to full matrix in memory
+
+        if((cmem_ = std::malloc((elemsz()) * nelem_ * numrows_)) == nullptr)
+            throw std::bad_alloc();
+    }
+    virtual void *row_start(size_t rownum) const { // Override this if you want to skip over the re-computed values
+        return static_cast<void *>(static_cast<uint8_t *>(cmem_) + (nelem_ * elemsz()));
+    }
+    ~GPUDistanceProcessor() {
+        if((ce = cudaFree(dmem_))) throw CudaError(ce, "Error called in GPUDistanceProcessor. (This will actually cause the program to fail");
+        if((ce = cudaFree(drmem_))) throw CudaError(ce, "Error called in GPUDistanceProcessor. (This will actually cause the program to fail");
+        std::free(cmem_);
+    }
+};
+
+
+
+template<typename It>
+void copy_hlls(GPUDistanceProcessor &gp, It hllstart, It hllend, bool direct=true) {
+    assert(std::distance(hllstart, hllend) == gp.nelem_);
+    size_t nbper = hllstart->size();
+    assert(gp.entrysize_ == nbper);
+    auto tmp(std::make_unique<uint8_t []>(std::distance(hllstart, hllend) * nbper));
+    auto dist = std::distance(hllstart, hllend);
+    cudaError_t ce;
+    if(!direct) {
+        OMP_PRAGMA("omp parallel for")
+        for(size_t i = 0; i < dist; ++i) {
+            It it = hllstart;
+            std::advance(it, i); // Usually addition, but different if a weird iterator
+            size_t offset = i * nbper;
+            std::memcpy(tmp.get() + offset, it->data(), nbper);
+        }
+    } else {
+        for(size_t i = 0; i < dist; ++i) {
+            It it = hllstart;
+            std::advance(it, i); // Usually addition, but different if a weird iterator
+            size_t offset = i * nbper;
+            if((ce = cudaMemcpyHostToDevice(gp.row_start(i), it->data(), nbper)))
+                throw CudaError(ce, "Failed to copy to device");
+            std::memcpy(tmp.get() + offset, it->data(), nbper);
+        }
+    }
+}
+
+template<typename It>
+GPUDistanceProcessor setup_hlls(const char *fn, It hs, It he, int nr, bool direct=true) {
+    GPUDistanceProcessor ret(std::distance(hs, he), hs->size(), nr);
+    ret.open_fp(fn);
+    copy_hlls(ret, hs, he, direct);
+    return ret;
+}
+
+#endif /* #ifdef __CUDACC__ */
 
 } // sketch
 

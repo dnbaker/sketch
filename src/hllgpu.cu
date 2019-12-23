@@ -1,4 +1,4 @@
-#include "sketch/hllgpu.h"
+#include "sketch/cuda/hll.cuh"
 #include <cstdio>
 #include "omp.h"
 
@@ -32,6 +32,8 @@ int main(int argc, char *argv[]) {
         cards[i] = hlls[i].report();
     }
     for(size_t i = 0; i < hlls.size(); std::fprintf(stderr, "size: %lf\n", hlls[i++].report()));
+    setup_hlls("./outmat", hlls.begin(), hlls.end(), std::min(20, int(hlls.size())));
+#if 0
     std::vector<uint8_t> cd(n << p);
     for(size_t i = 0; i < n; ++i) {
         std::memcpy(cd.data() + (i << p), hlls[i].data(), size_t(1) << p);
@@ -55,4 +57,5 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "time diff: %zu\n", time2);
     std::fprintf(stderr, "time ratio: %lf\n", double(time2) / time);
     cudaFree(ddata);
+#endif
 }
