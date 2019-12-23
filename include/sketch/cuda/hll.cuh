@@ -383,6 +383,15 @@ public:
                 rind, // round index
                 round_nrows
             );
+#elif 0
+            packed_hll_compare<<<nblocks, tpb, 64 * sizeof(uint32_t)>>>(
+                dmem_,
+                /* data = */
+                drmem_ + (nelem_ * elemsz() * rind),
+                /* local destination */
+                rind, // round index
+                round_nrows
+            );
 #endif
             cudaDeviceSynchronize();
             if(copy_and_flush.joinable()) copy_and_flush.join();
