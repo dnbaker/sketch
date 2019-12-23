@@ -263,7 +263,7 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
             throw CudaError(ce, "Failed to malloc");
         calc_sizes_1024<<<nhlls,(nhlls+1)/2,m>>>(p, l2, nhlls, sizes);
         if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
-        if((ce = cudaMemcpy(ret.data(), sizes, nb, cudaMemcpyDeviceToHost))) throw CudaError(ce, "Failed to copy device to host");
+        if((ce = cudaMemcpy(ret.data(), sizes, nb, cudaMemcpyHostToDevice))) throw CudaError(ce, "Failed to copy device to host");
     }
     if((ce = cudaDeviceSynchronize())) throw CudaError(ce, "Failed to synchronize");
     if((ce = cudaGetLastError())) throw CudaError(ce, "");
@@ -295,15 +295,16 @@ public:
         return nelem_ == numrows_;
     }
     uint32_t elemsz() const {return use_float_ ? 4: 8;}
-    void perform_flush() {
+    void perform_flush(size_t nrows=0) {
+        if(nrows == 0) nrows = numrows_;
         assert(fp_);
         if(use_gz_) {
             gzFile gfp = static_cast<gzFile>(fp_);
-            if(gzwrite(gfp, cmem_, numrows_ * nelem_ * elemsz()) != nelem_ * numrows_ * elemsz())
+            if(gzwrite(gfp, cmem_, nrows * nelem_ * elemsz()) != nelem_ * nrows * elemsz())
                 throw ZlibError("Failed to write to file\n");
         } else {
             std::FILE *fp = static_cast<std::FILE *>(fp_);
-            if(std::fwrite(cmem_, elemsz(), nelem_ * numrows_, fp) != nelem_ * numrows_)
+            if(std::fwrite(cmem_, elemsz(), nelem_ * nrows, fp) != nelem_ * nrows)
                 throw std::runtime_error("Failed to write to file\n");
         }
     }
@@ -346,13 +347,13 @@ public:
         fp_ = nullptr;
         numrows_ = numrows == 0 ? nelem_: numrows; // Defaults to full matrix in memory
         device_alloc();
+        if((cmem_ = std::malloc((elemsz()) * nelem_ * numrows_)) == nullptr)
+            throw std::bad_alloc();
+        std::fprintf(stderr, "just malloc'd cmem (%p). first byte: %d\n", (void *)cmem_, ((uint8_t *)cmem_)[0]);
 #if 0
         cudaError_t ce;
         if((ce = cudaMalloc((void **)&dmem_, nelem * entrysize)))
             throw CudaError(ce, "Failed to cudamalloc");
-
-        if((cmem_ = std::malloc((elemsz()) * nelem_ * numrows_)) == nullptr)
-            throw std::bad_alloc();
 #endif
     }
     virtual void *row_start(size_t rownum) const { // Override this if you want to skip over the re-computed values
@@ -361,6 +362,41 @@ public:
     virtual void *sketch_data(size_t index) const { // Override this if you want to skip over the re-computed values
         //std::fprintf(stderr, "sketch ptr for index %zu is %p + %zu (%p)\n", index, (void *)dmem_, (void *)(static_cast<uint8_t *>(dmem_) + entrysize_ * index));
         return static_cast<void *>(static_cast<uint8_t *>(dmem_) + entrysize_ * index);
+    }
+    virtual void process_hlls() { // Default, unpacked 8-bit HLLs
+        if(entrysize_ < 1024) throw std::runtime_error("entrysize must be at least 1024. (4 for intrinsics, 256 for threads per block");
+        assert(entrysize_ % 256 == 0);
+        size_t rind    = 0; // Row index
+        constexpr int tpb = 256;
+        int nblocks = nelem_ * numrows_ * entrysize_ / 256;
+        std::thread copy_and_flush;
+        bool copied = true;
+        cudaError_t ce;
+        for(size_t tranche = 0, ntranches = (nelem_ - 1 + numrows_) / numrows_; tranche < ntranches; ++tranche) {
+            size_t round_nrows = std::min(numrows_, nelem_ - numrows_);
+#if 0
+            original_hll_compare<<<nblocks, tpb, 64 * sizeof(uint32_t)>>>(
+                dmem_,
+                /* data = */
+                drmem_ + (nelem_ * elemsz() * rind),
+                /* local destination */
+                rind, // round index
+                round_nrows
+            );
+#endif
+            cudaDeviceSynchronize();
+            if(copy_and_flush.joinable()) copy_and_flush.join();
+            size_t nb = nelem_ * elemsz() * round_nrows;
+            std::fprintf(stderr, "drmem %p. nb: %zu. round nr: %zu\n", (void *)drmem_, nb, round_nrows);
+            std::fprintf(stderr, "cmem %p\n", (void *)cmem_);
+            if((ce = cudaMemcpy(cmem_/* + (nelem_ * elemsz() * rind)*/, drmem_, nb, cudaMemcpyDeviceToHost)))
+                throw CudaError(ce, "Couldn't copy back to computer\n");
+            copy_and_flush = std::thread([&](){
+                this->perform_flush(round_nrows);
+            });
+            rind += numrows_;
+        }
+        if(copy_and_flush.joinable()) copy_and_flush.join();
     }
     ~GPUDistanceProcessor() {
         cudaError_t ce;
@@ -419,3 +455,4 @@ GPUDistanceProcessor setup_hlls(const char *fn, It hs, It he, int nr, bool direc
 } // sketch
 
 #endif
+
