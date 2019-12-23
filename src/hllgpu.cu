@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
         cards[i] = hlls[i].report();
     }
     for(size_t i = 0; i < hlls.size(); std::fprintf(stderr, "size: %lf\n", hlls[i++].report()));
-    setup_hlls("./outmat", hlls.begin(), hlls.end(), std::min(20, int(hlls.size())));
+    auto ret = setup_hlls("./outmat", hlls.begin(), hlls.end(), std::min(20, int(hlls.size())));
 #if 0
     std::vector<uint8_t> cd(n << p);
     for(size_t i = 0; i < n; ++i) {

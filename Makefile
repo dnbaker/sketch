@@ -40,7 +40,8 @@ STD?= -std=c++14
 
 #CCBIN?=-ccbin=clang++
 
-GPUFLAGS= $(CCBIN) -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp
+GPUFLAGS= $(CCBIN) -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp -Iinclude/sketch \
+		-lz
 
 INCLUDES=-I`$(PYCONF) --includes` -Ipybind11/include
 SUF=`$(PYCONF) --extension-suffix`
@@ -78,7 +79,7 @@ heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS)
 divtest: testsrc/divtest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
-%: src/%.cu
+%: src/%.cu $(wildcard include/sketch/cuda/*h)
 	$(NVCC) $< -o $@ $(GPUFLAGS)
 
 #%.o: %.cu

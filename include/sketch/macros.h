@@ -6,7 +6,9 @@
 
 // INLINE
 #ifndef INLINE
-#  if __GNUC__ || __clang__
+#  ifdef __CUDACC__
+#    define INLINE __forceinline__ // inline
+#  elif __GNUC__ || __clang__
 #    define INLINE __attribute__((always_inline)) inline
 #  else
 #    define INLINE inline

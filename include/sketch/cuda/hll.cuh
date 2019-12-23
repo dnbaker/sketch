@@ -1,26 +1,30 @@
 #ifndef HLL_GPU_H__
 #define HLL_GPU_H__
-#include "hll.h"
+#include "sketch/hll.h"
+#include "macros.h"
 #include "exception.h"
 #include <type_traits>
 #if USE_THRUST
 #  include <thrust/device_vector.h>
 #endif
+#include <chrono>
 
 namespace sketch {
 using hrc = std::chrono::high_resolution_clock;
 
-CUDA_ONLY(using exception::CudaError;)
+#ifdef __CUDACC__
+using exception::CudaError;
+#endif
 
 template<typename T, typename=std::enable_if_t<std::is_arithmetic<T>::value>>
-CUDA_ONLY(__host__ __device__)
+__host__ __device__
 INLINE uint64_t nchoose2(T x) {
     return (uint64_t(x) * uint64_t(x - 1)) / 2;
 }
 
 
 template<typename T>
-CUDA_ONLY(__host__ __device__)
+__host__ __device__
 INLINE void increment_maxes(T *arr, unsigned x1, unsigned x2) {
 #if __CUDA_ARCH__
     x1 = __vmaxu4(x1, x2);
@@ -40,7 +44,7 @@ INLINE void increment_maxes(T *arr, unsigned x1, unsigned x2) {
 }
 
 template<typename T>
-CUDA_ONLY(__host__ __device__)
+__host__ __device__
 INLINE void increment_maxes_packed16(T *arr, const unsigned x1, const unsigned x2) {
 #if __CUDA_ARCH__
     static constexpr unsigned mask = 0x0F0F0F0Fu;
@@ -80,7 +84,7 @@ __device__ __host__ static inline T ij2ind(T i, T2 j, T3 n) {
 #undef ARRAY_ACCESS
 }
 __host__ __device__ INLINE void set_lut_portion(uint32_t i, uint32_t jstart, uint32_t jend, uint32_t n, uint64_t *lut) {
-    SK_UNROLL(8)
+    SK_UNROLL_8
     for(;jstart < jend; ++jstart) {
         lut[ij2ind(i, jstart, n)] = (uint64_t(i) << 32) | jstart;
     }
@@ -89,7 +93,7 @@ __host__ __device__ INLINE void set_lut_portion(uint32_t i, uint32_t jstart, uin
 #endif // __CUDACC__
 
 template<typename T>
-CUDA_ONLY(__host__ __device__)
+__host__ __device__
 INLINE double origest(const T &p, unsigned l2) {
     const auto m = 1u << l2;
     const double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
@@ -105,7 +109,7 @@ INLINE double origest(const T &p, unsigned l2) {
     return alpha * m * m / s;
 }
 
-using namespace hll;
+using namespace ::sketch::hll;
 template<typename Alloc>
 auto sum_union_hlls(unsigned p, const std::vector<const uint8_t *SK_RESTRICT, Alloc> &re) {
     size_t maxnz = 64 - p + 1, nvals = maxnz + 1;
@@ -153,7 +157,7 @@ __global__ void calc_sizes_1024(const uint8_t *p, unsigned l2, size_t nhlls, uin
     __syncthreads();
     uint32_t arr[60]{0};
     hp = p + (threadIdx.x << l2);
-    SK_UNROLL(8)
+    SK_UNROLL_8
     for(int i = 0; i < (1L << l2); i += 4) {
         increment_maxes(arr, *(unsigned *)&hp[i], *(unsigned *)&registers[i]);
     }
@@ -252,7 +256,7 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
             throw CudaError(ce, "Failed to malloc for row");
 #endif
         // This means work per block before updating will be mem_per_block / nblocks
-        calc_sizes_large<<<nblocks,1024,mem_per_block>>>(p, l2, nhlls, nblocks, mem_per_block, sizes);
+        //calc_sizes_large<<<nblocks,1024,mem_per_block>>>(p, l2, nhlls, nblocks, mem_per_block, sizes);
         throw std::runtime_error("Current implementation is limited to 1024 by 1024 comparisons. TODO: fix this with a reimplementation");
     } else {
         if((ce = cudaMalloc((void **)&sizes, nb)))
@@ -283,15 +287,17 @@ protected:
     size_t entrysize_;
     size_t numrows_;
     uint32_t use_float_:1, use_gz_:1;
-    void *fp_;
+    void *fp_ = nullptr;
 public:
+    auto nelem() const {return nelem_;}
+    auto entrysize() const {return entrysize_;}
     bool flush_to_file() const {
         return nelem_ == numrows_;
     }
     uint32_t elemsz() const {return use_float_ ? 4: 8;}
     void perform_flush() {
         assert(fp_);
-        if(use_gz) {
+        if(use_gz_) {
             gzFile gfp = static_cast<gzFile>(fp_);
             if(gzwrite(gfp, cmem_, numrows_ * nelem_ * elemsz()) != nelem_ * numrows_ * elemsz())
                 throw ZlibError("Failed to write to file\n");
@@ -302,16 +308,20 @@ public:
         }
     }
     void open_fp(const char *fp) {
-        if(use_gz) {
-            if(fp_) gzclose(fp_);
+        if(use_gz_) {
+            if(fp_) gzclose(static_cast<gzFile>(fp_));
             fp_ = gzopen(fp, "wb");
         } else {
-            if(fp_) std::fclose(fp_);
+            if(fp_) std::fclose(static_cast<std::FILE *>(fp_));
             fp_ = std::fopen(fp, "w");
         }
     }
     GPUDistanceProcessor(const GPUDistanceProcessor &) = delete;
-    GPUDistanceProcessor(GPUDistanceProcessor &&)      = delete;
+    GPUDistanceProcessor(GPUDistanceProcessor &&o) {
+        std::memset(this, 0, sizeof(*this));
+        std::swap_ranges(reinterpret_cast<uint8_t *>(this), reinterpret_cast<uint8_t *>(this) + sizeof(*this),
+                         reinterpret_cast<uint8_t *>(&o));
+    }
     GPUDistanceProcessor() {
         std::memset(this, 0, sizeof(*this));
     }
@@ -326,27 +336,42 @@ public:
             throw CudaError(ce, "Failed to alloc");
         if((ce = cudaMalloc((void **)&drmem_, nelem_ * elemsz() * numrows_)))
             throw CudaError(ce, "Failed to alloc");
+        //std::fprintf(stderr, "cudaMalloc'd\nnb: %zu. dmem: %p", nb, (void *)dmem_);
     }
     GPUDistanceProcessor(size_t nelem, size_t entrysize, size_t numrows=0, bool use_float=true, bool use_gz=false): nelem_(nelem), entrysize_(entrysize), use_float_(use_float), use_gz_(use_gz)
     {
         drmem_ = nullptr;
         cmem_ = nullptr;
         dmem_ = nullptr;
+        fp_ = nullptr;
+        numrows_ = numrows == 0 ? nelem_: numrows; // Defaults to full matrix in memory
         device_alloc();
+#if 0
         cudaError_t ce;
         if((ce = cudaMalloc((void **)&dmem_, nelem * entrysize)))
             throw CudaError(ce, "Failed to cudamalloc");
-        numrows_ = numrows == 0 ? nelem; // Defaults to full matrix in memory
 
         if((cmem_ = std::malloc((elemsz()) * nelem_ * numrows_)) == nullptr)
             throw std::bad_alloc();
+#endif
     }
     virtual void *row_start(size_t rownum) const { // Override this if you want to skip over the re-computed values
         return static_cast<void *>(static_cast<uint8_t *>(cmem_) + (nelem_ * elemsz()));
     }
+    virtual void *sketch_data(size_t index) const { // Override this if you want to skip over the re-computed values
+        //std::fprintf(stderr, "sketch ptr for index %zu is %p + %zu (%p)\n", index, (void *)dmem_, (void *)(static_cast<uint8_t *>(dmem_) + entrysize_ * index));
+        return static_cast<void *>(static_cast<uint8_t *>(dmem_) + entrysize_ * index);
+    }
     ~GPUDistanceProcessor() {
-        if((ce = cudaFree(dmem_))) throw CudaError(ce, "Error called in GPUDistanceProcessor. (This will actually cause the program to fail");
-        if((ce = cudaFree(drmem_))) throw CudaError(ce, "Error called in GPUDistanceProcessor. (This will actually cause the program to fail");
+        cudaError_t ce;
+        if((ce = cudaFree(dmem_))) {
+            CudaError exception(ce, "Error called in GPUDistanceProcessor. (This will actually cause the program to fail");
+            std::fprintf(stderr, "not throwing an error to avoid terminating the program. Message: %s\n", exception.what());
+        }
+        if((ce = cudaFree(drmem_))) {
+            CudaError exception(ce, "Error called in GPUDistanceProcessor. (This will actually cause the program to fail");
+            std::fprintf(stderr, "not throwing an error to avoid terminating the program. Message: %s\n", exception.what());
+        }
         std::free(cmem_);
     }
 };
@@ -355,9 +380,10 @@ public:
 
 template<typename It>
 void copy_hlls(GPUDistanceProcessor &gp, It hllstart, It hllend, bool direct=true) {
-    assert(std::distance(hllstart, hllend) == gp.nelem_);
+    //using HllType = std::add_lvalue_reference_t<std::decay_t<decltype(*hllstart)>>;
+    assert(std::distance(hllstart, hllend) == gp.nelem());
     size_t nbper = hllstart->size();
-    assert(gp.entrysize_ == nbper);
+    assert(gp.entrysize() == nbper);
     auto tmp(std::make_unique<uint8_t []>(std::distance(hllstart, hllend) * nbper));
     auto dist = std::distance(hllstart, hllend);
     cudaError_t ce;
@@ -373,10 +399,9 @@ void copy_hlls(GPUDistanceProcessor &gp, It hllstart, It hllend, bool direct=tru
         for(size_t i = 0; i < dist; ++i) {
             It it = hllstart;
             std::advance(it, i); // Usually addition, but different if a weird iterator
-            size_t offset = i * nbper;
-            if((ce = cudaMemcpyHostToDevice(gp.row_start(i), it->data(), nbper)))
+            //std::fprintf(stderr, "Index %zu\nCopying %zu bytes to %p from %p\n", i, nbper, (void *)gp.sketch_data(i), (void *)it->data());
+            if((ce = cudaMemcpy(gp.sketch_data(i), it->data(), nbper, cudaMemcpyHostToDevice)))
                 throw CudaError(ce, "Failed to copy to device");
-            std::memcpy(tmp.get() + offset, it->data(), nbper);
         }
     }
 }
