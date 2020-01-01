@@ -22,6 +22,12 @@ INLINE uint64_t nchoose2(T x) {
     return (uint64_t(x) * uint64_t(x - 1)) / 2;
 }
 
+enum HLLStorage: int {
+    DEFAULT_6_BIT,
+    PACKED_4_BIT,
+    WIDE_8_BIT
+};
+
 
 template<typename T>
 __host__ __device__
@@ -299,12 +305,10 @@ public:
         if(nrows == 0) nrows = numrows_;
         assert(fp_);
         if(use_gz_) {
-            gzFile gfp = static_cast<gzFile>(fp_);
-            if(gzwrite(gfp, cmem_, nrows * nelem_ * elemsz()) != nelem_ * nrows * elemsz())
+            if(gzwrite(static_cast<gzFile>(fp_), cmem_, nrows * nelem_ * elemsz()) != nelem_ * nrows * elemsz())
                 throw ZlibError("Failed to write to file\n");
         } else {
-            std::FILE *fp = static_cast<std::FILE *>(fp_);
-            if(std::fwrite(cmem_, elemsz(), nelem_ * nrows, fp) != nelem_ * nrows)
+            if(std::fwrite(cmem_, elemsz(), nelem_ * nrows, static_cast<std::FILE *>(fp_)) != nelem_ * nrows)
                 throw std::runtime_error("Failed to write to file\n");
         }
     }
@@ -363,17 +367,45 @@ public:
         //std::fprintf(stderr, "sketch ptr for index %zu is %p + %zu (%p)\n", index, (void *)dmem_, (void *)(static_cast<uint8_t *>(dmem_) + entrysize_ * index));
         return static_cast<void *>(static_cast<uint8_t *>(dmem_) + entrysize_ * index);
     }
-    virtual void process_hlls() { // Default, unpacked 8-bit HLLs
+    void process_hlls() {
+        switch(storage_) {
+        case DEFAULT_6_BIT:
+            process([dmem=dmem_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
+                 // 6 bit kernel
+            });
+            break;
+        case PACKED_4_BIT:
+            process([dmem=dmem_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
+                 // 4 bit kernel
+            });
+            break;
+        case WIDE_8_BIT:
+            process([dmem=dmem_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
+                 // 8 bit kernel
+            });
+            break;
+        default: __builtin_unreachable();
+        }
+    }
+    void process_bbmh() {
+        process([dmem=dmem_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
+            // BBit kernel
+        });
+    }
+    template<typename F>
+    template<typename F>
+    void process(const F &f) { // Default, unpacked 8-bit HLLs
         if(entrysize_ < 1024) throw std::runtime_error("entrysize must be at least 1024. (4 for intrinsics, 256 for threads per block");
         assert(entrysize_ % 256 == 0);
         size_t rind    = 0; // Row index
         constexpr int tpb = 256;
         int nblocks = nelem_ * numrows_ * entrysize_ / 256;
         std::thread copy_and_flush;
-        bool copied = true;
         cudaError_t ce;
         for(size_t tranche = 0, ntranches = (nelem_ - 1 + numrows_) / numrows_; tranche < ntranches; ++tranche) {
             size_t round_nrows = std::min(numrows_, nelem_ - numrows_);
+            f(drmem_ + (nelem_ * elemsz() * rind) /* local destination */,
+              rind, round_nrows, tpb, nblocks);
 #if 0
             original_hll_compare<<<nblocks, tpb, 64 * sizeof(uint32_t)>>>(
                 dmem_,
@@ -395,6 +427,9 @@ public:
 #endif
             cudaDeviceSynchronize();
             if(copy_and_flush.joinable()) copy_and_flush.join();
+            // At this point, the CPU buffer is available for loading.
+            // TODO: double the memory on the device and compute the next portion
+            // while transferring
             size_t nb = nelem_ * elemsz() * round_nrows;
             std::fprintf(stderr, "drmem %p. nb: %zu. round nr: %zu\n", (void *)drmem_, nb, round_nrows);
             std::fprintf(stderr, "cmem %p\n", (void *)cmem_);
