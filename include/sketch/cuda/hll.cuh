@@ -437,7 +437,9 @@ public:
         assert(entrysize_ % 256 == 0);
         size_t rind    = 0; // Row index
         constexpr int tpb = 256;
-        int nblocks = (nelem_ * numrows_ * entrysize_ + tpb - 1) / tpb; // This means one per 256 bytes.
+        int nblocks = (nelem_ * numrows_ * entrysize_ + tpb - 1) / tpb;
+        // This means one per 256 bytes.
+        // TODO: 
         std::thread copy_and_flush;
         cudaError_t ce;
         for(size_t tranche = 0, ntranches = (nelem_ - 1 + numrows_) / numrows_; tranche < ntranches; ++tranche) {
@@ -463,8 +465,8 @@ public:
                 round_nrows
             );
 #endif
-            cudaDeviceSynchronize();
-            if(copy_and_flush.joinable()) copy_and_flush.join();
+            cudaDeviceSynchronize(); // Ensure computations have completed
+            if(copy_and_flush.joinable()) copy_and_flush.join(); // Ensure that flushing to disk is completed.
             // At this point, the CPU buffer is available for loading.
             // TODO: double the memory on the device and compute the next portion
             // while transferring
