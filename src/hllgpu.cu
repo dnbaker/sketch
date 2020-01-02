@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
         cards[i] = hlls[i].report();
     }
     for(size_t i = 0; i < hlls.size(); std::fprintf(stderr, "size: %lf\n", hlls[i++].report()));
-    if(n < 20) return;
+    if(n < 20) return EXIT_FAILURE;
     auto ret = setup_hlls("./outmat", hlls.begin(), hlls.end(), 20);
     ret.process_hlls();
 #if 0
@@ -60,4 +60,5 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "time ratio: %lf\n", double(time2) / time);
     cudaFree(ddata);
 #endif
+    return EXIT_SUCCESS;
 }

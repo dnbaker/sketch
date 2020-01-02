@@ -294,6 +294,7 @@ protected:
     size_t numrows_;
     uint32_t use_float_:1, use_gz_:1;
     void *fp_ = nullptr;
+    HLLStorage storage_ = DEFAULT_6_BIT;
 public:
     auto nelem() const {return nelem_;}
     auto entrysize() const {return entrysize_;}
@@ -393,7 +394,6 @@ public:
         });
     }
     template<typename F>
-    template<typename F>
     void process(const F &f) { // Default, unpacked 8-bit HLLs
         if(entrysize_ < 1024) throw std::runtime_error("entrysize must be at least 1024. (4 for intrinsics, 256 for threads per block");
         assert(entrysize_ % 256 == 0);
@@ -404,7 +404,7 @@ public:
         cudaError_t ce;
         for(size_t tranche = 0, ntranches = (nelem_ - 1 + numrows_) / numrows_; tranche < ntranches; ++tranche) {
             size_t round_nrows = std::min(numrows_, nelem_ - numrows_);
-            f(drmem_ + (nelem_ * elemsz() * rind) /* local destination */,
+            f(static_cast<uint8_t *>(drmem_) + (nelem_ * elemsz() * rind) /* local destination */,
               rind, round_nrows, tpb, nblocks);
 #if 0
             original_hll_compare<<<nblocks, tpb, 64 * sizeof(uint32_t)>>>(
