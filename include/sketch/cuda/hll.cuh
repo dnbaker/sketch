@@ -22,10 +22,11 @@ INLINE uint64_t nchoose2(T x) {
     return (uint64_t(x) * uint64_t(x - 1)) / 2;
 }
 
-enum HLLStorage: int {
-    DEFAULT_6_BIT,
-    PACKED_4_BIT,
-    WIDE_8_BIT
+enum DeviceStorageFmt: int {
+    DEFAULT_6_BIT_HLL,
+    PACKED_4_BIT_HLL,
+    WIDE_8_BIT_HLL,
+    BBMH
 };
 
 
@@ -284,6 +285,28 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
 #endif
 
 #ifdef __CUDACC__
+
+template<typename FT>
+void __global__ original_hll_kernel(const uint8_t *const dmem,
+            FT *drmem, size_t nelem, size_t rowind, size_t round_nrows, int tpb, int nblocks, int p, size_t entrysize) {
+    // int nblocks = (nelem_ * numrows_ * entrysize_ + tpb - 1) / tpb; // This means one per 256 bytes.
+    extern __shared__ uint32_t s[]; // Number of integers: r. (meaning one never accesses a higher number)
+    const auto r = 64 - p + 1;
+    if(threadIdx.x < r) {
+        s[threadIdx.x] = 0;
+    }
+    __syncthreads();
+
+    const int tid = threadIdx.x;
+    int blockid = blockIdx.x;
+    int rhsnum = blockid % (entrysize / tpb); // Tells us which in (nr * nelem) counting order we're using.
+    int rhsidx = rhsnum % nelem;
+    int lhsidx = rhsnum / nelem + rowind;
+
+    // This has been recently cudaMemset'd, so we can do local accumulations and follow them up with global updates
+}
+
+
 struct GPUDistanceProcessor {
 protected:
     uint8_t *dmem_; // device memory (for sketches)
@@ -294,7 +317,7 @@ protected:
     size_t numrows_;
     uint32_t use_float_:1, use_gz_:1;
     void *fp_ = nullptr;
-    HLLStorage storage_ = DEFAULT_6_BIT;
+    DeviceStorageFmt storage_ = DEFAULT_6_BIT_HLL;
 public:
     auto nelem() const {return nelem_;}
     auto entrysize() const {return entrysize_;}
@@ -368,30 +391,45 @@ public:
         //std::fprintf(stderr, "sketch ptr for index %zu is %p + %zu (%p)\n", index, (void *)dmem_, (void *)(static_cast<uint8_t *>(dmem_) + entrysize_ * index));
         return static_cast<void *>(static_cast<uint8_t *>(dmem_) + entrysize_ * index);
     }
-    void process_hlls() {
+    void process_sketches() {
         switch(storage_) {
-        case DEFAULT_6_BIT:
-            process([dmem=dmem_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
-                 // 6 bit kernel
-            });
-            break;
-        case PACKED_4_BIT:
-            process([dmem=dmem_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
-                 // 4 bit kernel
-            });
-            break;
-        case WIDE_8_BIT:
-            process([dmem=dmem_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
-                 // 8 bit kernel
-            });
-            break;
-        default: __builtin_unreachable();
+            case DEFAULT_6_BIT_HLL:
+                process([this](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
+                    auto dmem = dmem_;
+                    auto n = nelem_;
+                    auto p = ilog2(entrysize_); // p is log2 of size in bytes, which means that log2 of remainder is at most 64 - p + 1
+                    auto r = 64 - p + 1;
+                    cudaError_t ce;
+                    if((ce =  cudaMemset(drmem_, 0, round_nrows * elemsz()))) throw CudaError(ce, "Failed to cudaMemset.");
+                    if(use_float_) {
+                        original_hll_kernel<<<nblocks, tpb, r * sizeof(uint32_t)>>>(dmem, static_cast<float *>(drmem_), n, row_index, round_nrows, tpb, nblocks, p, entrysize_);
+                    } else {
+                        original_hll_kernel<<<nblocks, tpb, r * sizeof(uint32_t)>>>(dmem, static_cast<double *>(drmem_), n, row_index, round_nrows, tpb, nblocks, p, entrysize_);
+                    }
+                    // 6 bit kernel
+                });
+                break;
+            case PACKED_4_BIT_HLL:
+                process([dmem=dmem_,n=nelem_,esz=entrysize_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
+                     // 4 bit kernel
+                });
+                break;
+            case WIDE_8_BIT_HLL:
+                process([dmem=dmem_,n=nelem_,esz=entrysize_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
+                     // 8 bit kernel
+                });
+                break;
+            case BBMH:
+                process([dmem=dmem_,n=nelem_,esz=entrysize_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
+                     // b-bit kernel
+                });
+                break;
+            default: {
+                char buf[64];
+                std::sprintf(buf, "Failed to process; unknown storage type: %d\n", storage_);
+                throw std::runtime_error(buf);
+            }
         }
-    }
-    void process_bbmh() {
-        process([dmem=dmem_](void *drmem, size_t row_index, size_t round_nrows, int tpb, int nblocks){
-            // BBit kernel
-        });
     }
     template<typename F>
     void process(const F &f) { // Default, unpacked 8-bit HLLs
@@ -399,7 +437,7 @@ public:
         assert(entrysize_ % 256 == 0);
         size_t rind    = 0; // Row index
         constexpr int tpb = 256;
-        int nblocks = nelem_ * numrows_ * entrysize_ / 256;
+        int nblocks = (nelem_ * numrows_ * entrysize_ + tpb - 1) / tpb; // This means one per 256 bytes.
         std::thread copy_and_flush;
         cudaError_t ce;
         for(size_t tranche = 0, ntranches = (nelem_ - 1 + numrows_) / numrows_; tranche < ntranches; ++tranche) {

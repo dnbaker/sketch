@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
     for(size_t i = 0; i < hlls.size(); std::fprintf(stderr, "size: %lf\n", hlls[i++].report()));
     if(n < 20) return EXIT_FAILURE;
     auto ret = setup_hlls("./outmat", hlls.begin(), hlls.end(), 20);
-    ret.process_hlls();
+    ret.process_sketches();
 #if 0
     std::vector<uint8_t> cd(n << p);
     for(size_t i = 0; i < n; ++i) {
