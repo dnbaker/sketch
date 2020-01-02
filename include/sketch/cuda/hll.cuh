@@ -288,12 +288,13 @@ __host__ std::vector<uint32_t> all_pairsu(const uint8_t *SK_RESTRICT p, unsigned
 
 template<typename FT>
 void __global__ original_hll_kernel(const uint8_t *const dmem,
-            FT *drmem, size_t nelem, size_t rowind, size_t round_nrows, int tpb, int nblocks, int p, size_t entrysize) {
+            FT *drmem, size_t nelem, size_t rowind, size_t round_nrows, int tpb, int nblocks, int p, size_t entrysize, float alpha) {
     // int nblocks = (nelem_ * numrows_ * entrysize_ + tpb - 1) / tpb; // This means one per 256 bytes.
-    extern __shared__ uint32_t s[]; // Number of integers: r. (meaning one never accesses a higher number)
-    const auto r = 64 - p + 1;
-    if(threadIdx.x < r) {
-        s[threadIdx.x] = 0;
+    extern __shared__ shared[];
+    //uint32_t ls[64]{0}; // Number of integers: r. (meaning one never accesses a higher number)
+    //const auto r = 64 - p + 1;
+    if(threadIdx.x < 64) {
+        shared[threadIdx.x] = 0;
     }
     __syncthreads();
 
@@ -302,8 +303,31 @@ void __global__ original_hll_kernel(const uint8_t *const dmem,
     int rhsnum = blockid % (entrysize / tpb); // Tells us which in (nr * nelem) counting order we're using.
     int rhsidx = rhsnum % nelem;
     int lhsidx = rhsnum / nelem + rowind;
-
+    int bytes_per_thread = entrysize / tpb;
+    auto offset_within = (tid * bytes_per_thread);
+    auto lhscmpptr = dmem + (entrysize * lhsidx) /* start of the entry */
+                          + offset_within;
+    auto rhscmpptr = dmem + (entrysize * rhsidx) + offset_within;
     // This has been recently cudaMemset'd, so we can do local accumulations and follow them up with global updates
+    SK_UNROLL_4
+    for(unsigned i = 0; i < bytes_per_thread / 4; ++i) {
+        auto v = __vmaxu4((const uint32_t *)&lhscmpptr[i], (const uint32_t *) rhscmpptr[i]);
+        atomicAdd(&shared[v&0xFF], 1);
+        atomicAdd(&shared[(v>>8)&0xFF], 1);
+        atomicAdd(&shared[(v>>16)&0xFF], 1);
+        atomicAdd(&shared[(v>>24)&0xFF], 1);
+    }
+    if(tid < 64 - p + 1) {
+        if(shared[tid]) {
+            auto v = ::ldexpf(shared[tid], -tid)
+            atomicAdd(drmem + rhsnum, v);
+        }
+    }
+    cudaDeviceSynchronize();
+    auto gid = threadIdx.x + (blockIdx.x * blockDim.x);
+    if(gid < nelem * round_nrows) {
+        drmem[gid] = alpha * nelem * nelem / drmem[gid];;
+    }
 }
 
 
@@ -400,11 +424,12 @@ public:
                     auto p = ilog2(entrysize_); // p is log2 of size in bytes, which means that log2 of remainder is at most 64 - p + 1
                     auto r = 64 - p + 1;
                     cudaError_t ce;
+                    auto alpha = entrysize_ == 16 ? .673: entrysize_ == 32 ? .697: entrysize_ == 64 ? .709: .7213 / (1. + 1.079 / entrysize_);
                     if((ce =  cudaMemset(drmem_, 0, round_nrows * elemsz()))) throw CudaError(ce, "Failed to cudaMemset.");
                     if(use_float_) {
-                        original_hll_kernel<<<nblocks, tpb, r * sizeof(uint32_t)>>>(dmem, static_cast<float *>(drmem_), n, row_index, round_nrows, tpb, nblocks, p, entrysize_);
+                        original_hll_kernel<<<nblocks, tpb, r * sizeof(uint32_t)>>>(dmem, static_cast<float *>(drmem_), n, row_index, round_nrows, tpb, nblocks, p, entrysize_, alpha);
                     } else {
-                        original_hll_kernel<<<nblocks, tpb, r * sizeof(uint32_t)>>>(dmem, static_cast<double *>(drmem_), n, row_index, round_nrows, tpb, nblocks, p, entrysize_);
+                        original_hll_kernel<<<nblocks, tpb, r * sizeof(uint32_t)>>>(dmem, static_cast<double *>(drmem_), n, row_index, round_nrows, tpb, nblocks, p, entrysize_, alpha);
                     }
                     // 6 bit kernel
                 });
