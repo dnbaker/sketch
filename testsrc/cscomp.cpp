@@ -52,7 +52,7 @@ int main() {
     for(size_t i = 0; i < sn; ++i) {
         is2.addh(i, nl), is3.addh(i, -nr);
         std::swap(nl, nr);
-   }
+    }
     //assert((is2.pnorm() - sn) / sn * 100. <= 12.);
     //assert((is3.pnorm() - sn) / sn * 100. <= 12.);
     auto us = is2.union_size(is3);

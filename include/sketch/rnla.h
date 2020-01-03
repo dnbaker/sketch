@@ -343,21 +343,32 @@ protected:
     uint64_t seed_;
     DistType<FloatType> dist_;
     bool dense_;
+    unsigned sourcedim_;
     Norm norm_;
 public:
     using final_type = this_type;
-    PStableSketcher(size_t ntables, size_t destdim, uint64_t sourcedim=0, uint64_t seed=137, bool dense=true, Norm &&norm=Norm(), DistType<FloatType> &&dist=DistType<FloatType>()): super(ntables, destdim), seed_(seed), dense_(dense) {
-        if(sourcedim) {
+    PStableSketcher(size_t ntables, size_t destdim, uint64_t sourcedim=0, uint64_t seed=137, bool dense=true, Norm &&norm=Norm(), DistType<FloatType> &&dist=DistType<FloatType>()):
+        super(ntables, destdim), seed_(seed), dense_(dense),
+        sourcedim_(sourcedim),
+        norm_(std::move(norm))
+    {
+        init();
+    }
+    void init() {
+        if(sourcedim_) {
             if(!dense_) throw 1;
             blaze::RNG gen(seed_);
-            tx_.reset(new mtype(ntables * destdim, sourcedim));
+            tx_.reset(new mtype(this->ntables() * this->destdim(), sourcedim_));
             auto &tx = *tx_;
-            for(size_t sind = 0; sind < sourcedim; ++sind) {
-                for(size_t st = 0; st < ntables; ++st) {
-                    auto ind = gen() % destdim;
-                    tx(st * destdim + ind, sind) = dist_(gen);
+            for(size_t sind = 0; sind < sourcedim_; ++sind) {
+                for(size_t st = 0; st < this->ntables(); ++st) {
+                    auto ind = gen() % this->destdim();
+                    tx(st * this->destdim() + ind, sind) = dist_(gen);
                 }
             }
+#if !NDEBUG
+            std::fprintf(stderr, "nonzeros: %zu. total: %zu\n", tx.nonZeros(), tx.rows() * tx.columns());
+#endif
         }
     }
     PStableSketcher(const PStableSketcher &o): super(o.ntables(), o.destdim()), seed_(o.seed_), dist_(o.dist_), dense_(o.dense_) {
@@ -489,6 +500,10 @@ public:
     bool dense() const {return dense_;}
     template<typename T>
     auto norm(const T &x) const {return norm_(x);}
+    void clear() {
+        this->mat_ = static_cast<FloatType>(0);
+        init();
+    }
 };
 
 template<typename FT>
