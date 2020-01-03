@@ -21,13 +21,13 @@ struct thresholded_cauchy_distribution {
     std::cauchy_distribution<FT> cd_;
     FT absmax_;
     template<typename...Args>
-    thresholded_cauchy_distribution(FT absmax=300., Args &&...args): cd_(std::forward<Args>(args)...), absmax_(std::abs(absmax))
+    thresholded_cauchy_distribution(FT absmax=30000., Args &&...args): cd_(std::forward<Args>(args)...), absmax_(std::abs(absmax))
     {
     }
     template<typename Gen>
     FT operator()(Gen &g) {
         FT ret;
-        do ret = _cd(g); while(ret < -absmax_ || ret > absmax_);
+        do ret = cd_(g); while(ret < -absmax_ || ret > absmax_);
         return ret;
     }
 };
@@ -335,7 +335,6 @@ struct RNLASketcher {
 template<typename FloatType=float, template<typename...> class DistType=thresholded_cauchy_distribution,
          typename Norm=blaze::L1Norm>
 struct PStableSketcher: public RNLASketcher<FloatType> {
-    // Does not work.
 protected:
     using mtype = blaze::CompressedMatrix<FloatType>;
     using super = RNLASketcher<FloatType>;
@@ -390,13 +389,22 @@ public:
         PREC_REQ(o.mat_.rows() == this->mat_.rows(), "Mismatched row counts");
         PREC_REQ(o.mat_.columns() == this->mat_.columns(), "Mismatched row counts");
         sketch::common::detail::tmpbuffer<FloatType> tmpvs(this->ntables());
+#if !NDEBUG
         sketch::common::detail::tmpbuffer<FloatType> tmpv2(this->ntables());
-        auto p = tmpvs.get(), p2 = tmpv2.get();;
+#endif
+        auto p = tmpvs.get();
+#if !NDEBUG
+        auto p2 = tmpv2.get();;
+#endif
         for(size_t i = 0; i < this->ntables(); ++i) {
             p[i] = norm(row(this->mat_, i) + row(o.mat_, i));
+#if !NDEBUG
             p2[i] = norm(row(this->mat_, i));
+#endif
         }
+#if !NDEBUG
         std::fprintf(stderr, "my l1norm: %f\n", median(p2, this->ntables()));
+#endif
         return median(p, this->ntables());
     }
     template<typename FT, template<typename, bool> class ContainerTemplate>
@@ -484,8 +492,8 @@ public:
 };
 
 template<typename FT>
-struct IndykSketcher: public PStableSketcher<FT, std::cauchy_distribution, blaze::L2Norm> {
-    using super = PStableSketcher<FT, std::cauchy_distribution, blaze::L2Norm>;
+struct IndykSketcher: public PStableSketcher<FT, thresholded_cauchy_distribution, blaze::L2Norm> {
+    using super = PStableSketcher<FT, thresholded_cauchy_distribution, blaze::L2Norm>;
     template<typename...Args>
     IndykSketcher(Args &&...args): super(std::forward<Args>(args)...) {
     }
