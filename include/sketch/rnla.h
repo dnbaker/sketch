@@ -16,6 +16,22 @@ enum Transform {
     WoodruffZhang = 1
 };
 
+template<typename FT=float>
+struct thresholded_cauchy_distribution {
+    std::cauchy_distribution<FT> cd_;
+    FT absmax_;
+    template<typename...Args>
+    thresholded_cauchy_distribution(FT absmax=300., Args &&...args): cd_(std::forward<Args>(args)...), absmax_(std::abs(absmax))
+    {
+    }
+    template<typename Gen>
+    FT operator()(Gen &g) {
+        FT ret;
+        do ret = _cd(g); while(ret < -absmax_ || ret > absmax_);
+        return ret;
+    }
+};
+
 /***
    Utilities for compressing and decompressing
   */
@@ -316,7 +332,7 @@ struct RNLASketcher {
 
 
 
-template<typename FloatType=float, template<typename...> class DistType=std::cauchy_distribution,
+template<typename FloatType=float, template<typename...> class DistType=thresholded_cauchy_distribution,
          typename Norm=blaze::L1Norm>
 struct PStableSketcher: public RNLASketcher<FloatType> {
     // Does not work.
@@ -331,7 +347,7 @@ protected:
     Norm norm_;
 public:
     using final_type = this_type;
-    PStableSketcher(size_t ntables, size_t destdim, uint64_t sourcedim=0, uint64_t seed=137, bool dense=true, Norm &&norm=Norm()): super(ntables, destdim), seed_(seed), dense_(dense) {
+    PStableSketcher(size_t ntables, size_t destdim, uint64_t sourcedim=0, uint64_t seed=137, bool dense=true, Norm &&norm=Norm(), DistType<FloatType> &&dist=DistType<FloatType>()): super(ntables, destdim), seed_(seed), dense_(dense) {
         if(sourcedim) {
             if(!dense_) throw 1;
             blaze::RNG gen(seed_);
@@ -393,7 +409,7 @@ public:
                 std::cout << row(this->mat_, i) << '\n';
 #endif
             }
-            // tmp now has size k * 
+            // tmp now has size k *
         } else {
             wy::WyHash<uint64_t, 0> vgen(seed_), indgen(vgen());
             for(size_t i = 0; i < this->ntables(); ++i) {
@@ -417,7 +433,7 @@ public:
                 std::cout << row(this->mat_, i) << '\n';
 #endif
             }
-            // tmp now has size k * 
+            // tmp now has size k *
         } else {
             wy::WyHash<uint64_t, 0> vgen(seed_), indgen(vgen());
             for(size_t i = 0; i < this->ntables(); ++i) {
