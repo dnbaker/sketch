@@ -17,7 +17,9 @@ using exception::CudaError;
 #endif
 
 template<typename T, typename=std::enable_if_t<std::is_arithmetic<T>::value>>
+#ifdef __CUDACC__
 __host__ __device__
+#endif
 INLINE uint64_t nchoose2(T x) {
     return (uint64_t(x) * uint64_t(x - 1)) / 2;
 }
@@ -31,7 +33,9 @@ enum DeviceStorageFmt: int {
 
 
 template<typename T>
+#ifdef __CUDACC__
 __host__ __device__
+#endif
 INLINE void increment_maxes(T *arr, unsigned x1, unsigned x2) {
 #if __CUDA_ARCH__
     x1 = __vmaxu4(x1, x2);
@@ -51,7 +55,9 @@ INLINE void increment_maxes(T *arr, unsigned x1, unsigned x2) {
 }
 
 template<typename T>
+#ifdef __CUDACC__
 __host__ __device__
+#endif
 INLINE void increment_maxes_packed16(T *arr, const unsigned x1, const unsigned x2) {
 #if __CUDA_ARCH__
     static constexpr unsigned mask = 0x0F0F0F0Fu;
@@ -100,7 +106,9 @@ __host__ __device__ INLINE void set_lut_portion(uint32_t i, uint32_t jstart, uin
 #endif // __CUDACC__
 
 template<typename T>
+#ifdef __CUDACC__
 __host__ __device__
+#endif
 INLINE double origest(const T &p, unsigned l2) {
     const auto m = 1u << l2;
     const double alpha = m == 16 ? .573 : m == 32 ? .697 : m == 64 ? .709: .7213 / (1. + 1.079 / m);
