@@ -190,7 +190,7 @@ static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 
 template<typename CountArrType>
 static double calculate_estimate(const CountArrType &counts,
-                                 EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) {
+                                 EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) noexcept {
     assert(estim <= 3);
 #if ENABLE_COMPUTED_GOTO
     static constexpr void *arr [] {&&ORREST, &&ERTL_IMPROVED_EST, &&ERTL_MLE_EST};
@@ -742,30 +742,30 @@ public:
     hllbase_t(gzFile fp, Args &&... args): hllbase_t(size_t(0), ERTL_MLE, (JointEstimationMethod)ERTL_MLE, std::forward<Args>(args)...) {this->read(fp);}
 
     // Call sum to recalculate if you have changed contents.
-    void sum() const {
+    void sum() const noexcept {
         const auto counts(detail::sum_counts(core_)); // std::array<uint32_t, 64>
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
-    void csum() const {if(!is_calculated_) sum();}
+    void csum() const noexcept {if(!is_calculated_) sum();}
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const noexcept {
         csum();
         return value_;
     }
-    auto cfinalize() const {return finalize();}
-    auto finalize() const & {
+    auto cfinalize() const noexcept {return finalize();}
+    auto finalize() const & noexcept {
         sum();
         return *this;
     }
-    auto finalize() & {
+    auto finalize() & noexcept {
         return static_cast<const hllbase_t &>(*this).finalize();
     }
-    auto finalize() && {
+    auto finalize() && noexcept {
         return static_cast<const hllbase_t &&>(*this).finalize();
     }
-    auto finalize() const && {
+    auto finalize() const && noexcept {
         auto ret(std::move(*this));
         ret.sum();
         const_cast<hllbase_t &>(*this).free();
@@ -781,7 +781,7 @@ public:
         if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report.");
         return relative_error() * creport();
     }
-    double est_err()  noexcept {
+    double est_err() const noexcept {
         return cest_err();
     }
     // Returns string representation
@@ -798,7 +798,7 @@ public:
         return buf;
     }
 
-    INLINE void add(uint64_t hashval) {
+    INLINE void add(uint64_t hashval) noexcept {
 #ifndef NOT_THREADSAFE
         for(const uint32_t index(hashval >> q()), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
             core_[index] < lzt;
@@ -813,11 +813,11 @@ public:
 #endif
     }
 
-    INLINE void addh(uint64_t element) {
+    INLINE void addh(uint64_t element) noexcept {
         element = hf_(element);
         add(element);
     }
-    INLINE void addh(const std::string &element) {
+    INLINE void addh(const std::string &element) noexcept {
 #ifdef ENABLE_CLHASH
         CONST_IF(std::is_same<HashStruct, clhasher>::value) {
             add(hf_(element));
@@ -828,21 +828,21 @@ public:
         }
 #endif
     }
-    INLINE void addh(VType element) {
+    INLINE void addh(VType element) noexcept {
         element = hf_(element.simd_);
         add(element);
     }
-    INLINE void add(VType element) {
+    INLINE void add(VType element) noexcept {
         element.for_each([&](uint64_t &val) {add(val);});
     }
     template<typename T, typename Hasher=std::hash<T>>
-    INLINE void adds(const T element, const Hasher &hasher) {
+    INLINE void adds(const T element, const Hasher &hasher) noexcept {
         static_assert(std::is_same<std::decay_t<decltype(hasher(element))>, uint64_t>::value, "Must return 64-bit hash");
         add(hasher(element));
     }
 #ifdef ENABLE_CLHASH
     template<typename Hasher=clhasher>
-    INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
+    INLINE void adds(const char *s, size_t len, const Hasher &hasher) noexcept {
         static_assert(std::is_same<std::decay_t<decltype(hasher(s, len))>, uint64_t>::value, "Must return 64-bit hash");
         add(hasher(s, len));
     }
@@ -859,13 +859,13 @@ public:
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
         is_calculated_ = 1;
     }
-    ssize_t printf(std::FILE *fp) const {
+    ssize_t printf(std::FILE *fp) const noexcept {
         ssize_t ret = std::fputc('[', fp) > 0;
         for(size_t i = 0; i < core_.size() - 1; ++i)
             ret += std::fprintf(fp, "%d, ", int(core_[i]));
         return ret += std::fprintf(fp, "%d]", int(core_.back()));
     }
-    std::string sprintf() const {
+    std::string sprintf() const noexcept {
         std::fprintf(stderr, "Core size: %zu. to string: %s\n", core_.size(), to_string().data());
         std::string ret = "[";
         for(size_t i = 0; i < core_.size() - 1; ++i)
@@ -879,7 +879,8 @@ public:
         // This is not very optimized.
         // I might later add support for doubling, c/o https://research.neustar.biz/2013/04/30/doubling-the-size-of-an-hll-dynamically-extra-bits/
         if(new_np == np_) return hllbase_t(*this);
-        if(new_np > np_) throw std::runtime_error(std::string("Can't compress to a larger size. Current: ") + std::to_string(np_) + ". Requested new size: " + std::to_string(new_np));
+        if(new_np > np_)
+            throw std::runtime_error(std::string("Can't compress to a larger size. Current: ") + std::to_string(np_) + ". Requested new size: " + std::to_string(new_np));
         hllbase_t<HashStruct> ret(new_np, get_estim(), get_jestim());
         size_t ratio = static_cast<size_t>(1) << (np_ - new_np);
         size_t new_size = 1ull << new_np;
@@ -895,12 +896,12 @@ public:
         return ret;
     }
     // Reset.
-    void clear() {
-        if(core_.size() > (1u << 16)) {
+    void clear() noexcept {
+        if(core_.size() > (1u << 16) || core_.size() < Space::COUNT) {
             std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
         } else if(__builtin_expect(core_.size() > Space::COUNT, 1)) {
             for(VType v1 = Space::set1(0), *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
-        } else std::fill(core_.begin(), core_.end(), static_cast<uint8_t>(0));
+        }
         value_ = is_calculated_ = 0;
     }
     hllbase_t(hllbase_t&&o): value_(0), np_(0), is_calculated_(0), estim_(ERTL_MLE), jestim_(static_cast<JointEstimationMethod>(ERTL_MLE)) {
@@ -931,7 +932,7 @@ public:
         return hllbase_t(np_, estim_, jestim_);
     }
 
-    hllbase_t &operator+=(const hllbase_t &other) {
+    hllbase_t &operator+=(const hllbase_t &other) noexcept {
         PREC_REQ(np_ == other.np_, "mismatched sketch sizes.");
         unsigned i;
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
@@ -976,10 +977,10 @@ public:
     }
     EstimationMethod get_estim()       const {return  estim_;}
     JointEstimationMethod get_jestim() const {return jestim_;}
-    void set_estim(EstimationMethod val) {
+    void set_estim(EstimationMethod val) noexcept {
         estim_ = std::max(val, ERTL_MLE);
     }
-    void set_jestim(JointEstimationMethod val) {
+    void set_jestim(JointEstimationMethod val) noexcept {
         jestim_ = val;
     }
     void set_jestim(uint16_t val) {set_jestim(static_cast<JointEstimationMethod>(val));}
@@ -993,19 +994,20 @@ public:
         return core_[hashval >> q()] >= clz(hashval << np_) + 1;
     }
 
-    bool within_bounds(uint64_t actual_size) const {
+    bool within_bounds(uint64_t actual_size) const noexcept {
         return std::abs(actual_size - creport()) < relative_error() * actual_size;
     }
-
-    bool within_bounds(uint64_t actual_size) {
+#if 0
+    bool within_bounds(uint64_t actual_size) const noexcept {
         return std::abs(actual_size - report()) < est_err();
     }
+#endif
     const auto &core()    const {return core_;}
     const uint8_t *data() const {return core_.data();}
 
     uint32_t p() const {return np_;}
     uint32_t q() const {return (sizeof(uint64_t) * CHAR_BIT) - np_;}
-    void free() {
+    void free() noexcept {
         decltype(core_) tmp{};
         std::swap(core_, tmp);
     }
@@ -1097,7 +1099,7 @@ public:
         ret += other;
         return ret;
     }
-    double union_size(const hllbase_t &other) const {
+    double union_size(const hllbase_t &other) const noexcept {
         if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) {
             assert(m() == other.m());
             std::array<uint32_t, 64> counts{0};
@@ -1115,11 +1117,11 @@ public:
         return full_counts[0] + full_counts[1] + full_counts[2];
     }
     // Jaccard index, but returning a bool to indicate whether it was less than expected error for the cardinality/sketch size
-    std::pair<double, bool> bjaccard_index(hllbase_t &h2) {
+    std::pair<double, bool> bjaccard_index(hllbase_t &h2) const noexcept {
         if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
         return const_cast<hllbase_t &>(*this).bjaccard_index(const_cast<const hllbase_t &>(h2));
     }
-    std::pair<double, bool> bjaccard_index(const hllbase_t &h2) const {
+    std::pair<double, bool> bjaccard_index(const hllbase_t &h2) const noexcept {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
             auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);
@@ -1129,15 +1131,15 @@ public:
         const double ret = std::max(0., creport() + h2.creport() - us) / us;
         return std::make_pair(ret, ret > relative_error());
     }
-    double jaccard_index(hllbase_t &h2) {
+    double jaccard_index(hllbase_t &h2) const noexcept {
         if(jestim_ != JointEstimationMethod::ERTL_JOINT_MLE) csum(), h2.csum();
         return const_cast<hllbase_t &>(*this).jaccard_index(const_cast<const hllbase_t &>(h2));
     }
-    double containment_index(const hllbase_t &h2) const {
+    double containment_index(const hllbase_t &h2) const noexcept {
         auto fsr = full_set_comparison(h2);
         return fsr[2] / (fsr[2] + fsr[0]);
     }
-    std::array<double, 3> full_set_comparison(const hllbase_t &h2) const {
+    std::array<double, 3> full_set_comparison(const hllbase_t &h2) const noexcept {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             return ertl_joint(*this, h2);
         }
@@ -1146,7 +1148,7 @@ public:
                      my_only = std::max(mys - is, 0.), o_only = std::max(os - is, 0.);
         return std::array<double, 3>{{my_only, o_only, is}};
     }
-    double jaccard_index(const hllbase_t &h2) const {
+    double jaccard_index(const hllbase_t &h2) const noexcept {
         if(jestim_ == JointEstimationMethod::ERTL_JOINT_MLE) {
             auto full_cmps = ertl_joint(*this, h2);
             const auto ret = full_cmps[2] / (full_cmps[0] + full_cmps[1] + full_cmps[2]);

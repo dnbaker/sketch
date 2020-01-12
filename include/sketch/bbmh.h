@@ -210,7 +210,7 @@ struct phll_t {
         } else {
             const Space::Type *ptr = static_cast<const Space::Type *>(static_cast<const void *>(core_.data())),
                                *optr = static_cast<const Space::Type *>(static_cast<const void *>(o.core_.data()));
-            const auto lmask = Space::set1(0x0F0F0F0F0F0F0F0F), umask = Space::set1(0xF0F0F0F0F0F0F0F0);
+            const auto lmask = Space::set1(0x0F0F0F0F0F0F0F0FULL), umask = Space::set1(0xF0F0F0F0F0F0F0F0ULL);
             for(size_t i = 0; i < core_.size() / Space::COUNT; ++i) {
                 Space::VType lhs = Space::load(ptr + i), rhs = Space::load(optr + i);
                 auto getbits = [&](auto mask) {return SIMDHolder::max_fn(Space::and_fn(lhs.simd_, mask), Space::and_fn(rhs.simd_, mask));};
