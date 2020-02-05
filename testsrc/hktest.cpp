@@ -7,15 +7,15 @@ using namespace sketch::hk;
 using namespace sketch;
 static constexpr int defaulttbsz = 1000;
 int tbsz = defaulttbsz;
-int nh = 5;
-int nelem = 500;
+unsigned nh = 5;
+unsigned nelem = 500;
 void run_hk_point();
 void run_hkh();
 void run_random();
 int main(int argc, char *argv[]) {
     if(argc > 1) tbsz = std::atoi(argv[1]);
     if(argc > 2) nh =   std::atoi(argv[2]);
-    if(argc > 3) nelem = std::max(nelem, std::atoi(argv[3]));
+    if(argc > 3) nelem = std::max(nelem, unsigned(std::atoi(argv[3])));
     run_hk_point();
     run_random();
     run_hkh();

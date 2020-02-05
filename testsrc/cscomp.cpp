@@ -31,6 +31,7 @@ int main() {
     sketch::IndykSketcher<double> is(9, 50, D, 1377);
     //size_t ntables, size_t destdim, uint64_t sourcedim=0,
     auto n = is.norm(init_1);
+    std::fprintf(stderr, "Indyk-sketched norm: %g\n", n);
     wy::WyHash<uint64_t, 8> gen;
     double reall1sum = 0.;
     std::normal_distribution<double> dist;

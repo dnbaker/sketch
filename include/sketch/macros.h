@@ -3,15 +3,29 @@
 #define SKETCH_MACROS_H__
 
 
-
 // INLINE
 #ifndef INLINE
-#  ifdef __CUDACC__
-#    define INLINE __forceinline__ // inline
-#  elif __GNUC__ || __clang__
+#  if __GNUC__ || __clang__
 #    define INLINE __attribute__((always_inline)) inline
 #  else
 #    define INLINE inline
+#  endif
+#endif
+
+// unlikely/likely
+#ifndef unlikely
+#  if defined(__GNUC__) || defined(__INTEL_COMPILER)
+#    define unlikely(x) __builtin_expect((x), 0)
+#  else
+#    define unlikely(x) (x)
+#  endif
+#endif
+
+#ifndef likely
+#  if defined(__GNUC__) || defined(__INTEL_COMPILER)
+#    define likely(x) __builtin_expect(!!(x), 1)
+#  else
+#    define likely(x) (x)
 #  endif
 #endif
 
@@ -20,17 +34,59 @@
 
 #ifdef _OPENMP
 #  ifndef OMP_PRAGMA
-#    define OMP_PRAGMA(...) _Pragma(__VA_ARGS__)
+#    define OMP_PRAGMA(x) _Pragma(x)
 #  endif
 #  ifndef OMP_ONLY
 #     define OMP_ONLY(...) __VA_ARGS__
 #  endif
+#  ifndef OMP_PFOR
+#    define OMP_PFOR OMP_PRAGMA("omp parallel for")
+#  endif
+#  ifndef OMP_ELSE
+#    define OMP_ELSE(x, y) x
+#  endif
+#  ifndef OMP_ATOMIC
+#    define OMP_ATOMIC OMP_PRAGMA("omp atomic")
+#  endif
+#  ifndef OMP_CRITICAL
+#    define OMP_CRITICAL OMP_PRAGMA("omp critical")
+#  endif
+#  ifndef OMP_SECTIONS
+#    define OMP_SECTIONS OMP_PRAGMA("omp sections")
+#  endif
+#  ifndef OMP_SECTION
+#    define OMP_SECTION OMP_PRAGMA("omp section")
+#  endif
+#  ifndef OMP_SET_NT
+#    define OMP_SET_NT(x) omp_set_num_threads(x)
+#  endif
 #else
 #  ifndef OMP_PRAGMA
-#    define OMP_PRAGMA(...)
+#    define OMP_PRAGMA(x)
 #  endif
 #  ifndef OMP_ONLY
 #    define OMP_ONLY(...)
+#  endif
+#  ifndef OMP_ELSE
+#    define OMP_ELSE(x, y) y
+#  endif
+#  ifndef OMP_PFOR
+#    define OMP_PFOR
+#  endif
+#  ifndef OMP_ATOMIC
+#    define OMP_ATOMIC
+#  endif
+#  ifndef OMP_CRITICAL
+#    define OMP_CRITICAL
+#  endif
+#  ifndef OMP_SECTIONS
+#    define OMP_SECTIONS
+#  endif
+#  ifndef OMP_SECTION
+#    define OMP_SECTION
+#  endif
+#  ifndef OMP_SET_NT
+#    define OMP_SET_NT(x)
 #  endif
 #endif
 
@@ -61,8 +117,6 @@
 #  define CUDA_ONLY(...)
 #endif
 
-#define sk__str__(x) #x
-#define sk__xstr__(x) sk__str__(x)
 #define CPP_PASTE(...) sk__xstr__(__VA_ARGS__)
 #define CPP_PASTE_UNROLL(...) sk__xstr__("unroll" __VA_ARGS__)
 
@@ -86,18 +140,18 @@
 #ifndef SK_UNROLL
 #  define SK_UNROLL _Pragma("message \"The macro, it does nothing\"")
    // Don't use SK_UNROLL, it only tells you if these below macros are defined.
-#  if defined(__CUDACC__)
-#    define SK_UNROLL_4  _Pragma("unroll 4")
-#    define SK_UNROLL_8  _Pragma("unroll 8")
-#    define SK_UNROLL_16 _Pragma("unroll 16")
-#    define SK_UNROLL_32 _Pragma("unroll 32")
-#    define SK_UNROLL_64 _Pragma("unroll 64")
-#  elif defined(__GNUC__)
+#  if defined(__GNUC__) && !defined(__clang__)
 #    define SK_UNROLL_4  _Pragma("GCC unroll 4")
 #    define SK_UNROLL_8  _Pragma("GCC unroll 8")
 #    define SK_UNROLL_16 _Pragma("GCC unroll 16")
 #    define SK_UNROLL_32 _Pragma("GCC unroll 32")
 #    define SK_UNROLL_64 _Pragma("GCC unroll 64")
+#  elif defined(__CUDACC__) || defined(__clang__)
+#    define SK_UNROLL_4  _Pragma("unroll 4")
+#    define SK_UNROLL_8  _Pragma("unroll 8")
+#    define SK_UNROLL_16 _Pragma("unroll 16")
+#    define SK_UNROLL_32 _Pragma("unroll 32")
+#    define SK_UNROLL_64 _Pragma("unroll 64")
 #  else
 #    define SK_UNROLL_4
 #    define SK_UNROLL_8
@@ -107,7 +161,7 @@
 #  endif
 #endif
 
-#if __has_cpp_attribute(no_unique_address)
+#if defined(__has_cpp_attribute) && __cplusplus >= __has_cpp_attribute(no_unique_address)
 #  define SK_NO_ADDRESS [[no_unique_address]]
 #else
 #  define SK_NO_ADDRESS
@@ -118,6 +172,14 @@
 #    define CONST_IF(...) if constexpr(__VA_ARGS__)
 #  else
 #    define CONST_IF(...) if(__VA_ARGS__)
+#  endif
+#endif
+
+#ifndef BLAZE_CHECK_DEBUG
+#  ifndef NDEBUG
+#    define BLAZE_CHECK_DEBUG
+#  else
+#    define BLAZE_CHECK_DEBUG , ::blaze::unchecked
 #  endif
 #endif
 
