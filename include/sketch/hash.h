@@ -156,14 +156,14 @@ struct PCGen: pcg32_random_t {
 };
 using int96_t = std::array<uint32_t, 3>;
 
-#define NO_USE_SIAM 1
+//#define NO_USE_SIAM 1
 template<size_t N>
 static auto make_coefficients(uint64_t seedseed) {
     std::mt19937_64 mt(seedseed);
 #ifndef NO_USE_SIAM
     std::array<int96_t, N> ret;
     for(auto &e: ret) {
-        e[0] = mt() % ((1u << 25) - 1);
+        e[0] = mt();
         e[1] = mt();
         e[2] = mt() % ((1u << 25) - 1);
 	}

@@ -102,8 +102,6 @@ INLINE auto matching_bits(const __m128i *s1, const __m128i *s2, uint16_t b) {
          match &= ~(*s1++ ^ *s2++);
      return popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
 }
-#else
-#error("Require SSE2")
 #endif
 
 #if __AVX2__
