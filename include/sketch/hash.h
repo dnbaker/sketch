@@ -163,9 +163,17 @@ static auto make_coefficients(uint64_t seedseed) {
 #ifndef NO_USE_SIAM
     std::array<int96_t, N> ret;
     for(auto &e: ret) {
+#if __BYTE_ORDER__ == 1234
         e[0] = mt();
         e[1] = mt();
         e[2] = mt() % ((1u << 25) - 1);
+#elif __BYTE_ORDER__ == 4321
+        e[0] = mt() % ((1 << 25) - 1);
+        e[1] = mt();
+        e[2] = mt();
+#else
+#error("big or little")
+#endif
 	}
 #else
 	std::array<uint64_t, N> ret;
@@ -183,12 +191,23 @@ static constexpr uint64_t Prime89_2  = (((uint64_t)1)<<25)-1;
 static constexpr uint64_t Prime89_21 = (((uint64_t)1)<<57)-1;
 
 inline uint64_t Mod64Prime89(const int96_t r) {
+#if __BYTE_ORDER__ == 1234
     uint64_t r0, r1, r2; //r2r1r0 = r&Prime89 + r>>89
     r2 = r[2];
     r1 = r[1];
     r0 = r[0] + (r2>>25);
     r2 &= Prime89_2;
     return (r2 == Prime89_2 && r1 == Prime89_1 && r0 >= Prime89_0) ?(r0 - Prime89_0) : (r0 + (r1<<32));
+#elif __BYTE_ORDER__ == 4321
+    uint64_t r0, r1, r2; //r2r1r0 = r&Prime89 + r>>89
+    r2 = r[0];
+    r1 = r[1];
+    r0 = r[2] + (r2>>25);
+    r2 &= Prime89_2;
+    return (r2 == Prime89_2 && r1 == Prime89_1 && r0 >= Prime89_0) ?(r0 - Prime89_0) : (r0 + (r1<<32));
+#else
+#error("Do not support endianness besides big and little")
+#endif
 }/*Computes a 96-bit r such thatr mod Prime89 == (ax+b) mod Prime89exploiting the structure of Prime89.*/
 
 static constexpr uint64_t HIGH(uint64_t x) {return x >> 32;}
