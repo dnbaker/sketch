@@ -10,6 +10,7 @@ using H = HeavyKeeper<7,9>;
 using C = cm::ccmbase_t<>;
 using S = wj::WeightedSketcher<hll::hll_t, H>;
 using S2 = wj::WeightedSketcher<hll::hll_t, C>;
+using S3 = wj::WeightedSketcher<hll::hll_t, wj::ExactCountingAdapter>;
 
 int main (int argc, char *argv[]) {
     common::DefaultRNGType gen;
@@ -42,6 +43,23 @@ int main (int argc, char *argv[]) {
         v1.sum(); v2.sum();
         std::fprintf(stderr, "HeavyKeeper:v1 wji with v2 %lf\n", v1.jaccard_index(v2));
         std::fprintf(stderr, "HeavyKeeper:v1.str: %s. ws1 cardinality %lf\n", v1.to_string().data(), ws.sketch_.report());
+    }
+    {
+        S3 ws(H(tbsz / 2, ntbls), hll::hll_t(10));
+        S3 ws2(H(tbsz /2, ntbls), hll::hll_t(10));
+        hll::hll_t cmp1(10), cmp2(10);
+        gen.seed(0);
+        for(size_t i =0; i < nitems; ++i) {
+            auto v = gen(), t = gen(), c = t % 16, c2 = (t >> 6) % 64;
+            for(size_t j = 0; j < c; ++j)
+                ws.addh(v), ws2.addh(v);
+            for(size_t j = 0; j < c2; ++j)
+                ws.addh(v+1), ws2.addh(v-1);
+        }
+        hll::hll_t v1 = ws.finalize(), v2 = ws2.finalize();
+        v1.sum(); v2.sum();
+        std::fprintf(stderr, "ExactCounter:v1 wji with v2 %lf\n", v1.jaccard_index(v2));
+        std::fprintf(stderr, "ExactCounter:v1.str: %s. ws1 cardinality %lf\n", v1.to_string().data(), ws.sketch_.report());
     }
     {
         int nbits = 8;

@@ -341,6 +341,25 @@ struct WangPairHasher: public hash::WangHash {
     uint64_t operator()(uint64_t x, CType count) const {return hash::WangHash::hash(x) ^ count;}
 };
 
+class ExactCountingAdapter {
+    ska::flat_hash_map<uint64_t, uint32_t> data_;
+public:
+    ExactCountingAdapter(size_t rsz=1<<16) {
+        data_.reserve(rsz);
+    }
+    template<typename...Args>
+    ExactCountingAdapter(Args &&...) {} // Do nothing otherwise.
+    uint64_t addh(uint64_t key) {
+        typename ska::flat_hash_map<uint64_t, uint32_t>::iterator it;
+        uint64_t ret;
+        if((it = data_.find(key)) == data_.end()) {
+            data_.emplace(key, 1);
+            ret = 0;
+        } else ret = it->second++;
+        return ret;
+    }
+};
+
 
 template<typename CoreSketch, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, bool always_add=false, typename PairHasher=WangPairHasher>
 struct WeightedSketcher {

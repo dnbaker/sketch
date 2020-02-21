@@ -29,6 +29,7 @@ int main() {
     hash::FusedReversible3<InvMul, InvRShiftXor<33>, MultiplyAddXoRot<13>> gen8(hash(hash(seed1)), hash(1337));
     hash::FusedReversible<InvRShiftXor<33>, InvMul> gen9(hash(hash(seed1)), hash(1337));
     MurFinHash mfh;
+    hash::KWiseIndependentPolynomialHash61<4> fivewise_nomee;
     std::array<size_t, 10> arr{0};
     auto start = std::chrono::high_resolution_clock::now();
     uint64_t accum = 0;
@@ -54,7 +55,8 @@ int main() {
     DO_THING(gen3, "xormult", 3)
     DO_THING(gen4, "rotxorrot", 4)
     DO_THING(gen__5, "xormltiply", 5)
-    //DO_THING(fivewise_gamgee, "fivewise", 5)
+    DO_THING(fivewise_gamgee, "fivewise", 5)
+    DO_THING(fivewise_nomee, "fivewise61", 5)
     DO_THING(gen5, "mul-bf-rrot31", 6)
     DO_THING(mfh, "murfinhash", 7)
     DO_THING(gen8, "invmul, invrshift33, maxorot", 8)

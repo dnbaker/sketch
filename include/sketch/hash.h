@@ -158,9 +158,15 @@ using int96_t = std::array<uint32_t, 3>;
 
 //#define NO_USE_SIAM 1
 template<size_t N>
+static auto make_coefficients64(uint64_t seedseed) {
+    std::mt19937_64 mt(seedseed);
+	std::array<uint64_t, N> ret;
+    for(auto &e: ret) e = mt() % ((1ull << 61) - 1);
+    return ret;
+}
+template<size_t N>
 static auto make_coefficients(uint64_t seedseed) {
     std::mt19937_64 mt(seedseed);
-#ifndef NO_USE_SIAM
     std::array<int96_t, N> ret;
     for(auto &e: ret) {
 #if __BYTE_ORDER__ == 1234
@@ -174,11 +180,7 @@ static auto make_coefficients(uint64_t seedseed) {
 #else
 #error("big or little")
 #endif
-	}
-#else
-	std::array<uint64_t, N> ret;
-    for(auto &e: ret) e = mt() % ((1ull << 61) - 1);
-#endif
+    }
     return ret;
 }
 namespace siam {
@@ -325,51 +327,45 @@ inline uint64_t i128hash(uint64_t x, const std::array<uint64_t, k> & keys) {
 template<size_t k>
 class KWiseIndependentPolynomialHash {
     static_assert(k, "k must be positive");
-#ifndef NO_USE_SIAM
     const std::array<int96_t, k> coeffs_;
-#else
-    const std::array<uint64_t, k> coeffs_;
-#endif
-	static constexpr uint64_t mod = (uint64_t(1) << 61) - 1;
     static constexpr bool is_kwise_independent(size_t val) {return val <= k;}
 public:
     KWiseIndependentPolynomialHash(uint64_t seedseed=137): coeffs_(make_coefficients<k>(seedseed)) {
     }
     uint64_t operator()(uint64_t val) const {
-#ifndef NO_USE_SIAM
 		return siam::CWtrick64(val, coeffs_);
-#else
-		return nosiam::i61hash(val, coeffs_);
-#endif
     }
     Type operator()(VType val) const {
-#ifndef __CUDACC__
-        std::fprintf(stderr, "Should not be called... yet. TODO: this");
-#endif
-        // Data parallel across same coefficients.
-        VType ret = Space::set1(coeffs_[0][0]);
-        VType exp = val;
-        for(size_t i = 1; i < k; ++i) {
-#if HAS_AVX_512
-            auto tmp = Space::mullo(exp.simd_, Space::set1(coeffs_[i]));
-            tmp.for_each([](auto &x) {x %= mod;});
-            ret = Space::add(ret, tmp.simd_);
-            ret.for_each([](auto &x) {x %= mod;});
-            exp = Space::mullo(exp.simd_, val.simd_);
-            exp.for_each([](auto &x) {x %= mod;});
-#else
-            for(uint32_t j = 0; j < Space::COUNT; ++j) {
-                ret.arr_[j] = (ret.arr_[j] + (exp.arr_[j] * coeffs_[i] % mod)) % mod;
-                exp.arr_[j] = (exp.arr_[j] * val.arr_[j]) % mod;
-            }
-#endif
-        }
-        return ret.simd_;
+        throw std::runtime_error();
+        return val.simd_;
     }
 #ifdef DUMMY_INVERSE
     uint64_t inverse(uint64_t val) { return val;} // This is a lie for compatibility only
 #endif
 };
+
+template<size_t k>
+class KWiseIndependentPolynomialHash61 {
+    static_assert(k, "k must be positive");
+    const std::array<uint64_t, k> coeffs_;
+	static constexpr uint64_t mod = (uint64_t(1) << 61) - 1;
+    static constexpr bool is_kwise_independent(size_t val) {return val <= k;}
+public:
+    KWiseIndependentPolynomialHash61(uint64_t seedseed=137): coeffs_(make_coefficients64<k>(seedseed)) {
+    }
+    uint64_t operator()(uint64_t val) const {
+		return nosiam::i61hash(val, coeffs_);
+    }
+    Type operator()(VType val) const {
+        throw std::runtime_error();
+        return val.simd_;
+    }
+#ifdef DUMMY_INVERSE
+    uint64_t inverse(uint64_t val) { return val;} // This is a lie for compatibility only
+#endif
+};
+
+
 template<typename Hasher=SeededHash<WangHash>>
 struct HasherSet {
     std::vector<Hasher> hashers_;
