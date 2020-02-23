@@ -1144,20 +1144,6 @@ public:
     }
 };
 
-template<typename HashStruct=WangHash>
-class WideHyperLogLogHasher: public BBitMinHasher<uint64_t, HashStruct> {
-public:
-    using super = BBitMinHasher<uint64_t, HashStruct>;
-    using final_type = wh119_t;
-    template<typename... Args>
-    Packed16HyperLogLogHasher(Args &&...args): BBitMinHasher<uint64_t, HashStruct>(std::forward<Args>(args)...) {
-    }
-    phll_t finalize() const {return super::make_whll();}
-    phll_t cfinalize() const {return finalize();}
-    double cardinality_estimate() const {
-        return finalize().cardinality_estimate();
-    }
-};
 
 template<typename T, typename Hasher=common::WangHash>
 void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
