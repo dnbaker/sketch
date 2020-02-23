@@ -1878,11 +1878,11 @@ struct wh119_t {
     }
     double jaccard_index(const wh119_t &o) const {
         double us = union_size(o);
-        return (estimate_ + o.estimate_ - us) / us;
+        return std::max((estimate_ + o.estimate_ - us) / us, 0.);
     }
     double containment_index(const wh119_t &o) const {
         double us = union_size(o);
-        return (estimate_ + o.estimate_ - us) / estimate_;
+        return std::max((estimate_ + o.estimate_ - us) / estimate_, 0.);
     }
     double union_size(const wh119_t &o) const {return union_size(o.core_);}
     double union_size(const std::vector<uint8_t, Allocator<uint8_t>> &o) const {
