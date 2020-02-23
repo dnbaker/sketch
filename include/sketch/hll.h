@@ -1003,6 +1003,7 @@ public:
     }
 #endif
     const auto &core()    const {return core_;}
+    auto &mutable_core()        {return core_;}
     const uint8_t *data() const {return core_.data();}
 
     uint32_t p() const {return np_;}

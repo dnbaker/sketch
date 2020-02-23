@@ -135,22 +135,24 @@ INLINE auto matching_bits(const __m512i *s1, const __m512i *s2, uint16_t b) {
 
 struct phll_t {
     std::vector<uint8_t, Allocator<uint8_t>> core_;
-    const double                             base_;
     volatile mutable double                   est_ = -1.;
-    static auto make_base(size_t coresize) {return coresize > 128 ? 16.: std::pow(std::ldexp(1., 64), 1. / 15.);}
-    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &&v): core_(std::move(v)), base_(make_base(core_.size()))  {}
-    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &v): core_(std::move(v)), base_(make_base(core_.size())) {}
-    phll_t(const std::vector<uint8_t, Allocator<uint8_t>> &v): core_(v), base_(make_base(core_.size())) {}
+    //static auto make_base(size_t coresize) {return coresize > 128 ? 16.: std::pow(std::ldexp(1., 64), 1. / 15.);}
+    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &&v): core_(std::move(v))  {}
+    phll_t(std::vector<uint8_t, Allocator<uint8_t>> &v): core_(std::move(v)) {}
+    phll_t(const std::vector<uint8_t, Allocator<uint8_t>> &v): core_(v) {}
     phll_t(const phll_t &o) = default;
     phll_t(phll_t &&o)      = default;
     size_t size() const {return core_.size() << 1;}
-    INLINE double cardinality_estimate() const {
+    std::array<uint32_t, 16> get_counts() const {
         std::array<uint32_t, 16> counts{0};
         for(const auto v: core_) {
             ++counts[v >> 4];
             ++counts[v&0xFu];
         }
-        return register_estimate(counts);
+        return counts;
+    }
+    INLINE double cardinality_estimate() const {
+        return register_estimate(get_counts());
     }
     std::array<double, 3> full_set_comparison(const phll_t &o) const {
         if(est_ < 0.) est_ = cardinality_estimate();
@@ -188,16 +190,26 @@ struct phll_t {
         return register_estimate(counts);
 
     }
+    double harmonic_mean_estimate() const {return harmonic_mean_estimate(get_counts());}
+    template<typename C>
+    static double harmonic_mean_estimate(const C &counts) {
+        //for(unsigned i = 0 ; i < 16; ++i) std::fprintf(stderr, "count %u %u times\n", i, counts[i]);
+        //assert(std::accumulate(counts.begin(), counts.end(), size_t(0)) == size());;
+        long double sum = counts[0];
+        for(int i = 1; i < 16; ++i) {
+            sum += std::ldexp(static_cast<long double>(counts[i]), -4 * i);
+        }
+        return std::pow(counts.size(), 2) / sum;
+    }
     template<typename C>
     double register_estimate(const C &counts) const {
-        assert(std::accumulate(counts.begin(), counts.end(), size_t(0)) == size());
-        long double sum = counts[0];
-        long double inv = 1./ base_, prod = inv;
-        for(int i = 1; i < 16; ++i) {
-            sum += counts[i] * prod;
-            prod *= inv;
-        }
-        return core_.size() / sum * 139.86954135429482;
+#if 0
+        return harmonic_mean_estimate(counts);
+#else
+        double est = harmonic_mean_estimate(counts);
+        est = est / (0.2 * std::log(est) - 0.5);
+        return est;
+#endif
     }
     phll_t &operator+=(const phll_t &o) {
         using hll::detail::SIMDHolder;
@@ -1082,19 +1094,23 @@ public:
         }
         return whll::wh119_t(retvec, base);
     }
+    hll::hll_t make_hll() const {
+        hll::hll_t ret(p_);
+        for(size_t i = 0; i < ret.core().size(); ++i)
+            ret.mutable_core()[i] = clz(((core_[i] << 1)|1) << (p_ - 1)) + 1;
+        ret.sum();
+        return ret;
+    }
     auto make_packed16hll() const {
-        std::fprintf(stderr, "TODO [%s]: update estimation to account for lowering the radix for p_ >= 8\n", __PRETTY_FUNCTION__);
+        //std::fprintf(stderr, "TODO [%s]: update estimation to account for lowering the radix for p_ >= 8\n", __PRETTY_FUNCTION__);
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size() >> 1);
         static const long double base = 16;
         static const long double d = 1.L / std::log(base);
         for(size_t i = 0; i < retvec.size(); ++i) {
             auto reg2val = [dv=detail::default_val<T>(),d=d] (auto x) {
-                return __builtin_expect(x == 0, 0) ? uint8_t(15)
-                    : x == dv
-                      ? uint8_t(0)
-                      : std::min(uint8_t(15), uint8_t(15 - std::ceil(std::log(x) * d))); // just in case, this might be worth removing.
+                return x == dv ? uint8_t(0): ((uint8_t(clz(x)) >> 2) + 1);
             };
-            retvec[i] = (reg2val(core_[2*i]) << 4) | reg2val(core_[2*i+1]);
+            retvec[i] = (reg2val(core_[2*i]) << 4) | (reg2val(core_[2*i+1]) & 0xF);
         }
         return phll_t(retvec);
     }
