@@ -44,6 +44,13 @@ All have been accelerated with SIMD parallelism where possible, most are composa
     2. Threadsafe
     3. Reference: https://www.ncbi.nlm.nih.gov/pubmed/28453674
     4. Not SIMD-accelerated, but also general, supporting any arbitrary coverage level
+10. PCSA
+    1. pc.h
+    2. The HLL is more performant and better-optimized, but this is included for completeness.
+    3. Not threadsafe.
+    1. Reference: https://dl.acm.org/doi/10.1016/0022-0000%2885%2990041-8
+       Journal of Computer and System Sciences.
+       September 1985 https://doi.org/10.1016/0022-0000(85)90041-8
 
 The following sketches are experimental or variations on prior structures
 1. HyperLogFilter [hll.h]

@@ -18,7 +18,7 @@ inline namespace hk {
 template<typename HKType, typename ValueType, typename Hasher, typename Allocator, typename HashSetFingerprint, typename, typename>
 class HeavyKeeperHeap;
 
-template<size_t fpsize, size_t ctrsize=64-fpsize, typename Hasher=hash::WangHash, typename Policy=policy::SizeDivPolicy<uint64_t>, typename RNG=wy::WyHash<uint64_t>, typename Allocator=common::Allocator<uint64_t>>
+template<size_t fpsize, size_t ctrsize=64-fpsize, typename Hasher=hash::WangHash, typename Policy=policy::SizePow2Policy<uint64_t>, typename RNG=wy::WyHash<uint64_t>, typename Allocator=common::Allocator<uint64_t>>
 class HeavyKeeper {
 
     static_assert(fpsize > 0 && ctrsize > 0 && 64 % (fpsize + ctrsize) == 0, "fpsize and ctrsize must be evenly divisible into our 64-bit words and at least one must be nonzero.");
@@ -46,15 +46,15 @@ public:
     template<typename...Args>
     HeavyKeeper(size_t requested_size, size_t subtables, double pdec, Args &&...args):
         pol_(requested_size), nh_(subtables),
-        data_((requested_size * subtables + (VAL_PER_REGISTER - 1)) / VAL_PER_REGISTER),
+        data_((pol_.nelem() * subtables + (VAL_PER_REGISTER - 1)) / VAL_PER_REGISTER),
         hasher_(std::forward<Args>(args)...),
         b_(pdec), n_updates_(0)
     {
-        std::fprintf(stderr, "Data size: %zu\n", data_.size());
         assert(subtables);
         PREC_REQ(pdec >= 1., std::string("pdec is not valid (>= 1.). Value: ") + std::to_string(pdec));
         PREC_REQ(data_.size() > 0, "HeavyKeeper must be greater than 0 in size");
 #if VERBOSE_AF
+        std::fprintf(stderr, "Num entries: %zu. Requested: %zu. pol nelem: %zu. nh: %u\n", data_.size() * VAL_PER_REGISTER, requested_size, pol_.nelem(), nh_);
         std::fprintf(stderr, "fpsize: %zu. ctrsize: %zu. requested size: %zu. actual size: %zu. Overflow check? %d. nhashes: %zu\n", fpsize, ctrsize, requested_size, pol_.nelem(), 1, nh_);
 #endif
     }

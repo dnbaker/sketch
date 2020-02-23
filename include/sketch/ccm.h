@@ -221,6 +221,7 @@ public:
         std::mt19937_64 mt(seed + 4);
         while(seeds_.size() < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
         clear();
+        VERBOSE_ONLY(std::fprintf(stderr, "data size: %zu. nbits per entry: %u\n", data_.size(), nbits);)
     }
     VectorType &ref() {return data_;}
     template<typename T, typename=std::enable_if_t<!std::is_arithmetic<T>::value>>

@@ -15,8 +15,9 @@ using S3 = wj::WeightedSketcher<hll::hll_t, wj::ExactCountingAdapter>;
 int main (int argc, char *argv[]) {
     common::DefaultRNGType gen;
     int tbsz = argc == 1 ? 1 << 10: std::atoi(argv[1]);
+    tbsz = roundup(tbsz);
     int ntbls = argc <= 2 ? 6: std::atoi(argv[2]);
-    size_t nitems = 1 << (20 - 3);
+    size_t nitems = argc <= 3 ? 1 << (20 - 3): std::atoi(argv[3]);
     unsigned ss = 12;
 #if !defined(NO_BLAZE) && (VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED)
     CWSamples<> zomg(100, 1000);
@@ -32,8 +33,8 @@ int main (int argc, char *argv[]) {
     data.reserve(nitems * 16);
     wy::WyRand<uint64_t, 4> rng;
     for(size_t i = 0; i < nitems; ++i) {
-        data.insert(data.end(), rng() % 16, rng());
-        auto c = rng() % 16;
+        data.insert(data.end(), std::pow(rng() % 8, rng() % 5) / 10, rng());
+        auto c = std::pow(rng() % 8, rng() % 5) / 10;
         auto v1 = rng(), v2 = rng();
         d1.insert(d1.end(), c, v1);
         d2.insert(d2.end(), c, v2);
@@ -74,8 +75,9 @@ int main (int argc, char *argv[]) {
         std::fprintf(stderr, "ExactCounter:v1.str: %s. ws1 cardinality %lf\n", v1.to_string().data(), ws.sketch_.report());
     }
     {
-        int nbits = 32;
+        int nbits = 8;
         int l2sz = ilog2(tbsz);
+        std::fprintf(stderr, "l2sz: %d. tbsz: %u\n", l2sz, tbsz);
         int nhashes = ntbls;
         S2 ws(C(nbits, l2sz, nhashes), hll::hll_t(ss));
         S2 ws2(C(nbits, l2sz, nhashes), hll::hll_t(ss));
