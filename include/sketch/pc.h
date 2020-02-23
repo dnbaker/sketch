@@ -27,6 +27,10 @@ public:
     void add(uint64_t hv) {
         sketch_ |= detail::R(hv);
     }
+    ProbabilisticCounter &operator|=(const ProbabilisticCounter &o) {
+        sketch_ |= o.sketch_;
+        return *this;
+    }
     void addh(uint64_t item) {
         wy::wyhash64_stateless(&item);
         add(item);
@@ -58,7 +62,11 @@ public:
         counters_[ind] |= detail::R(value);
     }
     double report() const {
-        return n_ * 1.292808 * std::pow(2, double(std::accumulate(counters_.get(), counters_.get() + n_, 0u, [](auto x, auto y) {return detail::r(y) + x;})) / n_);
+        auto mean = 
+            double(std::accumulate(counters_.get(), counters_.get() + n_, 0u, [](auto x, auto y) {
+                return detail::r(y) + x;
+            })) / n_;
+        return n_ * 1.292808 * std::pow(2, mean);
     }
 };
 
