@@ -10,12 +10,14 @@ using H = HeavyKeeper<7,9>;
 using C = cm::ccmbase_t<>;
 using S = wj::WeightedSketcher<hll::hll_t, H>;
 using S2 = wj::WeightedSketcher<hll::hll_t, C>;
+using S3 = wj::WeightedSketcher<hll::hll_t, wj::ExactCountingAdapter>;
 
 int main (int argc, char *argv[]) {
     common::DefaultRNGType gen;
-    int tbsz = argc == 1 ? 1 << 13: std::atoi(argv[1]);
+    int tbsz = argc == 1 ? 1 << 10: std::atoi(argv[1]);
     int ntbls = argc <= 2 ? 6: std::atoi(argv[2]);
-    size_t nitems = 1 << (20 - 6);
+    size_t nitems = 1 << (20 - 3);
+    unsigned ss = 12;
 #if !defined(NO_BLAZE) && (VECTOR_WIDTH <= 32 || AVX512_REDUCE_OPERATIONS_ENABLED)
     CWSamples<> zomg(100, 1000);
 #endif
@@ -26,49 +28,85 @@ int main (int argc, char *argv[]) {
     auto vc3 = vc + vc2;
     auto zomg2 = vc.report();
     auto zomg3 = vc3.report();
+    std::vector<uint64_t> data, d1, d2;
+    data.reserve(nitems * 16);
+    wy::WyRand<uint64_t, 4> rng;
+    for(size_t i = 0; i < nitems; ++i) {
+        data.insert(data.end(), rng() % 16, rng());
+        auto c = rng() % 16;
+        auto v1 = rng(), v2 = rng();
+        d1.insert(d1.end(), c, v1);
+        d2.insert(d2.end(), c, v2);
+    }
+    std::shuffle(d1.begin(), d1.end(), rng);
+    std::shuffle(d2.begin(), d2.end(), rng);
+    std::shuffle(data.begin(), data.end(), rng);
     {
-        S ws(H(tbsz / 2, ntbls), hll::hll_t(10));
-        S ws2(H(tbsz /2, ntbls), hll::hll_t(10));
+        S ws(H(tbsz / 2, ntbls), hll::hll_t(ss));
+        S ws2(H(tbsz /2, ntbls), hll::hll_t(ss));
         hll::hll_t cmp1(10), cmp2(10);
-        gen.seed(0);
-        for(size_t i =0; i < nitems; ++i) {
-            auto v = gen(), t = gen(), c = t % 16, c2 = (t >> 6) % 64;
-            for(size_t j = 0; j < c; ++j)
-                ws.addh(v), ws2.addh(v);
-            for(size_t j = 0; j < c2; ++j)
-                ws.addh(v+1), ws2.addh(v-1);
+        for(const auto v: data) {
+            ws.addh(v);
+            ws2.addh(v);
         }
+        for(const auto v: d1) ws.addh(v);
+        for(const auto v: d2) ws2.addh(v);
         hll::hll_t v1 = ws.finalize(), v2 = ws2.finalize();
         v1.sum(); v2.sum();
         std::fprintf(stderr, "HeavyKeeper:v1 wji with v2 %lf\n", v1.jaccard_index(v2));
+        assert(std::abs(v1.jaccard_index(v2) - 0.333333) < 0.1);
         std::fprintf(stderr, "HeavyKeeper:v1.str: %s. ws1 cardinality %lf\n", v1.to_string().data(), ws.sketch_.report());
     }
     {
-        int nbits = 8;
+        S3 ws(14, hll::hll_t(ss));
+        S3 ws2(17, hll::hll_t(ss));
+        hll::hll_t cmp1(10), cmp2(10);
+        for(const auto v: data) {
+            ws.addh(v);
+            ws2.addh(v);
+        }
+        for(const auto v: d1) ws.addh(v);
+        for(const auto v: d2) ws2.addh(v);
+        hll::hll_t v1 = ws.finalize(), v2 = ws2.finalize();
+        v1.sum(); v2.sum();
+        std::fprintf(stderr, "ExactCounter:v1 wji with v2 %lf\n", v1.jaccard_index(v2));
+        assert(std::abs(v1.jaccard_index(v2) - 0.333333) < 0.03);
+        std::fprintf(stderr, "ExactCounter:v1.str: %s. ws1 cardinality %lf\n", v1.to_string().data(), ws.sketch_.report());
+    }
+    {
+        int nbits = 32;
         int l2sz = ilog2(tbsz);
         int nhashes = ntbls;
-        S2 ws(C(nbits, l2sz, nhashes), hll::hll_t(10));
-        S2 ws2(C(nbits, l2sz, nhashes), hll::hll_t(10));
+        S2 ws(C(nbits, l2sz, nhashes), hll::hll_t(ss));
+        S2 ws2(C(nbits, l2sz, nhashes), hll::hll_t(ss));
         hll::hll_t cmp1(10), cmp2(10);
         size_t shared = 0, unshared = 0;
         gen.seed(0);
         for(size_t i =0; i < nitems; ++i) {
-            auto v = gen(), t = gen(), c = t % 16, c2 = (t >> 6) % 64;
+            auto v = gen(), t = gen(), c = t % 16, c2 = (t >> 6) % 16;
             shared += c;
             for(size_t j = 0; j < c; ++j) {
-                auto hv = PairHasher()(v, c);
+                auto hv = PairHasher()(v, j);
                 ws.addh(v), ws2.addh(v), cmp1.add(hv), cmp2.add(hv);
             }
             unshared += c2;
             for(size_t j = 0; j < c2; ++j) {
-                ws.addh(v+1), ws2.addh(v-1);
-                cmp1.add(PairHasher()(v+1, c)), cmp2.add(PairHasher()(v-1, c));
+                uint64_t v1 = v, v2;
+                wy::wyhash64_stateless(&v1);
+                v2 = v1;
+                wy::wyhash64_stateless(&v2);
+                ws.addh(v1), ws2.addh(v2);
+                auto hv1 = PairHasher()(v1, j);
+                auto hv2 = PairHasher()(v2, j);
+                cmp1.add(hv1), cmp2.add(hv2);
             }
         }
         hll::hll_t v1 = ws.finalize(), v2 = ws2.finalize();
         v1.sum(); v2.sum();
         std::fprintf(stderr, "WJ without HK or CM by HLL: %lf\n", cmp1.jaccard_index(cmp2));
         std::fprintf(stderr, "CM:v1 wji with v2 %lf and true ji %lf\n", v1.jaccard_index(v2), double(shared) / (shared + unshared * 2));
+        //assert(std::abs(v1.jaccard_index(v2) - 0.333333) < 0.1);
+        assert(std::abs(cmp1.jaccard_index(cmp2) - 0.333333) < 0.05);
         std::fprintf(stderr, "CM:v1.str: %s. ws1 cardinality %lf\n", v1.to_string().data(), ws.sketch_.report());
     }
 }

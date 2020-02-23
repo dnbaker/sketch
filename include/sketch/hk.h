@@ -50,6 +50,7 @@ public:
         hasher_(std::forward<Args>(args)...),
         b_(pdec), n_updates_(0)
     {
+        std::fprintf(stderr, "Data size: %zu\n", data_.size());
         assert(subtables);
         PREC_REQ(pdec >= 1., std::string("pdec is not valid (>= 1.). Value: ") + std::to_string(pdec));
         PREC_REQ(data_.size() > 0, "HeavyKeeper must be greater than 0 in size");

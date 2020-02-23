@@ -369,7 +369,6 @@ public:
     u64arr val64s;
     template<typename T>
     void inc_counts(T &arr) const {
-        //static_assert(std::is_same<std::decay_t<decltype(arr[0])>, uint64_t>::value, "Must container 64-bit integers.");
         unroller<T, 0, nels> ur;
         ur(*this, arr);
     }
@@ -384,18 +383,18 @@ public:
         }
         void op32(const SIMDHolder &ref, T &arr) const {
             ++arr[ref.val32s[iternum]];
-            unroller<T, iternum+1, niter_left-1>().op16(ref, arr);
+            unroller<T, iternum+1, niter_left-1>().op32(ref, arr);
         }
         void op64(const SIMDHolder &ref, T &arr) const {
             ++arr[ref.val64s[iternum]];
-            unroller<T, iternum+1, niter_left-1>().op16(ref, arr);
+            unroller<T, iternum+1, niter_left-1>().op64(ref, arr);
         }
     };
     template<typename T, size_t iternum> struct unroller<T, iternum, 0> {
-        void operator()(const SIMDHolder &ref, T &arr) const {}
-        void op16(const SIMDHolder &ref, T &arr) const {}
-        void op32(const SIMDHolder &ref, T &arr) const {}
-        void op64(const SIMDHolder &ref, T &arr) const {}
+        void operator()(const SIMDHolder &, T &) const {}
+        void op16(const SIMDHolder &, T &) const {}
+        void op32(const SIMDHolder &, T &) const {}
+        void op64(const SIMDHolder &, T &) const {}
     };
 #define DEC_INC(nbits)\
     template<typename T>\
