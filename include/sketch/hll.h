@@ -4,10 +4,15 @@
 #include "hash.h"
 
 namespace sketch {
+
+inline namespace minhash {
+template<typename HS>
+class WideHyperLogLogHasher;
+
+}
+
 inline namespace hll {
 namespace detail {
-
-// Based off https://github.com/oertl/hyperloglog-sketch-estimation-paper/blob/master/c%2B%2B/cardinality_estimation.hpp
 template<typename FloatType>
 static constexpr FloatType gen_sigma(FloatType x) {
     if(x == 1.) return std::numeric_limits<FloatType>::infinity();
@@ -23,7 +28,6 @@ static constexpr FloatType gen_sigma(FloatType x) {
     }
     return z;
 }
-
 template<typename FloatType>
 static constexpr FloatType gen_tau(FloatType x) {
     if (x == 0. || x == 1.) {
@@ -39,8 +43,11 @@ static constexpr FloatType gen_tau(FloatType x) {
     }
     return z / 3.;
 }
+// Based off https://github.com/oertl/hyperloglog-sketch-estimation-paper/blob/master/c%2B%2B/cardinality_estimation.hpp
 
 } /* detail */ } /* hll */ } /* sketch */
+
+
 
 
 namespace sketch {
@@ -1761,20 +1768,64 @@ public:
 
 namespace whll {
 using common::Allocator;
-enum WHLL {
-    WH119 = 0,
-};
 struct wh119_t {
     std::vector<uint8_t, Allocator<uint8_t>> core_;
     double wh_base_;
-    wh119_t(std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(std::move(s)), wh_base_(base)
+    double estimate_;
+    wh119_t(std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(std::move(s)), wh_base_(base), estimate_(cardinality_estimate())
     {
         assert(!(core_.size() & (core_.size() - 1)));
+    }
+    wh119_t(const char *s) {
+        read(s);
+    }
+    wh119_t(gzFile fp) {
+        read(fp);
+        estimate_ = cardinality_estimate();
+    }
+    template<typename HS>
+    wh119_t(const minhash::WideHyperLogLogHasher<HS> &o): wh119_t(o.make_whll()) {
+    }
+    wh119_t(std::string s): wh119_t(s.data()) {}
+    wh119_t(const std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(s), wh_base_(base), estimate_(cardinality_estimate()) {}
+    std::array<double, 3> full_set_comparison(const wh119_t &o) const {
+        double ji = jaccard_index(o);
+        double is = (estimate_ + o.estimate_) * ji / (1. + ji);
+        double me_only = estimate_ > is ? estimate_ - is: 0.,
+               o_only  = o.estimate_ > is ? o.estimate_ - is: 0.;
+        return std::array<double, 3>{{me_only, o_only, is}};
     }
     size_t size() const {return core_.size();}
     auto m() const {return size();}
     uint8_t p() const {return ilog2(size());}
-    wh119_t(const std::vector<uint8_t, Allocator<uint8_t>> &s, long double base): core_(s), wh_base_(base) {}
+    void write(gzFile fp) const {
+        uint64_t sz = core_.size();
+        gzwrite(fp, &sz, sizeof(sz));
+        gzwrite(fp, &wh_base_, sizeof(wh_base_));
+        gzwrite(fp, core_.data(), core_.size());
+    }
+    void write(std::string s) const {write(s.data());}
+    void write(const char *s) const {
+        gzFile fp = gzopen(s, "wb");
+        if(fp == nullptr)
+            throw ZlibError(Z_ERRNO, std::string("Could not open file for writing at ") + s);
+        write(fp);
+        gzclose(fp);
+    }
+    void read(const char *s) {
+        gzFile fp = gzopen(s, "rb");
+        if(fp == nullptr)
+            throw ZlibError(Z_ERRNO, std::string("Could not open file for reading at ") + s);
+        read(fp);
+        gzclose(fp);
+    }
+    void read(gzFile fp) {
+        uint64_t sz;
+        gzread(fp, &sz, sizeof(sz));
+        gzread(fp, &wh_base_, sizeof(wh_base_));
+        core_.resize(sz);
+        gzread(fp, core_.data(), core_.size());
+    }
     wh119_t &operator+=(const wh119_t &o) {
         PREC_REQ(size() == o.size(), "mismatched sketch sizes.");
         unsigned i;
@@ -1825,10 +1876,13 @@ struct wh119_t {
         }
         return static_cast<long double>(std::pow(core_.size(), 2) / sum) / std::sqrt(wh_base_);
     }
-    double jaccard_index(const wh119_t &o) {
+    double jaccard_index(const wh119_t &o) const {
         double us = union_size(o);
-        double mysz = cardinality_estimate(), osz = o.cardinality_estimate();
-        return (mysz + osz - us) / us;
+        return (estimate_ + o.estimate_ - us) / us;
+    }
+    double containment_index(const wh119_t &o) const {
+        double us = union_size(o);
+        return (estimate_ + o.estimate_ - us) / estimate_;
     }
     double union_size(const wh119_t &o) const {return union_size(o.core_);}
     double union_size(const std::vector<uint8_t, Allocator<uint8_t>> &o) const {
@@ -1847,6 +1901,9 @@ struct wh119_t {
         for(ssize_t i = 1; i < ssize_t(counts.size()); ++i)
             tmp += static_cast<long double>(counts[i]) * (std::pow(wh_base_, -i));
         return (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
+    }
+    void free() {
+        decltype(core_) tmp; std::swap(tmp, core_);
     }
 };
 } // whll

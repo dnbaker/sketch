@@ -386,7 +386,7 @@ struct WeightedSketcher {
     {
     }
     operator final_type() {
-        return std::move(sketch_);
+        return final_type(std::move(sketch_));
     }
     operator final_type() const {
         return sketch_;

@@ -1120,8 +1120,7 @@ class WideHyperLogLogHasher: public BBitMinHasher<uint64_t, HashStruct> {
 public:
     using super = BBitMinHasher<uint64_t, HashStruct>;
     using final_type = whll::wh119_t;
-    template<typename... Args>
-    WideHyperLogLogHasher(Args &&...args): BBitMinHasher<uint64_t, HashStruct>(std::forward<Args>(args)...) {
+    WideHyperLogLogHasher(unsigned p): BBitMinHasher<uint64_t, HashStruct>(p, 64 - p) {
     }
     whll::wh119_t finalize() const {return super::make_whll();}
     whll::wh119_t cfinalize() const {return finalize();}
