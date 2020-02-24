@@ -195,4 +195,17 @@ int main(int argc, char *argv[]) {
             std::fprintf(stderr, "whl card: %lf/%zu vs expected %lf/%lf/%lf\n", whl.cardinality_estimate(), whl.core_.size(), f1.est_cardinality_, h1.report(), whl.union_size(whl));
         }
     }
+    BBitMinHasher<uint64_t> notfull(12);
+    for(size_t i = 0; i < 4000; ++i) {
+        notfull.addh(i);
+    }
+    auto wideh = notfull.make_whll();
+    std::fprintf(stderr, "wideh estimate: %g.\n", wideh.cardinality_estimate());
+    auto regh = notfull.make_hll();
+    regh.sum();
+    std::fprintf(stderr, "hll estimate: %g.\n", regh.report());
+    regh.set_estim(hll::ORIGINAL);
+    regh.not_ready();
+    regh.sum();
+    std::fprintf(stderr, "hll estimate: %g.\n", regh.report());
 }

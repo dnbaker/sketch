@@ -1081,21 +1081,21 @@ public:
         long double base = wh_base();
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size());
         long double d = 1.L/ std::log(base);
-        uint8_t maxv = 255;
+        const uint8_t maxv = 255;
         for(size_t i = 0; i < core_.size(); ++i) {
-            if(core_[i] == detail::default_val<T>()) {
-                retvec[i] = 0;
-            } else {
+            if(core_[i] != detail::default_val<T>()) {
                 long double v = core_[i];
-                retvec[i] = v ? uint8_t(maxv - std::ceil(std::log(v) * d)) /*- 1*/: uint8_t(255);
+                retvec[i] = v ? uint8_t(maxv - std::ceil(std::log(v) * d)) /*- 1*/: maxv;
             }
         }
         return whll::wh119_t(retvec, base);
     }
     hll::hll_t make_hll() const {
         hll::hll_t ret(p_);
-        for(size_t i = 0; i < ret.core().size(); ++i)
-            ret.mutable_core()[i] = clz(((core_[i] << 1)|1) << (p_ - 1)) + 1;
+        for(size_t i = 0; i < ret.core().size(); ++i) {
+            ret.mutable_core()[i] = core_[i] == detail::default_val<T>()
+                   ? 0: clz(((core_[i] << 1)|1) << (p_ - 1)) + 1;
+        }
         ret.sum();
         return ret;
     }

@@ -191,7 +191,6 @@ namespace detail {
     // Miscellaneous requirements.
 static constexpr double LARGE_RANGE_CORRECTION_THRESHOLD = (1ull << 32) / 30.;
 static constexpr double TWO_POW_32 = 1ull << 32;
-static double small_range_correction_threshold(uint64_t m) {return 2.5 * m;}
 
 
 
@@ -212,7 +211,7 @@ static double calculate_estimate(const CountArrType &counts,
         for(unsigned i = 1; i < 64 - p + 1; ++i) if(counts[i]) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         //for(unsigned i = 1; i < 64 - p + 1; ++i) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         double value(alpha * m * m / sum);
-        if(value < detail::small_range_correction_threshold(m)) {
+        if(value < 2.5 * m) {
             if(counts[0]) {
 #if !NDEBUG
                 std::fprintf(stderr, "[W:%s:%d] Small value correction. Original estimate %lf. New estimate %lf.\n",
@@ -984,7 +983,7 @@ public:
     EstimationMethod get_estim()       const {return  estim_;}
     JointEstimationMethod get_jestim() const {return jestim_;}
     void set_estim(EstimationMethod val) noexcept {
-        estim_ = std::max(val, ERTL_MLE);
+        estim_ = std::min(val, ERTL_MLE);
     }
     void set_jestim(JointEstimationMethod val) noexcept {
         jestim_ = val;
@@ -1874,7 +1873,17 @@ struct wh119_t {
         for(ssize_t i = 1; i < ssize_t(counts.size()); ++i) {
             sum += static_cast<long double>(counts[i]) * (std::pow(wh_base_, -i));
         }
-        return static_cast<long double>(std::pow(core_.size(), 2) / sum) / std::sqrt(wh_base_);
+        double ret = static_cast<double>(std::pow(core_.size(), 2) / sum) / std::sqrt(wh_base_);
+        // low range correction -- fall back to linear counting
+        if(ret < 2.5 * core_.size() && counts[0]) {
+            double m = core_.size();
+            newv = m * std::log(m / counts[0]);
+#ifndef NDEBUG
+            std::fprintf(stderr, "Underfull sketch. Switching to linear counting (bloom filter estimate). Initial est: %g. Corrected: %g. number of zeros: %u. core size: %zu\n", ret, newv, counts[0], core_.size());
+#endif
+            ret = newv;
+        }
+        return ret;
     }
     double jaccard_index(const wh119_t &o) const {
         double us = union_size(o);
@@ -1900,7 +1909,12 @@ struct wh119_t {
         long double tmp = counts[0];
         for(ssize_t i = 1; i < ssize_t(counts.size()); ++i)
             tmp += static_cast<long double>(counts[i]) * (std::pow(wh_base_, -i));
-        return (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
+        double ret = (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_); 
+        if(ret < 2.5 * core_.size() && counts[0]) {
+            double m = core_.size();
+            ret = m * std::log(m / counts[0]);
+        }
+        return ret;
     }
     void free() {
         decltype(core_) tmp; std::swap(tmp, core_);
