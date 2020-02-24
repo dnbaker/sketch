@@ -1877,7 +1877,7 @@ struct wh119_t {
         // low range correction -- fall back to linear counting
         if(ret < 2.5 * core_.size() && counts[0]) {
             double m = core_.size();
-            newv = m * std::log(m / counts[0]);
+            double newv = m * std::log(m / counts[0]);
 #ifndef NDEBUG
             std::fprintf(stderr, "Underfull sketch. Switching to linear counting (bloom filter estimate). Initial est: %g. Corrected: %g. number of zeros: %u. core size: %zu\n", ret, newv, counts[0], core_.size());
 #endif
