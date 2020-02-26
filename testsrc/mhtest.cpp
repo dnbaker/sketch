@@ -83,8 +83,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "sketch is: %zu. sketch ji: %lf. True: %lf. setest ji: %g\n", is, ji, true_ji, setest);
     //assert(std::abs(ji - true_ji) / true_ji < 0.1);
     is = intersection_size(rm1, rm1, typename RangeMinHash<uint64_t>::key_compare());
-    ji = rm1.jaccard_index(rm1);
-    std::fprintf(stderr, "ji for a sketch and itself: %lf\n", ji);
+    assert(rm1.jaccard_index(rm1) == 1.);
     mt.seed(1337);
     for(size_t i = 0; i < nelem; ++i) {
         auto v = mt();
@@ -110,6 +109,7 @@ int main(int argc, char *argv[]) {
     auto m1 = rm1.cfinalize(), m2 = rm2.cfinalize();
     std::fprintf(stderr, "m1 is %s-sorted\n", forward_sorted(m1.begin(), m1.end()) ? "forward": "reverse");
     //auto kmf = kmh.finalize();
+    assert(ji == m1.jaccard_index(m2));
     std::fprintf(stderr, "jaccard between finalized MH sketches: %lf, card %lf\n", m1.jaccard_index(m2), m1.cardinality_estimate());
     {
         // Part 2: verify merging of final sketches

@@ -590,7 +590,9 @@ public:
         size_t denom = 0, num = 0;
         auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin(),
              e1 = minimizers_.end(),   e2 = o.minimizers_.end();
-        for(;;) {
+        const size_t nelem = size();
+        size_t nused = 0;
+        while(nused++ < nelem) {
             if(cmp_(i1->first, i2->first)) {
                 denom += i1->second;
                 if(++i1 == e1) break;
@@ -634,7 +636,8 @@ public:
         double denom = 0, num = 0;
         auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
         const auto e1 = minimizers_.cend(), e2 = o.minimizers_.cend();
-        for(;;) {
+        const size_t nelem = size();
+        for(size_t nused = 0;nused++ < nelem;) {
             auto &lhf = i1->first, &rhf = i2->first;
             if(cmp_(lhf, rhf)) {
                 denom += (i1->second) * fn(lhf);
@@ -701,8 +704,6 @@ public:
                 if( (++i1 == e1) | (++i2 == e2)) break;
             }
         }
-        while(i1 != e1) denom += i1->second, ++i1;
-        while(i2 != e2) denom += i2->second, ++i2;
         return denom;
     }
     size_t intersection_size(const CountingRangeMinHash &o) const {
@@ -724,8 +725,7 @@ public:
     }
     template<typename C2>
     double jaccard_index(const C2 &o) const {
-        double is = this->intersection_size(o);
-        return is / (minimizers_.size() + o.size() - is);
+        return histogram_intersection(o);
     }
 };
 
@@ -888,14 +888,6 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
             }
             assert(i2 < o.second.size());
         }
-        while(i1 < lsz) {
-            denom += this->second.operator[](i1) * fn(this->first.operator[](i1)), ++i1;
-            //denom += this->first[i1] * fn(second[i1]), ++i1;
-        }
-        while(i2 < rsz) {
-            denom += o.second.operator[](i2) * fn(o.first.operator[](i2)), ++i2;
-        }
-        //std::fprintf(stderr, "[%s] after finishing num %f, denom %f\n", __PRETTY_FUNCTION__, num, denom);
         return num / denom;
     }
     void prepare(size_t ss=0) {
@@ -968,18 +960,34 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         prefinal.clear();
     }
     double jaccard_index(const FinalCRMinHash &o) const {
-        double us = union_size(o);
-        double sz1 = cardinality_estimate(ARITHMETIC_MEAN);
-        double sz2 = o.cardinality_estimate(ARITHMETIC_MEAN);
-        double is = sz1 + sz2 - us;
-        return std::max(0., is / us);
+        return tf_idf(o);
     }
     double containment_index(const FinalCRMinHash &o) const {
-        double us = union_size(o);
-        double sz1 = cardinality_estimate();
-        double sz2 = o.cardinality_estimate();
-        double is = sz1 + sz2 - us;
-        return std::max(0., is / us);
+        const size_t lsz = this->size();
+        const size_t rsz = o.size();
+        assert(rsz == o.second.size());
+        assert(rsz == o.first.size());
+        double denom = 0, num = 0;
+        size_t i1 = 0, i2 = 0;
+        size_t nused = 0;
+        while(nused++ < lsz) {
+            auto &lhs = this->first[i1];
+            auto &rhs = o.first[i2];
+            if(lhs < rhs) {
+                denom += second[i1] * fn(lhs);
+                if(++i1 == lsz) break;
+            } else if(rhs < lhs) {
+                if(++i2 == rsz) break;
+            } else {
+                auto tmpnum = std::min(second[i1], o.second[i2]);
+                denom += fn(lhs) * second[i1];
+                num   += fn(lhs) * tmpnum;
+                ++i2, ++i1;
+                if(i2 == rsz || i1 == lsz) break;
+            }
+            assert(i2 < o.second.size());
+        }
+        return double(num) / denom;
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         return FinalRMinHash<T>::cardinality_estimate(mode);
