@@ -445,7 +445,7 @@ struct joint_unroller {
         }
     };
     template<typename T, size_t iternum> struct ju_impl<T, iternum, 0> {
-        INLINE void operator()(const SIMDHolder &ref1, const SIMDHolder &ref2, const SIMDHolder &u, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq, MType gtmask1, MType gtmask2, MType eqmask) const {}
+        INLINE void operator()(const SIMDHolder &, const SIMDHolder &, const SIMDHolder &, T &, T &, T &, T &, T &, T &, MType, MType, MType) const {}
     };
     template<typename T>
     INLINE void operator()(const SIMDHolder &ref1, const SIMDHolder &ref2, const SIMDHolder &u, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq) const {
@@ -1879,7 +1879,7 @@ struct wh119_t {
             double m = core_.size();
             double newv = m * std::log(m / counts[0]);
 #ifndef NDEBUG
-            std::fprintf(stderr, "Underfull sketch. Switching to linear counting (bloom filter estimate). Initial est: %g. Corrected: %g. number of zeros: %u. core size: %zu\n", ret, newv, counts[0], core_.size());
+            //std::fprintf(stderr, "Underfull sketch. Switching to linear counting (bloom filter estimate). Initial est: %g. Corrected: %g. number of zeros: %u. core size: %zu\n", ret, newv, counts[0], core_.size());
 #endif
             ret = newv;
         }
