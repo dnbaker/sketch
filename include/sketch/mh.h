@@ -757,11 +757,11 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         size_t lsum = 0;
         for(const auto v: this->second) lsum += v * v;
         
-        size_t asum = std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2 * sz2;});
+        size_t asum = std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += size_t(sz2) * sz2;});
         assert(asum == lsum);
         return asum;
 #else
-        return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2 * sz2;});
+        return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += size_t(sz2) * sz2;});
 #endif
     }
     double cosine_distance(const FinalCRMinHash &o) const {
