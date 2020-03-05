@@ -207,7 +207,7 @@ public:
         return common::intersection_size(o, *this, cmp_);
     }
     double jaccard_index(const RangeMinHash &o) const {
-        assert(o.size() == minimizers_.size());
+        //assert(o.size() == minimizers_.size());
         auto lit = minimizers_.rbegin(), rit = o.minimizers_.rbegin(), lend = minimizers_.rend(), rend = o.minimizers_.rend();
         const size_t n = minimizers_.size();
         size_t nused = 0, shared = 0;

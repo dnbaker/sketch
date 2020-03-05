@@ -8,12 +8,6 @@
 
 namespace sketch {
 
-static constexpr uint64_t bitmask(size_t n) {
-    uint64_t x = uint64_t(1) << (n - 1);
-    x ^= x - 1;
-    return x;
-}
-
 inline namespace hk {
 template<typename HKType, typename ValueType, typename Hasher, typename Allocator, typename HashSetFingerprint, typename, typename>
 class HeavyKeeperHeap;

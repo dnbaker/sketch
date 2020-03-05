@@ -1179,6 +1179,10 @@ public:
 };
 using hll_t = hllbase_t<>;
 
+#ifndef NOT_THREADSAFE
+static bool warning_emitted = false;
+#endif
+
 template<typename HashStruct=WangHash>
 class shllbase_t: public hllbase_t<HashStruct> {
     // See Edith Cohen - All-Distances Sketches, Revisited: HIP Estimators for Massive Graphs Analysis
@@ -1191,9 +1195,6 @@ class shllbase_t: public hllbase_t<HashStruct> {
     // Note: composition is not supported, at least not in a principled way.
     // Better estimates on original cardinalities should help the union, but it will
     // not enjoy the asymptotic improvements necessarily.
-#ifndef NOT_THREADSAFE
-    bool warning_emitted = false;
-#endif
 public:
     template<typename...Args>
     shllbase_t(Args &&...args): super(std::forward<Args>(args)...), cest_(0), s_(this->core_.size()) {}
@@ -1228,7 +1229,7 @@ public:
         auto oldv = this->core_[index];
         if(lzt > oldv) {
             cest_ += 1. / std::ldexp(s_, -int(this->np_));
-            s_ -= std::ldexp(1., -int(oldv));
+            s_ -= std::ldexp(1., -int(oldv)); // replace with lut?
             if(lzt != 64 - this->np_)
                 s_ += std::ldexp(1., -int(lzt));
             this->core_[index] = lzt;
