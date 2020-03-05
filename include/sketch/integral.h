@@ -319,6 +319,13 @@ INLINE auto roundupdiv(T x, T2 div) noexcept {
     return ((x + div - 1) / div) * div;
 }
 
+static constexpr inline uint64_t bitmask(size_t n) {
+    uint64_t x = uint64_t(1) << (n - 1);
+    x ^= x - 1;
+    return x;
+}
+
+
 } // integral
 } // sketch
 

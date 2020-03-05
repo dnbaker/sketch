@@ -271,6 +271,9 @@ public:
     FinalDivBBitMinHash(const char *path): est_cardinality_(0), nbuckets_(0), b_(0) {
         read(path);
     }
+    FinalDivBBitMinHash(gzFile ifp): est_cardinality_(0), nbuckets_(0), b_(0) {
+        read(ifp);
+    }
     FinalDivBBitMinHash(FinalDivBBitMinHash &&o) = default;
     FinalDivBBitMinHash(const FinalDivBBitMinHash &o) = default;
     template<template<typename> class Policy, typename RNG, typename CountType>
@@ -285,12 +288,12 @@ public:
     FinalDivBBitMinHash(const DivBBitMinHasher<T, Hasher> &o): FinalDivBBitMinHash(std::move(o.finalize())) {}
     ssize_t read(gzFile fp) {
         uint64_t arr[2];
-        if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw std::runtime_error("Could not read from file.");
+        if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw ZlibError("Could not read from file.");
         ssize_t ret = sizeof(arr);
         b_ = arr[0];
         nbuckets_ = arr[1];
         PREC_REQ(b_ * nbuckets_ % 64 == 0, "b * nbuckets must be divisible by 64");
-        if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw std::runtime_error("Could not read from file.");
+        if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw ZlibError("Could not read from file.");
         ret += sizeof(est_cardinality_);
         core_.resize(b_ * nbuckets_ / 64 + (b_ * nbuckets_ % 64 != 0));
         const size_t expected = sizeof(core_[0]) * core_.size();
@@ -1243,13 +1246,13 @@ public:
     }
     ssize_t read(gzFile fp) {
         uint32_t arr[2];
-        if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw std::runtime_error("Could not read from file.");
+        if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw ZlibError("Could not read from file.");
         b_ = arr[0];
         p_ = arr[1];
-        if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw std::runtime_error("Could not read from file.");
+        if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw ZlibError("Could not read from file.");
         core_.resize((value_type(b_) << p_) >> 6);
         const size_t nb = sizeof(core_[0]) * core_.size();
-        if(gzread(fp, core_.data(), nb) != ssize_t(nb)) throw std::runtime_error("Could not read data vector from file");
+        if(gzread(fp, core_.data(), nb) != ssize_t(nb)) throw ZlibError("Could not read data vector from file");
         return nb + sizeof(arr) + sizeof(est_cardinality_);
     }
     DBSKETCH_READ_STRING_MACROS
