@@ -757,11 +757,11 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         size_t lsum = 0;
         for(const auto v: this->second) lsum += v * v;
         
-        size_t asum = std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2 * sz2;});
+        size_t asum = std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += size_t(sz2) * sz2;});
         assert(asum == lsum);
         return asum;
 #else
-        return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += sz2 * sz2;});
+        return std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += size_t(sz2) * sz2;});
 #endif
     }
     double cosine_distance(const FinalCRMinHash &o) const {
@@ -836,9 +836,11 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
     ssize_t read(gzFile fp) {
         uint64_t nelem;
         ssize_t ret = gzread(fp, &nelem, sizeof(nelem));
+        if(ret != sizeof(nelem)) throw ZlibError("Failed to read");
         this->first.resize(nelem);
-        ret += gzread(fp, &count_sum_, sizeof(count_sum_));
-        ret += gzread(fp, &count_sum_l2norm_, sizeof(count_sum_l2norm_));
+        if((ret = gzread(fp, &count_sum_, sizeof(count_sum_))) != sizeof(count_sum_)) throw ZlibError("Failed to read");
+        if((ret = gzread(fp, &count_sum_l2norm_, sizeof(count_sum_l2norm_))) != sizeof(count_sum_l2norm_)) throw ZlibError("Failed to read");
+        if((ret = gzread(fp, this->first.data(), sizeof(this->first[0]) * nelem) != ssize_t(sizeof(this->first[0]) * nelem))) throw ZlibError("Failed to read");
         ret += gzread(fp, this->first.data(), sizeof(this->first[0]) * nelem);
         this->second.resize(nelem);
         ret += gzread(fp, this->second.data(), sizeof(this->second[0]) * nelem);

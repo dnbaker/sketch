@@ -1046,7 +1046,7 @@ public:
     do {\
         if(static_cast<uint64_t>(gzread(fp, dst, len)) != len) {\
             char buf[512];\
-            throw std::runtime_error(std::string(buf, buf + std::sprintf(buf, "[E:%s:%d:%s] Error reading from file\n", __FILE__, __LINE__, __PRETTY_FUNCTION__))); \
+            throw ZlibError(std::string(buf, buf + std::sprintf(buf, "[E:%s:%d:%s] Error reading from file\n", __FILE__, __LINE__, __PRETTY_FUNCTION__))); \
         }\
     } while(0)
         uint32_t bf[4];

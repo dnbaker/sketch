@@ -659,6 +659,7 @@ public:
     ssize_t read(gzFile fp) {
         uint8_t arr[] {0,0,0};
         ssize_t ret = gzread(fp, arr, sizeof(arr));
+        if(ret != 3) throw ZlibError("Failed to read");
         np_ = arr[0];
         nh_ = arr[1];
         seeds_.resize(arr[2]);
