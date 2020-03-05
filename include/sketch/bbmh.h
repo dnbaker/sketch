@@ -1426,11 +1426,14 @@ INLINE double jaccard_index(const FinalBBitMinHash &a, const FinalBBitMinHash &b
 #define DEFAULT_SET_CASE(num, type, p_) \
         default:\
             for(size_t ov = 0, ev = 1 << (p_ - num); ov != ev; ++ov) {\
-                auto main_ptr = ret.core_.data() + ov * sizeof(type) / sizeof(FinalType) * b;\
-                auto core_ptr = core_ref.data() + ov * (sizeof(type) * CHAR_BIT);\
+                static constexpr size_t ratio = sizeof(type) / sizeof(FinalType);\
+                static constexpr size_t bits_per_vector = sizeof(type) * CHAR_BIT;\
+                auto main_ptr = ret.core_.data() + ov * ratio * b;\
+                auto core_ptr = core_ref.data() + ov * bits_per_vector;\
                 for(size_t _b = 0; _b < b; ++_b) {\
-                    auto ptr = main_ptr + (_b * sizeof(type)/sizeof(FinalType));\
-                    for(size_t i = 0; i < (sizeof(type) * CHAR_BIT); ++i)\
+                    auto ptr = main_ptr + (_b * ratio);\
+                    SK_UNROLL_8\
+                    for(size_t i = 0; i < bits_per_vector; ++i)\
                         setnthbit(ptr, i, getnthbit(core_ptr[i], _b));\
                 }\
             }\
