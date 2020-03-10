@@ -435,7 +435,8 @@ struct WeightedSketcher {
     template<typename...Args> auto cardinality_estimate(Args &&...args) const {return sketch_.cardinality_estimate(std::forward<Args>(args)...);}
     auto size() const {return sketch_.size();}
     void clear() {
-        sketch_.clear();
+        CoreSketch tmp(std::move(sketch_));
+        CountingSketchType tmp2(std::move(cst_));
     }
 };
 

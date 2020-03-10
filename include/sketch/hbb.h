@@ -27,7 +27,7 @@ public:
 
     void addh(uint64_t item) {add(hash(item));}
     void add(uint64_t hv) {
-        auto r = ctz(hv);
+        unsigned r = ctz(hv);
         if(r > logn_) {
             const auto k = (hv >> (sizeof(hv) * CHAR_BIT - 6));
             const auto bit = 1L << k;
