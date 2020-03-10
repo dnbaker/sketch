@@ -867,6 +867,7 @@ public:
                          __FILE__, __PRETTY_FUNCTION__, __LINE__, sizeof(T) * CHAR_BIT, int(b_), int(p_));
             throw std::runtime_error(buf);
         }
+        postcondition_require(is_pow2(core_.size()), "should be a power of two");
     }
     void reset() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());

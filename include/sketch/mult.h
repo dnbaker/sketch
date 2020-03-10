@@ -434,6 +434,9 @@ struct WeightedSketcher {
     template<typename...Args> auto free(Args &&...args) {return sketch_.free(std::forward<Args>(args)...);}
     template<typename...Args> auto cardinality_estimate(Args &&...args) const {return sketch_.cardinality_estimate(std::forward<Args>(args)...);}
     auto size() const {return sketch_.size();}
+    void clear() {
+        sketch_.clear();
+    }
 };
 
 
