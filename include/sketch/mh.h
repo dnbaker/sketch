@@ -755,7 +755,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
     size_t countsumsq() const {
 #if !NDEBUG
         size_t lsum = 0;
-        for(const auto v: this->second) lsum += v * v;
+        for(const auto v: this->second) lsum += size_t(v) * v;
         
         size_t asum = std::accumulate(second.begin(), second.end(), size_t(0), [](auto sz, auto sz2) {return sz += size_t(sz2) * sz2;});
         assert(asum == lsum);
