@@ -1094,10 +1094,11 @@ public:
         }
         return whll::wh119_t(retvec, base);
     }
-    hll::hll_t make_hll() const {
-        hll::hll_t ret(p_);
+    auto make_hll() const {
+        hll::hllbase_t<Hasher> ret(p_);
+        const auto ptr = ret.mutable_core().data();
         for(size_t i = 0; i < ret.core().size(); ++i) {
-            ret.mutable_core()[i] = core_[i] == detail::default_val<T>()
+            ptr[i] = core_[i] == detail::default_val<T>()
                    ? 0: clz(((core_[i] << 1)|1) << (p_ - 1)) + 1;
         }
         ret.sum();
@@ -1142,6 +1143,22 @@ public:
     }
     phll_t finalize() const {return super::make_packed16hll();}
     phll_t cfinalize() const {return finalize();}
+    double cardinality_estimate() const {
+        return finalize().cardinality_estimate();
+    }
+};
+
+template<typename HashStruct=WangHash>
+class HyperLogLogHasher: public BBitMinHasher<uint64_t, HashStruct> {
+public:
+    using super = BBitMinHasher<uint64_t, HashStruct>;
+    using final_type = hll::hll_t;
+    template<typename... Args>
+    HyperLogLogHasher(Args &&...args): BBitMinHasher<uint64_t, HashStruct>(std::forward<Args>(args)...) {
+    }
+    operator hll::hllbase_t<HashStruct>() const {return this->finalize();}
+    hllbase_t<HashStruct> finalize() const {return super::make_hll();}
+    hllbase_t<HashStruct> cfinalize() const {return finalize();}
     double cardinality_estimate() const {
         return finalize().cardinality_estimate();
     }
