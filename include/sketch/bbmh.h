@@ -877,6 +877,25 @@ public:
         throw NotImplementedError("NotImplemented function. This is likely an error, as you probabyl don't mean to call this.");
         return -1;
     }
+    BBitMinHasher compress(unsigned p, unsigned b=0) const {
+        if(!b) b = b_;
+        if(p == p_) return *this;
+        if(p > p_) throw std::invalid_argument("Can't compress a sketch to a larger size");
+        BBitMinHasher ret(p, b);
+        const T increment = (std::numeric_limits<T>::max() >> p_) + 1;
+        const unsigned shift = p_ - p, ratio = 1 << shift;
+        auto start = core_.data();
+        for(size_t i = 0; i < ret.core_.size(); ++i, start += ratio) {
+            unsigned j = 0;
+            do {
+                if(start[j] != detail::default_val<T>()) {
+                    ret.core_[i] = start[j] + j * increment;
+                    break;
+                }
+            } while(++j != ratio);
+        }
+        return ret;
+    }
     void addh(T val) {val = hf_(val);add(val);}
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
@@ -1117,6 +1136,7 @@ public:
         }
         return phll_t(retvec);
     }
+    const auto &core() const {return core_;}
 };
 
 

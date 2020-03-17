@@ -102,12 +102,9 @@ int main(int argc, char *argv[]) {
             SuperMinHash<policy::SizeDivPolicy>  smhdp1(1 << i);
             hll::hll_t h1(i), h2(i);
             uint64_t seed = h1.hash(h1.hash(i) ^ h1.hash(b));
-#if SIMPLE_HASH
             using HasherType = hash::WangHash;
-#else
-            using HasherType = hash::MultiplyAddXoRotNVec<33>;
-#endif
             BBitMinHasher<uint64_t, HasherType> b1(i, b, 1, seed), b2(i, b, 1, seed), b3(i, b, 1, seed);
+            std::unique_ptr<BBitMinHasher<uint64_t, HasherType>> b1_smaller(new BBitMinHasher<uint64_t, HasherType>(i - 4, b, 1, seed));
             size_t dbval = 1.5 * (size_t(1) << i);
             DivBBitMinHasher<uint64_t> db1(dbval, b), db2(dbval, b), db3(dbval, b);
             //DivBBitMinHasher<uint64_t> fb(i, b);
@@ -115,11 +112,7 @@ int main(int argc, char *argv[]) {
             DefaultRNGType gen(137 + (i * b));
             size_t shared = 0, b1c = 0, b2c = 0;
             for(size_t i = niter; --i;) {
-#if SIMPLE_HASH
-                auto v = i;
-#else
                 auto v = gen();
-#endif
                 switch(v & 0x3uL) {
                     case 0:
                     case 1: h1.addh(v); h2.addh(v);
@@ -128,11 +121,13 @@ int main(int argc, char *argv[]) {
                             db1.addh(v); db2.addh(v);
                             smhp2.addh(v); smhp21.addh(v);
                             smhdp.addh(v); smhdp1.addh(v);
+                            if(b1_smaller) b1_smaller->addh(v);
                     /*fb.addh(v);*/
                     break;
                     case 2: h1.addh(v); b1.addh(v); ++b1c; b3.addh(v); cb3.addh(v); db1.addh(v);
                             smhp2.addh(v);
                             smhdp.addh(v);
+                            if(b1_smaller) b1_smaller->addh(v);
                     break;
                     case 3: h2.addh(v); b2.addh(v); ++b2c; cb1.addh(v); db2.addh(v);
                             smhdp1.addh(v);
@@ -141,6 +136,19 @@ int main(int argc, char *argv[]) {
                 }
                 //if(i % 250000 == 0) std::fprintf(stderr, "%zu iterations left\n", size_t(i));
             }
+            {
+                auto comp = b1.compress(i - 4);
+                assert(b1_smaller);
+                auto &precomp = *b1_smaller.get();
+                assert(precomp.size() == comp.size());
+                bool fail = !std::equal(comp.core().begin(), comp.core().end(), precomp.core().begin());
+                if(fail) {
+                    for(size_t i = 0, e = comp.size(); i < e; ++i)
+                        std::fprintf(stderr, "index: %zu. lhs: %zu. rhs: %zu. diff: %d\n", i, size_t(comp.core()[i]), size_t(precomp.core()[i]), int(comp.core()[i] - precomp.core()[i]));
+                    assert(!fail);
+                }
+                //assert(std::equal(comp.core().begin(), comp.core().end(), precomp.core().begin()));
+            }
             b1.densify();
             b2.densify();
             auto est = (b1 + b2).cardinality_estimate();
@@ -148,7 +156,7 @@ int main(int argc, char *argv[]) {
             std::fprintf(stderr, "union est by union: %f. by union_size: %f. difference: %12e\n", est, usest, (est - usest));
             assert(est == usest);
             auto f1 = b1.finalize(), f2 = b2.finalize(), f3 = b3.finalize();
-            assert(i <= 9 || std::abs(est - niter) < niter * 5 / 100. || !std::fprintf(stderr, "est: %lf\n", est));
+            assert(i <= 9 || std::abs(est - niter) < niter * .1 || !std::fprintf(stderr, "est: %lf. niter: %zu\n", est, size_t(niter)));
             //b1 += b2;
             auto f12 = b1.finalize();
             auto fdb1 = db1.finalize();
