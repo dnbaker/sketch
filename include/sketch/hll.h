@@ -887,14 +887,15 @@ public:
         if(new_np > np_)
             throw std::runtime_error(std::string("Can't compress to a larger size. Current: ") + std::to_string(np_) + ". Requested new size: " + std::to_string(new_np));
         hllbase_t<HashStruct> ret(new_np, get_estim(), get_jestim());
-        size_t ratio = static_cast<size_t>(1) << (np_ - new_np);
+        unsigned diff = np_ - new_np;
+        size_t ratio = static_cast<size_t>(1) << (diff);
         size_t new_size = 1ull << new_np;
         size_t b = 0;
         for(size_t i(0); i < new_size; ++i) {
             size_t j(0);
             while(j < ratio && core_[j + b] == 0) ++j;
             if(j != ratio)
-                ret.core_[i] = std::min(ret.q() + 1, j ? clz(j)+1: core_[b]);
+                ret.core_[i] = std::min(ret.q() + 1, j ? clz(j)+1: core_[b] + diff);
             // Otherwise left at 0
             b += ratio;
         }

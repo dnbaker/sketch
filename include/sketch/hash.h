@@ -336,7 +336,7 @@ public:
 		return siam::CWtrick64(val, coeffs_);
     }
     Type operator()(VType val) const {
-        throw std::runtime_error();
+        throw std::runtime_error("Not implemented");
         return val.simd_;
     }
 #ifdef DUMMY_INVERSE
@@ -357,7 +357,7 @@ public:
 		return nosiam::i61hash(val, coeffs_);
     }
     Type operator()(VType val) const {
-        throw std::runtime_error();
+        throw std::runtime_error("Not implemented");
         return val.simd_;
     }
 #ifdef DUMMY_INVERSE
