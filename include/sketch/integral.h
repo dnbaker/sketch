@@ -1,6 +1,7 @@
 #ifndef SKETCH_INTEGRAL_H
 #define SKETCH_INTEGRAL_H
 #include "./macros.h"
+#include <cstring>
 #include "x86intrin.h"
 #include <cstdint>
 #include <climits>
