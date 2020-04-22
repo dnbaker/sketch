@@ -17,7 +17,7 @@ inline namespace hbb {
 template<typename HashStruct=hash::WangHash>
 class HyperBitBit {
 
-    uint16_t    logn_;
+    uint32_t    logn_;
     uint64_t s1_, s2_;
     HashStruct    hf_;
 public:
@@ -30,9 +30,9 @@ public:
         unsigned r = ctz(hv);
         if(r > logn_) {
             const auto k = (hv >> (sizeof(hv) * CHAR_BIT - 6));
-            const auto bit = 1L << k;
+            const auto bit = 1uL << k;
             s1_ |= bit;
-            if (r > logn_ + 1) s2_ |= bit;
+            if (r > logn_ + 1u) s2_ |= bit;
             if(popcount(s1_) > 31)
                 s1_ = s2_, s2_ = 0, ++logn_;
         }

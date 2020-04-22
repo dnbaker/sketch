@@ -34,7 +34,7 @@ using Space = vec::SIMDTypes<uint64_t>;
 // It a bijection within [0,1<<64)
 // and can be inverted with irving_inv_hash.
 struct WangHash {
-    template<typename...Args> WangHash(Args &&...args) {}
+    template<typename...Args> WangHash(Args &&...) {}
     INLINE auto operator()(uint64_t key) const {
           key = (~key) + (key << 21); // key = (key << 21) - key - 1;
           key = key ^ (key >> 24);

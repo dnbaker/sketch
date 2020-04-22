@@ -178,7 +178,7 @@ int main(int argc, char *argv[]) {
             std::fprintf(stderr, "Expected Cardinality [shared:%zu/b1:%zu/b2:%zu]\n", shared, b1c, b2c);
             std::fprintf(stderr, "h1 est %lf, h2 est: %lf\n", h1.report(), h2.report());
             std::fprintf(stderr, "Estimate Harmonicard [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(HARMONIC_MEAN), b2.cardinality_estimate(HARMONIC_MEAN));
-            std::fprintf(stderr, "Estimate div Harmonicard [b1:%lf/b2:%lf]\n", db1.cardinality_estimate(HARMONIC_MEAN), db2.cardinality_estimate(HARMONIC_MEAN));
+            std::fprintf(stderr, "Estimate div Harmonicard [b1:%lf/b2:%lf]\n", db1.cardinality_estimate(), db2.cardinality_estimate());
             std::fprintf(stderr, "Estimate HLL [b1:%lf/b2:%lf/b3:%lf]\n", b1.cardinality_estimate(HLL_METHOD), b2.cardinality_estimate(HLL_METHOD), b3.cardinality_estimate(HLL_METHOD));
             std::fprintf(stderr, "Estimate arithmetic mean [b1:%lf/b2:%lf]\n", b1.cardinality_estimate(ARITHMETIC_MEAN), b2.cardinality_estimate(ARITHMETIC_MEAN));
             std::fprintf(stderr, "Estimate (median) b1:%lf/b2:%lf]\n", b1.cardinality_estimate(MEDIAN), b2.cardinality_estimate(MEDIAN));
