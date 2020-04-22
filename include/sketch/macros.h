@@ -42,6 +42,9 @@
 #  ifndef OMP_PFOR
 #    define OMP_PFOR OMP_PRAGMA("omp parallel for")
 #  endif
+#  ifndef OMP_PFOR_DYN
+#    define OMP_PFOR_DYN OMP_PRAGMA("omp parallel for schedule(dynamic)")
+#  endif
 #  ifndef OMP_ELSE
 #    define OMP_ELSE(x, y) x
 #  endif
@@ -72,6 +75,9 @@
 #  endif
 #  ifndef OMP_PFOR
 #    define OMP_PFOR
+#  endif
+#  ifndef OMP_PFOR_DYN
+#    define OMP_PFOR_DYN
 #  endif
 #  ifndef OMP_ATOMIC
 #    define OMP_ATOMIC
