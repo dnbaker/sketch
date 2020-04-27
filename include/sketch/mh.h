@@ -1345,6 +1345,89 @@ double jaccard_index(const T &a, const T &b) {
 }
 
 
+template<bool weighted, typename Signature=std::uint16_t, typename IndexType=std::uint32_t,
+         typename FT=float>
+struct ShrivastavaHash {
+    const IndexType nd_;
+    const IndexType nh_;
+    const uint64_t seedseed_;
+    FT mv_;
+    std::unique_ptr<FT[]> maxvals_;
+    schism::Schismatic<IndexType> div_;
+public:
+    ShrivastavaHash(size_t ndim, size_t nhashes, size_t seedseed=0): nd_(ndim), nh_(nhashes), seedseed_(seedseed), div_(ndim) {
+        CONST_IF(weighted) { // Defaults to weight of 1 until a weight is provided.
+            mv_ = 1.;
+        }
+    }
+    void set_threshold(FT v) {
+        mv_ = 1. / v;
+    }
+    static constexpr bool is_weighted() {return weighted;}
+    template<typename OFT>
+    void set_threshold(const OFT *p) {
+        assert(p);
+        maxvals_.reset(new FT[nd_]);
+        std::transform(p, p + nd_, maxvals_.get(), [](auto x) {return static_cast<FT>(1. / x);});
+        mv_ = 0.;
+    }
+    FT get_threshold(size_t ind) const {
+        assert(!weighted || mv_ || maxvals_.get());
+        return mv_ ? mv_: maxvals_[ind];
+    }
+    template<typename T>
+    Signature compute_hash_index(const T &x, IndexType idx) const {
+        uint64_t searchseed = seedseed_ + idx;
+        for(Signature sig = 0; ;++sig) {
+            uint64_t val = wy::wyhash64_stateless(&searchseed);
+#if __cplusplus < 201703L
+            auto dm = div_.divmod(val);
+            auto div = dm.quot, rem = dm.rem;
+#else
+            auto [div, rem] = div_.divmod(val);
+#endif
+            CONST_IF(!weighted) {
+                if(x[rem]) return sig;
+            } else CONST_IF(sizeof(IndexType) == 4) {
+                static constexpr FT finv = 1. / (1ull << 32);
+                FT rv = (val >> 32) * finv;
+                if(rv < get_threshold(rem) * x[rem]) return sig;
+            } else {
+                FT rv;
+                if(nd_ < 0xFFFFFFFFull) {
+                    static constexpr FT finv = 1. / (1ull << 32);
+                    rv = (div & 0xFFFFFFFFull) * finv;
+                } else {
+                    static constexpr FT finv52 = 1. / (1ull << 52);
+                    uint64_t nv = div;
+                    nv = wy::wyhash64_stateless(&nv);
+                    rv = (nv >> 12) * finv52;
+                }
+                if(rv < get_threshold(rem) * x[rem])
+                    return sig;
+            }
+        }
+    }
+    template<typename T>
+    void hash(const T &x, Signature *ret, bool parallel_computation=false) const {
+        if(parallel_computation) {
+            OMP_PFOR
+            for(size_t i = 0; i < nh_; ++i)
+                ret[i] = compute_hash_index(x, i);
+            return;
+        }
+        for(size_t i = 0; i < nh_; ++i)
+            ret[i] = compute_hash_index(x, i);
+    }
+    template<typename T>
+    std::vector<Signature> hash(const T &x) const {
+        std::vector<Signature> ret(nh_);
+        hash(x, ret.data());
+        return ret;
+    }
+};
+
+
 } // inline namespace minhash
 namespace mh = minhash;
 } // namespace sketch
