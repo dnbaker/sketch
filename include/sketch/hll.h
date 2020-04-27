@@ -1041,7 +1041,7 @@ public:
             std::fclose(fp);
         }
     }
-    void write(const std::string &path, bool write_gz=false) const {write(path.data(), write_gz);}
+    void write(const std::string &path, bool write_gz=true) const {write(path.data(), write_gz);}
     void read(gzFile fp) {
 #define CR(fp, dst, len) \
     do {\

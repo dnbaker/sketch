@@ -1,6 +1,7 @@
 #ifndef SKETCH_INTEGRAL_H
 #define SKETCH_INTEGRAL_H
 #include "./macros.h"
+#include <cstring>
 #include "x86intrin.h"
 #include <cstdint>
 #include <climits>
@@ -241,7 +242,11 @@ CUDA_ONLY(__host__ __device__) INLINE auto popcount(int val) noexcept {
 }
 
 #if defined(__MMX__) || defined(__SSE2__) || defined(__SSE4_1__) || defined(__SSE4_2__)
-INLINE unsigned popcount(__m64 val) noexcept {return popcount(*reinterpret_cast<uint64_t *>(&val));}
+INLINE unsigned popcount(__m64 arg) noexcept {
+    uint64_t val;
+    std::memcpy(&val, &arg, sizeof(val));
+    return popcount(val);
+}
 #elif !defined(__CUDA_ARCH__)
 template<typename T>
 INLINE unsigned popcount(const T x) {

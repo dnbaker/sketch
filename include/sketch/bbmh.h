@@ -68,7 +68,7 @@ static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
 }
 
 template<typename T, typename Allocator>
-static inline double harmonic_cardinality_estimate(std::vector<T, Allocator> &minvec, bool densify=false) {
+static inline double harmonic_cardinality_estimate(std::vector<T, Allocator> &minvec, bool) {
     return harmonic_cardinality_estimate_impl(minvec);
 }
 
@@ -768,16 +768,7 @@ public:
 #endif
         return rc;
     }
-    double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) const {
-#if VERBOSE_AF
-        if(mode != HARMONIC_MEAN) std::fprintf(stderr, "Warning: HARMONIC_MEAN is the only MHCardinalityMode for %s\n", __PRETTY_FUNCTION__);
-#endif
-        return detail::harmonic_cardinality_estimate(core_);
-    }
-    double cardinality_estimate(MHCardinalityMode mode=HARMONIC_MEAN) {
-#if VERBOSE_AF
-        if(mode != HARMONIC_MEAN) std::fprintf(stderr, "Warning: HARMONIC_MEAN is the only MHCardinalityMode for %s\n", __PRETTY_FUNCTION__);
-#endif
+    double cardinality_estimate() const {
         return detail::harmonic_cardinality_estimate(core_);
     }
     FinalDivBBitMinHash finalize(unsigned b=0) const;
@@ -796,10 +787,11 @@ class ICWSampler {
     std::vector<CT> t_;
     std::mutex mut_;
     FT l1sum_ = 0.;
+    uint64_t seed_;
     // TODO: reduce comparisons for low-count items (See 3.4)
     // TODO: consider HIP/CUDA port
 public:
-    ICWSampler(size_t n, uint64_t seed=0) {
+    ICWSampler(size_t n, uint64_t seed=0): seed_(seed) {
         keys_.resize(n, std::numeric_limits<KT>::max());
         vals_.resize(n, std::numeric_limits<FT>::max());
         t_.resize(n, std::numeric_limits<CT>::max());
