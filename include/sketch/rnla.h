@@ -1,11 +1,12 @@
 #pragma once
 #include "blaze/Math.h"
+#include "blaze/util/Random.h"
 #include "div.h"
 #include "common.h"
 #include "median.h"
 #include <queue>
 #ifndef NDEBUG
-#include <iostream>
+#  include <iostream>
 #endif
 
 namespace sketch {
@@ -102,7 +103,7 @@ auto cs_compress(const C &in, size_t newdim, const Hasher &hf) {
 // or make it always a function of the remainder.
 
 template<typename C, typename C2, typename Hasher=KWiseHasherSet<4>, typename SamplingDist=std::exponential_distribution<double>,
-         typename RNG=blaze::RNG>
+         typename RNG=blaze::DefaultRNG>
 auto &wz_compress(const C &in, C2 &out, size_t newdim, const Hasher &hf, double p) {
     //using FT = std::decay_t<decltype(*std::begin(in))>;
     std::fill(out.begin(), out.end(), static_cast<std::decay_t<decltype(out[0])>>(0));
@@ -127,7 +128,7 @@ auto &wz_compress(const C &in, C2 &out, size_t newdim, const Hasher &hf, double 
 }
 
 template<typename FT, bool SO, typename C2, typename Hasher=KWiseHasherSet<4>, typename SamplingDist=std::exponential_distribution<double>,
-         typename RNG=blaze::RNG>
+         typename RNG=blaze::DefaultRNG>
 auto &wz_compress(const blaze::CompressedVector<FT> &in, C2 &out, size_t newdim, const Hasher &hf, double p) {
     //using FT = std::decay_t<decltype(*std::begin(in))>;
     std::fill(out.begin(), out.end(), static_cast<std::decay_t<decltype(out[0])>>(0));
@@ -149,7 +150,7 @@ auto &wz_compress(const blaze::CompressedVector<FT> &in, C2 &out, size_t newdim,
     return out;
 }
 
-template<typename C, typename C2=C, typename Hasher=KWiseHasherSet<4>, typename RNG=blaze::RNG>
+template<typename C, typename C2=C, typename Hasher=KWiseHasherSet<4>, typename RNG=blaze::DefaultRNG>
 auto wz_compress(const C &in, size_t newdim, const Hasher &hf, double p) {
     C2 ret(newdim * hf.size());
     wz_compress(in, ret, newdim, hf, p);
@@ -158,7 +159,7 @@ auto wz_compress(const C &in, size_t newdim, const Hasher &hf, double p) {
 
 template<typename C, typename OutC, typename Hasher=KWiseHasherSet<4>,
          typename=std::enable_if_t<!std::is_arithmetic<OutC>::value>,
-         typename RNG=blaze::RNG>
+         typename RNG=blaze::DefaultRNG>
 auto &wz_decompress(const C &in, const Hasher &hf, OutC &ret, double p) {
     // TODO: some kind of importance sampling, weighting larger items more.
     PREC_REQ(in.size() % hf.size() == 0, "in dimension must be divisible by hf count");
@@ -182,7 +183,7 @@ auto &wz_decompress(const C &in, const Hasher &hf, OutC &ret, double p) {
     return ret;
 }
 
-template<typename C, typename OutC=C, typename Hasher=KWiseHasherSet<4>, typename RNG=blaze::RNG>
+template<typename C, typename OutC=C, typename Hasher=KWiseHasherSet<4>, typename RNG=blaze::DefaultRNG>
 auto wz_decompress(const C &in, size_t outdim, const Hasher &hs, double p) {
     OutC ret(outdim);
     wz_decompress(in, hs, ret, p);
@@ -357,7 +358,7 @@ public:
     void init() {
         if(sourcedim_) {
             if(!dense_) throw 1;
-            blaze::RNG gen(seed_);
+            blaze::DefaultRNG gen(seed_);
             tx_.reset(new mtype(this->ntables() * this->destdim(), sourcedim_));
             auto &tx = *tx_;
             for(size_t sind = 0; sind < sourcedim_; ++sind) {
