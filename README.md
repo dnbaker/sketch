@@ -32,6 +32,11 @@ All have been accelerated with SIMD parallelism where possible, most are composa
         3. We also support arbitrary divisions using fastmod64 with DivBBitMinHasher and its corresponding final sketch, FinalDivBBitMinHash.
     3. One-permutation counting bbit minhash
         1. Not threadsafe.
+7. ModHash sketches
+    1. mod.h
+    2. Estimates both containment and jaccard index, but takes a (potentially) unbounded space.
+    3. This returns a FinalRMinHash sketch, reusing the infrastructure for minhash sketches,
+       but which calculates Jaccard index and containment knowing that it was generated via mod, not min.
 8. HeavyKeeper
     1. hk.h
     2. Not threadsafe currently.
