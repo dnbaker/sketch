@@ -39,7 +39,6 @@ All have been accelerated with SIMD parallelism where possible, most are composa
        but which calculates Jaccard index and containment knowing that it was generated via mod, not min.
 8. HeavyKeeper
     1. hk.h
-    2. Not threadsafe currently.
     3. Reference: https://www.usenix.org/conference/atc18/presentation/gong
     4. A seemingly unilateral improvement over count-min sketches.
         1. One drawback is the inability to delete items, which makes it unsuitable for sliding windows.

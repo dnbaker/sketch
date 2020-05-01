@@ -16,4 +16,6 @@ int main() {
     }
     auto f = mod.finalize();
     std::cerr << "Now, out of 10001 items, f has size " << f.size() << '\n';
+    auto modfocus = mod.reduce(2);
+    std::cerr << "Now, out of 10001 items, f (reduced by 2) has size " << modfocus.finalize().size() << '\n';
 }

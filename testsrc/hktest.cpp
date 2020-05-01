@@ -115,7 +115,7 @@ void run_hk_point() {
     for(const auto item: is) {
         if(hk.queryh(item) == 0) ++missing;
     }
-    assert(missing <= 42 || tbsz != defaulttbsz); // This could actually change and still be fine, but I want to know about these changes.
+    assert(missing <= 100 || tbsz != defaulttbsz); // This could actually change and still be fine, but I want to know about these changes.
     std::fprintf(stderr, "missing 10x items: %zu of total %zu\n", missing, items.size());
     assert(missing < items.size() / 10);
     std::for_each(items.begin(), items.end(), [](auto &x) {x = hash::WangHash().inverse(x);});

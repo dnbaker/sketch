@@ -100,7 +100,7 @@ public:
     SET_SKETCH(hashes_)
 };
 
-template<typename T, typename Allocator, bool is_modhash> struct FinalRMinHash; // Forward definition
+template<typename T, typename Allocator> struct FinalRMinHash; // Forward definition
 /*
 The sketch is the set of minimizers.
 
@@ -118,7 +118,7 @@ protected:
     std::set<T, Cmp> minimizers_; // using std::greater<T> so that we can erase from begin()
 
 public:
-    using final_type = FinalRMinHash<T, Allocator, false>;
+    using final_type = FinalRMinHash<T, Allocator>;
     using Compare = Cmp;
     RangeMinHash(size_t sketch_size, Hasher &&hf=Hasher(), Cmp &&cmp=Cmp()):
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
@@ -285,9 +285,8 @@ struct DictWeight {
 };
 }
 
-template<typename T, typename Allocator=std::allocator<T>, bool is_modhash=false>
+template<typename T, typename Allocator=std::allocator<T>>
 struct FinalRMinHash {
-    static constexpr bool is_mod = is_modhash;
     static_assert(std::is_unsigned<T>::value, "must be unsigned btw");
 
     using allocator = Allocator;
@@ -297,42 +296,26 @@ struct FinalRMinHash {
     size_t intersection_size(const FinalRMinHash &o) const {
         return common::intersection_size(first, o.first);
     }
-	double containment_index(const FinalRMinHash &o) const {
-		assert(is_modhash);
-		auto isz = intersection_size(o);
-		return double(isz) / first.size();
-	}
     double jaccard_index(const FinalRMinHash &o) const {
-        CONST_IF(is_mod) {
-			size_t isz = intersection_size(o);
-			double denom = (first.size() + o.size() - isz);
-			return isz / denom;
-        } else {
-            auto lit = begin(), rit = o.begin(), lend = end(), rend = o.end();
-            const size_t n = size();
-            size_t nused = 0, shared = 0;
-            while(nused++ < n) {
-                if(*lit == *rit) {
-                    ++shared;
+        auto lit = begin(), rit = o.begin(), lend = end(), rend = o.end();
+        const size_t n = size();
+        size_t nused = 0, shared = 0;
+        while(nused++ < n) {
+            if(*lit == *rit) {
+                ++shared;
+                if(++lit == lend) break;
+                if(++rit == rend) break;
+            } else {
+                if(*lit < *rit) {
                     if(++lit == lend) break;
-                    if(++rit == rend) break;
                 } else {
-                    if(*lit < *rit) {
-                        if(++lit == lend) break;
-                    } else {
-                        if(++rit == rend) break;
-                    }
+                    if(++rit == rend) break;
                 }
             }
-            return double(shared) / n;
         }
+        return double(shared) / n;
         //double is = intersection_size(o);
         //return is / ((size() << 1) - is);
-    }
-    void print_all_cards() const {
-        for(const auto x: {HARMONIC_MEAN, ARITHMETIC_MEAN, MEDIAN}) {
-            std::fprintf(stderr, "cardest with x = %d is %lf\n", int(x), cardinality_estimate(x));
-        }
     }
     FinalRMinHash &operator+=(const FinalRMinHash &o) {
         std::vector<T, Allocator> newfirst; newfirst.reserve(o.size());
@@ -484,12 +467,6 @@ protected:
     void sort() {
         common::sort::default_sort(this->first.begin(), this->first.end());
     }
-};
-
-template<typename T, typename Allocator=std::allocator<T>>
-struct FinalModHash: public FinalRMinHash<T, Allocator, true> {
-    template<typename...Args>
-    FinalModHash(Args &&...args): FinalRMinHash<T, Allocator, true>(std::forward<Args>(args)...) {}
 };
 
 template<typename T, typename CountType> struct FinalCRMinHash; // Forward
