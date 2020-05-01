@@ -6,6 +6,7 @@
 #include <cinttypes>
 #include "hll.h"
 #include "mh.h"
+#include "wip/hmh.h"
 #include "ccm.h"
 #include "hbb.h"
 #include "kthread.h"

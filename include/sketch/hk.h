@@ -5,6 +5,9 @@
 #include "aesctr/wy.h"
 #include "tsg.h"
 #include "flat_hash_map/flat_hash_map.hpp"
+#if SKETCH_THREADSAFE
+#include <mutex>
+#endif
 
 namespace sketch {
 
@@ -24,6 +27,7 @@ class HeavyKeeper {
     template<typename HK, typename VT, typename H, typename A, typename HS, typename, typename>
     friend class HeavyKeeperHeap;
 
+
     // Members
     Policy pol_;
     const size_t nh_;
@@ -31,6 +35,28 @@ class HeavyKeeper {
     Hasher hasher_;
     const double b_;
     uint64_t n_updates_;
+#if SKETCH_THREADSAFE
+    struct mutkeeper {
+        size_t n_;
+        std::mutex *mutexes_;
+        mutkeeper(const mutkeeper &o): n_(o.n_), mutexes_(new std::mutex[o.n_]) {
+        }
+        mutkeeper(): n_(0), mutexes_(nullptr) {}
+        mutkeeper(mutkeeper &&o): n_(o.n_), mutexes_(o.mutexes_) {
+            o.mutexes_ = nullptr;
+            o.n_ = 0;
+        }
+        void reset(size_t n) {
+            delete[] mutexes_;
+            n_ = n;
+            mutexes_ = new std::mutex[n];
+        }
+        auto &operator[](size_t i) {return mutexes_[i];}
+        const auto &operator[](size_t i) const {return mutexes_[i];}
+        ~mutkeeper() {delete[] mutexes_;}
+    };
+    mutkeeper mutexes_;
+#endif
 public:
     static constexpr size_t VAL_PER_REGISTER = 64 / (fpsize + ctrsize);
     using hash_type = Hasher;
@@ -45,12 +71,11 @@ public:
         b_(pdec), n_updates_(0)
     {
         assert(subtables);
+#if SKETCH_THREADSAFE
+        mutexes_.reset(subtables);
+#endif
         PREC_REQ(pdec >= 1., std::string("pdec is not valid (>= 1.). Value: ") + std::to_string(pdec));
         PREC_REQ(data_.size() > 0, "HeavyKeeper must be greater than 0 in size");
-#if VERBOSE_AF
-        std::fprintf(stderr, "Num entries: %zu. Requested: %zu. pol nelem: %zu. nh: %u\n", data_.size() * VAL_PER_REGISTER, requested_size, pol_.nelem(), nh_);
-        std::fprintf(stderr, "fpsize: %zu. ctrsize: %zu. requested size: %zu. actual size: %zu. Overflow check? %d. nhashes: %zu\n", fpsize, ctrsize, requested_size, pol_.nelem(), 1, nh_);
-#endif
     }
 
     HeavyKeeper(const HeavyKeeper &o) = default;
@@ -107,11 +132,13 @@ public:
     }
 
     void store(size_t pos, size_t subidx, uint64_t fp, uint64_t count) {
+#if SKETCH_THREADSAFE
+        std::unique_lock<std::mutex> lock(mutexes_[subidx]);
+#endif
         assert(subidx < nh_);
         auto dataptr = data_.data() + (subidx * pol_.nelem() / VAL_PER_REGISTER);
         assert(dataptr < data_.data() + data_.size());
         uint64_t to_insert = encode(count, fp);
-        //std::fprintf(stderr, "Position is %zu vs pol nelem %zu. pos: %zu\n", dataptr - data_.data(), pol_.nelem(), pos);
         CONST_IF(VAL_PER_REGISTER == 1) {
             dataptr[pos] = to_insert;
             return;

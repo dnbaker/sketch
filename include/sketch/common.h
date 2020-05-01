@@ -133,6 +133,9 @@ class DefaultStaticCompactVectorType: public ::compact::vector<uint64_t, NBITS, 
 public:
     DefaultStaticCompactVectorType(size_t nb, size_t nelem): ::compact::vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>(nelem) {}
 };
+#ifndef SKETCH_THREADSAFE
+#define SKETCH_THREADSAFE 0
+#endif
 #else
 using DefaultCompactVectorType = ::compact::ts_vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
 
@@ -141,6 +144,9 @@ class DefaultStaticCompactVectorType: public ::compact::ts_vector<uint64_t, NBIT
 public:
     DefaultStaticCompactVectorType(size_t nb, size_t nelem): ::compact::ts_vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>(nelem) {}
 };
+#ifndef SKETCH_THREADSAFE
+#define SKETCH_THREADSAFE 1
+#endif
 #endif
 
 
