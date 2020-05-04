@@ -11,7 +11,8 @@
  * TODO: support minhash using sketch size and a variable number of hashes.
  * Implementations: KMinHash (multiple hash functions)
  *                  RangeMinHash (the lowest range in a set, but only uses one hash)
- *                  HyperMinHash
+ *                  CountingRangeMinHash (bottom-k, but with weights)
+ *                  ShrivastavaHash
  */
 
 namespace sketch {

@@ -682,16 +682,19 @@ public:
             auto nloops = (nnz + 7) / 8u;
             uint64_t t;
             // nloops is guaranteed to be at least one because otherwise v would have heen 0
+            auto dofunc = [&]() {
+                t = v & -v; func(index + ctz(v)); v ^= t; assert(v);
+            };
             switch(nnz % 8u) {
                 case 0:
-            do {        t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH
-                case 7: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH
-                case 6: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH
-                case 5: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH
-                case 4: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH
-                case 3: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH
-                case 2: t = v & -v; func(index + ctz(v)); v ^= t; assert(v); VEC_FALLTHROUGH
-                case 1: t = v & -v; func(index + ctz(v)); v ^= t;
+            do {        dofunc(); VEC_FALLTHROUGH
+                case 7: dofunc(); VEC_FALLTHROUGH
+                case 6: dofunc(); VEC_FALLTHROUGH
+                case 5: dofunc(); VEC_FALLTHROUGH
+                case 4: dofunc(); VEC_FALLTHROUGH
+                case 3: dofunc(); VEC_FALLTHROUGH
+                case 2: dofunc(); VEC_FALLTHROUGH
+                case 1: dofunc();
                 } while(--nloops);
                 assert(v == 0);
             }

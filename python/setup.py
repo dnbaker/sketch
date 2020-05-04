@@ -40,15 +40,22 @@ include_dirs=[
 ]
 ext_modules = [
     Extension(
-        'hll',
+        'sketch_hll',
         ['hll.cpp'],
         include_dirs=include_dirs,
         language='c++',
         extra_compile_args=extra_compile_args
     ),
     Extension(
-        'bbmh',
+        'sketch_bbmh',
         ['bbmh.cpp'],
+        include_dirs=include_dirs,
+        language='c++',
+        extra_compile_args=extra_compile_args
+    ),
+    Extension(
+        'sketch_util',
+        ['util.cpp'],
         include_dirs=include_dirs,
         language='c++',
         extra_compile_args=extra_compile_args

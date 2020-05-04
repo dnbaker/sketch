@@ -1,6 +1,6 @@
 #include "python/pysketch.h"
 
-PYBIND11_MODULE(hll, m) {
+PYBIND11_MODULE(sketch_hll, m) {
     m.doc() = "HyperLogLog support"; // optional module docstring
     py::class_<hll_t> (m, "hll")
         .def(py::init<size_t>())
@@ -17,7 +17,10 @@ PYBIND11_MODULE(hll, m) {
         .def("union", [](const hll_t &h1, const hll_t &h2) {return h1 + h2;})
         .def("union_size", [](const hll_t &h1, const hll_t &h2) {return h1.union_size(h2);})
         .def("est_err", &hll_t::est_err, "Estimate error")
-        .def("relative_error", &hll_t::relative_error, "Expected error for sketch");
+        .def("relative_error", &hll_t::relative_error, "Expected error for sketch")
+        .def("compress", [](const hll_t &h1, unsigned newnp) {return h1.compress(newnp);},
+             py::return_value_policy::take_ownership,
+             "Compress an HLL sketch from a previous prefix length to a smaller one.");
     m.def("jaccard_index", [](hll_t &h1, hll_t &h2) {
             return jaccard_index(h1, h2);
         }, "Calculates jaccard indexes between two sketches")
@@ -41,30 +44,5 @@ PYBIND11_MODULE(hll, m) {
     .def("union_size_matrix", [](py::list l) {return CmpFunc::apply(l, USF());},
          "Compare sketches in parallel. Input: list of sketches.")
     .def("symmetric_containment_matrix", [](py::list l) {return CmpFunc::apply(l, SCF());},
-         "Compare sketches in parallel. Input: list of sketches.")
-    .def("ij2ind", [](size_t i, size_t j, size_t n) {return i < j ? (((i) * (n * 2 - i - 1)) / 2 + j - (i + 1)): (((j) * (n * 2 - j - 1)) / 2 + i - (j + 1));})
-    .def("randset", [](size_t i) {
-        static wy::WyHash<uint64_t, 4> gen(1337);
-        py::array_t<uint64_t> ret({i});
-        auto ptr = static_cast<uint64_t *>(ret.request().ptr);
-        for(size_t j = 0; j < i; ptr[j++] = gen());
-        return ret;
-    }, py::return_value_policy::take_ownership, "Generate a 1d random numpy array")
-    .def("tri2full", [](py::array_t<float> arr) {
-        size_t dim = flat2fullsz(arr.size());
-        py::array_t<float> ret({dim, dim});
-        auto retptr = static_cast<float *>(ret.request().ptr), aptr = static_cast<float *>(arr.request().ptr);
-        for(size_t i = 0; i < dim; ++i) {
-            for(size_t j = 0; j < i; ++j) {
-                size_t ind = (((j) * (dim * 2 - j - 1)) / 2 + i - (j + 1));
-                retptr[dim * i + j] = aptr[ind];
-            }
-            retptr[dim * i + i] = 1.; // Jaccard index is 1 for this case.
-            for(size_t j = i + 1; j < dim; ++j) {
-                size_t ind = ((i * (dim * 2 - i - 1)) / 2 + j - (i + 1));
-                retptr[dim * i + j] = aptr[ind];
-            }
-        }
-        return ret;
-    }, py::return_value_policy::take_ownership);
+         "Compare sketches in parallel. Input: list of sketches.");
 } // pybind11 module

@@ -1,18 +1,47 @@
 #include "pysketch.h"
 
 
-PYBIND11_MODULE(bbmh, m) {
+PYBIND11_MODULE(sketch_bbmh, m) {
     m.doc() = "BBitMinHash support";
+    py::class_<mh::FinalBBitMinHash> (m, "FinalBBitMinHash")
+        .def("jaccard_index", [](mh::FinalBBitMinHash &lhs, mh::FinalBBitMinHash &rhs) {
+            return lhs.jaccard_index(rhs);
+        })
+        .def("containment_index", [](mh::FinalBBitMinHash &lhs, mh::FinalBBitMinHash &rhs) {
+            return lhs.containment_index(rhs);
+        })
+        .def("popcnt", [](const mh::FinalBBitMinHash &lhs) {
+            return lhs.popcnt();
+        })
+        .def("size", [](const mh::FinalBBitMinHash &lhs) {return lhs.nmin();})
+        .def("equal_blocks", [](mh::FinalBBitMinHash &lhs, mh::FinalBBitMinHash &rhs) {
+            return lhs.equal_bblocks(rhs);
+        }).def("write", [](mh::FinalBBitMinHash &lhs, std::string path) {
+            lhs.write(path);
+        })
+        .def("compress", [](const mh::BBitMinHasher<uint64_t> &h1, unsigned newnp) {return h1.compress(newnp);},
+             py::return_value_policy::take_ownership,
+            "Compress an b-bit minhash sketch from a previous prefix length to a smaller one.")
+        .def("finalize", [](mh::BBitMinHasher<uint64_t> &lhs) {
+            mh::FinalBBitMinHash ret = lhs.finalize();
+            return ret;
+        }, py::return_value_policy::take_ownership);
+
     py::class_<mh::BBitMinHasher<uint64_t>> (m, "BBitMinHasher")
         .def(py::init<size_t, unsigned>())
+        .def(py::init<std::string>())
         .def("clear", &mh::BBitMinHasher<uint64_t>::clear, "Clear all entries.")
         //.def("report", &mh::BBitMinHasher<uint64_t>::report, "Emit estimated cardinality. Performs sum if not performed, but sum must be recalculated if further entries are added.")
         .def("add", [](mh::BBitMinHasher<uint64_t> &h1, uint64_t v) {h1.add(v);}, "Add a (hashed) value to the sketch.")
         .def("addh", [](mh::BBitMinHasher<uint64_t> &h1, uint64_t v) {h1.addh(WangHash()(v));}, "Hash an integer value and then add that to the sketch..")
-        .def("jaccard_index", [](mh::BBitMinHasher<uint64_t> &h1, mh::BBitMinHasher<uint64_t> &h2) {return jaccard_index(h2, h2);});
+        .def("jaccard_index", [](mh::BBitMinHasher<uint64_t> &h1, mh::BBitMinHasher<uint64_t> &h2) {return jaccard_index(h2, h2);})
+        .def("write", [](mh::BBitMinHasher<uint64_t> &lhs, std::string path) {
+                lhs.write(path);
+        }, "Write sketch to disk at path");
         //.def("sprintf", &mh::BBitMinHasher<uint64_t>::sprintf)
         //.def("union", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1 + h2;})
         //.def("union_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.union_size(h2);})
+
     m.def("jaccard_index", [](mh::BBitMinHasher<uint64_t> &h1, mh::BBitMinHasher<uint64_t> &h2) {
             return jaccard_index(h1, h2);
         }, "Calculates jaccard indexes between two sketches")
@@ -27,31 +56,6 @@ PYBIND11_MODULE(bbmh, m) {
          auto ptr = input.data();
          for(ssize_t i = 0; i < input.size();ret.addh(ptr[i++]));
          return ret;
-     }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers")
+     }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers");
     //.def("union_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.union_size(h2);}, "Calculate union size")
-    .def("ij2ind", [](size_t i, size_t j, size_t n) {return i < j ? (((i) * (n * 2 - i - 1)) / 2 + j - (i + 1)): (((j) * (n * 2 - j - 1)) / 2 + i - (j + 1));})
-    .def("randset", [](size_t i) {
-        static wy::WyHash<uint64_t, 4> gen(1337);
-        py::array_t<uint64_t> ret({i});
-        auto ptr = static_cast<uint64_t *>(ret.request().ptr);
-        for(size_t j = 0; j < i; ptr[j++] = gen());
-        return ret;
-    }, py::return_value_policy::take_ownership, "Generate a 1d random numpy array")
-    .def("tri2full", [](py::array_t<float> arr) {
-        size_t dim = flat2fullsz(arr.size());
-        py::array_t<float> ret({dim, dim});
-        auto retptr = static_cast<float *>(ret.request().ptr), aptr = static_cast<float *>(arr.request().ptr);
-        for(size_t i = 0; i < dim; ++i) {
-            for(size_t j = 0; j < i; ++j) {
-                size_t ind = (((j) * (dim * 2 - j - 1)) / 2 + i - (j + 1));
-                retptr[dim * i + j] = aptr[ind];
-            }
-            retptr[dim * i + i] = 1.; // Jaccard index is 1 for this case.
-            for(size_t j = i + 1; j < dim; ++j) {
-                size_t ind = ((i * (dim * 2 - i - 1)) / 2 + j - (i + 1));
-                retptr[dim * i + j] = aptr[ind];
-            }
-        }
-        return ret;
-    }, py::return_value_policy::take_ownership);
 } // pybind11 module

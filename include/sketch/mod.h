@@ -80,7 +80,9 @@ ForwardIt remove_if_else(ForwardIt first, ForwardIt last, UnaryPredicate p, Func
 
 template<typename T, typename Allocator>
 struct FinalModHash: public minhash::FinalRMinHash<T, Allocator> {
-    const T mod_;
+private:
+    T mod_;
+public:
     template<typename...Args>
     FinalModHash(T mod, Args &&...args): minhash::FinalRMinHash<T, Allocator>(std::forward<Args>(args)...), mod_(mod) {}
     double jaccard_index(const FinalModHash &o) const {
@@ -94,9 +96,59 @@ struct FinalModHash: public minhash::FinalRMinHash<T, Allocator> {
     double cardinality_estimate() const {
         return this->size() * mod_;
     }
+    double union_size(const FinalModHash &o) const {
+        auto isz = this->intersection_size(o);
+        return this->first.size() + o.first.size() - isz;
+    }
+    FinalModHash(std::string path) {
+        this->read(path);
+    }
+    FinalModHash(gzFile fp) {
+        this->read(fp);
+    }
+    void write(std::string path) const {
+        gzFile ifp = gzopen(path, "rb");
+        if(!ifp) throw ZlibError("Failed to open file");
+        this->read(ifp);
+        gzclose(ifp);
+    }
+    void read(std::string path) {
+        gzFile ifp = gzopen(path, "rb");
+        if(!ifp) throw ZlibError("Failed to open file");
+        this->read(ifp);
+        gzclose(ifp);
+    }
+    void write(gzFile fp) const {
+        gzwrite(fp, &mod_, sizeof(mod_));
+        uint64_t nelem = size();
+        gzwrite(fp, &nelem, sizeof(nelem));
+        gzwrite(fp, this->first.data(), nelem * sizeof(T));
+    }
+    void read(gzFile fp) {
+        uint64_t nelem;
+        if(gzread(ifp, &mod_, sizeof(mod_)) != unsigned(sizeof(mod_)) ||
+           gzread(ifp, &nelem, sizeof(nelem)) != unsigned(sizeof(nelem)))
+            throw ZlibError("Wrong number of bytes");
+        this->first.resize(nelem);
+        if(gzread(ifp, this->first.data(), nelem * sizeof(T)) != int64_t(nelem * sizeof(T)))
+            throw ZlibError("Wrong number of bytes");
+        gzclose(ifp);
+    }
+    size_t size() const {return this->first.size();}
     FinalModHash reduce(T factor) const {
         FinalModHash ret(*this);
         ret.reduce_inplace(factor);
+        return ret;
+    }
+    FinalModHash &operator+=(const FinalModHash &o) {
+        PREC_REQ(o.mod_ == this->mod_, "Can't merge ModHashes of different mod");
+        auto tmp = std::move(this->first);
+        std::set_union(tmp.begin(), tmp.end(), o.first.begin(), o.first.end(), std::back_inserter(this->first));
+        return *this;
+    }
+    FinalModHash(const FinalModHash &o) const {
+        FinalModHash ret(*this);
+        ret += o;
         return ret;
     }
     FinalModHash &reduce_inplace(T factor) {
@@ -124,6 +176,7 @@ struct FinalModHash: public minhash::FinalRMinHash<T, Allocator> {
                 [&](auto x) {return modnew.div(x);}
             ), this->end());
         }
+        mod_ *= factor;
     }
 };
 
