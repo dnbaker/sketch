@@ -20,10 +20,21 @@ static size_t flat2fullsz(size_t n) {
     return i;
 }
 
-template<typename Sketch>
 struct AsymmetricCmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
+        if(l.begin()->cast<hll_t *>()) {
+            return apply_sketch<Func, hll_t>(l, func);
+        //} else if(l.begin()->cast<mh::BBitMinHasher<uint64_t> *>()) {
+        //    apply_sketch<Func, mh::BBitMinHasher<uint64_t>>(l, func);
+        } else if(l.begin()->cast<mh::FinalBBitMinHash *>()) {
+            return apply_sketch<Func, mh::FinalBBitMinHash>(l, func);
+        } else {
+            throw std::runtime_error("Unsupported type");
+        }
+    }
+    template<typename Func, typename Sketch>
+    static py::array_t<float> apply_sketch(py::list l, const Func &func) {
         std::vector<Sketch *> ptrs(l.size(), nullptr);
         size_t i = 0;
         for(py::handle ob: l) {
@@ -48,11 +59,23 @@ struct AsymmetricCmpFunc {
 struct CmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
-        std::vector<hll::hll_t *> ptrs(l.size(), nullptr);
+        if(l.begin()->cast<hll_t *>()) {
+            return apply_sketch<Func, hll_t>(l, func);
+        } else if(l.begin()->cast<mh::BBitMinHasher<uint64_t> *>()) {
+            return apply_sketch<Func, mh::BBitMinHasher<uint64_t>>(l, func);
+        } else if(l.begin()->cast<mh::FinalBBitMinHash *>()) {
+            return apply_sketch<Func, mh::FinalBBitMinHash>(l, func);
+        } else {
+            throw std::runtime_error("Unsupported type");
+        }
+    }
+    template<typename Func, typename SketchType=hll_t>
+    static py::array_t<float> apply_sketch(py::list l, const Func &func) {
+        std::vector<SketchType *> ptrs(l.size(), nullptr);
         size_t i = 0;
         for(py::handle ob: l) {
-            auto lp = ob.cast<hll_t *>();
-            if(!lp) throw std::runtime_error("Note: I die");
+            auto lp = ob.cast<SketchType *>();
+            if(!lp) throw std::runtime_error("Failed to coerce to HLL");
             ptrs[i++] = lp;
         }
         const size_t lsz = l.size(), nc2 = nchoose2(lsz);
@@ -88,9 +111,15 @@ struct ISF {
     }
 };
 struct SCF {
-    template<typename T>
-    auto operator()(T &x, T &y) const {
+    template<typename HS>
+    auto operator()(hllbase_t<HS> &x, hllbase_t<HS> &y) const {
         return intersection_size(x, y) / std::min(x.report(), y.report());
+    }
+    template<typename OT>
+    auto operator()(OT &x, OT &y) const {
+        auto is = intersection_size(x, y);
+        auto card1 = x.cardinality_estimate(), card2 = y.cardinality_estimate();
+        return is / std::min(card1, card2);
     }
 };
 struct CSF {

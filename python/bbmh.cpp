@@ -56,6 +56,7 @@ PYBIND11_MODULE(sketch_bbmh, m) {
          auto ptr = input.data();
          for(ssize_t i = 0; i < input.size();ret.addh(ptr[i++]));
          return ret;
-     }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers");
+     }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers")
+    .def("union_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.union_size(h2);}, "Calculate union size");
     //.def("union_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.union_size(h2);}, "Calculate union size")
 } // pybind11 module

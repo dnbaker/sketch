@@ -36,13 +36,5 @@ PYBIND11_MODULE(sketch_hll, m) {
          for(ssize_t i = 0; i < input.size();ret.addh(ptr[i++]));
          return ret;
      }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers")
-    .def("union_size", [](const hll_t &h1, const hll_t &h2) {return h1.union_size(h2);}, "Calculate union size")
-    .def("jaccard_matrix", [](py::list l) {return CmpFunc::apply(l, JIF());}, py::return_value_policy::take_ownership,
-         "Compare sketches in parallel. Input: list of sketches. Output: numpy array of n-choose-2 flat matrix of JIs, float")
-    .def("intersection_matrix", [](py::list l) {return CmpFunc::apply(l, ISF());}, "Compare sketches in parallel. Input: list of sketches. Output: n-choose-2 flat matrix of intersection_size, float")
-    .def("containment_matrix", [](py::list l) {return AsymmetricCmpFunc<hll_t>::apply(l, CSF());}, py::return_value_policy::take_ownership, "Compare sketches in parallel. Input: list of sketches. Output: n-choose-2 flat matrix of intersection_size, float")
-    .def("union_size_matrix", [](py::list l) {return CmpFunc::apply(l, USF());},
-         "Compare sketches in parallel. Input: list of sketches.")
-    .def("symmetric_containment_matrix", [](py::list l) {return CmpFunc::apply(l, SCF());},
-         "Compare sketches in parallel. Input: list of sketches.");
+    .def("union_size", [](const hll_t &h1, const hll_t &h2) {return h1.union_size(h2);}, "Calculate union size");
 } // pybind11 module

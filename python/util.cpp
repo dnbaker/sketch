@@ -94,5 +94,13 @@ PYBIND11_MODULE(sketch_util, m) {
             ptr[j] = gen();
         }
         return ret;
-    }, py::return_value_policy::take_ownership, "Generate a 1d random numpy array");
+    }, py::return_value_policy::take_ownership, "Generate a 1d random numpy array")
+    .def("jaccard_matrix", [](py::list l) {return CmpFunc::apply(l, JIF());}, py::return_value_policy::take_ownership,
+         "Compare sketches in parallel. Input: list of sketches. Output: numpy array of n-choose-2 flat matrix of JIs, float")
+    .def("intersection_matrix", [](py::list l) {return CmpFunc::apply(l, ISF());}, "Compare sketches in parallel. Input: list of sketches. Output: n-choose-2 flat matrix of intersection_size, float")
+    .def("containment_matrix", [](py::list l) {return AsymmetricCmpFunc::apply(l, CSF());}, py::return_value_policy::take_ownership, "Compare sketches in parallel. Input: list of sketches. Output: n-choose-2 flat matrix of intersection_size, float")
+    .def("union_size_matrix", [](py::list l) {return CmpFunc::apply(l, USF());},
+         "Compare sketches in parallel. Input: list of sketches.")
+    .def("symmetric_containment_matrix", [](py::list l) {return CmpFunc::apply(l, SCF());},
+         "Compare sketches in parallel. Input: list of sketches.");
 } // pybind11 module

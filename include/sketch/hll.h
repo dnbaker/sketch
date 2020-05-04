@@ -1180,6 +1180,15 @@ public:
 };
 using hll_t = hllbase_t<>;
 
+template<typename T>
+struct has_csum: public std::false_type {};
+template<typename HS>
+struct has_csum<hllbase_t<HS>>: public std::true_type {};
+#if __cplusplus >= 201703L
+template<typename T>
+static constexpr bool has_csum_v = has_csum<T>::value;
+#endif
+
 #ifndef NOT_THREADSAFE
 static bool warning_emitted = false;
 #endif
@@ -1279,21 +1288,21 @@ public:
 using shll_t = shllbase_t<>;
 
 // Returns the size of the set intersection
-template<typename HllType>
-inline double intersection_size(HllType &first, HllType &other) noexcept {
+template<typename HS>
+inline double intersection_size(hllbase_t<HS> &first, hllbase_t<HS> &other) noexcept {
     first.csum(), other.csum();
-    return intersection_size(static_cast<const HllType &>(first), static_cast<const HllType &>(other));
+    return intersection_size(static_cast<const hllbase_t<HS> &>(first), static_cast<const hllbase_t<HS> &>(other));
 }
 
 template<typename HllType> inline std::pair<double, bool> bjaccard_index(const HllType &h1, const HllType &h2) {return h1.bjaccard_index(h2);}
 template<typename HllType> inline std::pair<double, bool> bjaccard_index(HllType &h1, HllType &h2) {return h1.bjaccard_index(h2);}
 
 // Returns a HyperLogLog union
-template<typename HllType>
-static inline double union_size(const HllType &h1, const HllType &h2) {return h1.union_size(h2);}
+template<typename HS>
+static inline double union_size(const hllbase_t<HS> &h1, const hllbase_t<HS> &h2) {return h1.union_size(h2);}
 
-template<typename HllType>
-static inline double intersection_size(const HllType &h1, const HllType &h2) {
+template<typename HS>
+static inline double intersection_size(const hllbase_t<HS> &h1, const hllbase_t<HS> &h2) {
     return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
 }
 

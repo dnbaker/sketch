@@ -286,6 +286,7 @@ public:
     }
     template<typename T, typename Hasher=common::WangHash>
     FinalDivBBitMinHash(const DivBBitMinHasher<T, Hasher> &o): FinalDivBBitMinHash(std::move(o.finalize())) {}
+    double cardinality_estimate() const {return est_cardinality_;}
     ssize_t read(gzFile fp) {
         uint64_t arr[2];
         if(gzread(fp, arr, sizeof(arr)) != sizeof(arr)) throw ZlibError("Could not read from file.");
@@ -339,6 +340,16 @@ public:
         double ji = jaccard_index(o);
         double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
         return is / est_cardinality_;
+    }
+    double intersection_size(const FinalDivBBitMinHash &o) const {
+        double ji = jaccard_index(o);
+        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        return is;
+    }
+    double union_size(const FinalDivBBitMinHash &o) const {
+        double ji = jaccard_index(o);
+        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        return est_cardinality_ + o.est_cardinality_ - is;
     }
     std::array<double, 3> full_set_comparison(const FinalDivBBitMinHash &o) const {
         double ji = jaccard_index(o);
@@ -954,6 +965,19 @@ public:
         } while(it != core_.end());
         return double(ret) / core_.size();
     }
+    double intersection_size(const BBitMinHasher &o) const {
+        const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);
+        auto f = [numinv](const auto v) {return v * numinv;};
+        long double tmp = 0.;
+        size_t nshared = 0;
+        for(size_t i = 0; i < core_.size(); ++i) {
+            auto v = std::min(core_[i], o.core_[i]);
+            tmp += f(v != detail::default_val<T>() ? v: (std::numeric_limits<T>::max() >> p_));
+            nshared += core_[i] == o.core_[i];
+        }
+        return nshared * std::pow(core_.size(), 2) / (tmp * core_.size());
+        // Returns estimate of cardinality of union, multiplied by the est jaccard index
+    }
     double union_size(const BBitMinHasher &o) const {
         //auto it = core_.begin(), oit = o.core_.begin();
         const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);
@@ -1247,6 +1271,7 @@ public:
     FinalBBitMinHash(gzFile fp): est_cardinality_(0), b_(0), p_(0) {
         read(fp);
     }
+    double cardinality_estimate() const {return est_cardinality_;}
     size_t nblocks() const {
         return size_t(1) << p_;
     }
@@ -1448,6 +1473,16 @@ public:
         double ji = jaccard_index(o);
         double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
         return is / est_cardinality_;
+    }
+    double intersection_size(const FinalBBitMinHash &o) const {
+        double ji = jaccard_index(o);
+        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        return is;
+    }
+    double union_size(const FinalBBitMinHash &o) const {
+        double ji = jaccard_index(o);
+        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        return est_cardinality_ + o.est_cardinality_ - is;
     }
 }; // FinalBBitMinHash
 
@@ -1945,6 +1980,11 @@ template<typename T, typename CountingType, typename Hasher>
 FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Hasher>::finalize(uint32_t b) const {
     auto bbm = BBitMinHasher<T, Hasher>::finalize(b);
     return FinalCountingBBitMinHash<CountingType>(std::move(bbm), this->counters_);
+}
+
+template<typename T>
+decltype(auto) intersection_size(const T &x, const T &y) {
+    return x.intersection_size(y);
 }
 
 } // minhash
