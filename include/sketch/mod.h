@@ -107,13 +107,13 @@ public:
         this->read(fp);
     }
     void write(std::string path) const {
-        gzFile ifp = gzopen(path, "rb");
+        gzFile ifp = gzopen(path.data(), "rb");
         if(!ifp) throw ZlibError("Failed to open file");
         this->read(ifp);
         gzclose(ifp);
     }
     void read(std::string path) {
-        gzFile ifp = gzopen(path, "rb");
+        gzFile ifp = gzopen(path.data(), "rb");
         if(!ifp) throw ZlibError("Failed to open file");
         this->read(ifp);
         gzclose(ifp);
@@ -124,7 +124,7 @@ public:
         gzwrite(fp, &nelem, sizeof(nelem));
         gzwrite(fp, this->first.data(), nelem * sizeof(T));
     }
-    void read(gzFile fp) {
+    void read(gzFile ifp) {
         uint64_t nelem;
         if(gzread(ifp, &mod_, sizeof(mod_)) != unsigned(sizeof(mod_)) ||
            gzread(ifp, &nelem, sizeof(nelem)) != unsigned(sizeof(nelem)))
@@ -146,7 +146,7 @@ public:
         std::set_union(tmp.begin(), tmp.end(), o.first.begin(), o.first.end(), std::back_inserter(this->first));
         return *this;
     }
-    FinalModHash(const FinalModHash &o) const {
+    FinalModHash operator+(const FinalModHash &o) {
         FinalModHash ret(*this);
         ret += o;
         return ret;
