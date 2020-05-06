@@ -205,7 +205,7 @@ public:
     auto end() const {return minimizers_.end();}
     template<typename C2>
     size_t intersection_size(const C2 &o) const {
-        return common::intersection_size(o, *this, cmp_);
+        return isz::intersection_size(o, *this, cmp_);
     }
     double jaccard_index(const RangeMinHash &o) const {
         //assert(o.size() == minimizers_.size());
@@ -295,7 +295,7 @@ struct FinalRMinHash {
     uint64_t lsum_;
     using container_type = decltype(first);
     size_t intersection_size(const FinalRMinHash &o) const {
-        return common::intersection_size(first, o.first);
+        return isz::intersection_size(first, o.first);
     }
     double jaccard_index(const FinalRMinHash &o) const {
         auto lit = begin(), rit = o.begin(), lend = end(), rend = o.end();

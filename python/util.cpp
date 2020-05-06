@@ -28,7 +28,7 @@ PYBIND11_MODULE(sketch_util, m) {
         if(py::isinstance<py::array_t<type>>(lhs)) { \
             auto lhrange = make_dumbrange((const type *)lhinfo.ptr, (const type *)lhinfo.ptr + lhinfo.size);\
             auto rhrange = make_dumbrange((const type *)rhinfo.ptr, (const type *)rhinfo.ptr + rhinfo.size);\
-            ret = sketch::common::intersection_size(lhrange, rhrange); \
+            ret = sketch::isz::intersection_size(lhrange, rhrange); \
             goto end; \
         }
         PERF_ISZ__(uint64_t)

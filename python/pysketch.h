@@ -3,11 +3,11 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/numpy.h"
 #include "sketch/bbmh.h"
+#include "sketch/bf.h"
 #include <omp.h>
 #include "aesctr/wy.h"
 namespace py = pybind11;
 using namespace sketch;
-using namespace hll;
 using namespace hll;
 
 static size_t nchoose2(size_t n) {return n * (n - 1) / 2;}

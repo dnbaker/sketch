@@ -12,6 +12,10 @@ PYBIND11_MODULE(sketch_hll, m) {
         .def("report", &hll_t::report, "Emit estimated cardinality. Performs sum if not performed, but sum must be recalculated if further entries are added.")
         .def("add", [](hll_t &h1, uint64_t v) {h1.add(v);}, "Add a (hashed) value to the sketch.")
         .def("addh_", [](hll_t &h1, uint64_t v) {h1.addh(h1.hash(v));}, "Hash an integer value and then add that to the sketch..")
+        .def("addh", [](hll_t &h1, py::object p) {
+            auto hv = py::hash(p);
+            h1.addh(hv);
+        }, "Hash a python object and add it to the sketch.")
         .def("jaccard_index", [](hll_t &h1, hll_t &h2) {return jaccard_index(h2, h2);})
         .def("sprintf", &hll_t::sprintf)
         .def("union", [](const hll_t &h1, const hll_t &h2) {return h1 + h2;})

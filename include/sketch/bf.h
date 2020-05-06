@@ -4,7 +4,7 @@
 
 
 namespace sketch {
-inline namespace bf {
+namespace bf {
 
 
 // TODO: add a compact, 6-bit version
@@ -84,7 +84,7 @@ public:
         if(np_ > 40u) throw std::runtime_error(std::string("Attempting to make a table that's too large. p:") + std::to_string(np_));
         if(np_) resize(1ull << p());
     }
-    explicit bfbase_t(size_t l2sz=OFFSET): bfbase_t(l2sz, 1, std::rand()) {}
+    explicit bfbase_t(size_t l2sz=OFFSET): bfbase_t(l2sz, 1, 137) {}
     explicit bfbase_t(const std::string &path) {
         read(path);
     }
@@ -439,7 +439,7 @@ public:
     bfbase_t &operator&=(const bfbase_t &other) {
         if(!same_params(other)) {
             char buf[256];
-            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
+            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
             throw std::runtime_error(buf);
         }
         unsigned i;
@@ -465,7 +465,7 @@ public:
     bfbase_t &operator^=(const bfbase_t &other) {
         if(!same_params(other)) {
             char buf[256];
-            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
+            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
             throw std::runtime_error(buf);
         }
         unsigned i;
@@ -486,7 +486,7 @@ public:
     bfbase_t &operator|=(const bfbase_t &other) {
         if(!same_params(other)) {
             char buf[256];
-            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u)\n", np_, other.np_);
+            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
             throw std::runtime_error(buf);
         }
         unsigned i;
@@ -716,6 +716,8 @@ public:
         for_each_nonzero([&](uint64_t i) {ret.push_back(i);});
         return ret;
     }
+    template<typename...Args>
+    auto hash(Args &&...args) const {return hf_(std::forward<Args>(args)...);}
 };
 
 template<typename T, typename Alloc> template<typename Hash>
@@ -728,8 +730,8 @@ using bf_t = bfbase_t<>;
 // Returns the size of the set intersection
 template<typename BloomType>
 inline double intersection_size(BloomType &first, BloomType &other) noexcept {
-    first.csum(), other.csum();
-    return intersection_size(static_cast<const BloomType &>(first), static_cast<const BloomType &>(other));
+    throw std::runtime_error("NotImplementedError");
+    return 0.;
 }
 
 
@@ -744,6 +746,9 @@ static inline double intersection_size(const BloomType &h1, const BloomType &h2)
 #undef PERFORM_ITER
 
 } // inline namespace bf
+using bf::bf_t;
+using bf::sparsebf_t;
+using bf::bfbase_t;
 } // namespace sketch
 
 #endif // #ifndef CRUEL_BLOOM_H__

@@ -689,7 +689,7 @@ class hllbase_t {
 
 // Attributes
 protected:
-    std::vector<uint8_t, Allocator<uint8_t>> core_;
+    std::vector<uint8_t, common::Allocator<uint8_t>> core_;
     mutable double                          value_;
     uint32_t                                   np_;
     mutable uint8_t                 is_calculated_;
@@ -1344,7 +1344,7 @@ template<typename HashStruct=WangHash>
 class dhllbase_t: public hllbase_t<HashStruct> {
     // dhllbase_t is a bidirectional hll sketch which does not currently support set operations
     // It is based on the idea that the properties of a hll sketch work for both leading and trailing zeros and uses them as independent samples.
-    std::vector<uint8_t, Allocator<uint8_t>> dcore_;
+    std::vector<uint8_t, common::Allocator<uint8_t>> dcore_;
     using hll_t = hllbase_t<HashStruct>;
 public:
     template<typename... Args>
@@ -1465,7 +1465,7 @@ protected:
     // Note: Consider using a shared buffer and then do a weighted average
     // of estimates from subhlls of power of 2 sizes.
     std::vector<SeedHllType>                      hlls_;
-    std::vector<uint64_t, Allocator<uint64_t>>   seeds_;
+    std::vector<uint64_t, common::Allocator<uint64_t>>   seeds_;
     std::vector<double>                         values_;
     mutable double                               value_;
     bool                                 is_calculated_;
@@ -1640,7 +1640,7 @@ class chlf_t { // contiguous hyperlogfilter
 protected:
     // Note: Consider using a shared buffer and then do a weighted average
     // of estimates from subhlls of power of 2 sizes.
-    std::vector<uint64_t, Allocator<uint64_t>>   seeds_;
+    std::vector<uint64_t, common::Allocator<uint64_t>>   seeds_;
     std::vector<double>                         values_;
     EstimationMethod                             estim_;
     JointEstimationMethod                       jestim_;
@@ -1649,7 +1649,7 @@ protected:
     const uint16_t                                  np_;
     mutable double                               value_;
     bool                                 is_calculated_;
-    std::vector<uint8_t, Allocator<uint8_t>>      core_;
+    std::vector<uint8_t, common::Allocator<uint8_t>>      core_;
     const HashType h_;
 public:
     template<typename... Args>
@@ -1660,7 +1660,7 @@ public:
                 value_(0), is_calculated_(0), core_(1ull << p), h_(std::forward<Args>(args)...)
     {
         auto sfs = detail::seeds_from_seed(seedseed ? seedseed: ns_ + l2ss * p + 137, ns_);
-        seeds_ = std::vector<uint64_t, Allocator<uint64_t>>(std::begin(sfs), std::end(sfs));
+        seeds_ = std::vector<uint64_t, common::Allocator<uint64_t>>(std::begin(sfs), std::end(sfs));
         assert(sfs.size());
     }
     auto nbytes()    const {return core_.size();}
