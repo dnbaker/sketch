@@ -77,12 +77,12 @@ int main(int argc, char *argv[]) {
     size_t iszest = irm1.intersection_size(irm2);
     std::fprintf(stderr, "imbalanced %zu/%zu ji: %g. expected: %g. setest ji: %g\n", olap_n + (nelem - olap_n) * 2, nelem - olap_n, irm1.jaccard_index(irm2), imb_exp,
                  double(iszest) / (2 * irm1.size() - iszest));
-    size_t is = intersection_size(rm1, rm2, typename RangeMinHash<uint64_t>::key_compare());
+    size_t is = isz::intersection_size(rm1, rm2, typename RangeMinHash<uint64_t>::key_compare());
     double setest = double(is) / (2 * rm1.size() - is);
     double ji = rm1.jaccard_index(rm2);
     std::fprintf(stderr, "sketch is: %zu. sketch ji: %lf. True: %lf. setest ji: %g\n", is, ji, true_ji, setest);
     //assert(std::abs(ji - true_ji) / true_ji < 0.1);
-    is = intersection_size(rm1, rm1, typename RangeMinHash<uint64_t>::key_compare());
+    is = isz::intersection_size(rm1, rm1, typename RangeMinHash<uint64_t>::key_compare());
     assert(rm1.jaccard_index(rm1) == 1.);
     mt.seed(1337);
     for(size_t i = 0; i < nelem; ++i) {

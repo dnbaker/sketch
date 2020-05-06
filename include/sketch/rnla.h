@@ -230,7 +230,7 @@ auto top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, cons
     schism::Schismatic<uint32_t> div(olddim);
     using FT = std::decay_t<decltype(*std::begin(in))>;
     std::priority_queue<std::pair<FT, unsigned>, std::vector<std::pair<FT, unsigned>>, Functor> pq;
-    OMP_PRAGMA("omp parallel for")
+    OMP_PFOR
     for(size_t i = 0; i < newdim; ++i) {
         sketch::common::detail::tmpbuffer<float, 8> mem(hf.size());
         auto tmp = mem.get();
@@ -239,11 +239,14 @@ auto top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, cons
             tmp[j] = in.operator[](div.mod(hv >> 1) * ns + j) * (hv & 1 ? 1: -1);
         }
         common::sort::insertion_sort(tmp, tmp + hf.size());
-        std::pair<FT, unsigned> pair = std::make_pair(median(tmp, hf.size()), unsigned(i));
-        OMP_PRAGMA("omp critical")
-        {
-            pq.push(pair);
-            if(pq.size() > k) pq.pop();
+        FT med = median(tmp, hf.size());
+        if(pq.size() < k || med > pq.top().first) {
+            std::pair<FT, unsigned> pair(med, unsigned(i));
+            OMP_CRITICAL
+            {
+                pq.push(pair);
+                if(pq.size() > k) pq.pop();
+            }
         }
     }
     std::pair<std::vector<FT>, std::vector<unsigned>> ret;

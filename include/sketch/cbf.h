@@ -4,7 +4,7 @@
 #include "hll.h"
 
 namespace sketch {
-inline namespace bf {
+namespace bf {
 
 namespace detail {
 // Utilities for generically selecting sketch parameters.
