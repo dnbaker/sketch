@@ -9,6 +9,7 @@
 namespace py = pybind11;
 using namespace sketch;
 using namespace hll;
+using sketch::bf_t;
 
 static size_t nchoose2(size_t n) {return n * (n - 1) / 2;}
 
@@ -27,8 +28,8 @@ struct AsymmetricCmpFunc {
             return apply_sketch<Func, hll_t>(l, func);
         //} else if(l.begin()->cast<mh::BBitMinHasher<uint64_t> *>()) {
         //    apply_sketch<Func, mh::BBitMinHasher<uint64_t>>(l, func);
-        } else if(l.begin()->cast<mh::FinalBBitMinHash *>()) {
-            return apply_sketch<Func, mh::FinalBBitMinHash>(l, func);
+        } else if(l.begin()->cast<bf_t *>()) {
+            return apply_sketch<Func, bf_t>(l, func);
         } else {
             throw std::runtime_error("Unsupported type");
         }
@@ -65,6 +66,9 @@ struct CmpFunc {
             return apply_sketch<Func, mh::BBitMinHasher<uint64_t>>(l, func);
         } else if(l.begin()->cast<mh::FinalBBitMinHash *>()) {
             return apply_sketch<Func, mh::FinalBBitMinHash>(l, func);
+        } else if(l.begin()->cast<bf_t *>()) {
+            return apply_sketch<Func, bf_t>(l, func);
+        } else {
         } else {
             throw std::runtime_error("Unsupported type");
         }

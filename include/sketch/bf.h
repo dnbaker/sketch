@@ -322,6 +322,10 @@ public:
         ret[2] = std::max(ret[2], 0.);
         return ret;
     }
+    double containment_index(const bfbase_t &other) const {
+        auto full = full_set_comparison(other);
+        return full[2] / (full[0] + full[2]);
+    }
     double jaccard_index(const bfbase_t &other) const {
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
