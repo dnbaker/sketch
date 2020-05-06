@@ -69,7 +69,6 @@ struct CmpFunc {
         } else if(l.begin()->cast<bf_t *>()) {
             return apply_sketch<Func, bf_t>(l, func);
         } else {
-        } else {
             throw std::runtime_error("Unsupported type");
         }
     }
