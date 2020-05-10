@@ -20,10 +20,12 @@ All have been accelerated with SIMD parallelism where possible, most are composa
     3. Count-min sketches can support concept drift if `realccm_t` from mult.h is used.
 5. MinHash sketches
     1. mh.h (`RangeMinHash` is the currently verified implementation.) We recommend you build the sketch and then convert to a linear container (e.g., a `std::vector`) using `to_container<ContainerType>()` or `.finalize()` for faster comparisons.
+        1. BottomKHasher is an alternate that uses more space to reduce runtime, which finalizes() into the same structure.
     2. CountingRangeMinHash performs the same operations as RangeMinHash, but provides multiplicities, which facilitates `histogram_similarity`, a generalization of Jaccard with multiplicities.
     3. Both CountingRangeMinHash and RangeMinHash can be finalized into containers for fast comparisons with `.finalize()`.
     3. A draft HyperMinHash implementation is available as well, but it has not been thoroughly vetted.
-    4. Range MinHash implementations and the HyperMinHash implementation are *not* threadsafe.
+    4. Range MinHash implementationsare *not* threadsafe.
+    5. HyperMinHash implementation is threa
 6. B-Bit MinHash
     1. bbmh.h
     2. One-permutation (partition) bbit minhash
