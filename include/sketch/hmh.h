@@ -26,9 +26,9 @@ protected:
     double alpha_;
 public:
     hmh_t(unsigned p, unsigned rsize=8):
-            rbm_((uint64_t(1) << (rsize - q)) - 1),
-            p_(p), r_(rsize-q),
-            lrszm3_(ilog2(rsize) - 3), alpha_(make_alpha(uint64_t(1) << p))
+          rbm_((uint64_t(1) << (rsize - q)) - 1),
+          p_(p), r_(rsize-q),
+          lrszm3_(ilog2(rsize) - 3), alpha_(make_alpha(uint64_t(1) << p))
     {
         switch(rsize) {
             case 8: lrszm3_ = 0; break;  case 16: lrszm3_ = 1; break;
@@ -40,9 +40,12 @@ public:
         data_.resize(rsize << (p_ - 3));
         assert(integral::is_pow2(rbm_ + 1));
         assert(std::all_of(data_.begin(), data_.end(), [](auto x) {return x == 0;}));
-        if(lrszm3_ == 2) {
-            std::fprintf(stderr, "Note: computation works as expected for 8, 16, and 64 bytes, but there may be an issue with 32\n");
-        }
+    }
+    hmh_t(gzFile fp) {
+        this->read(fp);
+    }
+    hmh_t(std::string path) {
+        this->read(path);
     }
 
     // Constants, encoding, and decoding utilities
@@ -59,6 +62,10 @@ public:
     }
     uint64_t max_remainder() const {
         return (uint64_t(1) << r_) - 1;
+    }
+    template<typename IT>
+    const IT *get_dataptr() const {
+        return static_cast<const IT *>(data_.data());
     }
     template<typename IT>
     hmh_t &perform_merge(const hmh_t &o) {
@@ -87,8 +94,11 @@ public:
 
     template<typename IT1, typename IT2, typename IT3, typename IT4=std::common_type_t<IT1, IT2, IT3>>
     static inline constexpr IT4 encode_register(IT1 r, IT2 lzc, IT3 rem) {
+        static_assert(sizeof(IT4) >= std::max(std::max(sizeof(IT1), sizeof(IT2)), sizeof(IT3)), "size");
         IT4 enc = (IT4(lzc) << r) | rem;
+        assert((enc >> r) == lzc);
         assert(reg2lzc(enc, r) == lzc || !std::fprintf(stderr, "lzc of %ld should be decoded as %ld from %ld", static_cast<long int>(reg2lzc(enc, r)), static_cast<long int>(lzc), static_cast<long int>(enc)));
+        assert(reg2rem(enc, (1ull << r) - 1) == rem);
         assert((enc % (1ull << r)) == rem);
         return enc;
     }
@@ -219,10 +229,13 @@ public:
         switch(lrszm3_) {
             case 0: __add<uint8_t> (h1, h2); break;
             case 1: __add<uint16_t>(h1, h2); break;
-            case 2: __add<uint16_t>(h1, h2); break;
+            case 2: __add<uint32_t>(h1, h2); break;
             case 3: __add<uint64_t>(h1, h2); break;
             default: __builtin_unreachable();
         }
+    }
+    template<typename IT> IT access(size_t index) const {
+        return reinterpret_cast<const IT *>(data_.data())[index];
     }
     std::array<uint32_t, 64> sum_counts() const {
         using hll::detail::SIMDHolder;
@@ -252,29 +265,46 @@ public:
             }
         } else {
             manual_core:
-            for(const auto i: data_) ++ret[reg2lzc(i, r_)];
+            this->for_each_register([&](auto x) {++ret[reg2lzc(x, r_)];});
         }
-        if(lrszm3_ == 2)
-            for(unsigned i = 0; i < 64; ++i)
-                if(ret[i]) std::fprintf(stderr, "%u: %u\n", i, int(ret[i]));
+#if !NDEBUG
+        {
+            std::array<uint32_t, 64> cmp{0};
+            this->for_each_register([&](auto x) {++cmp[reg2lzc(x, r_)];});
+            for(unsigned i = 0; i < 64; ++i) {
+                assert(ret[i] == cmp[i]);
+            }
+        }
+#endif
+        assert(std::accumulate(ret.begin(), ret.end(), size_t(0)) == (1ull << p_));
         return ret;
     }
     template<typename IT>
     void __add(uint64_t h1, uint64_t h2) {
         uint64_t bucket = h1 >> max_lremainder();
+        assert(bucket < data_.size() / sizeof(IT));
         unsigned lzc = clz(((h1 << 1)|1) << (p_ - 1)) + 1;
         uint64_t sig = h2 & rbm_;
+        assert(sizeof(IT) != 4 || rbm_ == 0x3ffffffu);
         const IT reg = encode_register(r_, lzc, sig);
+        assert(reg > sig);
+        assert(reg >= (size_t(lzc) << r_));
         IT &r = *reinterpret_cast<IT *>(data_.data() + sizeof(IT) * bucket);
-#ifndef NOT_THREADSAFE
-        if(reg > r) r = reg;
+#ifdef NOT_THREADSAFE
+        if(reg > r) {
+            r = reg;
+            assert(reg2lzc(reg, r_) == lzc);
+        }
 #else
-        while(reg > r) __sync_bool_compare_and_swap(&r, r, reg);
+        while(reg > r) {
+            __sync_bool_compare_and_swap(&r, r, reg);
+        }
 #endif
         assert(r >= reg);
+        assert(!r || reg2lzc(r, r_) != 0);
     }
     double estimate_hll_portion() const {
-        return hll::detail::ertl_ml_estimate(this->sum_counts(), p_, 64 - p_);
+        return std::max(hll::detail::ertl_ml_estimate(this->sum_counts(), p_, 64 - p_), 0.);
     }
     double cardinality_estimate() const {
         double hest = estimate_hll_portion();
@@ -344,6 +374,7 @@ public:
 
         auto card = cardinality_estimate();
         auto ocard = o.cardinality_estimate();
+        assert(this != &o || card == ocard);
         auto ec = approx_ec(card, ocard);
         return std::max(0., cc - ec) / nc;
     }
@@ -441,15 +472,57 @@ public:
 #endif
         return (uint64_t(cc) << 32) | nc;
     }
+
+    void write(gzFile fp) const {
+        uint8_t buf[2];
+        buf[0] = p_;
+        buf[1] = lrszm3_;
+        gzwrite(fp, buf, sizeof(buf));
+        gzwrite(fp, data_.data(), data_.size());
+    }
+    void write(std::string path) const {
+        gzFile fp = gzopen(path.data(), "wb");
+        if(!fp) throw ZlibError(std::string("Failed to open file at ") + path + " for writing");
+        write(fp);
+        gzclose(fp);
+    }
+    void read(std::string path) {
+        gzFile fp = gzopen(path.data(), "rb");
+        if(!fp) throw ZlibError(std::string("Failed to open file at ") + path + " for reading");
+        this->read(fp);
+        gzclose(fp);
+    }
+    void read(gzFile fp) {
+        uint8_t buf[2];
+        gzread(fp, buf, sizeof(buf));
+        p_ = buf[0];
+        lrszm3_ = buf[1];
+        switch(lrszm3_) {
+            case 0: r_ = 2; break;
+            case 1: r_ = 10; break;
+            case 2: r_ = 26; break;
+            case 3: r_ = 58; break;
+            default: throw std::runtime_error("Illegal remainder size");
+        }
+        data_.resize(1ull << (p_ + lrszm3_));
+        gzread(fp, data_.data(), data_.size());
+        alpha_ = make_alpha(uint64_t(1) << p);
+        rbm_ = (1ull << r_) - 1;
+    }
 };
 
-struct HyperMinHash: public hmh_t {
+template<typename Hasher=hash::WangHash>
+struct HyperMinHasher: public hmh_t {
     static constexpr double UNSET_CARD = -std::numeric_limits<double>::max();
 
     mutable double card_ = UNSET_CARD;
+    Hasher hf_;
+    
 
     template<typename...Args>
-    HyperMinHash(Args &&...args): hmh_t(std::forward<Args>(args)...) {}
+    HyperMinHasher(Args &&...args): hmh_t(std::forward<Args>(args)...) {}
+    template<typename...Args>
+    HyperMinHasher(Hasher &&hf, Args &&...args): hmh_t(std::forward<Args>(args)...), hf_(std::move(hf)) {}
 
     INLINE double getcard() const {
         if(card_ == UNSET_CARD) {
@@ -460,7 +533,19 @@ struct HyperMinHash: public hmh_t {
 
     void unset_card() {card_ = UNSET_CARD;}
 
-    double jaccard_index(const HyperMinHash &o) const {
+
+    void add(uint64_t hv) {
+        uint64_t h2 = wy::wyhash64_stateless(&hv);
+        hmh_t::add(hv, h2);
+    }
+
+    template<typename...Args>
+    void addh(Args &&...args) {
+        add(hf_(std::forward<Args>(args)...));
+    }
+
+    double jaccard_index(const HyperMinHasher &o) const {
+        if(this == &o) return 1.;
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
         uint64_t cc_nc = this->lrszm3_ == 0
             ? this->__calc_cc_nc<uint8_t> (o): this->lrszm3_ == 1
@@ -469,17 +554,23 @@ struct HyperMinHash: public hmh_t {
             ? this->__calc_cc_nc<uint64_t> (o): uint64_t(-1);
         uint32_t cc = cc_nc >> 32, nc = cc_nc & 0xFFFFFFFFu;
         if(!cc) return 0.;
-
         auto card = getcard();
         auto ocard = o.getcard();
         auto ec = this->approx_ec(card, ocard);
         return std::max(0., cc - ec) / nc;
+    }
+    double intersection_size(const HyperMinHasher &o) const {
+        double us = this->union_size(o);
+        double ji = jaccard_index(o);
+        return ji * us;
     }
 };
 
 } // namespace hmh
 
 using hmh::hmh_t;
+using hmh::HyperMinHasher;
+using HyperMinHash = HyperMinHasher<>;
 
 } // namespace sketch::hmh
 
