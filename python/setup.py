@@ -24,8 +24,8 @@ class get_pybind_include(object):
 
 extra_compile_args = ['-march=native',
                       '-Wno-char-subscripts', '-Wno-unused-function',
-                       '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv',
-                        '-lz', '-fopenmp', '-lgomp']
+                      '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv',
+                      '-lz', '-fopenmp', '-lgomp', '-DNDEBUG']
 
 include_dirs=[
     # Path to pybind11 headers
