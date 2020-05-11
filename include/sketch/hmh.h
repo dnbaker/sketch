@@ -90,6 +90,11 @@ public:
             default: __builtin_unreachable();
         }
     }
+    hmh_t operator+(const hmh_t &o) const {
+        hmh_t ret(*this);
+        ret += o;
+        return ret;
+    }
 
 
     template<typename IT1, typename IT2, typename IT3, typename IT4=std::common_type_t<IT1, IT2, IT3>>
@@ -390,7 +395,9 @@ public:
         auto start = (const IT *)data_.data(), end = (const IT *)&data_[data_.size()];
         auto ostart = (const IT *)o.data_.data();
         uint32_t cc = 0, nc = 0;
+#ifndef NDEBUG
         uint32_t manual_cc = 0, manual_nc = 0;
+#endif
 
         // TODO: SIMD optimize
         if(data_.size() < sizeof(Type)) {
@@ -524,6 +531,17 @@ struct HyperMinHasher: public hmh_t {
     template<typename...Args>
     HyperMinHasher(Hasher &&hf, Args &&...args): hmh_t(std::forward<Args>(args)...), hf_(std::move(hf)) {}
 
+    HyperMinHasher& operator+=(const HyperMinHasher &o) {
+        hmh_t::operator+=(o);
+        card_ = this->cardinality_estimate();
+        return *this;
+    }
+    HyperMinHasher operator+(const HyperMinHasher &o) const {
+        HyperMinHasher ret(*this);
+        ret += o;
+        return ret;
+    }
+
     INLINE double getcard() const {
         if(card_ == UNSET_CARD) {
             card_ = this->cardinality_estimate();
@@ -544,8 +562,14 @@ struct HyperMinHasher: public hmh_t {
         add(hf_(std::forward<Args>(args)...));
     }
 
+    double containment_index(const HyperMinHasher &o) const {
+        if(unlikely(this == &o)) return 1.;
+        double us = this->union_size(o);
+        return this->getcard() / us;
+    }
+
     double jaccard_index(const HyperMinHasher &o) const {
-        if(this == &o) return 1.;
+        if(unlikely(this == &o)) return 1.;
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
         uint64_t cc_nc = this->lrszm3_ == 0
             ? this->__calc_cc_nc<uint8_t> (o): this->lrszm3_ == 1

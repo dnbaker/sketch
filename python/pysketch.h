@@ -4,6 +4,7 @@
 #include "pybind11/numpy.h"
 #include "sketch/bbmh.h"
 #include "sketch/bf.h"
+#include "sketch/hmh.h"
 #include <omp.h>
 #include "aesctr/wy.h"
 namespace py = pybind11;
@@ -26,6 +27,8 @@ struct AsymmetricCmpFunc {
     static py::array_t<float> apply(py::list l, const Func &func) {
         if(l.begin()->cast<hll_t *>()) {
             return apply_sketch<Func, hll_t>(l, func);
+        } else if(l.begin()->cast<sketch::HyperMinHash *>()) {
+            apply_sketch<Func, sketch::HyperMinHash>(l, func);
         //} else if(l.begin()->cast<mh::BBitMinHasher<uint64_t> *>()) {
         //    apply_sketch<Func, mh::BBitMinHasher<uint64_t>>(l, func);
         } else if(l.begin()->cast<bf_t *>()) {
@@ -64,6 +67,8 @@ struct CmpFunc {
             return apply_sketch<Func, hll_t>(l, func);
         } else if(l.begin()->cast<mh::BBitMinHasher<uint64_t> *>()) {
             return apply_sketch<Func, mh::BBitMinHasher<uint64_t>>(l, func);
+        } else if(l.begin()->cast<sketch::HyperMinHash *>()) {
+            return apply_sketch<Func, sketch::HyperMinHash>(l, func);
         } else if(l.begin()->cast<mh::FinalBBitMinHash *>()) {
             return apply_sketch<Func, mh::FinalBBitMinHash>(l, func);
         } else if(l.begin()->cast<bf_t *>()) {

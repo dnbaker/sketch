@@ -52,7 +52,7 @@ def make_module(namecppf):
         extra_compile_args=extra_compile_args
     )
 
-ext_modules = list(map(make_module, map(make_namepair, ('hll', 'bbmh', 'util', 'bf'))))
+ext_modules = list(map(make_module, map(make_namepair, ('hll', 'bbmh', 'util', 'bf', 'hmh'))))
 
 '''
 ext_modules = [
