@@ -248,38 +248,22 @@ public:
         // Note: we have whip out more complicated vectorized maxes for
         // widths of 16, 32, or 64
         std::array<uint32_t, 64> ret{0};
+        static constexpr uint64_t MASKS[4] {
+            UINT64_C(0x3f3f3f3f3f3f3f3f), UINT64_C(0x003f003f003f003f),
+            UINT64_C(0x0000003f0000003f), UINT64_C(0x000000000000003f)
+        };
         if(data_.size() >= sizeof(SIMDHolder)) {
-            switch(lrszm3_) {
-#define CASE_U(cse, func, msk) \
-                case cse: {\
-                    const Space::Type mask = Space::set1(UINT64_C(msk));\
-                    for(const SIMDHolder *ptr = reinterpret_cast<const SIMDHolder *>(data_.data()), *eptr = reinterpret_cast<const SIMDHolder *>(data_.data() + data_.size());\
-                        ptr != eptr; ++ptr) {\
-                        auto tmp = *ptr;\
-                        tmp = Space::and_fn(Space::srli(*reinterpret_cast<VType *>(&tmp), r_), mask);\
-                        tmp.func(ret);\
-                    }\
-                    break;\
-                }
-                CASE_U(0, inc_counts,   0x3f3f3f3f3f3f3f3f)
-                CASE_U(1, inc_counts16, 0x003f003f003f003f)
-                CASE_U(2, inc_counts32, 0x0000003f0000003f)
-                CASE_U(3, inc_counts64, 0x000000000000003f)
-#undef CASE_U
-                default: goto manual_core;
-            }
-        } else {
-            manual_core:
-            this->for_each_register([&](auto x) {++ret[reg2lzc(x, r_)];});
-        }
+            const Space::Type mask = Space::set1(MASKS[lrszm3_]);
+            auto ptr = reinterpret_cast<const SIMDHolder *>(data_.data()), eptr = reinterpret_cast<const SIMDHolder *>(&data_[data_.size()]);
+            std::for_each(ptr, eptr, [&ret,mask,lut=lrszm3_,r=r_](auto v) {
+                v = Space::and_fn(Space::srli(v, r), mask);
+                v.inc_counts_lut(ret, lut);
+            });
+        } else for_each_register([&](auto x) {++ret[reg2lzc(x, r_)];});
 #if !NDEBUG
-        {
-            std::array<uint32_t, 64> cmp{0};
-            this->for_each_register([&](auto x) {++cmp[reg2lzc(x, r_)];});
-            for(unsigned i = 0; i < 64; ++i) {
-                assert(ret[i] == cmp[i]);
-            }
-        }
+        std::array<uint32_t, 64> cmp{0};
+        for_each_register([&](auto x) {++cmp[reg2lzc(x, r_)];});
+        assert(std::equal(ret.begin(), ret.end(), cmp.begin()));
 #endif
         assert(std::accumulate(ret.begin(), ret.end(), size_t(0)) == (1ull << p_));
         return ret;
@@ -316,13 +300,16 @@ public:
         if(hest < (1024 << p_)) return hest;
         return estimate_mh_portion();
     }
+    static INLINE double mhsum2ret(double ret, int p) {
+        return std::ldexp(1. / ret, int(2 * p));
+    }
     double estimate_mh_portion() const {
         double ret = 0.;
         double maxrem = max_remainder(), mri = 1. / maxrem;
         for_each_lzrem([&](auto lzc, auto rem) {
             ret += (1. + (maxrem - rem) * mri) * INVPOWERSOFTWO[lzc];
         });
-        return std::ldexp(1. / ret, int(2 * p_));
+        return mhsum2ret(ret, p_);
     }
     double union_size(const hmh_t &o) const {
         double ret = 0.;
@@ -330,7 +317,7 @@ public:
         for_each_union_lzrem(o, [&](auto lzc, auto rem) {
             ret += (1. + (maxrem - rem) * mri) * INVPOWERSOFTWO[lzc];
         });
-        return std::ldexp(1. / ret, int(2 * p_));
+        return mhsum2ret(ret, p_);
     }
     double approx_ec(double n, double m, bool only_lazy=true) const {
         if(n < m) std::swap(n, m);
@@ -395,11 +382,6 @@ public:
         auto start = (const IT *)data_.data(), end = (const IT *)&data_[data_.size()];
         auto ostart = (const IT *)o.data_.data();
         uint32_t cc = 0, nc = 0;
-#ifndef NDEBUG
-        uint32_t manual_cc = 0, manual_nc = 0;
-#endif
-
-        // TODO: SIMD optimize
         if(data_.size() < sizeof(Type)) {
             do {
                 cc += *start && *start == *ostart;
@@ -423,14 +405,6 @@ public:
                 Type rh_nonzero = ~Space::cmpeq(rhv, zero);
                 Type any_nonzero = Space::or_fn(lh_nonzero, rh_nonzero);
                 const Type eq_and_nonzero = Space::and_fn(any_nonzero, Space::cmpeq(lhv, rhv));
-#ifndef NDEBUG
-                for(uint32_t i = 0; i < sizeof(eq_and_nonzero) / sizeof(IT); ++i) {
-                    if(((const IT *)&eq_and_nonzero)[i])
-                        ++manual_cc;
-                    if(((const IT *)&any_nonzero)[i])
-                        ++manual_nc;
-                }
-#endif
 #if __AVX2__
 #  define __MOVEMASK8(x) _mm256_movemask_epi8(x)
 #  define __MOVEMASK32(x) _mm256_movemask_ps((__m256)x)
@@ -465,18 +439,6 @@ public:
 
             } while(lhp < lhe);
         }
-#ifndef NDEBUG
-        size_t occ = 0, ncc = 0;
-        while(start < end) {
-            occ += *start && *start == *ostart;
-            ncc += *start || *ostart;
-            ++ostart; ++start;
-        }
-        assert(ncc == nc);
-        assert(occ == cc);
-        assert(manual_cc == cc);
-        assert(manual_nc == nc);
-#endif
         return (uint64_t(cc) << 32) | nc;
     }
 

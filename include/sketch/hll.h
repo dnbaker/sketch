@@ -378,6 +378,25 @@ public:
         unroller<T, 0, nels> ur;
         ur(*this, arr);
     }
+    template<typename T>
+    void inc_counts_lut(T &arr, int jump) const {
+#if ENABLE_COMPUTED_GOTO
+        static constexpr void *labels [] {&&B8, &&B16, &&B32, &&B64};
+        goto *labels[jump];
+        B8: inc_counts(arr);    return;
+        B16: inc_counts16(arr); return;
+        B32: inc_counts32(arr); return;
+        B64: inc_counts64(arr); return;
+#else
+        switch(jump) {
+            case 0: inc_counts(arr);   break;
+            case 1: inc_counts16(arr); break;
+            case 2: inc_counts32(arr); break;
+            case 3: inc_counts64(arr); break;
+            default: __builtin_unreachable();
+        }
+#endif
+    }
     template<typename T, size_t iternum, size_t niter_left> struct unroller {
         void operator()(const SIMDHolder &ref, T &arr) const {
             ++arr[ref.vals[iternum]];
@@ -1920,7 +1939,7 @@ struct wh119_t {
         long double tmp = counts[0];
         for(ssize_t i = 1; i < ssize_t(counts.size()); ++i)
             tmp += static_cast<long double>(counts[i]) * (std::pow(wh_base_, -i));
-        double ret = (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_); 
+        double ret = (std::pow(core_.size(), 2) / tmp) / std::sqrt(wh_base_);
         if(ret < 2.5 * core_.size() && counts[0]) {
             double m = core_.size();
             ret = m * std::log(m / counts[0]);
