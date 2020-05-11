@@ -37,6 +37,9 @@ int main(int argc, char *argv[]) {
     size_t ss = argc < 4 ? 11: size_t(std::strtoull(argv[3], nullptr, 10));
     RangeMinHash<uint64_t> rm1(1 << ss), rm2(1 << ss);
     RangeMinHash<uint64_t> irm1(1 << ss), irm2(1 << ss);
+    BottomKHasher<> bk(100);
+    bk.addh(13);
+    bk.add(13);
     CountingRangeMinHash<uint64_t> crmh(1 << ss), crmh2(1 << ss);
     //KthMinHash<uint64_t> kmh(30, 100);
     std::mt19937_64 mt(1337);
@@ -119,6 +122,7 @@ int main(int argc, char *argv[]) {
         for(size_t i = n; i--;) {
             rmh1.addh(gen1());
             rmh2.addh(gen2());
+            bk.addh(i);
         }
         auto fmh1 = rmh1.cfinalize(), fmh2 = rmh2.cfinalize();
         auto u = fmh1 + fmh2;

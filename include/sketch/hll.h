@@ -366,8 +366,8 @@ public:
     static constexpr size_t nbits = sizeof(SType) / sizeof(uint8_t) * CHAR_BIT;
     using u8arr = uint8_t[nels];
     using u16arr = uint16_t[nels / 2];
-    using u32arr = uint16_t[nels / 4];
-    using u64arr = uint16_t[nels / 8];
+    using u32arr = uint32_t[nels / 4];
+    using u64arr = uint64_t[nels / 8];
     SType val;
     u8arr vals;
     u16arr val16s;

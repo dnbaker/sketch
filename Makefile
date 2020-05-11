@@ -68,6 +68,9 @@ hpython: pybbmh.cpython.so
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
 
+%: examples/%.cpp kthread.o $(HEADERS)
+	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
+
 %: testsrc/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 

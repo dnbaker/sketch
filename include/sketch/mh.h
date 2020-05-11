@@ -5,6 +5,8 @@
 #include "fixed_vector.h"
 #include <unordered_map>
 #include "isz.h"
+#include <queue>
+#include "flat_hash_map/flat_hash_map.hpp"
 
 
 /*
@@ -1079,6 +1081,52 @@ public:
         std::vector<Signature> ret(nh_);
         hash(x, ret.data());
         return ret;
+    }
+};
+
+template<typename HashStruct=WangHash, typename VT=uint64_t, bool select_bottom=true>
+struct BottomKHasher {
+    using final_type = FinalRMinHash<VT, Allocator<VT>>;
+    using heap_cmp = std::conditional_t<select_bottom,
+                                        std::less<void>, std::greater<void>>;
+    struct mpq: std::priority_queue<VT, std::vector<VT, Allocator<VT>>, heap_cmp> {
+        auto &getq() {return this->c;}
+        const auto &getq() const {return this->c;}
+        template<typename X, typename Y>
+        bool cmp(const X &x, const Y &y) const {
+            return this->comp(x, y);
+        }
+    };
+
+    const size_t k_;
+    HashStruct hs_;
+    mpq mpq_;
+    ska::flat_hash_set<VT> set_;
+
+    BottomKHasher(size_t k, HashStruct &&hs=HashStruct()): k_(k), hs_(std::move(hs)) {}
+    void addh(uint64_t v) {add(hs_(v));}
+    void add(uint64_t hv) {
+        if(set_.find(hv) != set_.end()) return;
+        if(mpq_.size() < k_) {
+            mpq_.push(hv);
+            set_.insert(hv);
+        } else if(mpq_.cmp(hv, mpq_.top())) {
+            set_.erase(mpq_.top());
+            mpq_.pop(), mpq_.push(hv);
+            set_.insert(hv);
+        }
+    }
+    final_type finalize() const & {
+        return final_type(mpq_.getq());
+    }
+    final_type finalize() && {
+        return final_type(std::move(mpq_.getq()));
+    }
+    void write(std::string path) const {
+        this->finalize().write(path);
+    }
+    void write(gzFile fp) const {
+        this->finalize().write(fp);
     }
 };
 
