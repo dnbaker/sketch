@@ -506,7 +506,7 @@ public:
         }
         data_.resize(1ull << (p_ + lrszm3_));
         gzread(fp, data_.data(), data_.size());
-        alpha_ = make_alpha(uint64_t(1) << p);
+        alpha_ = make_alpha(uint64_t(1) << p_);
         rbm_ = (1ull << r_) - 1;
     }
 };
@@ -554,9 +554,7 @@ struct HyperMinHasher: public hmh_t {
             ? this->__calc_cc_nc<uint64_t> (o): uint64_t(-1);
         uint32_t cc = cc_nc >> 32, nc = cc_nc & 0xFFFFFFFFu;
         if(!cc) return 0.;
-        auto card = getcard();
-        auto ocard = o.getcard();
-        auto ec = this->approx_ec(card, ocard);
+        auto ec = this->approx_ec(getcard(), o.getcard());
         return std::max(0., cc - ec) / nc;
     }
     double intersection_size(const HyperMinHasher &o) const {
