@@ -14,6 +14,10 @@ static constexpr inline bool legal_regsize(unsigned regsize) {
 }
 
 
+static const std::array<double, 64> INVPOWERSOFTWO = {
+1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625, 0.0078125, 0.00390625, 0.001953125, 0.0009765625, 0.00048828125, 0.000244140625, 0.0001220703125, 6.103515625e-05, 3.0517578125e-05, 1.52587890625e-05, 7.62939453125e-06, 3.814697265625e-06, 1.9073486328125e-06, 9.5367431640625e-07, 4.76837158203125e-07, 2.384185791015625e-07, 1.1920928955078125e-07, 5.960464477539063e-08, 2.9802322387695312e-08, 1.4901161193847656e-08, 7.450580596923828e-09, 3.725290298461914e-09, 1.862645149230957e-09, 9.313225746154785e-10, 4.656612873077393e-10, 2.3283064365386963e-10, 1.1641532182693481e-10, 5.820766091346741e-11, 2.9103830456733704e-11, 1.4551915228366852e-11, 7.275957614183426e-12, 3.637978807091713e-12, 1.8189894035458565e-12, 9.094947017729282e-13, 4.547473508864641e-13, 2.2737367544323206e-13, 1.1368683772161603e-13, 5.684341886080802e-14, 2.842170943040401e-14, 1.4210854715202004e-14, 7.105427357601002e-15, 3.552713678800501e-15, 1.7763568394002505e-15, 8.881784197001252e-16, 4.440892098500626e-16, 2.220446049250313e-16, 1.1102230246251565e-16, 5.551115123125783e-17, 2.7755575615628914e-17, 1.3877787807814457e-17, 6.938893903907228e-18, 3.469446951953614e-18, 1.734723475976807e-18, 8.673617379884035e-19, 4.336808689942018e-19, 2.168404344971009e-19, 1.0842021724855044e-19
+};
+
 struct hmh_t {
 protected:
     uint64_t rbm_;
@@ -24,7 +28,8 @@ public:
     hmh_t(unsigned p, unsigned rsize=8):
             rbm_((uint64_t(1) << (rsize - q)) - 1),
             p_(p), r_(rsize-q),
-            lrszm3_(ilog2(rsize) - 3), alpha_(make_alpha(uint64_t(1) << p)) {
+            lrszm3_(ilog2(rsize) - 3), alpha_(make_alpha(uint64_t(1) << p))
+    {
         switch(rsize) {
             case 8: lrszm3_ = 0; break;  case 16: lrszm3_ = 1; break;
             case 32: lrszm3_ = 2; break; case 64: lrszm3_ = 3; break;
@@ -35,6 +40,9 @@ public:
         data_.resize(rsize << (p_ - 3));
         assert(integral::is_pow2(rbm_ + 1));
         assert(std::all_of(data_.begin(), data_.end(), [](auto x) {return x == 0;}));
+        if(lrszm3_ == 2) {
+            std::fprintf(stderr, "Note: computation works as expected for 8, 16, and 64 bytes, but there may be an issue with 32\n");
+        }
     }
 
     // Constants, encoding, and decoding utilities
@@ -60,7 +68,7 @@ public:
         auto e = reinterpret_cast<const Type *>(&data_[data_.size()]);
         auto od = reinterpret_cast<const Type *>(o.data_.data());
         do {
-            Space::store(d, Space::min(Space::load(d), Space::load(od)));
+            Space::store(d, Space::max(Space::load(d), Space::load(od)));
             ++d, ++od;
         } while(d < e);
         return *this;
@@ -115,6 +123,14 @@ public:
                 - 0.005384159 * lvp6 + 0.00042419 * lvp7;
     }
     template<typename Func>
+    void for_each_union_lzrem(const hmh_t &o, const Func &func) const {
+        for_each_union_register(o, [&func,rbm=rbm_,r=r_](auto x) {
+            auto lzc = reg2lzc(x, r);
+            auto rem = reg2rem(x, rbm);
+            func(lzc, rem);
+        });
+    }
+    template<typename Func>
     void for_each_lzrem(const Func &func) const {
         for_each_register([&func,rbm=rbm_,r=r_](auto x) {
             auto lzc = reg2lzc(x, r);
@@ -123,8 +139,28 @@ public:
         });
     }
     template<typename IT, typename Func>
-    void __for_each_register(const IT *p1, const IT *p2, const Func &func) const {
-        std::for_each(p1, p2, func);
+    void __for_each_union_register(const hmh_t &o, const Func &func) const {
+        using Space = vec::SIMDTypes<IT>;
+        using Type  = typename Space::Type;
+        using VType = typename Space::VType;
+
+        const Type *d = reinterpret_cast<const Type *>(data_.data());
+        const Type *e = d + ((num_registers() / Space::COUNT) * Space::COUNT);
+        const Type *od = reinterpret_cast<const Type *>(o.data_.data());
+        while(d < e)
+            VType(Space::max(Space::load(d++), Space::load(od++))).for_each(func);
+        for(const IT *w = (const IT *)d, *e = (const IT *)&data_[data_.size()]; w < e; func(*w++));
+    }
+    template<typename Func>
+    void for_each_union_register(const hmh_t &o, const Func &func) const {
+        PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
+        switch(lrszm3_) {
+            case 0: __for_each_union_register<uint8_t>(o, func); break;
+            case 1: __for_each_union_register<uint16_t>(o, func); break;
+            case 2: __for_each_union_register<uint32_t>(o, func); break;
+            case 3: __for_each_union_register<uint64_t>(o, func); break;
+            default: __builtin_unreachable();
+        }
     }
     template<typename Func>
     void for_each_register(const Func &func) const {
@@ -218,6 +254,9 @@ public:
             manual_core:
             for(const auto i: data_) ++ret[reg2lzc(i, r_)];
         }
+        if(lrszm3_ == 2)
+            for(unsigned i = 0; i < 64; ++i)
+                if(ret[i]) std::fprintf(stderr, "%u: %u\n", i, int(ret[i]));
         return ret;
     }
     template<typename IT>
@@ -237,19 +276,26 @@ public:
     double estimate_hll_portion() const {
         return hll::detail::ertl_ml_estimate(this->sum_counts(), p_, 64 - p_);
     }
-    double unoptimized_cardinality_estimate() const {
-        double hllest = estimate_hll_portion();
-        if(hllest < (1024 << p_)) return hllest;
-        //std::cerr << "hllest: " << hllest << ", but using kmv est instead\n";
+    double cardinality_estimate() const {
+        double hest = estimate_hll_portion();
+        if(hest < (1024 << p_)) return hest;
         return estimate_mh_portion();
     }
     double estimate_mh_portion() const {
         double ret = 0.;
-        double maxrem = 1. / max_remainder();
+        double maxrem = max_remainder(), mri = 1. / maxrem;
         for_each_lzrem([&](auto lzc, auto rem) {
-            ret += std::ldexp(1. + rem * maxrem, -int(lzc));
+            ret += (1. + (maxrem - rem) * mri) * INVPOWERSOFTWO[lzc];
         });
-        return std::pow(num_registers(), 2) / ret;
+        return std::ldexp(1. / ret, int(2 * p_));
+    }
+    double union_size(const hmh_t &o) const {
+        double ret = 0.;
+        double maxrem = max_remainder(), mri = 1. / maxrem;
+        for_each_union_lzrem(o, [&](auto lzc, auto rem) {
+            ret += (1. + (maxrem - rem) * mri) * INVPOWERSOFTWO[lzc];
+        });
+        return std::ldexp(1. / ret, int(2 * p_));
     }
     double approx_ec(double n, double m, bool only_lazy=true) const {
         if(n < m) std::swap(n, m);
@@ -296,8 +342,8 @@ public:
         uint32_t cc = cc_nc >> 32, nc = cc_nc & 0xFFFFFFFFu;
         if(!cc) return 0.;
 
-        auto card = unoptimized_cardinality_estimate();
-        auto ocard = o.unoptimized_cardinality_estimate();
+        auto card = cardinality_estimate();
+        auto ocard = o.cardinality_estimate();
         auto ec = approx_ec(card, ocard);
         return std::max(0., cc - ec) / nc;
     }
@@ -407,7 +453,7 @@ struct HyperMinHash: public hmh_t {
 
     INLINE double getcard() const {
         if(card_ == UNSET_CARD) {
-            card_ = this->unoptimized_cardinality_estimate();
+            card_ = this->cardinality_estimate();
         }
         return card_;
     }

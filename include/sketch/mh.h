@@ -1122,10 +1122,10 @@ struct BottomKHasher {
     final_type finalize() && {
         return final_type(std::move(mpq_.getq()));
     }
-    void write(std::string path) {
+    void write(std::string path) const {
         this->finalize().write(path);
     }
-    void write(gzFile fp) {
+    void write(gzFile fp) const {
         this->finalize().write(fp);
     }
 };
