@@ -491,6 +491,13 @@ public:
         alpha_ = make_alpha(uint64_t(1) << p_);
         rbm_ = (1ull << r_) - 1;
     }
+    void clear() {
+        std::memset(data_.data(), 0, data_.size());
+    }
+    void free() {
+        auto tmp(std::move(data_));
+        rbm_ = p_ = r_ = lrszm3_ = alpha_ = 0;
+    }
 };
 
 template<typename Hasher=hash::WangHash>
@@ -518,9 +525,7 @@ struct HyperMinHasher: public hmh_t {
     }
 
     INLINE double getcard() const {
-        if(card_ == UNSET_CARD) {
-            card_ = this->cardinality_estimate();
-        }
+        if(card_ == UNSET_CARD) card_ = this->cardinality_estimate();
         return card_;
     }
 
@@ -542,6 +547,11 @@ struct HyperMinHasher: public hmh_t {
         double msz = this->getcard();
         return msz ? intersection_size(o) / msz: 1.;
     }
+    std::array<double, 3> full_set_comparison(const HyperMinHasher &o) const {
+        auto mycard = this->getcard(), ocard = o.getcard();
+        auto is = this->intersection_size(o);
+        return std::array<double, 3>{std::max(mycard - is, 0.), std::max(ocard - is, 0.), is};
+    }
 
     double jaccard_index(const HyperMinHasher &o) const {
         if(unlikely(this == &o)) return 1.;
@@ -556,6 +566,8 @@ struct HyperMinHasher: public hmh_t {
     double intersection_size(const HyperMinHasher &o) const {
         return this->union_size(o) * jaccard_index(o);
     }
+
+    using final_type = HyperMinHasher<Hasher>;
 };
 
 } // namespace hmh
