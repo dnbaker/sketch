@@ -14,7 +14,7 @@ static constexpr inline bool legal_regsize(unsigned regsize) {
 }
 
 
-static const std::array<double, 64> INVPOWERSOFTWO = {
+static constexpr const std::array<double, 64> INVPOWERSOFTWO = {
 1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625, 0.0078125, 0.00390625, 0.001953125, 0.0009765625, 0.00048828125, 0.000244140625, 0.0001220703125, 6.103515625e-05, 3.0517578125e-05, 1.52587890625e-05, 7.62939453125e-06, 3.814697265625e-06, 1.9073486328125e-06, 9.5367431640625e-07, 4.76837158203125e-07, 2.384185791015625e-07, 1.1920928955078125e-07, 5.960464477539063e-08, 2.9802322387695312e-08, 1.4901161193847656e-08, 7.450580596923828e-09, 3.725290298461914e-09, 1.862645149230957e-09, 9.313225746154785e-10, 4.656612873077393e-10, 2.3283064365386963e-10, 1.1641532182693481e-10, 5.820766091346741e-11, 2.9103830456733704e-11, 1.4551915228366852e-11, 7.275957614183426e-12, 3.637978807091713e-12, 1.8189894035458565e-12, 9.094947017729282e-13, 4.547473508864641e-13, 2.2737367544323206e-13, 1.1368683772161603e-13, 5.684341886080802e-14, 2.842170943040401e-14, 1.4210854715202004e-14, 7.105427357601002e-15, 3.552713678800501e-15, 1.7763568394002505e-15, 8.881784197001252e-16, 4.440892098500626e-16, 2.220446049250313e-16, 1.1102230246251565e-16, 5.551115123125783e-17, 2.7755575615628914e-17, 1.3877787807814457e-17, 6.938893903907228e-18, 3.469446951953614e-18, 1.734723475976807e-18, 8.673617379884035e-19, 4.336808689942018e-19, 2.168404344971009e-19, 1.0842021724855044e-19
 };
 
@@ -35,11 +35,8 @@ public:
             case 32: lrszm3_ = 2; break; case 64: lrszm3_ = 3; break;
             default: PREC_REQ(legal_regsize(rsize), "Must have 8, 16, 32, or 64 for register size");
         }
-        PREC_REQ(rsize == 8 || rsize == 16 || rsize == 32  || rsize == 64, "rsize must be 8, 16, 32, 64");
         PREC_REQ(p_ >= 3 && p < 64, "p can't be less than 3 or >= 64");
         data_.resize(rsize << (p_ - 3));
-        assert(integral::is_pow2(rbm_ + 1));
-        assert(std::all_of(data_.begin(), data_.end(), [](auto x) {return x == 0;}));
     }
     hmh_t(gzFile fp) {
         this->read(fp);
@@ -51,7 +48,7 @@ public:
     // Constants, encoding, and decoding utilities
     static constexpr unsigned q  = 6;
     static constexpr unsigned tq = 1ull << 6;
-    static constexpr double C4 = 0.6796779486389564; // C * 4
+    static constexpr double C4 = 0.679677948638956375907848456163762307369324844330549240112305; // C * 4
 
 
     unsigned regsize() const {return r_ + q;}
@@ -103,7 +100,6 @@ public:
         IT4 enc = (IT4(lzc) << r) | rem;
         assert((enc >> r) == lzc);
         assert(reg2lzc(enc, r) == lzc || !std::fprintf(stderr, "lzc of %ld should be decoded as %ld from %ld", static_cast<long int>(reg2lzc(enc, r)), static_cast<long int>(lzc), static_cast<long int>(enc)));
-        assert(reg2rem(enc, (1ull << r) - 1) == rem);
         assert((enc % (1ull << r)) == rem);
         return enc;
     }
@@ -140,28 +136,35 @@ public:
     template<typename Func>
     void for_each_union_lzrem(const hmh_t &o, const Func &func) const {
         for_each_union_register(o, [&func,rbm=rbm_,r=r_](auto x) {
-            auto lzc = reg2lzc(x, r);
-            auto rem = reg2rem(x, rbm);
-            func(lzc, rem);
+            func(reg2lzc(x, r), reg2rem(x, rbm));
         });
     }
     template<typename Func>
     void for_each_lzrem(const Func &func) const {
         for_each_register([&func,rbm=rbm_,r=r_](auto x) {
-            auto lzc = reg2lzc(x, r);
-            auto rem = reg2rem(x, rbm);
-            func(lzc, rem);
+            func(reg2lzc(x, r), reg2rem(x, rbm));
         });
     }
+    uint64_t calculate_cc_nc(const hmh_t &o) const {
+        switch(lrszm3_) {
+            case 0: return __calc_cc_nc<uint8_t>(o); break;
+            case 1: return __calc_cc_nc<uint16_t>(o); break;
+            case 2: return __calc_cc_nc<uint32_t>(o); break;
+            case 3: return __calc_cc_nc<uint64_t>(o); break;
+            default: __builtin_unreachable();
+        }
+        return -1;
+    }
+
     template<typename IT, typename Func>
     void __for_each_union_register(const hmh_t &o, const Func &func) const {
         using Space = vec::SIMDTypes<IT>;
-        using Type  = typename Space::Type;
         using VType = typename Space::VType;
 
-        const Type *d = reinterpret_cast<const Type *>(data_.data());
-        const Type *e = d + ((num_registers() / Space::COUNT) * Space::COUNT);
-        const Type *od = reinterpret_cast<const Type *>(o.data_.data());
+        auto d  = reinterpret_cast<const typename Space::Type *>(data_.data()),
+             e  = d + ((num_registers() / Space::COUNT) * Space::COUNT);
+        auto od = reinterpret_cast<const typename Space::Type *>(o.data_.data());
+        SK_UNROLL_8
         while(d < e)
             VType(Space::max(Space::load(d++), Space::load(od++))).for_each(func);
         for(const IT *w = (const IT *)d, *e = (const IT *)&data_[data_.size()]; w < e; func(*w++));
@@ -180,17 +183,22 @@ public:
     template<typename Func>
     void for_each_register(const Func &func) const {
         const uint8_t *const s = data_.data(), *const e = &s[data_.size()];
+        auto fe = [&](auto start, auto end) {
+            SK_UNROLL_8
+            while(start != end)
+                func(*start++);
+        };
         switch(lrszm3_) {
             case 0:
-                std::for_each(s, e, func); break;
+                fe(s, e); break;
             case 1:
-                std::for_each(reinterpret_cast<const uint16_t *>(s), reinterpret_cast<const uint16_t *>(e), func);
+                fe(reinterpret_cast<const uint16_t *>(s), reinterpret_cast<const uint16_t *>(e));
                 break;
             case 2:
-                std::for_each(reinterpret_cast<const uint32_t *>(s), reinterpret_cast<const uint32_t *>(e), func);
+                fe(reinterpret_cast<const uint32_t *>(s), reinterpret_cast<const uint32_t *>(e));
                 break;
             case 3:
-                std::for_each(reinterpret_cast<const uint64_t *>(s), reinterpret_cast<const uint64_t *>(e), func);
+                fe(reinterpret_cast<const uint64_t *>(s), reinterpret_cast<const uint64_t *>(e));
                 break;
             default: __builtin_unreachable();
         }
@@ -199,6 +207,7 @@ public:
     void for_each_register_pair(const hmh_t &o, const Func &func) const {
         const uint8_t *const s = data_.data(), *const e = &s[data_.size()];
         auto fe = [&](auto startp, auto endp, auto op) {
+            SK_UNROLL_8
             do {
                 func(*startp++, *op++);
             } while(startp != endp);
@@ -232,10 +241,10 @@ public:
     }
     void add(uint64_t h1, uint64_t h2) {
         switch(lrszm3_) {
-            case 0: __add<uint8_t> (h1, h2); break;
-            case 1: __add<uint16_t>(h1, h2); break;
-            case 2: __add<uint32_t>(h1, h2); break;
-            case 3: __add<uint64_t>(h1, h2); break;
+            case 0: perform_add<uint8_t> (h1, h2); break;
+            case 1: perform_add<uint16_t>(h1, h2); break;
+            case 2: perform_add<uint32_t>(h1, h2); break;
+            case 3: perform_add<uint64_t>(h1, h2); break;
             default: __builtin_unreachable();
         }
     }
@@ -254,11 +263,10 @@ public:
         };
         if(data_.size() >= sizeof(SIMDHolder)) {
             const Space::Type mask = Space::set1(MASKS[lrszm3_]);
-            auto ptr = reinterpret_cast<const SIMDHolder *>(data_.data()), eptr = reinterpret_cast<const SIMDHolder *>(&data_[data_.size()]);
-            std::for_each(ptr, eptr, [&ret,mask,lut=lrszm3_,r=r_](auto v) {
-                v = Space::and_fn(Space::srli(v, r), mask);
-                v.inc_counts_lut(ret, lut);
-            });
+            SK_UNROLL_8
+            for(auto ptr = reinterpret_cast<const SIMDHolder *>(data_.data());
+                ptr < reinterpret_cast<const SIMDHolder *>(&data_[data_.size()]);
+                SIMDHolder(Space::and_fn(Space::srli(*ptr++, r_), mask)).inc_counts_lut(ret, lrszm3_));
         } else for_each_register([&](auto x) {++ret[reg2lzc(x, r_)];});
 #if !NDEBUG
         std::array<uint32_t, 64> cmp{0};
@@ -269,28 +277,16 @@ public:
         return ret;
     }
     template<typename IT>
-    void __add(uint64_t h1, uint64_t h2) {
-        uint64_t bucket = h1 >> max_lremainder();
-        assert(bucket < data_.size() / sizeof(IT));
-        unsigned lzc = clz(((h1 << 1)|1) << (p_ - 1)) + 1;
-        uint64_t sig = h2 & rbm_;
-        assert(sizeof(IT) != 4 || rbm_ == 0x3ffffffu);
-        const IT reg = encode_register(r_, lzc, sig);
-        assert(reg > sig);
-        assert(reg >= (size_t(lzc) << r_));
-        IT &r = *reinterpret_cast<IT *>(data_.data() + sizeof(IT) * bucket);
+    INLINE void perform_add(uint64_t h1, uint64_t h2) {
+        const IT reg = encode_register(r_,
+                                       clz(((h1 << 1)|1) << (p_ - 1)) + 1,
+                                       h2 & rbm_);
+        IT &r = *reinterpret_cast<IT *>(data_.data() + sizeof(IT) * (h1 >> max_lremainder()));
 #ifdef NOT_THREADSAFE
-        if(reg > r) {
-            r = reg;
-            assert(reg2lzc(reg, r_) == lzc);
-        }
+        if(reg > r) r = reg;
 #else
-        while(reg > r) {
-            __sync_bool_compare_and_swap(&r, r, reg);
-        }
+        while(reg > r) __sync_bool_compare_and_swap(&r, r, reg);
 #endif
-        assert(r >= reg);
-        assert(!r || reg2lzc(r, r_) != 0);
     }
     double estimate_hll_portion() const {
         return std::max(hll::detail::ertl_ml_estimate(this->sum_counts(), p_, 64 - p_), 0.);
@@ -301,66 +297,82 @@ public:
         return estimate_mh_portion();
     }
     static INLINE double mhsum2ret(double ret, int p) {
-        return std::ldexp(1. / ret, int(2 * p));
+        return (uint64_t(1) << (2 * p)) / ret;
     }
     double estimate_mh_portion() const {
         double ret = 0.;
-        double maxrem = max_remainder(), mri = 1. / maxrem;
+        double maxrem = max_remainder(), mri = 1. / maxrem, mrx2 = 2. * maxrem;
         for_each_lzrem([&](auto lzc, auto rem) {
-            ret += (1. + (maxrem - rem) * mri) * INVPOWERSOFTWO[lzc];
+            ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];
+            //ret += (1. + (maxrem - rem) * mri) * INVPOWERSOFTWO[lzc];
+            // We substitute     (2 * maxrem - rem) * mri
+            // for               (1 + (mr - rem) * mri)
+            // which saves one operation per iteration
         });
         return mhsum2ret(ret, p_);
     }
     double union_size(const hmh_t &o) const {
         double ret = 0.;
-        double maxrem = max_remainder(), mri = 1. / maxrem;
-        for_each_union_lzrem(o, [&](auto lzc, auto rem) {
-            ret += (1. + (maxrem - rem) * mri) * INVPOWERSOFTWO[lzc];
-        });
+        double maxrem = max_remainder(), mri = 1. / maxrem, mrx2 = 2. * maxrem;
+        for_each_union_lzrem(o, [&](auto lzc, auto rem) {ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];});
         return mhsum2ret(ret, p_);
     }
-    double approx_ec(double n, double m, bool only_lazy=true) const {
+    double approx_ec(double n, double m, int laziness=1) const {
         if(n < m) std::swap(n, m);
-        double ln = std::log(n);
+        const double ln = std::log(n);
         if(ln > tq + r_) return std::numeric_limits<double>::max();
-        if(only_lazy || ln > p_ + 5. ) {
+        if(laziness > 1 || ln > p_ + 5. ) {
             const auto minv = 1. / m;
-            double d = n * minv / std::pow(((1.0 + n) * minv), 2);
+            double d = n * minv * std::pow(((1.0 + n) * minv), -2);
             return std::ldexp(C4 * d, p_ - r_) + 0.5;
         }
+        if(laziness > 0) return hll_lazy_collision_estimate(n, m);
         return expected_collisions(n, m) / p_;
     }
+    static double get_invpow2(int x) {
+        return x < 64 ? INVPOWERSOFTWO[x]: std::ldexp(1., -x);
+    }
     double expected_collisions(double n, double m) const {
-        std::fprintf(stderr, "Computing expected collisions, slowly\n");
-        // Not optimized, certainly could be
+        // Optimizations:
+        // 1. Precalculate di contributions
+        // 2. Use INVPOWERSOFTWO table for p + r + i < 64
         double x = 0.;
-        for(size_t i = 1; i <= tq; ++i) {
+        auto incx = [&x,n,m](auto b1, auto b2) {
+            auto prx = std::pow(1. - b2, n) - std::pow(1. - b1, n);
+            auto pry = std::pow(1. - b2, m) - std::pow(1. - b1, m);
+            x += prx * pry;
+        };
+        for(size_t i = 1; i < tq; ++i) { // Note that this is now < tq, not <=
+            const double di = get_invpow2(p_ + r_ + i - 1);
+            double b1 = 0, b2 = di;
             for(size_t j = 1; j <= tr(); ++j) {
-                double b1, b2;
-                if(i == tq) {
-                    // This quantity could be precalculated and cached
-                    double di = std::ldexp(1., -int(p_ + r_ + i));
-                    b1 = (tr() + j) * di;
-                    b2 = (tr() + j + 1.) * di;
-                } else {
-                    double di = std::ldexp(1., -int(p_ + r_ + i - 1.));
-                    b1 = j * di;
-                    b2 = (j + 1.) * di;
-                }
-                double prx = std::pow(1. - b2, n) - std::pow(1. - b1, n);
-                double pry = std::pow(1. - b2, m) - std::pow(1. - b1, m);
-                x += prx * pry;
+                b1 += di; b2 += di;
+                incx(b1, b2);
             }
         }
+        // We handle the last iteration (where i == tq)
+        const double di = get_invpow2(p_ + r_ + tq);
+        double b1 = tr() * di, b2 = b1 + di;
+        for(size_t j = 0; j < tr(); b1 += di, b2 += di, incx(b1, b2), ++j);
         return x * p_ + 0.5;
+    }
+    double hll_lazy_collision_estimate(double n, double m) const {
+        double x = 0.;
+        double b1, b2, px, py;
+        SK_UNROLL_8
+        for(size_t i = 0, e = this->num_registers() - 1; i < e; ++i) {
+            b1 = get_invpow2(i + 1);
+            b2 = get_invpow2(i);
+            px = std::pow(1. - b1, n) - std::pow(1. - b2, n);
+            py = std::pow(1. - b1, m) - std::pow(1. - b2, m);
+            x += px * py;
+        }
+        
+        return std::ldexp(x, int(this->q - this->r_));
     }
     double jaccard_index(const hmh_t &o) const {
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
-        uint64_t cc_nc = lrszm3_ == 0
-            ? __calc_cc_nc<uint8_t> (o): lrszm3_ == 1
-            ? __calc_cc_nc<uint16_t> (o): lrszm3_ == 2
-            ? __calc_cc_nc<uint32_t> (o): lrszm3_ == 3
-            ? __calc_cc_nc<uint64_t> (o): uint64_t(-1);
+        uint64_t cc_nc = calculate_cc_nc(o);
         uint32_t cc = cc_nc >> 32, nc = cc_nc & 0xFFFFFFFFu;
         if(!cc) return 0.;
 
@@ -372,7 +384,8 @@ public:
     }
     template<typename IT>
     static INLINE auto count_paired_1bits(IT x) {
-        return popcount(((x & 0xFFFFFFFFu) >> 1) & (0x55555555u & x));
+        static constexpr IT bitmask = static_cast<IT>(0x5555555555555555uLL);
+        return popcount((x >> 1) & x & bitmask);
     }
     template<typename IT>
     uint64_t __calc_cc_nc(const hmh_t &o) const {
@@ -392,9 +405,10 @@ public:
             const Type *lhp = (const Type *)data_.data(), *lhe = (const Type *)&data_[data_.size()],
                        *rhp = (const Type *)o.data_.data();
             const Type zero = Space::set1(0);
+            SK_UNROLL_4
             do { //while(lhp < lhe)
                 Type lhv = Space::load(lhp++), rhv = Space::load(rhp++);
-#if __AVX512F__
+#if __AVX512BW__ // TODO: replace this with a (potentially separate) check per type
                 auto lhnz = Space::cmpneq_mask(lhv, zero);
                 auto rhnz = Space::cmpneq_mask(rhv, zero);
                 auto anynz = lhnz | rhnz;
@@ -427,7 +441,6 @@ public:
                     nc += popcount(__MOVEMASK32(any_nonzero));
                     cc += popcount(__MOVEMASK32(eq_and_nonzero));
                 } else {
-                    assert(sizeof(IT) == 8);
                     nc += popcount(__MOVEMASK64(any_nonzero));
                     cc += popcount(__MOVEMASK64(eq_and_nonzero));
                 }
@@ -435,7 +448,7 @@ public:
 #undef __MOVEMASK32
 #undef __MOVEMASK64
 
-#endif // #if AVX512 else sse/avx
+#endif // #if __AVX512BW__ else sse/avx
 
             } while(lhp < lhe);
         }
@@ -526,27 +539,22 @@ struct HyperMinHasher: public hmh_t {
 
     double containment_index(const HyperMinHasher &o) const {
         if(unlikely(this == &o)) return 1.;
-        double us = this->union_size(o);
-        return this->getcard() / us;
+        double msz = this->getcard();
+        return msz ? intersection_size(o) / msz: 1.;
     }
 
     double jaccard_index(const HyperMinHasher &o) const {
         if(unlikely(this == &o)) return 1.;
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
-        uint64_t cc_nc = this->lrszm3_ == 0
-            ? this->__calc_cc_nc<uint8_t> (o): this->lrszm3_ == 1
-            ? this->__calc_cc_nc<uint16_t> (o): this->lrszm3_ == 2
-            ? this->__calc_cc_nc<uint32_t> (o): this->lrszm3_ == 3
-            ? this->__calc_cc_nc<uint64_t> (o): uint64_t(-1);
+        uint64_t cc_nc = calculate_cc_nc(o);
         uint32_t cc = cc_nc >> 32, nc = cc_nc & 0xFFFFFFFFu;
         if(!cc) return 0.;
+        if(cc == nc) return 1.;
         auto ec = this->approx_ec(getcard(), o.getcard());
         return std::max(0., cc - ec) / nc;
     }
     double intersection_size(const HyperMinHasher &o) const {
-        double us = this->union_size(o);
-        double ji = jaccard_index(o);
-        return ji * us;
+        return this->union_size(o) * jaccard_index(o);
     }
 };
 
