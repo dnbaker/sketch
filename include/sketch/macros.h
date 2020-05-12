@@ -60,6 +60,9 @@
 #  ifndef OMP_SECTION
 #    define OMP_SECTION OMP_PRAGMA("omp section")
 #  endif
+#  ifndef OMP_BARRIER
+#    define OMP_BARRIER OMP_PRAGMA("omp barrier")
+#  endif
 #  ifndef OMP_SET_NT
 #    define OMP_SET_NT(x) omp_set_num_threads(x)
 #  endif
@@ -90,6 +93,9 @@
 #  endif
 #  ifndef OMP_SECTION
 #    define OMP_SECTION
+#  endif
+#  ifndef OMP_BARRIER
+#    define OMP_BARRIER
 #  endif
 #  ifndef OMP_SET_NT
 #    define OMP_SET_NT(x)
