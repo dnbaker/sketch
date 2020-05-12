@@ -127,6 +127,17 @@
 #define CPP_PASTE_UNROLL(...) sk__xstr__("unroll" __VA_ARGS__)
 
 
+#ifndef THREADSAFE_ELSE
+#  ifndef NOT_THREADSAFE
+#    define THREADSAFE_ELSE(x, y) x
+#    define THREADSAFE_ONLY(...) __VA_ARGS__
+#  else
+#    define THREADSAFE_ELSE(x, y) y
+#    define THREADSAFE_ONLY(...)
+#  endif
+#endif
+
+
 #if !NDEBUG
 #  define DBG_ONLY(...) __VA_ARGS__
 #  define DBG_ELSE(x, y) x
