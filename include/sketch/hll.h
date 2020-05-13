@@ -397,6 +397,14 @@ public:
         }
 #endif
     }
+    template<typename IT, typename T>
+    void inc_counts_by_type(T &arr) const {
+        CONST_IF(sizeof(IT) == 1) inc_counts(arr);
+        else CONST_IF(sizeof(IT) == 2) inc_counts16(arr);
+        else CONST_IF(sizeof(IT) == 4) inc_counts32(arr);
+        else CONST_IF(sizeof(IT) == 8) inc_counts64(arr);
+        else throw std::runtime_error(std::string("Unsupported type of size: ") + std::to_string(sizeof(IT)));
+    }
     template<typename T, size_t iternum, size_t niter_left> struct unroller {
         void operator()(const SIMDHolder &ref, T &arr) const {
             ++arr[ref.vals[iternum]];

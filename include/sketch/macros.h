@@ -1,6 +1,7 @@
 #pragma once
 #ifndef SKETCH_MACROS_H__
 #define SKETCH_MACROS_H__
+#include "hedley.h"
 
 
 // INLINE

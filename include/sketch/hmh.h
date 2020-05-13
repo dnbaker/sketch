@@ -29,17 +29,16 @@ protected:
     uint64_t rbm_;
     uint16_t p_, r_, lrszm3_;
     std::vector<uint8_t, Allocator<uint8_t>> data_;
-    double alpha_;
     long double pmrp2_;
 public:
     hmh_t(unsigned p, unsigned rsize=8):
           rbm_((uint64_t(1) << (rsize - q)) - 1),
           p_(p), r_(rsize-q),
-          lrszm3_(ilog2(rsize) - 3), alpha_(make_alpha(uint64_t(1) << p)), pmrp2_(std::ldexp(C4, p_ - r_))
+          lrszm3_(ilog2(rsize) - 3), pmrp2_(std::ldexp(C4, p_ - r_))
     {
         PREC_REQ(rsize == 8 || rsize == 16 || rsize == 32 || rsize == 64, "Must have 8, 16, 32, or 64 for register size");
         PREC_REQ(p_ >= 3 && p_ < 64, "p can't be less than 3 or >= 64");
-        rsize = ilog2(rsize) - 3;
+        lrszm3_ = ilog2(rsize) - 3;
         data_.resize(rsize << (p_ - 3));
     }
     hmh_t(gzFile fp) {
@@ -159,6 +158,16 @@ public:
     }
 
     template<typename IT, typename Func>
+    void __for_each_union_vector(const hmh_t &o, const Func &func) const {
+        using Space = vec::SIMDTypes<IT>;
+        auto d  = reinterpret_cast<const typename Space::Type *>(data_.data()),
+             e  = d + ((num_registers() / Space::COUNT) * Space::COUNT);
+        auto od = reinterpret_cast<const typename Space::Type *>(o.data_.data());
+        SK_UNROLL_8
+        while(d < e)
+            func(Space::max(Space::load(d++), Space::load(od++)));
+    }
+    template<typename IT, typename Func>
     void __for_each_union_register(const hmh_t &o, const Func &func) const {
         using Space = vec::SIMDTypes<IT>;
         using VType = typename Space::VType;
@@ -175,10 +184,9 @@ public:
     void for_each_union_register(const hmh_t &o, const Func &func) const {
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
         switch(lrszm3_) {
-            case 0: __for_each_union_register<uint8_t>(o, func); break;
-            case 1: __for_each_union_register<uint16_t>(o, func); break;
-            case 2: __for_each_union_register<uint32_t>(o, func); break;
-            case 3: __for_each_union_register<uint64_t>(o, func); break;
+#undef CASE_U
+#define CASE_U(type, i) case i: __for_each_union_register<type>(o, func); break
+        SHOW_CASES(CASE_U)
             default: __builtin_unreachable();
         }
     }
@@ -236,22 +244,34 @@ public:
     template<typename IT> IT access(size_t index) const {
         return reinterpret_cast<const IT *>(data_.data())[index];
     }
+#if 0
+    template<typename IT>
+    static constexpr uint64_t getmask() {
+        CONST_IF(sizeof(IT) == 1)      return UINT64_C(0x3f3f3f3f3f3f3f3f);
+        else CONST_IF(sizeof(IT) == 2) return UINT64_C(0x003f003f003f003f);
+        else CONST_IF(sizeof(IT) == 4) return UINT64_C(0x0000003f0000003f);
+        else CONST_IF(sizeof(IT) == 8) return UINT64_C(0x000000000000003f);
+        else                           return UINT64_C(0xFFFFFFFFFFFFFFFF); // Should never happen
+    }
+#endif
+    template<typename IT>
     std::array<uint32_t, 64> sum_counts() const {
         using hll::detail::SIMDHolder;
-        // TODO: this
-        // Note: we have whip out more complicated vectorized maxes for
-        // widths of 16, 32, or 64
+        using Space = vec::SIMDTypes<IT>;
         std::array<uint32_t, 64> ret{0};
-        static constexpr uint64_t MASKS[4] {
-            UINT64_C(0x3f3f3f3f3f3f3f3f), UINT64_C(0x003f003f003f003f),
-            UINT64_C(0x0000003f0000003f), UINT64_C(0x000000000000003f)
-        };
         if(data_.size() >= sizeof(SIMDHolder)) {
-            const Space::Type mask = Space::set1(MASKS[lrszm3_]);
-            SK_UNROLL_8
-            for(auto ptr = reinterpret_cast<const SIMDHolder *>(data_.data());
-                ptr < reinterpret_cast<const SIMDHolder *>(&data_[data_.size()]);
-                SIMDHolder(Space::and_fn(Space::srli(*ptr++, r_), mask)).inc_counts_lut(ret, lrszm3_));
+            const typename Space::Type mask = Space::set1(0x3Fu);
+            auto update_point = [&](auto x) {
+                 SIMDHolder(Space::and_fn(Space::srli(x, r_), mask)).inc_counts_by_type<IT>(ret);
+            };
+            auto ptr = reinterpret_cast<const SIMDHolder *>(data_.data());
+            auto eptr = reinterpret_cast<const SIMDHolder *>(&data_[data_.size()]);
+            while(eptr - ptr > 8) {
+                update_point(ptr[0]); update_point(ptr[1]); update_point(ptr[2]); update_point(ptr[3]); 
+                update_point(ptr[4]); update_point(ptr[5]); update_point(ptr[6]); update_point(ptr[7]); 
+                ptr += 8;
+            }
+            while(ptr < eptr) update_point(*ptr++);
         } else for_each_register([&](auto x) {++ret[reg2lzc(x, r_)];});
 #if !NDEBUG
         std::array<uint32_t, 64> cmp{0};
@@ -266,7 +286,8 @@ public:
         const IT reg = encode_register(r_,
                                        clz(((h1 << 1)|1) << (p_ - 1)) + 1,
                                        h2 & rbm_);
-        IT &r = *reinterpret_cast<IT *>(data_.data() + sizeof(IT) * (h1 >> max_lremainder()));
+        IT &r = ((IT *)data_.data())[h1 >> max_lremainder()];
+        assert(&r < (IT *)&*data_.end());
 #ifdef NOT_THREADSAFE
         if(reg > r) r = reg;
 #else
@@ -274,11 +295,17 @@ public:
 #endif
     }
     double estimate_hll_portion() const {
-        return std::max(hll::detail::ertl_ml_estimate(this->sum_counts(), p_, 64 - p_), 0.);
+        double ret;
+        switch(lrszm3_) {
+#undef CASE_U
+#define CASE_U(type, index) case index: ret = hll::detail::ertl_ml_estimate(this->sum_counts<type>(), p_, 64 - p_); break
+            SHOW_CASES(CASE_U)
+            default: __builtin_unreachable();
+        }
+
+        return std::max(ret, 0.);
     }
     double cardinality_estimate() const {
-        double hest = estimate_hll_portion();
-        if(hest < (1024 << p_)) return hest;
         return estimate_mh_portion();
     }
     static INLINE double mhsum2ret(double ret, int p) {
@@ -298,7 +325,21 @@ public:
     }
     double union_size(const hmh_t &o) const {
         double ret = 0.;
-        double maxrem = max_remainder(), mri = 1. / maxrem, mrx2 = 2. * maxrem;
+        auto maxremi = max_remainder();
+        double maxrem = maxremi, mri = 1. / maxrem, mrx2 = 2. * maxrem;
+        switch(lrszm3_) {
+#undef CASE_U
+#define CASE_U(type, i) case i: \
+        __for_each_union_vector<type>(o, [&](auto v) { \
+            using Space = vec::SIMDTypes<type>;\
+            using VType = Space::VType;\
+            auto lzcs = VType(Space::srli(v, r_));\
+            auto rems = Space::and_fn(v, Space::set1(maxremi)));\
+            for(unsigned i = 0; i < sizeof(VType) / sizeof(type); ++i) \
+                ret += mrx2 - double(((const type *)&rems)[i]) * mri * INVPOWERSOFTWO[((uint8_t *)&lzcs)[i]];\
+        }); break
+            default: __builtin_unreachable();
+        }
         for_each_union_lzrem(o, [&](auto lzc, auto rem) {ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];});
         return mhsum2ret(ret, p_);
     }
@@ -470,7 +511,6 @@ public:
         r_ = rlut[lrszm3_];
         data_.resize(1ull << (p_ + lrszm3_));
         gzread(fp, data_.data(), data_.size());
-        alpha_ = make_alpha(uint64_t(1) << p_);
         rbm_ = (1ull << r_) - 1;
         pmrp2_ = std::ldexp(C4, p_ - r_);
     }
@@ -479,7 +519,7 @@ public:
     }
     void free() {
         auto tmp(std::move(data_));
-        rbm_ = p_ = r_ = lrszm3_ = alpha_ = 0;
+        rbm_ = p_ = r_ = lrszm3_ = 0;
     }
 };
 
