@@ -765,7 +765,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
     double cosine_distance(const FinalCRMinHash &o) const {
         throw NotImplementedError("This has not been implemented correctly.");
         const size_t lsz = this->size(), rsz = o.size();
-        size_t num = 0, denom = 0;
+        size_t num = 0;
         size_t nused = 0;
         for(size_t i1 = 0, i2 = 0;nused++ < lsz;) {
             if(this->first[i1] < o.first[i2]) {

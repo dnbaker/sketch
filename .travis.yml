@@ -15,14 +15,14 @@ install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
   - sudo apt-get install -y python-setuptools
   - sudo apt-get install python3-pip
-  - pip install -r python/requirements.txt
+  - pip3 install --user -r python/requirements.txt
 before_install:
   - git submodule update --init --recursive
 script:
   - make -f Makefile run_tests
   - ./run_tests.sh
   - cd python
-  - python3 setup.py install
+  - python3 setup.py install --user --prefix=
   - python3 pytest.py
 notifications:
     slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe#libsketch

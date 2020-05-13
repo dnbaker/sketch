@@ -200,8 +200,8 @@ public:
         for(size_t i = 0; i < data_.size(); ++i)
             func(data_[i]);
     }
-    ccmbase_t(ccmbase_t &&o): data_(std::move(o.data_)), updater_(std::move(updater_)), nhashes_(o.nhashes_), l2sz_(o.l2sz_),
-                              nbits_(o.nbits_), hf_(std::move(hf_)), mask_(o.mask_), subtbl_sz_(o.subtbl_sz_), seeds_(std::move(o.seeds_))
+    ccmbase_t(ccmbase_t &&o): data_(std::move(o.data_)), updater_(std::move(o.updater_)), nhashes_(o.nhashes_), l2sz_(o.l2sz_),
+                              nbits_(o.nbits_), hf_(std::move(o.hf_)), mask_(o.mask_), subtbl_sz_(o.subtbl_sz_), seeds_(std::move(o.seeds_))
     {
     }
     ccmbase_t(const ccmbase_t &o) = default;
