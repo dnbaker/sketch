@@ -1,5 +1,11 @@
 sudo: false
 language: cpp
+python:
+  - "3.6"
+  - "3.7"
+  - "3.8"
+  - "3.8-dev"
+  - "3.8-nightly"
 compiler:
   - gcc
 addons:
@@ -10,6 +16,7 @@ addons:
     - g++-7
 install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
+  - sudo apt-get install -y python-setuptools
 before_install:
   - git submodule update --init --recursive
 script:
