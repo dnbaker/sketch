@@ -1,11 +1,7 @@
 sudo: false
 language: cpp
 python:
-  - "3.6"
   - "3.7"
-  - "3.8"
-  - "3.8-dev"
-  - "3.8-nightly"
   - "pypy3"
 compiler:
   - gcc
@@ -19,7 +15,6 @@ install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
   - sudo apt-get install -y python-setuptools
   - sudo apt-get install python3-pip
-  - python3 -m ensurepip
   - python3 -m pip install -r python/requirements.txt
 before_install:
   - git submodule update --init --recursive
