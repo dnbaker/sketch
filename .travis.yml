@@ -15,7 +15,7 @@ install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
   - sudo apt-get install -y python-setuptools
   - sudo apt-get install python3-pip
-  - python3 -m pip install -r python/requirements.txt
+  - pip install -r python/requirements.txt
 before_install:
   - git submodule update --init --recursive
 script:
