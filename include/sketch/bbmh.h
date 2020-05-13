@@ -308,11 +308,11 @@ public:
     ssize_t write(gzFile fp) const {
         uint64_t arr[] {b_, nbuckets_};
         ssize_t ret;
-        if(__builtin_expect((ret = gzwrite(fp, arr, sizeof(arr))) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
+        if(HEDLEY_UNLIKELY((ret = gzwrite(fp, arr, sizeof(arr))) != sizeof(arr))) throw std::runtime_error("Could not write to file");
         ret += sizeof(arr);
-        if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
+        if(HEDLEY_UNLIKELY(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_))) throw std::runtime_error("Could not write to file");
         ret += sizeof(est_cardinality_);
-        if(__builtin_expect(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != ssize_t(core_.size() * sizeof(core_[0])), 0)) throw std::runtime_error("Could not write to file");
+        if(HEDLEY_UNLIKELY(gzwrite(fp, core_.data(), core_.size() * sizeof(core_[0])) != ssize_t(core_.size() * sizeof(core_[0])))) throw std::runtime_error("Could not write to file");
         ret += sizeof(core_[0]) * core_.size();
         return ret;
     }
@@ -1029,7 +1029,7 @@ public:
                 ++arr[v == detail::default_val<T>() ? 0: integral::clz(v) - diff];
             return hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
         }
-        default: __builtin_unreachable(); // IMPOCEROUS
+        default: HEDLEY_UNREACHABLE(); // IMPOCEROUS
         }
         return sum;
     }
@@ -1314,10 +1314,10 @@ public:
     DBSKETCH_WRITE_STRING_MACROS
     ssize_t write(gzFile fp) const {
         uint32_t arr[] {b_, p_};
-        if(__builtin_expect(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr), 0)) throw std::runtime_error("Could not write to file");
-        if(__builtin_expect(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_), 0)) throw std::runtime_error("Could not write to file");
+        if(HEDLEY_UNLIKELY(gzwrite(fp, arr, sizeof(arr)) != sizeof(arr))) throw std::runtime_error("Could not write to file");
+        if(HEDLEY_UNLIKELY(gzwrite(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_))) throw std::runtime_error("Could not write to file");
         const size_t nb = sizeof(core_[0]) * core_.size();
-        if(__builtin_expect(gzwrite(fp, core_.data(), nb) != ssize_t(nb), 0)) throw std::runtime_error("Could not write to file");
+        if(HEDLEY_UNLIKELY(gzwrite(fp, core_.data(), nb) != ssize_t(nb))) throw std::runtime_error("Could not write to file");
         ssize_t ret = sizeof(arr) + sizeof(est_cardinality_) + nb;
         return ret;
     }
@@ -1562,7 +1562,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
         // We've already failed for the case of b_ + p_ being greater than the width of T
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
     } else {
-        if(__builtin_expect(p_ < 6, 0))
+        if(HEDLEY_UNLIKELY(p_ < 6))
             throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently. We could reduce this requirement using 32-bit integers.");
         // Pack an SSE2 element for each 1 << (p_ - 7)
         switch(p_) {

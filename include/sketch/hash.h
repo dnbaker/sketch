@@ -18,6 +18,7 @@
 #endif
 #include "fixed_vector.h"
 #include "./xxHash/xxh3.h"
+#include "macros.h"
 
 namespace sketch {
 inline namespace hash {
@@ -259,7 +260,7 @@ namespace nosiam {
 INLINE __uint128_t mod127(__uint128_t x) {
     static constexpr __uint128_t mod = (__uint128_t(1) << 127) - 1;
     x = (x >> 127) + (x & mod);
-    if(__builtin_expect(x == __uint128_t(-1), 0)) {
+    if(HEDLEY_UNLIKELY(x == __uint128_t(-1))) {
         return mod + 3;
         // = (x >> 127) + (x & mod);
     }

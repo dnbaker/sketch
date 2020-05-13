@@ -152,7 +152,7 @@ public:
 #undef CASE_U
 #define CASE_U(type, i) case i: return __calc_cc_nc<type>(o); break
             SHOW_CASES(CASE_U)
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
         return -1;
     }
@@ -187,7 +187,7 @@ public:
 #undef CASE_U
 #define CASE_U(type, i) case i: __for_each_union_register<type>(o, func); break
         SHOW_CASES(CASE_U)
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
     }
 
@@ -203,7 +203,7 @@ public:
 #undef CASE_U
 #define CASE_U(type, index) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e)); break
             SHOW_CASES(CASE_U)
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
     }
     template<typename Func>
@@ -219,7 +219,7 @@ public:
 #undef CASE_U
 #define CASE_U(type, index) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e), reinterpret_cast<const type *>(o.data_.data())); break
             SHOW_CASES(CASE_U)
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
     }
     template<typename Func>
@@ -238,7 +238,7 @@ public:
 #define CASE_U(type, index) case index: perform_add<type>(h1, h2); break
             SHOW_CASES(CASE_U)
 #undef CASE_U
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
     }
     template<typename IT> IT access(size_t index) const {
@@ -300,7 +300,7 @@ public:
 #undef CASE_U
 #define CASE_U(type, index) case index: ret = hll::detail::ertl_ml_estimate(this->sum_counts<type>(), p_, 64 - p_); break
             SHOW_CASES(CASE_U)
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
 
         return std::max(ret, 0.);
@@ -338,7 +338,7 @@ public:
             for(unsigned i = 0; i < sizeof(VType) / sizeof(type); ++i) \
                 ret += mrx2 - double(((const type *)&rems)[i]) * mri * INVPOWERSOFTWO[((uint8_t *)&lzcs)[i]];\
         }); break
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
         for_each_union_lzrem(o, [&](auto lzc, auto rem) {ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];});
         return mhsum2ret(ret, p_);

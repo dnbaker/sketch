@@ -45,7 +45,7 @@ struct PowerOfTwo {
         if(static_cast<IntType>(ref) == 0) ref = 1;
         else {
             if(ref >= maxval) return;
-            if(__builtin_expect(nbits_ < ref, 0)) gen_ = rng_(), nbits_ = 64;
+            if(HEDLEY_UNLIKELY(nbits_ < ref)) gen_ = rng_(), nbits_ = 64;
             const IntType oldref = ref;
             ref = oldref + ((gen_ & (UINT64_C(-1) >> (64 - oldref))) == 0);
             gen_ >>= oldref, nbits_ -= oldref;
@@ -58,7 +58,7 @@ struct PowerOfTwo {
             for(const auto el: ref)
                 con[el] = 1;
         } else {
-            if(__builtin_expect(nbits_ < val, 0)) gen_ = rng_(), nbits_ = 64;
+            if(HEDLEY_UNLIKELY(nbits_ < val)) gen_ = rng_(), nbits_ = 64;
             auto oldval = val;
             if((gen_ & (UINT64_C(-1) >> (64 - val))) == 0) {
                 ++val;
