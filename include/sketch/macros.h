@@ -1,6 +1,7 @@
 #pragma once
 #ifndef SKETCH_MACROS_H__
 #define SKETCH_MACROS_H__
+#include "hedley.h"
 
 
 // INLINE
@@ -15,7 +16,7 @@
 // unlikely/likely
 #ifndef unlikely
 #  if defined(__GNUC__) || defined(__INTEL_COMPILER)
-#    define unlikely(x) __builtin_expect((x), 0)
+#    define unlikely(x) HEDLEY_UNLIKELY((x))
 #  else
 #    define unlikely(x) (x)
 #  endif
@@ -23,7 +24,7 @@
 
 #ifndef likely
 #  if defined(__GNUC__) || defined(__INTEL_COMPILER)
-#    define likely(x) __builtin_expect(!!(x), 1)
+#    define likely(x) HEDLEY_LIKELY(!!(x))
 #  else
 #    define likely(x) (x)
 #  endif

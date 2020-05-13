@@ -5,6 +5,7 @@
 #include "common.h"
 #include "median.h"
 #include <queue>
+#include "macros.h"
 #ifndef NDEBUG
 #  include <iostream>
 #endif
@@ -282,7 +283,7 @@ public:
                 return cs_compress(in, out, out_, hs_);
             case WoodruffZhang:
                 return wz_compress(in, out, out_, hs_, p_);
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
     }
     template<typename C, typename C2>
@@ -293,7 +294,7 @@ public:
                 return cs_decompress(in, hs_, out);
             case WoodruffZhang:
                 return wz_decompress(in, hs_, out, p_);
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
     }
     template<typename C>
@@ -304,7 +305,7 @@ public:
                 return cs_decompress(in, out_, hs_);
             case WoodruffZhang:
                 return wz_decompress(in, out_, hs_, p_);
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
     }
     template<typename C>
@@ -315,7 +316,7 @@ public:
                 return cs_compress(in, out_, hs_);
             case WoodruffZhang:
                 return wz_compress(in, out_, hs_, p_);
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
     }
 };

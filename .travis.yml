@@ -1,5 +1,8 @@
 sudo: false
 language: cpp
+python:
+  - "3.7"
+  - "pypy3"
 compiler:
   - gcc
 addons:
@@ -10,11 +13,16 @@ addons:
     - g++-7
 install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
+  - sudo apt-get install -y python-setuptools
+  - sudo apt-get install python3-pip
+  - pip3 install --user -r python/requirements.txt
 before_install:
   - git submodule update --init --recursive
 script:
   - make -f Makefile run_tests
   - ./run_tests.sh
+  - cd python
+  - python3 setup.py install --user --prefix=
 notifications:
     slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe#libsketch
     rooms:

@@ -21,6 +21,7 @@
 #include "kthread.h"
 #include "libpopcnt/libpopcnt.h"
 #include "compact_vector/include/compact_vector.hpp"
+#include "hedley.h"
 
 
 

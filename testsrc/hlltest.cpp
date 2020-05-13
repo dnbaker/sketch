@@ -6,7 +6,7 @@
 #include <cinttypes>
 #include "hll.h"
 #include "mh.h"
-#include "wip/hmh.h"
+#include "hmh.h"
 #include "ccm.h"
 #include "hbb.h"
 #include "kthread.h"
@@ -47,8 +47,8 @@ void kt_helper(void *data, long index, int tid) {
  */
 
 int main(int argc, char *argv[]) {
-    mh::HyperMinHash<> mh(10, 10), mh2(12, 10);
-    mh::HyperMinHash<> mh3(mh.p(), 10); mh3 += mh;
+    sketch::HyperMinHash mh(10, 16), mh2(12, 16);
+    sketch::HyperMinHash mh3(10, 16); mh3 += mh;
     mh.addh(uint64_t(1337));
     std::vector<std::uint64_t> vals;
     for(char **p(argv + 1); *p; ++p) vals.push_back(strtoull(*p, 0, 10));

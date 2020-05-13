@@ -2,6 +2,7 @@
 #define HLL_H_
 #include "common.h"
 #include "hash.h"
+#include "hedley.h"
 
 namespace sketch {
 
@@ -153,7 +154,7 @@ std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
                     ++cg1[core1[i]];
                     break;
                 default:
-                    __builtin_unreachable();
+                    HEDLEY_UNREACHABLE();
             }
         }
     }
@@ -245,7 +246,7 @@ static double calculate_estimate(const CountArrType &counts,
     ERTL_MLE_EST: return ertl_ml_estimate(counts, p, 64 - p, relerr);
 #else
     case ERTL_MLE: return ertl_ml_estimate(counts, p, 64 - p, relerr);
-    default: __builtin_unreachable();
+    default: HEDLEY_UNREACHABLE();
     }
 #endif
 }
@@ -393,9 +394,17 @@ public:
             case 1: inc_counts16(arr); break;
             case 2: inc_counts32(arr); break;
             case 3: inc_counts64(arr); break;
-            default: __builtin_unreachable();
+            default: HEDLEY_UNREACHABLE();
         }
 #endif
+    }
+    template<typename IT, typename T>
+    void inc_counts_by_type(T &arr) const {
+        CONST_IF(sizeof(IT) == 1) inc_counts(arr);
+        else CONST_IF(sizeof(IT) == 2) inc_counts16(arr);
+        else CONST_IF(sizeof(IT) == 4) inc_counts32(arr);
+        else CONST_IF(sizeof(IT) == 8) inc_counts64(arr);
+        else throw std::runtime_error(std::string("Unsupported type of size: ") + std::to_string(sizeof(IT)));
     }
     template<typename T, size_t iternum, size_t niter_left> struct unroller {
         void operator()(const SIMDHolder &ref, T &arr) const {
@@ -924,7 +933,7 @@ public:
     void clear() noexcept {
         if(core_.size() > (1u << 16) || core_.size() < Space::COUNT) {
             std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
-        } else if(__builtin_expect(core_.size() > Space::COUNT, 1)) {
+        } else if(HEDLEY_LIKELY(core_.size() > Space::COUNT)) {
             for(VType v1 = Space::set1(0), *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
         }
         value_ = is_calculated_ = 0;
@@ -1091,7 +1100,7 @@ public:
         uint32_t bf[]{is_calculated_, estim_, jestim_, 137};
 #define CHWR(fn, obj, sz) \
     do {\
-    if(__builtin_expect(::write(fn, (obj), (sz)) != ssize_t(sz), 0)) \
+    if(HEDLEY_UNLIKELY(::write(fn, (obj), (sz)) != ssize_t(sz))) \
         throw std::runtime_error( \
             std::string("[") + __PRETTY_FUNCTION__ + std::string("Failed to write to disk at fd ") + std::to_string(fileno)); \
     } while(0)
@@ -1104,7 +1113,7 @@ public:
     }
     void read(int fileno) {
         uint32_t bf[4];
-#define CHRE(fn, obj, sz) if(__builtin_expect(::read(fn, (obj), (sz)) != ssize_t(sz), 0)) throw std::runtime_error(std::string("Failed to read from fd in ") + __PRETTY_FUNCTION__)
+#define CHRE(fn, obj, sz) if(HEDLEY_UNLIKELY(::read(fn, (obj), (sz)) != ssize_t(sz))) throw std::runtime_error(std::string("Failed to read from fd in ") + __PRETTY_FUNCTION__)
         CHRE(fileno, bf, sizeof(bf));
         is_calculated_ = bf[0];
         estim_         = static_cast<EstimationMethod>(bf[1]);
@@ -1637,7 +1646,7 @@ public:
     }
     // Attempt strength borrowing across hlls with different seeds
     double chunk_report() const {
-        if(__builtin_expect((size() & (size() - 1)) == 0, 1)) {
+        if(HEDLEY_LIKELY((size() & (size() - 1)) == 0)) {
             std::array<uint32_t, 64> counts{0};
             for(const auto &hll: hlls_) detail::inc_counts(counts, hll.core());
             const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz(uint32_t(size())) - 1);
