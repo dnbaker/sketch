@@ -18,24 +18,28 @@ static constexpr const std::array<double, 64> INVPOWERSOFTWO = {
 1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625, 0.0078125, 0.00390625, 0.001953125, 0.0009765625, 0.00048828125, 0.000244140625, 0.0001220703125, 6.103515625e-05, 3.0517578125e-05, 1.52587890625e-05, 7.62939453125e-06, 3.814697265625e-06, 1.9073486328125e-06, 9.5367431640625e-07, 4.76837158203125e-07, 2.384185791015625e-07, 1.1920928955078125e-07, 5.960464477539063e-08, 2.9802322387695312e-08, 1.4901161193847656e-08, 7.450580596923828e-09, 3.725290298461914e-09, 1.862645149230957e-09, 9.313225746154785e-10, 4.656612873077393e-10, 2.3283064365386963e-10, 1.1641532182693481e-10, 5.820766091346741e-11, 2.9103830456733704e-11, 1.4551915228366852e-11, 7.275957614183426e-12, 3.637978807091713e-12, 1.8189894035458565e-12, 9.094947017729282e-13, 4.547473508864641e-13, 2.2737367544323206e-13, 1.1368683772161603e-13, 5.684341886080802e-14, 2.842170943040401e-14, 1.4210854715202004e-14, 7.105427357601002e-15, 3.552713678800501e-15, 1.7763568394002505e-15, 8.881784197001252e-16, 4.440892098500626e-16, 2.220446049250313e-16, 1.1102230246251565e-16, 5.551115123125783e-17, 2.7755575615628914e-17, 1.3877787807814457e-17, 6.938893903907228e-18, 3.469446951953614e-18, 1.734723475976807e-18, 8.673617379884035e-19, 4.336808689942018e-19, 2.168404344971009e-19, 1.0842021724855044e-19
 };
 
+#define SHOW_CASES(CASE_MACRO)  \
+        CASE_MACRO(uint8_t, 0); \
+        CASE_MACRO(uint16_t, 1); \
+        CASE_MACRO(uint32_t, 2); \
+        CASE_MACRO(uint64_t, 3);
+
 struct hmh_t {
 protected:
     uint64_t rbm_;
     uint16_t p_, r_, lrszm3_;
     std::vector<uint8_t, Allocator<uint8_t>> data_;
     double alpha_;
+    long double pmrp2_;
 public:
     hmh_t(unsigned p, unsigned rsize=8):
           rbm_((uint64_t(1) << (rsize - q)) - 1),
           p_(p), r_(rsize-q),
-          lrszm3_(ilog2(rsize) - 3), alpha_(make_alpha(uint64_t(1) << p))
+          lrszm3_(ilog2(rsize) - 3), alpha_(make_alpha(uint64_t(1) << p)), pmrp2_(std::ldexp(C4, p_ - r_))
     {
-        switch(rsize) {
-            case 8: lrszm3_ = 0; break;  case 16: lrszm3_ = 1; break;
-            case 32: lrszm3_ = 2; break; case 64: lrszm3_ = 3; break;
-            default: PREC_REQ(legal_regsize(rsize), "Must have 8, 16, 32, or 64 for register size");
-        }
-        PREC_REQ(p_ >= 3 && p < 64, "p can't be less than 3 or >= 64");
+        PREC_REQ(rsize == 8 || rsize == 16 || rsize == 32 || rsize == 64, "Must have 8, 16, 32, or 64 for register size");
+        PREC_REQ(p_ >= 3 && p_ < 64, "p can't be less than 3 or >= 64");
+        rsize = ilog2(rsize) - 3;
         data_.resize(rsize << (p_ - 3));
     }
     hmh_t(gzFile fp) {
@@ -48,7 +52,7 @@ public:
     // Constants, encoding, and decoding utilities
     static constexpr unsigned q  = 6;
     static constexpr unsigned tq = 1ull << 6;
-    static constexpr double C4 = 0.679677948638956375907848456163762307369324844330549240112305; // C * 4
+    static constexpr long double C4 = 0.679677948638956375907848456163762307369324844330549240112305L;
 
 
     unsigned regsize() const {return r_ + q;}
@@ -80,11 +84,10 @@ public:
     hmh_t &operator+=(const hmh_t &o) {
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
         switch(lrszm3_) {
-            case 0: return perform_merge<uint8_t> (o);
-            case 1: return perform_merge<uint64_t>(o);
-            case 2: return perform_merge<uint32_t>(o);
-            case 3: return perform_merge<uint64_t>(o);
-            default: __builtin_unreachable();
+#undef CASE_U
+#define CASE_U(type, index) case index: return perform_merge<type>(o)
+            SHOW_CASES(CASE_U)
+            default: return *this;
         }
     }
     hmh_t operator+(const hmh_t &o) const {
@@ -147,10 +150,9 @@ public:
     }
     uint64_t calculate_cc_nc(const hmh_t &o) const {
         switch(lrszm3_) {
-            case 0: return __calc_cc_nc<uint8_t>(o); break;
-            case 1: return __calc_cc_nc<uint16_t>(o); break;
-            case 2: return __calc_cc_nc<uint32_t>(o); break;
-            case 3: return __calc_cc_nc<uint64_t>(o); break;
+#undef CASE_U
+#define CASE_U(type, i) case i: return __calc_cc_nc<type>(o); break
+            SHOW_CASES(CASE_U)
             default: __builtin_unreachable();
         }
         return -1;
@@ -180,6 +182,7 @@ public:
             default: __builtin_unreachable();
         }
     }
+
     template<typename Func>
     void for_each_register(const Func &func) const {
         const uint8_t *const s = data_.data(), *const e = &s[data_.size()];
@@ -189,17 +192,9 @@ public:
                 func(*start++);
         };
         switch(lrszm3_) {
-            case 0:
-                fe(s, e); break;
-            case 1:
-                fe(reinterpret_cast<const uint16_t *>(s), reinterpret_cast<const uint16_t *>(e));
-                break;
-            case 2:
-                fe(reinterpret_cast<const uint32_t *>(s), reinterpret_cast<const uint32_t *>(e));
-                break;
-            case 3:
-                fe(reinterpret_cast<const uint64_t *>(s), reinterpret_cast<const uint64_t *>(e));
-                break;
+#undef CASE_U
+#define CASE_U(type, index) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e)); break
+            SHOW_CASES(CASE_U)
             default: __builtin_unreachable();
         }
     }
@@ -213,19 +208,9 @@ public:
             } while(startp != endp);
         };
         switch(lrszm3_) {
-            case 0:
-                fe(s, e, o.data_.data()); break;
-            case 1:
-                fe(reinterpret_cast<const uint16_t *>(s), reinterpret_cast<const uint16_t *>(e),
-                   reinterpret_cast<const uint16_t *>(o.data_.data())); break;
-                break;
-            case 2:
-                fe(reinterpret_cast<const uint32_t *>(s), reinterpret_cast<const uint32_t *>(e),
-                   reinterpret_cast<const uint32_t *>(o.data_.data())); break;
-                break;
-            case 3:
-                fe(reinterpret_cast<const uint64_t *>(s), reinterpret_cast<const uint64_t *>(e),
-                   reinterpret_cast<const uint64_t *>(o.data_.data())); break;
+#undef CASE_U
+#define CASE_U(type, index) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e), reinterpret_cast<const type *>(o.data_.data())); break
+            SHOW_CASES(CASE_U)
             default: __builtin_unreachable();
         }
     }
@@ -241,10 +226,10 @@ public:
     }
     void add(uint64_t h1, uint64_t h2) {
         switch(lrszm3_) {
-            case 0: perform_add<uint8_t> (h1, h2); break;
-            case 1: perform_add<uint16_t>(h1, h2); break;
-            case 2: perform_add<uint32_t>(h1, h2); break;
-            case 3: perform_add<uint64_t>(h1, h2); break;
+#undef CASE_U
+#define CASE_U(type, index) case index: perform_add<type>(h1, h2); break
+            SHOW_CASES(CASE_U)
+#undef CASE_U
             default: __builtin_unreachable();
         }
     }
@@ -322,9 +307,9 @@ public:
         const double ln = std::log(n);
         if(ln > tq + r_) return std::numeric_limits<double>::max();
         if(laziness > 1 || ln > p_ + 5. ) {
-            const auto minv = 1. / m;
-            double d = n * minv * std::pow(((1.0 + n) * minv), -2);
-            return std::ldexp(C4 * d, p_ - r_) + 0.5;
+            const auto minv = 1.L / m;
+            const auto nmv = static_cast<long double>(n) * minv;
+            return nmv * pmrp2_ * std::pow(nmv + minv, -2);
         }
         if(laziness > 0) return hll_lazy_collision_estimate(n, m);
         return expected_collisions(n, m) / p_;
@@ -367,8 +352,9 @@ public:
             py = std::pow(1. - b1, m) - std::pow(1. - b2, m);
             x += px * py;
         }
-        
-        return std::ldexp(x, int(this->q - this->r_));
+        int exp = (this->q - this->r_);
+        if(exp < 0) return x * INVPOWERSOFTWO[-exp];
+        return std::ldexp(x, exp);
     }
     double jaccard_index(const hmh_t &o) const {
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
@@ -479,17 +465,14 @@ public:
         gzread(fp, buf, sizeof(buf));
         p_ = buf[0];
         lrszm3_ = buf[1];
-        switch(lrszm3_) {
-            case 0: r_ = 2; break;
-            case 1: r_ = 10; break;
-            case 2: r_ = 26; break;
-            case 3: r_ = 58; break;
-            default: throw std::runtime_error("Illegal remainder size");
-        }
+        PREC_REQ(lrszm3_ <= 3, "Illegal lrszm3_");
+        static constexpr std::uint8_t rlut[] {2, 10, 26, 58};
+        r_ = rlut[lrszm3_];
         data_.resize(1ull << (p_ + lrszm3_));
         gzread(fp, data_.data(), data_.size());
         alpha_ = make_alpha(uint64_t(1) << p_);
         rbm_ = (1ull << r_) - 1;
+        pmrp2_ = std::ldexp(C4, p_ - r_);
     }
     void clear() {
         std::memset(data_.data(), 0, data_.size());
@@ -569,6 +552,7 @@ struct HyperMinHasher: public hmh_t {
 
     using final_type = HyperMinHasher<Hasher>;
 };
+#undef SHOW_CASES
 
 } // namespace hmh
 

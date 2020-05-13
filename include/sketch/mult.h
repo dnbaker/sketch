@@ -376,7 +376,6 @@ struct WeightedSketcher {
                      HashStruct &&hf=HashStruct())
     : cst_(std::move(cst)), sketch_(std::move(core)), hf_(std::move(hf)) {}
     WeightedSketcher(std::string path): cst_(0,0), sketch_(path) {throw NotImplementedError("Reading weighted sketcher from disk");}
-    //WeightedSketcher(int i): cst_(0,0), sketch_(i) {throw NotImplementedError("Making a weighted sketcher from an integer.");}
 
     template<typename...Args>
     WeightedSketcher(const cm_type &tplt, HashStruct &&hf, Args &&...args):
