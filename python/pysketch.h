@@ -25,17 +25,13 @@ static size_t flat2fullsz(size_t n) {
 struct AsymmetricCmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
-        if(l.begin()->cast<hll_t *>()) {
-            return apply_sketch<Func, hll_t>(l, func);
-        } else if(l.begin()->cast<sketch::HyperMinHash *>()) {
-            apply_sketch<Func, sketch::HyperMinHash>(l, func);
-        //} else if(l.begin()->cast<mh::BBitMinHasher<uint64_t> *>()) {
-        //    apply_sketch<Func, mh::BBitMinHasher<uint64_t>>(l, func);
-        } else if(l.begin()->cast<bf_t *>()) {
-            return apply_sketch<Func, bf_t>(l, func);
-        } else {
+#define TRY_APPLY(sketch) \
+        do {try {return apply_sketch<Func, sketch>(l, func);} catch(std::runtime_error &r) {}} while(0)
+        TRY_APPLY(hll_t);
+        TRY_APPLY(sketch::HyperMinHash);
+        TRY_APPLY(sketch::bf_t);
             throw std::runtime_error("Unsupported type");
-        }
+        HEDLEY_UNREACHABLE();
     }
     template<typename Func, typename Sketch>
     static py::array_t<float> apply_sketch(py::list l, const Func &func) {
@@ -63,19 +59,13 @@ struct AsymmetricCmpFunc {
 struct CmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
-        if(l.begin()->cast<hll_t *>()) {
-            return apply_sketch<Func, hll_t>(l, func);
-        } else if(l.begin()->cast<mh::BBitMinHasher<uint64_t> *>()) {
-            return apply_sketch<Func, mh::BBitMinHasher<uint64_t>>(l, func);
-        } else if(l.begin()->cast<sketch::HyperMinHash *>()) {
-            return apply_sketch<Func, sketch::HyperMinHash>(l, func);
-        } else if(l.begin()->cast<mh::FinalBBitMinHash *>()) {
-            return apply_sketch<Func, mh::FinalBBitMinHash>(l, func);
-        } else if(l.begin()->cast<bf_t *>()) {
-            return apply_sketch<Func, bf_t>(l, func);
-        } else {
-            throw std::runtime_error("Unsupported type");
-        }
+        TRY_APPLY(hll_t);
+        TRY_APPLY(mh::BBitMinHasher<uint64_t>);
+        TRY_APPLY(sketch::HyperMinHash);
+        TRY_APPLY(mh::FinalBBitMinHash);
+        TRY_APPLY(bf_t);
+#undef TRY_APPLY
+        throw std::runtime_error("Unsupported type");
     }
     template<typename Func, typename SketchType=hll_t>
     static py::array_t<float> apply_sketch(py::list l, const Func &func) {

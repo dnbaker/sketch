@@ -15,6 +15,9 @@ before_install:
 script:
   - make -f Makefile run_tests
   - ./run_tests.sh
+  - cd python
+  - python3 setup.py install
+  - python3 pytest.py
 notifications:
     slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe#libsketch
     rooms:

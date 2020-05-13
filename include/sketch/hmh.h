@@ -51,7 +51,7 @@ public:
     // Constants, encoding, and decoding utilities
     static constexpr unsigned q  = 6;
     static constexpr unsigned tq = 1ull << 6;
-    static constexpr long double C4 = 0.679677948638956375907848456163762307369324844330549240112305L;
+    static constexpr long double C4 = 0.6796779486389563759078484561637623073693248443305492L;
 
 
     unsigned regsize() const {return r_ + q;}
@@ -302,11 +302,13 @@ public:
             SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
-
         return std::max(ret, 0.);
     }
     double cardinality_estimate() const {
-        return estimate_mh_portion();
+        double ret = estimate_mh_portion();
+        if(ret < (1024 << p_))
+            ret = estimate_hll_portion();
+        return ret;
     }
     static INLINE double mhsum2ret(double ret, int p) {
         return (uint64_t(1) << (2 * p)) / ret;

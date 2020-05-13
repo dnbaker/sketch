@@ -7,11 +7,9 @@ int main() {
         sketch::HyperMinHash hm(12, rem), hm2(12, rem);
         size_t seed = std::mt19937_64(0)();
         for(size_t i = 0; i < nelem; ++i) {
-            wy::WyRand<uint64_t, 2> rng(seed + i);
-            auto v1 = rng(), v2 = rng();
-            hm.add(v1);
-            hm2.add(v1);
-            hm2.add(v2);
+            hm.addh(seed + i);
+            hm2.addh(seed + i);
+            hm2.addh(~(seed + i));
         }
         // True JI should be 50%.
         double ce = hm.cardinality_estimate();
