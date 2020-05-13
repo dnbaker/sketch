@@ -95,7 +95,7 @@ public:
         if(seedseed == 0) seedseed = seedseed_;
         std::mt19937_64 mt(seedseed);
 #if !NDEBUG
-        if(__builtin_expect(p() == 0, 0)) throw std::runtime_error(std::string("p is ") + std::to_string(p()));
+        if(HEDLEY_UNLIKELY(p() == 0)) throw std::runtime_error(std::string("p is ") + std::to_string(p()));
 #endif
         auto nperhash64 = lut::nhashesper64bitword[p()];
         //assert(is_pow2(nperhash64) || !std::fprintf(stderr, "nperhash64 %u(accessed by p = %u)\n", nperhash64, unsigned(p())));

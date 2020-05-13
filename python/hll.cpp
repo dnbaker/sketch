@@ -16,7 +16,7 @@ PYBIND11_MODULE(sketch_hll, m) {
             auto hv = py::hash(p);
             h1.addh(hv);
         }, "Hash a python object and add it to the sketch.")
-        .def("jaccard_index", [](hll_t &h1, hll_t &h2) {return jaccard_index(h2, h2);})
+        .def("jaccard_index", [](hll_t &h1, hll_t &h2) {return jaccard_index(h1, h2);})
         .def("sprintf", &hll_t::sprintf)
         .def("union", [](const hll_t &h1, const hll_t &h2) {return h1 + h2;})
         .def("union_size", [](const hll_t &h1, const hll_t &h2) {return h1.union_size(h2);})

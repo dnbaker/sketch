@@ -200,8 +200,8 @@ public:
         for(size_t i = 0; i < data_.size(); ++i)
             func(data_[i]);
     }
-    ccmbase_t(ccmbase_t &&o): data_(std::move(o.data_)), updater_(std::move(updater_)), nhashes_(o.nhashes_), l2sz_(o.l2sz_),
-                              nbits_(o.nbits_), hf_(std::move(hf_)), mask_(o.mask_), subtbl_sz_(o.subtbl_sz_), seeds_(std::move(o.seeds_))
+    ccmbase_t(ccmbase_t &&o): data_(std::move(o.data_)), updater_(std::move(o.updater_)), nhashes_(o.nhashes_), l2sz_(o.l2sz_),
+                              nbits_(o.nbits_), hf_(std::move(o.hf_)), mask_(o.mask_), subtbl_sz_(o.subtbl_sz_), seeds_(std::move(o.seeds_))
     {
     }
     ccmbase_t(const ccmbase_t &o) = default;
@@ -215,9 +215,9 @@ public:
             mask_((1ull << l2sz) - 1),
             subtbl_sz_(1ull << l2sz)
     {
-        if(__builtin_expect(nbits < 0, 0)) throw std::runtime_error("Number of bits cannot be negative.");
-        if(__builtin_expect(l2sz < 0, 0)) throw std::runtime_error("l2sz cannot be negative.");
-        if(__builtin_expect(nhashes < 0, 0)) throw std::runtime_error("nhashes cannot be negative.");
+        if(HEDLEY_UNLIKELY(nbits < 0)) throw std::runtime_error("Number of bits cannot be negative.");
+        if(HEDLEY_UNLIKELY(l2sz < 0)) throw std::runtime_error("l2sz cannot be negative.");
+        if(HEDLEY_UNLIKELY(nhashes < 0)) throw std::runtime_error("nhashes cannot be negative.");
         std::mt19937_64 mt(seed + 4);
         while(seeds_.size() < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
         clear();

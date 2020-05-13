@@ -14,13 +14,14 @@ PYBIND11_MODULE(sketch_bf, m) {
             auto hv = py::hash(p);
             h1.add(hv);
         }, "Hash a python object and add it to the sketch.")
-        .def("jaccard_index", [](bf_t &h1, bf_t &h2) {return jaccard_index(h2, h2);})
+        .def("jaccard_index", [](bf_t &h1, bf_t &h2) {return jaccard_index(h1, h2);})
         .def("union", [](const bf_t &h1, const bf_t &h2) {return h1 + h2;})
         .def("union_size", [](const bf_t &h1, const bf_t &h2) {return h1.union_size(h2);})
         .def("__ior__", [](bf_t &lh, const bf_t &rh) {
             lh |= rh;
             return lh;
         })
+        .def("getcard", &bf_t::cardinality_estimate, "Estimate cardinality of items insrted into Bloom Filter")
         .def("__or__", [](bf_t &lh, const bf_t &rh) {
             return lh | rh;
         }).def("__contains__", [](bf_t &lh, py::object obj) {

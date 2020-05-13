@@ -64,7 +64,7 @@ public:
             if(it == bfs_.end()) return 1u << bfs_.size();
             if(!it->may_contain(val)) {
                 const auto dist = static_cast<unsigned>(std::distance(bfs_.begin(), it));
-                if(__builtin_expect(nbits_ < dist, 0)) gen_ = rng_(), nbits_ = 64;
+                if(HEDLEY_UNLIKELY(nbits_ < dist)) gen_ = rng_(), nbits_ = 64;
                 if((gen_ & (UINT64_C(-1) >> (64 - dist))) == 0) it->addh(val); // Flip the biased coin, add if it returns 'heads'
                 gen_ >>= dist, nbits_ -= dist;
             }
@@ -174,7 +174,7 @@ public:
             if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain(val)) break;
             ++i;
         }
-        if(__builtin_expect(nbits_ < i, 0)) gen_ = rng_(), nbits_ = 64;
+        if(HEDLEY_UNLIKELY(nbits_ < i)) gen_ = rng_(), nbits_ = 64;
         if((gen_ & (UINT64_C(-1) >> (64 - i))) == 0) bfs_[i].addh(val), hlls_[i].addh(val);
         gen_ >>= i, nbits_ -= i;
     }
