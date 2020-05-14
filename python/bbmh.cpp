@@ -2,7 +2,7 @@
 
 
 PYBIND11_MODULE(sketch_bbmh, m) {
-    m.doc() = "BBitMinHash support";
+    m.doc() = "BBitMinHash";
     py::class_<mh::FinalBBitMinHash> (m, "FinalBBitMinHash")
         .def(py::init<std::string>())
         .def("jaccard_index", [](mh::FinalBBitMinHash &lhs, mh::FinalBBitMinHash &rhs) {
@@ -20,9 +20,11 @@ PYBIND11_MODULE(sketch_bbmh, m) {
         }).def("write", [](mh::FinalBBitMinHash &lhs, std::string path) {
             lhs.write(path);
         })
-        .def("compress", [](const mh::BBitMinHasher<uint64_t> &h1, unsigned newnp) {return h1.compress(newnp);},
-             py::return_value_policy::take_ownership,
-            "Compress an b-bit minhash sketch from a previous prefix length to a smaller one.");
+        .def("__str__", [](const mh::FinalBBitMinHash &o) {
+            char buf[256];
+            int l = std::sprintf(buf, "FinalBBitMinHash{.p=%d,.b=%d,card=%g}", o.p_, o.b_, o.est_cardinality_);
+            return std::string(buf, l);
+        });
 
     py::class_<mh::BBitMinHasher<uint64_t>> (m, "BBitMinHasher")
         .def(py::init<size_t, unsigned>())
@@ -37,7 +39,16 @@ PYBIND11_MODULE(sketch_bbmh, m) {
         .def("finalize", [](mh::BBitMinHasher<uint64_t> &lhs) {
             mh::FinalBBitMinHash ret = lhs.finalize();
             return ret;
-        }, py::return_value_policy::take_ownership);
+        }, py::return_value_policy::take_ownership)
+        .def("compress", [](const mh::BBitMinHasher<uint64_t> &h1, unsigned newnp) {return h1.compress(newnp);},
+             py::return_value_policy::take_ownership,
+            "Compress an b-bit minhash sketch from a previous prefix length to a smaller one.")
+        .def("__str__", [](const mh::BBitMinHasher<uint64_t> &lh) {
+            char buf[256];
+            return std::string(buf, std::sprintf(buf, "BBitMinHasher{.p=%d,.b=%d}", lh.getp(), lh.getb()));
+        })
+        .def("__ior__", [](mh::BBitMinHasher<uint64_t> &lh, const mh::BBitMinHasher<uint64_t> &rh) {lh += rh; return lh;})
+        .def("__or__", [](const mh::BBitMinHasher<uint64_t> &lh, const mh::BBitMinHasher<uint64_t> &rh) {return lh + rh;});
         //.def("sprintf", &mh::BBitMinHasher<uint64_t>::sprintf)
         //.def("union", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1 + h2;})
         //.def("union_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.union_size(h2);})

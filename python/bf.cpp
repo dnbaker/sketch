@@ -28,7 +28,7 @@ PYBIND11_MODULE(sketch_bf, m) {
             return lh.may_contain(py::hash(obj));
         }).def("__contains__", [](bf_t &lh, uint64_t v) {
             return lh.may_contain(v);
-        });
+        }).def("__str__", [](const bf_t &h) {return std::string("BloomFilter{.p=") + std::to_string(h.p()) + ",.nhashes=" + std::to_string(h.nhashes()) + '}';});
     m.def("jaccard_index", [](bf_t &h1, bf_t &h2) {
             return jaccard_index(h1, h2);
         }, "Calculates jaccard indexes between two sketches")

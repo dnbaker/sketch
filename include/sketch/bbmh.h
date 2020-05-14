@@ -880,6 +880,8 @@ public:
         throw NotImplementedError("NotImplemented function. This is likely an error, as you probabyl don't mean to call this.");
         return -1;
     }
+    auto getp() const {return p_;}
+    auto getb() const {return b_;}
     BBitMinHasher compress(unsigned p, unsigned b=0) const {
         if(!b) b = b_;
         if(p == p_) return *this;
