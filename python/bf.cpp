@@ -1,6 +1,10 @@
 #include "python/pysketch.h"
 using sketch::bf_t;
 
+std::string bf2str(const bf_t &h) {
+    return std::string("BloomFilter{.p=") + std::to_string(h.p()) + ",.nhashes=" + std::to_string(h.nhashes()) + '}';
+}
+
 PYBIND11_MODULE(sketch_bf, m) {
     m.doc() = "Bloom Filter support"; // optional module docstring
     py::class_<bf_t> (m, "bf")
@@ -21,14 +25,21 @@ PYBIND11_MODULE(sketch_bf, m) {
             lh |= rh;
             return lh;
         })
-        .def("getcard", &bf_t::cardinality_estimate, "Estimate cardinality of items insrted into Bloom Filter")
+        .def("getcard", &bf_t::cardinality_estimate, "Estimate cardinality of items inserted into Bloom Filter")
         .def("__or__", [](bf_t &lh, const bf_t &rh) {
             return lh | rh;
         }).def("__contains__", [](bf_t &lh, py::object obj) {
             return lh.may_contain(py::hash(obj));
         }).def("__contains__", [](bf_t &lh, uint64_t v) {
             return lh.may_contain(v);
-        }).def("__str__", [](const bf_t &h) {return std::string("BloomFilter{.p=") + std::to_string(h.p()) + ",.nhashes=" + std::to_string(h.nhashes()) + '}';});
+        }).def("__str__", [](const bf_t &h) {return bf2str(h);
+        }).def("__repr__", [](const bf_t &h) {
+            return bf2str(h) + ':' + std::to_string(reinterpret_cast<uint64_t>(&h));
+        }).def("__eq__", [](const sketch::bf_t &h, const sketch::bf_t &h2) {
+            return h == h2;
+        }).def("__neq__", [](const sketch::bf_t &h, const sketch::bf_t &h2) {
+            return h != h2;
+        });
     m.def("jaccard_index", [](bf_t &h1, bf_t &h2) {
             return jaccard_index(h1, h2);
         }, "Calculates jaccard indexes between two sketches")

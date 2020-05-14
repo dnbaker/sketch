@@ -748,6 +748,9 @@ public:
         return np_ == o.np_ &&
                std::equal(core_.begin(), core_.end(), o.core_.begin());
     }
+    bool operator!=(const hllbase_t &o) const {
+        return !this->operator==(o);
+    }
     // Constructor
     template<typename... Args>
     explicit hllbase_t(size_t np, EstimationMethod estim,

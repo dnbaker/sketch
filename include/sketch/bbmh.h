@@ -267,6 +267,9 @@ public:
         return H__(nbuckets_) && H__(core_);// Removed b_ and est_cardinality_, since the sets are the same, and that's what really matters.
 #undef H__
     }
+    bool operator!=(const FinalDivBBitMinHash &o) const {
+        return !this->operator==(o);
+    }
     FinalDivBBitMinHash(const std::string &path): FinalDivBBitMinHash(path.data()) {}
     FinalDivBBitMinHash(const char *path): est_cardinality_(0), nbuckets_(0), b_(0) {
         read(path);
@@ -747,6 +750,12 @@ public:
         assert(core_.size() % 64 == 0);
         if(b_ < 1 || b_ > 64) throw "a party";
     }
+    bool operator==(const DivBBitMinHasher &o) const {
+        return b_ == o.b_ && std::equal(core_.begin(), core_.end(), o.core_.begin());
+    }
+    bool operator!=(const DivBBitMinHasher &o) const {
+        return !operator==(o);
+    }
     void show() const {for(const auto v: core_) std::fprintf(stderr, "%zu\t", size_t(v)); std::fputc('\n', stderr);}
     void addh(T val) {val = hf_(val);add(val);}
     void clear() {
@@ -871,6 +880,12 @@ public:
             throw std::runtime_error(buf);
         }
         postcondition_require(is_pow2(core_.size()), "should be a power of two");
+    }
+    bool operator==(const BBitMinHasher &o) const {
+        return b_ == o.b_ && p_ == o.p_ && std::equal(core_.begin(), core_.end(), o.core_.begin());
+    }
+    bool operator!=(const BBitMinHasher &o) const {
+        return !operator==(o);
     }
     void reset() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
@@ -1264,6 +1279,12 @@ public:
     void free() {
         decltype(core_) tmp;
         std::swap(tmp, core_);
+    }
+    bool operator==(const FinalBBitMinHash &o) const {
+        return b_ == o.b_ && p_ == o.p_ && std::equal(core_.data(), core_.data() + core_.size(), o.core_.data());
+    }
+    bool operator!=(const FinalBBitMinHash &o) const {
+        return !operator==(o);
     }
     FinalBBitMinHash(const std::string &path): FinalBBitMinHash(path.data()) {}
     FinalBBitMinHash(const char *path): est_cardinality_(0), b_(0), p_(0) {

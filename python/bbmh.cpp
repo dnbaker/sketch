@@ -24,6 +24,11 @@ PYBIND11_MODULE(sketch_bbmh, m) {
             char buf[256];
             int l = std::sprintf(buf, "FinalBBitMinHash{.p=%d,.b=%d,card=%g}", o.p_, o.b_, o.est_cardinality_);
             return std::string(buf, l);
+        })
+        .def("__eq__", [](const sketch::mh::FinalBBitMinHash &h, const sketch::mh::FinalBBitMinHash &h2) {
+            return h == h2;
+        }).def("__neq__", [](const sketch::mh::FinalBBitMinHash &h, const sketch::mh::FinalBBitMinHash &h2) {
+            return h != h2;
         });
 
     py::class_<mh::BBitMinHasher<uint64_t>> (m, "BBitMinHasher")
@@ -48,7 +53,12 @@ PYBIND11_MODULE(sketch_bbmh, m) {
             return std::string(buf, std::sprintf(buf, "BBitMinHasher{.p=%d,.b=%d}", lh.getp(), lh.getb()));
         })
         .def("__ior__", [](mh::BBitMinHasher<uint64_t> &lh, const mh::BBitMinHasher<uint64_t> &rh) {lh += rh; return lh;})
-        .def("__or__", [](const mh::BBitMinHasher<uint64_t> &lh, const mh::BBitMinHasher<uint64_t> &rh) {return lh + rh;});
+        .def("__or__", [](const mh::BBitMinHasher<uint64_t> &lh, const mh::BBitMinHasher<uint64_t> &rh) {return lh + rh;})
+        .def("__eq__", [](const sketch::mh::BBitMinHasher<uint64_t> &h, const sketch::mh::BBitMinHasher<uint64_t> &h2) {
+            return h == h2;
+        }).def("__neq__", [](const sketch::mh::BBitMinHasher<uint64_t> &h, const sketch::mh::BBitMinHasher<uint64_t> &h2) {
+            return h != h2;
+        });
         //.def("sprintf", &mh::BBitMinHasher<uint64_t>::sprintf)
         //.def("union", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1 + h2;})
         //.def("union_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.union_size(h2);})
