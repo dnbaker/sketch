@@ -974,7 +974,7 @@ double jaccard_index(const T &a, const T &b) {
 }
 
 
-template<bool weighted, typename Signature=std::uint16_t, typename IndexType=std::uint32_t,
+template<bool weighted, typename Signature=std::uint32_t, typename IndexType=std::uint32_t,
          typename FT=float, bool sparsecache=false>
 struct ShrivastavaHash {
     const IndexType nd_;
@@ -985,6 +985,11 @@ struct ShrivastavaHash {
     std::unique_ptr<FT[]> maxvals_;
     schism::Schismatic<IndexType> div_;
     std::vector<Signature> mintimes;
+
+    INLINE static uint64_t preseed2final(uint64_t preseed) {
+        uint64_t val = wy::wyhash64_stateless(&preseed);
+        return val;
+    }
 public:
     ShrivastavaHash(size_t ndim, size_t nhashes, size_t seedseed=0): nd_(ndim), nh_(nhashes), seedseed_(seedseed), div_(ndim) {
         CONST_IF(weighted) { // Defaults to weight of 1 until a weight is provided.
@@ -999,14 +1004,14 @@ public:
             mintimes.resize(nh_ * nd_, std::numeric_limits<Signature>::max());
             OMP_PFOR
             for(size_t i = 0; i < nh_; ++i) {
+                std::fprintf(stderr, "Starting caching for hash %zu/%u\n", i, nh_);
                 unsigned left_to_find = nd_;
                 uint64_t searchseed = seeds_[i];
-                for(size_t cind = 0;left_to_find;++cind) {
-                    uint64_t localseed = searchseed + cind;
-                    uint64_t val = wy::wyhash64_stateless(&localseed);
-                    const size_t index = i + div_.mod(val);
-                    if(auto &mt(mintimes[index]);
-                       mt == std::numeric_limits<Signature>::max()) {
+                for(size_t cind = 0;;++cind) {
+                    uint64_t val = preseed2final(searchseed + cind);
+                    const size_t index = i * nd_ + div_.mod(val);
+                    auto &mt(mintimes[index]);
+                    if(mt == std::numeric_limits<Signature>::max()) {
                         mt = cind;
                         if(--left_to_find == 0u) break;
                     }
@@ -1033,8 +1038,7 @@ public:
     Signature compute_hash_index(const T &x, IndexType idx) const {
         uint64_t searchseed = seeds_[idx];
         for(Signature sig = 0; ;++sig) {
-            uint64_t localseed = searchseed + sig;
-            uint64_t val = wy::wyhash64_stateless(&localseed);
+            uint64_t val = preseed2final(searchseed + sig);
             auto dm = div_.divmod(val);
             auto div = dm.quot, rem = dm.rem;
             CONST_IF(!weighted) {
@@ -1050,8 +1054,7 @@ public:
                     rv = (div & 0xFFFFFFFFull) * finv;
                 } else {
                     static constexpr FT finv52 = 1. / (1ull << 52);
-                    uint64_t nv = div;
-                    nv = wy::wyhash64_stateless(&nv);
+                    uint64_t nv = preseed2final(div);
                     rv = (nv >> 12) * finv52;
                 }
                 if(rv < get_threshold(rem) * x[rem])
@@ -1060,10 +1063,10 @@ public:
         }
     }
     template<typename T>
-    void hash_sparse(const T &x, Signature *ret) const {
+    void hash(const T &x, Signature *ret, std::false_type) const {
         CONST_IF(!sparsecache) throw std::runtime_error("Cannot use sparsecache if not enabled");
-        std::unique_ptr<FT[]> hm(new FT[this->nh_]());
-        for(const auto &pair: x) hm[pair.index()] = pair.value();
+        //std::unique_ptr<FT[]> hm(new FT[this->nh_]());
+        //for(const auto &pair: x) hm[pair.index()] = pair.value();
 
         std::fill(ret, ret + this->nh_, std::numeric_limits<Signature>::max());
         CONST_IF(weighted) {
@@ -1072,58 +1075,62 @@ public:
                     ret[i] = std::min(mintimes[pair.index() * nh_ + i], ret[i]);
                 }
                 Signature time = ret[i];
-                for(;;) {
-                    uint64_t localseed = this->seeds_[i] + ret[i], val = wy::wyhash64_stateless(&localseed);
+                for(;;++time) {
+                    uint64_t val = preseed2final(seeds_[i] + time);
                     auto dm = this->div_.divmod(val);
-                    if(!hm[dm.rem]) continue;
+                    auto it = x.find(dm.rem);
+                    if(it == x.end()) continue;
                     auto div = dm.quot, rem = dm.rem;
                     FT rv;
                     CONST_IF(sizeof(IndexType) == 4) {
                         static constexpr FT finv = 1. / (1ull << 32);
-                        assert(hm.find(rem) != hm.end());
+                        //assert(hm.find(rem) != hm.end());
                         rv = (val >> 32) * finv;
                     } else {
                         static constexpr FT finv52 = 1. / (1ull << 52);
-                        uint64_t nv = div;
-                        nv = wy::wyhash64_stateless(&nv);
+                        uint64_t nv = preseed2final(div);
                         rv = (nv >> 12) * finv52;
                     }
-                    if(rv < this->get_threshold(rem) * hm[rem]) return sig;
+                    if(rv < this->get_threshold(rem) * it->value()) break;
                 }
+                ret[i] = time;
             }
         } else {
             for(const auto &pair: x) {
                 using Space = vec::SIMDTypes<Signature>;
-                static constexpr MUL = sizeof(Space::Type) / sizeof(Signature);
+                //static constexpr size_t MUL = sizeof(typename Space::Type) / sizeof(Signature);
                 const size_t ind = pair.index();
-                    // Elementwise minimum between feature coordinates
-                    SK_UNROLL_4
-                    for(unsigned i = 0, e = this->nh_ / MUL * MUL; i < e; i += MUL) {
-                        // SIMD-accelerated
-                        Space::storeu(reinterpret_cast<typename Space::Type *>(ret + i),
-                                       Space::min(Space::loadu(reinterpret_cast<typename Space::Type *>(&mintimes[ind * this->nh_] + i)),
-                                                  Space::loadu(reinterpret_cast<typename Space::Type *>(ret + i))));
-                    }
-                    std::transform(ret + i, ret + this->nh_, &mintimes[ind * this->nh_ + i],
-                                   [](auto x, auto y) {return std::min(x, y);});
+                // Elementwise minimum between feature coordinates
+                unsigned i = 0;
+                assert(mintimes.size() == this->nh_ * this->nd_);
+#if 0
+                SK_UNROLL_4
+                for(i = 0, e = this->nh_ / MUL * MUL; i < e; i += MUL) {
+                    // SIMD-accelerated
+                    Space::storeu(reinterpret_cast<typename Space::Type *>(ret + i),
+                                   Space::min(Space::loadu(reinterpret_cast<const typename Space::Type *>(&mintimes[ind * this->nh_] + i)),
+                                              Space::loadu(reinterpret_cast<const typename Space::Type *>(ret + i))));
+                }
+                std::transform(ret + i, ret + this->nh_, &mintimes[ind * this->nh_ + i],
+                               ret + i, [](auto x, auto y) {return std::min(x, y);});
+#else
+                SK_UNROLL_8
+                for(;i < this->nh_; ++i) {
+                    ret[i] = std::min(ret[i], mintimes[ind * this->nh_ + i]);
+                }
+#endif
             }
         }
     }
     template<typename T>
-    void hash(const T &x, Signature *ret, bool parallel_computation=false) const {
-#ifdef _BLAZE_MATH_SPARSE_SPARSEVECTOR_H_
-        CONST_IF(sparsecache && blaze::IsSparseVector<T>::value) {
-            return hash_sparse(x, ret);
-        }
-#endif
-        if(parallel_computation) {
-            OMP_PFOR
-            for(size_t i = 0; i < nh_; ++i)
-                ret[i] = compute_hash_index(x, i);
-            return;
-        }
-        for(size_t i = 0; i < nh_; ++i)
+    void hash(const T &x, Signature *ret, std::true_type) const {
+        for(size_t i = 0; i < nh_; ++i) {
             ret[i] = compute_hash_index(x, i);
+        }
+    }
+    template<typename T>
+    void hash(T &x, Signature *ret) const {
+        hash(x, ret, std::integral_constant<bool, std::is_arithmetic<std::decay_t<decltype(*x.begin())> >::value>());
     }
     template<typename T>
     std::vector<Signature> hash(const T &x) const {
@@ -1131,6 +1138,13 @@ public:
         hash(x, ret.data());
         return ret;
     }
+};
+
+template<bool weighted, typename Signature=std::uint32_t, typename IndexType=std::uint32_t,
+         typename FT=float>
+struct SparseShrivastavaHash: public ShrivastavaHash<weighted, Signature, IndexType, FT, true> {
+    template<typename...Args> SparseShrivastavaHash(Args&&...args):
+        ShrivastavaHash<weighted, Signature, IndexType, FT, true>(std::forward<Args>(args)...) {}
 };
 
 template<typename HashStruct=WangHash, typename VT=uint64_t, bool select_bottom=true>
