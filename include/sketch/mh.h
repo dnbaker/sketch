@@ -1065,8 +1065,8 @@ public:
     template<typename T>
     void hash(const T &x, Signature *ret, std::false_type) const {
         CONST_IF(!sparsecache) throw std::runtime_error("Cannot use sparsecache if not enabled");
-        //std::unique_ptr<FT[]> hm(new FT[this->nh_]());
-        //for(const auto &pair: x) hm[pair.index()] = pair.value();
+        std::unique_ptr<FT[]> hm(new FT[this->nd_]());
+        for(const auto &pair: x) hm[pair.index()] = pair.value();
 
         std::fill(ret, ret + this->nh_, std::numeric_limits<Signature>::max());
         CONST_IF(weighted) {
@@ -1078,8 +1078,7 @@ public:
                 for(;;++time) {
                     uint64_t val = preseed2final(seeds_[i] + time);
                     auto dm = this->div_.divmod(val);
-                    auto it = x.find(dm.rem);
-                    if(it == x.end()) continue;
+                    if(!hm[dm.rem]) continue;
                     auto div = dm.quot, rem = dm.rem;
                     FT rv;
                     CONST_IF(sizeof(IndexType) == 4) {
@@ -1091,31 +1090,30 @@ public:
                         uint64_t nv = preseed2final(div);
                         rv = (nv >> 12) * finv52;
                     }
-                    if(rv < this->get_threshold(rem) * it->value()) break;
+                    if(rv < this->get_threshold(rem) * hm[dm.rem]) break;
                 }
                 ret[i] = time;
             }
         } else {
             for(const auto &pair: x) {
-                using Space = vec::SIMDTypes<Signature>;
-                //static constexpr size_t MUL = sizeof(typename Space::Type) / sizeof(Signature);
+                static constexpr size_t MUL = sizeof(typename Space::Type) / sizeof(Signature);
                 const size_t ind = pair.index();
                 // Elementwise minimum between feature coordinates
-                unsigned i = 0;
                 assert(mintimes.size() == this->nh_ * this->nd_);
-#if 0
-                SK_UNROLL_4
-                for(i = 0, e = this->nh_ / MUL * MUL; i < e; i += MUL) {
-                    // SIMD-accelerated
-                    Space::storeu(reinterpret_cast<typename Space::Type *>(ret + i),
-                                   Space::min(Space::loadu(reinterpret_cast<const typename Space::Type *>(&mintimes[ind * this->nh_] + i)),
-                                              Space::loadu(reinterpret_cast<const typename Space::Type *>(ret + i))));
+#if __AVX2__ || __SSE2__
+                unsigned int i;
+                auto retp = reinterpret_cast<typename Space::Type *>(ret);
+                auto srcp = reinterpret_cast<const typename Space::Type *>(&mintimes[ind * this->nh_]);
+
+                SK_UNROLL_8
+                for(i = 0; i < this->nh_ / MUL; ++i) {
+                    Space::storeu(retp + i, Space::min(Space::loadu(retp + i), Space::loadu(srcp + i)));
                 }
-                std::transform(ret + i, ret + this->nh_, &mintimes[ind * this->nh_ + i],
-                               ret + i, [](auto x, auto y) {return std::min(x, y);});
+                for(i *= MUL; i < this->nh_; ++i)
+                    ret[i] = std::min(ret[i], mintimes[ind * this->nh_ + i]);
 #else
                 SK_UNROLL_8
-                for(;i < this->nh_; ++i) {
+                for(unsigned i = 0;i < this->nh_; ++i) {
                     ret[i] = std::min(ret[i], mintimes[ind * this->nh_ + i]);
                 }
 #endif
