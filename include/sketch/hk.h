@@ -36,26 +36,7 @@ class HeavyKeeper {
     const double b_;
     uint64_t n_updates_;
 #if SKETCH_THREADSAFE
-    struct mutkeeper {
-        size_t n_;
-        std::mutex *mutexes_;
-        mutkeeper(const mutkeeper &o): n_(o.n_), mutexes_(new std::mutex[o.n_]) {
-        }
-        mutkeeper(): n_(0), mutexes_(nullptr) {}
-        mutkeeper(mutkeeper &&o): n_(o.n_), mutexes_(o.mutexes_) {
-            o.mutexes_ = nullptr;
-            o.n_ = 0;
-        }
-        void reset(size_t n) {
-            delete[] mutexes_;
-            n_ = n;
-            mutexes_ = new std::mutex[n];
-        }
-        auto &operator[](size_t i) {return mutexes_[i];}
-        const auto &operator[](size_t i) const {return mutexes_[i];}
-        ~mutkeeper() {delete[] mutexes_;}
-    };
-    mutkeeper mutexes_;
+    std::unique_ptr<std::mutex[]> mutexes_;
 #endif
 public:
     static constexpr size_t VAL_PER_REGISTER = 64 / (fpsize + ctrsize);
@@ -72,7 +53,7 @@ public:
     {
         assert(subtables);
 #if SKETCH_THREADSAFE
-        mutexes_.reset(subtables);
+        mutexes_.reset(new std::mutex[subtables]);
 #endif
         PREC_REQ(pdec >= 1., std::string("pdec is not valid (>= 1.). Value: ") + std::to_string(pdec));
         PREC_REQ(data_.size() > 0, "HeavyKeeper must be greater than 0 in size");
