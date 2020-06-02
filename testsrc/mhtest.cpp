@@ -35,12 +35,11 @@ int main(int argc, char *argv[]) {
     size_t nelem = argc == 1 ? 1000000: size_t(std::strtoull(argv[1], nullptr, 10));
     double olap_frac = argc < 3 ? 0.1: std::atof(argv[2]);
     size_t ss = argc < 4 ? 11: size_t(std::strtoull(argv[3], nullptr, 10));
-    RangeMinHash<uint64_t> rm1(1 << ss), rm2(1 << ss);
-    RangeMinHash<uint64_t> irm1(1 << ss), irm2(1 << ss);
-    BottomKHasher<> bk(100);
-    bk.addh(13);
-    bk.add(13);
-    CountingRangeMinHash<uint64_t> crmh(1 << ss), crmh2(1 << ss);
+    size_t nmin = (1 << ss);
+    RangeMinHash<uint64_t> rm1(nmin), rm2(nmin);
+    RangeMinHash<uint64_t> irm1(nmin), irm2(nmin);
+    BottomKHasher<> bk(nmin);
+    CountingRangeMinHash<uint64_t> crmh(nmin), crmh2(nmin);
     //KthMinHash<uint64_t> kmh(30, 100);
     std::mt19937_64 mt(1337);
     size_t olap_n = (olap_frac * nelem);
@@ -55,12 +54,27 @@ int main(int argc, char *argv[]) {
         //kmh.addh(v);
         z.insert(v);
         rm1.add(v); rm2.add(v);
+        bk.add(v);
     }
     std::fprintf(stderr, "olap_n: %zu. nelem: %zu\n", olap_n, nelem);
     for(size_t i = nelem - olap_n; i--;) {
         auto v = mt();
         z.insert(v);
         rm1.addh(v);
+        bk.addh(v);
+    }
+    {
+        auto bkf = bk.finalize();
+        auto rmf = rm1.finalize();
+        assert(rmf.size() == nmin);
+        assert(bkf.size() == nmin);
+#if 0
+        for(auto i: bkf) std::fprintf(stderr, "bk %zu:", i);
+        std::fputc('\n', stderr);
+        for(auto i: rmf) std::fprintf(stderr, "rm %zu:", i);
+        std::fputc('\n', stderr);
+#endif
+        assert(bkf.jaccard_index(rmf) == 1.);
     }
     for(size_t i = nelem - olap_n; i--;) {
         auto v = mt();

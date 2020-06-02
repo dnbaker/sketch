@@ -39,6 +39,8 @@ PYBIND11_MODULE(sketch_bf, m) {
             return h == h2;
         }).def("__neq__", [](const sketch::bf_t &h, const sketch::bf_t &h2) {
             return h != h2;
+        }).def("write", [](const sketch::bf_t &h, std::string path) {
+            h.write(path);
         });
     m.def("jaccard_index", [](bf_t &h1, bf_t &h2) {
             return jaccard_index(h1, h2);

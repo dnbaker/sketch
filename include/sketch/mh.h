@@ -117,7 +117,6 @@ struct RangeMinHash: public AbstractMinHash<T, Cmp> {
 protected:
     Hasher hf_;
     Cmp cmp_;
-    ///using HeapType = std::priority_queue<T, std::vector<T, Allocator<T>>>;
     std::set<T, Cmp> minimizers_; // using std::greater<T> so that we can erase from begin()
 
 public:
@@ -178,8 +177,7 @@ public:
         return *rbegin();
     }
     INLINE void addh(T val) {
-        val = hf_(val);
-        this->add(val);
+        add(hf_(val));
     }
     INLINE void add(T val) {
         if(minimizers_.size() == this->ss_) {
@@ -1000,6 +998,7 @@ template<typename T>
 double jaccard_index(const T &a, const T &b) {
     return a.jaccard_index(b);
 }
+
 
 
 template<bool weighted, typename Signature=std::uint16_t, typename IndexType=std::uint32_t,

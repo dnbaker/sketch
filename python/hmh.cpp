@@ -27,7 +27,9 @@ PYBIND11_MODULE(sketch_hmh, m) {
             return h == h2;
         }).def("__neq__", [](const sketch::HyperMinHash &h, const sketch::HyperMinHash &h2) {
             return h != h2;
-        })
+        }).def("write", [](const sketch::HyperMinHash &h, std::string path) {
+            h.write(path);
+        });
 #if 0
         .def("compress", [](const sketch::HyperMinHash &h1, unsigned newnp) {return h1.compress(newnp);},
              py::return_value_policy::take_ownership,
