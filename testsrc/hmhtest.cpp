@@ -2,6 +2,7 @@
 #include <iostream>
 
 int main() {
+    const char *hm1p = "__hm1.hmh", *hm2p = "__hm2.hmh";
     size_t nelem = 10000000;
     for(const auto rem: {8, 16, 64, 32}) {
         sketch::HyperMinHash hm(12, rem), hm2(12, rem);
@@ -21,5 +22,9 @@ int main() {
         std::cerr << rem << "2MH est: " << mh2 << '\n';
         double ji = hm.jaccard_index(hm2);
         std::cerr << ji << '\n';
+        hm.write(hm1p);
+        hm2.write(hm2p);
+        assert(hm == sketch::HyperMinHash(hm1p));
+        assert(hm2 == sketch::HyperMinHash(hm2p));
     }
 }

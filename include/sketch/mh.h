@@ -22,34 +22,6 @@ inline namespace minhash {
 
 #define SET_SKETCH(x) const auto &sketch() const {return x;} auto &sketch() {return x;}
 
-namespace detail {
-
-
-
-static constexpr double HMH_C = 0.169919487159739093975315012348;
-
-template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
-inline FType beta(FType v) {
-    FType ret = -0.370393911 * v;
-    v = std::log1p(v);
-    FType poly = v * v;
-    ret += 0.070471823 * v;
-    ret += 0.17393686 * poly;
-    poly *= v;
-    ret += 0.16339839 * poly;
-    poly *= v;
-    ret -= 0.09237745 * poly;
-    poly *= v;
-    ret += 0.03738027 * poly;
-    poly *= v;
-    ret += -0.005384159 * poly;
-    poly *= v;
-    ret += 0.00042419 * poly;
-    return ret;
-}
-
-} // namespace detail
-
 template<typename T, typename Cmp=std::greater<T>>
 class AbstractMinHash {
 protected:
@@ -1002,19 +974,49 @@ double jaccard_index(const T &a, const T &b) {
 }
 
 
-template<bool weighted, typename Signature=std::uint16_t, typename IndexType=std::uint32_t,
-         typename FT=float>
+template<bool weighted, typename Signature=std::uint32_t, typename IndexType=std::uint32_t,
+         typename FT=float, bool sparsecache=false>
 struct ShrivastavaHash {
     const IndexType nd_;
     const IndexType nh_;
     const uint64_t seedseed_;
+    std::unique_ptr<uint64_t[]> seeds_;
     FT mv_;
     std::unique_ptr<FT[]> maxvals_;
     schism::Schismatic<IndexType> div_;
+    std::vector<Signature> mintimes;
+
+    INLINE static uint64_t preseed2final(uint64_t preseed) {
+        uint64_t val = wy::wyhash64_stateless(&preseed);
+        return val;
+    }
 public:
     ShrivastavaHash(size_t ndim, size_t nhashes, size_t seedseed=0): nd_(ndim), nh_(nhashes), seedseed_(seedseed), div_(ndim) {
         CONST_IF(weighted) { // Defaults to weight of 1 until a weight is provided.
             mv_ = 1.;
+        }
+        seeds_.reset(new uint64_t[nh_]);
+        uint64_t cseed = seedseed_;
+        for(size_t i = 0; i < nh_; ++i) {
+            seeds_[i] = wy::wyhash64_stateless(&cseed);
+        }
+        CONST_IF(sparsecache) {
+            mintimes.resize(nh_ * nd_, std::numeric_limits<Signature>::max());
+            OMP_PFOR
+            for(size_t i = 0; i < nh_; ++i) {
+                std::fprintf(stderr, "Starting caching for hash %zu/%u\n", i, nh_);
+                unsigned left_to_find = nd_;
+                uint64_t searchseed = seeds_[i];
+                for(size_t cind = 0;;++cind) {
+                    uint64_t val = preseed2final(searchseed + cind);
+                    const size_t index = i * nd_ + div_.mod(val);
+                    auto &mt(mintimes[index]);
+                    if(mt == std::numeric_limits<Signature>::max()) {
+                        mt = cind;
+                        if(--left_to_find == 0u) break;
+                    }
+                }
+            }
         }
     }
     void set_threshold(FT v) {
@@ -1034,15 +1036,11 @@ public:
     }
     template<typename T>
     Signature compute_hash_index(const T &x, IndexType idx) const {
-        uint64_t searchseed = seedseed_ + idx;
+        uint64_t searchseed = seeds_[idx];
         for(Signature sig = 0; ;++sig) {
-            uint64_t val = wy::wyhash64_stateless(&searchseed);
-#if __cplusplus < 201703L
+            uint64_t val = preseed2final(searchseed + sig);
             auto dm = div_.divmod(val);
             auto div = dm.quot, rem = dm.rem;
-#else
-            auto [div, rem] = div_.divmod(val);
-#endif
             CONST_IF(!weighted) {
                 if(x[rem]) return sig;
             } else CONST_IF(sizeof(IndexType) == 4) {
@@ -1056,8 +1054,7 @@ public:
                     rv = (div & 0xFFFFFFFFull) * finv;
                 } else {
                     static constexpr FT finv52 = 1. / (1ull << 52);
-                    uint64_t nv = div;
-                    nv = wy::wyhash64_stateless(&nv);
+                    uint64_t nv = preseed2final(div);
                     rv = (nv >> 12) * finv52;
                 }
                 if(rv < get_threshold(rem) * x[rem])
@@ -1066,15 +1063,72 @@ public:
         }
     }
     template<typename T>
-    void hash(const T &x, Signature *ret, bool parallel_computation=false) const {
-        if(parallel_computation) {
-            OMP_PFOR
-            for(size_t i = 0; i < nh_; ++i)
-                ret[i] = compute_hash_index(x, i);
-            return;
+    void hash(const T &x, Signature *ret, std::false_type) const {
+        CONST_IF(!sparsecache) throw std::runtime_error("Cannot use sparsecache if not enabled");
+        std::unique_ptr<FT[]> hm(new FT[this->nd_]());
+        for(const auto &pair: x) hm[pair.index()] = pair.value();
+
+        std::fill(ret, ret + this->nh_, std::numeric_limits<Signature>::max());
+        CONST_IF(weighted) {
+            for(unsigned i = 0; i < nh_; ++i) {
+                for(auto &pair: x) {
+                    ret[i] = std::min(mintimes[pair.index() * nh_ + i], ret[i]);
+                }
+                Signature time = ret[i];
+                for(;;++time) {
+                    uint64_t val = preseed2final(seeds_[i] + time);
+                    auto dm = this->div_.divmod(val);
+                    if(!hm[dm.rem]) continue;
+                    auto div = dm.quot, rem = dm.rem;
+                    FT rv;
+                    CONST_IF(sizeof(IndexType) == 4) {
+                        static constexpr FT finv = 1. / (1ull << 32);
+                        //assert(hm.find(rem) != hm.end());
+                        rv = (val >> 32) * finv;
+                    } else {
+                        static constexpr FT finv52 = 1. / (1ull << 52);
+                        uint64_t nv = preseed2final(div);
+                        rv = (nv >> 12) * finv52;
+                    }
+                    if(rv < this->get_threshold(rem) * hm[dm.rem]) break;
+                }
+                ret[i] = time;
+            }
+        } else {
+            for(const auto &pair: x) {
+                static constexpr size_t MUL = sizeof(typename Space::Type) / sizeof(Signature);
+                const size_t ind = pair.index();
+                // Elementwise minimum between feature coordinates
+                assert(mintimes.size() == this->nh_ * this->nd_);
+#if __AVX2__ || __SSE2__
+                unsigned int i;
+                auto retp = reinterpret_cast<typename Space::Type *>(ret);
+                auto srcp = reinterpret_cast<const typename Space::Type *>(&mintimes[ind * this->nh_]);
+
+                SK_UNROLL_8
+                for(i = 0; i < this->nh_ / MUL; ++i) {
+                    Space::storeu(retp + i, Space::min(Space::loadu(retp + i), Space::loadu(srcp + i)));
+                }
+                for(i *= MUL; i < this->nh_; ++i)
+                    ret[i] = std::min(ret[i], mintimes[ind * this->nh_ + i]);
+#else
+                SK_UNROLL_8
+                for(unsigned i = 0;i < this->nh_; ++i) {
+                    ret[i] = std::min(ret[i], mintimes[ind * this->nh_ + i]);
+                }
+#endif
+            }
         }
-        for(size_t i = 0; i < nh_; ++i)
+    }
+    template<typename T>
+    void hash(const T &x, Signature *ret, std::true_type) const {
+        for(size_t i = 0; i < nh_; ++i) {
             ret[i] = compute_hash_index(x, i);
+        }
+    }
+    template<typename T>
+    void hash(T &x, Signature *ret) const {
+        hash(x, ret, std::integral_constant<bool, std::is_arithmetic<std::decay_t<decltype(*x.begin())> >::value>());
     }
     template<typename T>
     std::vector<Signature> hash(const T &x) const {
@@ -1082,6 +1136,13 @@ public:
         hash(x, ret.data());
         return ret;
     }
+};
+
+template<bool weighted, typename Signature=std::uint32_t, typename IndexType=std::uint32_t,
+         typename FT=float>
+struct SparseShrivastavaHash: public ShrivastavaHash<weighted, Signature, IndexType, FT, true> {
+    template<typename...Args> SparseShrivastavaHash(Args&&...args):
+        ShrivastavaHash<weighted, Signature, IndexType, FT, true>(std::forward<Args>(args)...) {}
 };
 
 template<typename HashStruct=WangHash, typename VT=uint64_t, bool select_bottom=true>

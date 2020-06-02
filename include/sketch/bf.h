@@ -74,6 +74,10 @@ public:
         const int ldv = -(int32_t(np_) + OFFSET);
         return std::log1p(-std::ldexp(this->popcnt(), ldv)) / ((nh_) * std::log1p(std::ldexp(-1., ldv)));
     }
+    bool operator==(const bfbase_t &o) const {
+        return np_ == o.np_ && nh_ == o.nh_ && seeds_ == o.seeds_ && core_ == o.core_;
+    }
+    bool operator!=(const bfbase_t &o) const {return !operator==(o);}
 
     // Constructor
     template<typename... Args>

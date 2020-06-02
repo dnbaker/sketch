@@ -31,6 +31,7 @@ protected:
     std::vector<uint8_t, Allocator<uint8_t>> data_;
     long double pmrp2_;
 public:
+    static constexpr long double C4 = 0.6796779486389563759078484561637623073693248443305492L;
     hmh_t(unsigned p, unsigned rsize=8):
           rbm_((uint64_t(1) << (rsize - q)) - 1),
           p_(p), r_(rsize-q),
@@ -38,6 +39,7 @@ public:
     {
         PREC_REQ(rsize == 8 || rsize == 16 || rsize == 32 || rsize == 64, "Must have 8, 16, 32, or 64 for register size");
         PREC_REQ(p_ >= 3 && p_ < 64, "p can't be less than 3 or >= 64");
+        PREC_REQ((uint64_t(rsize) << p_) >= 64, "We require at least 64 bits of storage");
         lrszm3_ = ilog2(rsize) - 3;
         data_.resize(rsize << (p_ - 3));
     }
@@ -47,11 +49,20 @@ public:
     hmh_t(std::string path) {
         this->read(path);
     }
+    bool operator==(const hmh_t &o) const {
+        return rbm_ == o.rbm_ && p_ == o.p_ &&
+            std::equal(reinterpret_cast<const uint64_t *>(&data_[0]),
+                       reinterpret_cast<const uint64_t *>(&*data_.end()),
+                       reinterpret_cast<const uint64_t *>(&o.data_[0])
+            );
+    }
+    bool operator!=(const hmh_t &o) const {
+        return !this->operator==(o);
+    }
 
     // Constants, encoding, and decoding utilities
     static constexpr unsigned q  = 6;
     static constexpr unsigned tq = 1ull << 6;
-    static constexpr long double C4 = 0.6796779486389563759078484561637623073693248443305492L;
 
 
     unsigned regsize() const {return r_ + q;}
@@ -244,16 +255,6 @@ public:
     template<typename IT> IT access(size_t index) const {
         return reinterpret_cast<const IT *>(data_.data())[index];
     }
-#if 0
-    template<typename IT>
-    static constexpr uint64_t getmask() {
-        CONST_IF(sizeof(IT) == 1)      return UINT64_C(0x3f3f3f3f3f3f3f3f);
-        else CONST_IF(sizeof(IT) == 2) return UINT64_C(0x003f003f003f003f);
-        else CONST_IF(sizeof(IT) == 4) return UINT64_C(0x0000003f0000003f);
-        else CONST_IF(sizeof(IT) == 8) return UINT64_C(0x000000000000003f);
-        else                           return UINT64_C(0xFFFFFFFFFFFFFFFF); // Should never happen
-    }
-#endif
     template<typename IT>
     std::array<uint32_t, 64> sum_counts() const {
         using hll::detail::SIMDHolder;
@@ -329,20 +330,23 @@ public:
         double ret = 0.;
         auto maxremi = max_remainder();
         double maxrem = maxremi, mri = 1. / maxrem, mrx2 = 2. * maxrem;
-        switch(lrszm3_) {
+        if(data_.size() < sizeof(vec::SIMDTypes<uint64_t>::Type)) {
+            for_each_union_lzrem(o, [&](auto lzc, auto rem) {ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];});
+        } else {
+            switch(lrszm3_) {
 #undef CASE_U
 #define CASE_U(type, i) case i: \
-        __for_each_union_vector<type>(o, [&](auto v) { \
-            using Space = vec::SIMDTypes<type>;\
-            using VType = Space::VType;\
-            auto lzcs = VType(Space::srli(v, r_));\
-            auto rems = Space::and_fn(v, Space::set1(maxremi)));\
-            for(unsigned i = 0; i < sizeof(VType) / sizeof(type); ++i) \
-                ret += mrx2 - double(((const type *)&rems)[i]) * mri * INVPOWERSOFTWO[((uint8_t *)&lzcs)[i]];\
-        }); break
-            default: HEDLEY_UNREACHABLE();
+            __for_each_union_vector<type>(o, [&](auto v) { \
+                using Space = vec::SIMDTypes<type>;\
+                using VType = Space::VType;\
+                auto lzcs = VType(Space::srli(v, r_));\
+                auto rems = Space::and_fn(v, Space::set1(maxremi)));\
+                for(unsigned i = 0; i < sizeof(VType) / sizeof(type); ++i) \
+                    ret += mrx2 - double(((const type *)&rems)[i]) * mri * INVPOWERSOFTWO[((uint8_t *)&lzcs)[i]];\
+            }); break
+                default: HEDLEY_UNREACHABLE();
+            }
         }
-        for_each_union_lzrem(o, [&](auto lzc, auto rem) {ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];});
         return mhsum2ret(ret, p_);
     }
     double approx_ec(double n, double m, int laziness=1) const {
@@ -357,19 +361,19 @@ public:
         if(laziness > 0) return hll_lazy_collision_estimate(n, m);
         return expected_collisions(n, m) / p_;
     }
-    static double get_invpow2(int x) {
-        return x < 64 ? INVPOWERSOFTWO[x]: std::ldexp(1., -x);
-    }
     double expected_collisions(double n, double m) const {
         // Optimizations:
         // 1. Precalculate di contributions
         // 2. Use INVPOWERSOFTWO table for p + r + i < 64
+        // See notes on hll_lazy_collision_estimate for
+        // issues with improving its scalability
         double x = 0.;
         auto incx = [&x,n,m](auto b1, auto b2) {
             auto prx = std::pow(1. - b2, n) - std::pow(1. - b1, n);
             auto pry = std::pow(1. - b2, m) - std::pow(1. - b1, m);
             x += prx * pry;
         };
+        auto get_invpow2 = [&](int x) {return x < 64 ? INVPOWERSOFTWO[x]: std::ldexp(1., -x);};
         for(size_t i = 1; i < tq; ++i) { // Note that this is now < tq, not <=
             const double di = get_invpow2(p_ + r_ + i - 1);
             double b1 = 0, b2 = di;
@@ -387,10 +391,25 @@ public:
     double hll_lazy_collision_estimate(double n, double m) const {
         double x = 0.;
         double b1, b2, px, py;
+        // Note:
+        // 1. doubles run out of space at p = 10 (technically 1075 registers)
+        //    This could be addressed by moving the accumulation into log-space and
+        //    using the logsumexp trick when possible.
+        //    long doubles run out of space at p = 14, num reg = 16645
+        // 2. This is pretty inefficient -- we double the number of pow calls by repeating them for differing values of b1/b2
+        //    We could save this be precalculating powers of n andm for all inverse powers of two
+        //    which would allow us to save time with vectorized pow calls through.
+        //    But that's only particularly useful if you can hold the values in floats, which you can't.
+        // 3. This only happens hll est card is <= 5. * num registers, so it is more of an edge case anyway.
+        std::vector<double> powers(this->num_registers());
+        double v = 1.;
+        for(size_t i = 0; i < this->num_registers(); ++i) {
+            powers[i] = v; v *= .5;
+        }
         SK_UNROLL_8
         for(size_t i = 0, e = this->num_registers() - 1; i < e; ++i) {
-            b1 = get_invpow2(i + 1);
-            b2 = get_invpow2(i);
+            b1 = powers[i + 1];
+            b2 = powers[i];
             px = std::pow(1. - b1, n) - std::pow(1. - b2, n);
             py = std::pow(1. - b1, m) - std::pow(1. - b2, m);
             x += px * py;
@@ -537,6 +556,13 @@ struct HyperMinHasher: public hmh_t {
     HyperMinHasher(Args &&...args): hmh_t(std::forward<Args>(args)...) {}
     template<typename...Args>
     HyperMinHasher(Hasher &&hf, Args &&...args): hmh_t(std::forward<Args>(args)...), hf_(std::move(hf)) {}
+
+    bool operator==(const HyperMinHasher &o) const {
+        return hmh_t::operator==(o);
+    }
+    bool operator!=(const HyperMinHasher &o) const {
+        return hmh_t::operator!=(o);
+    }
 
     HyperMinHasher& operator+=(const HyperMinHasher &o) {
         hmh_t::operator+=(o);

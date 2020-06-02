@@ -19,7 +19,15 @@ PYBIND11_MODULE(sketch_hmh, m) {
             char buf[256];
             int l = std::sprintf(buf, "HyperMinHash{.p = %d, .r = %d, .register_size = %d}", 64 - h.max_lremainder(), h.regsize() - 6, h.regsize());
             return std::string(buf, l);
-        });
+        }).def("__repr__", [](const sketch::HyperMinHash &h) {
+            char buf[256];
+            int l = std::sprintf(buf, "HyperMinHash{.p = %d, .r = %d, .register_size = %d, .cardest=%0.12g, .address=%p}", 64 - h.max_lremainder(), h.regsize() - 6, h.regsize(), h.getcard(), static_cast<const void *>(&h));
+            return std::string(buf, l);
+        }).def("__eq__", [](const sketch::HyperMinHash &h, const sketch::HyperMinHash &h2) {
+            return h == h2;
+        }).def("__neq__", [](const sketch::HyperMinHash &h, const sketch::HyperMinHash &h2) {
+            return h != h2;
+        })
 #if 0
         .def("compress", [](const sketch::HyperMinHash &h1, unsigned newnp) {return h1.compress(newnp);},
              py::return_value_policy::take_ownership,

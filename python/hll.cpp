@@ -24,7 +24,16 @@ PYBIND11_MODULE(sketch_hll, m) {
         .def("relative_error", &hll_t::relative_error, "Expected error for sketch")
         .def("compress", [](const hll_t &h1, unsigned newnp) {return h1.compress(newnp);},
              py::return_value_policy::take_ownership,
-             "Compress an HLL sketch from a previous prefix length to a smaller one.");
+             "Compress an HLL sketch from a previous prefix length to a smaller one.")
+        .def("__str__", [](const hll_t &h) {return h.desc_string();})
+        .def("__repr__", [](const hll_t &h) {return h.desc_string() + ':' + std::to_string(reinterpret_cast<uint64_t>(&h));})
+        .def("__ior__", [](hll_t &lh, const hll_t &rh) {lh += rh; return lh;})
+        .def("__or__", [](const hll_t &lh, const hll_t &rh) {return lh + rh;})
+        .def("__eq__", [](const sketch::hll_t &h, const sketch::hll_t &h2) {
+            return h == h2;
+        }).def("__neq__", [](const sketch::hll_t &h, const sketch::hll_t &h2) {
+            return h != h2;
+        });
     m.def("jaccard_index", [](hll_t &h1, hll_t &h2) {
             return jaccard_index(h1, h2);
         }, "Calculates jaccard indexes between two sketches")
