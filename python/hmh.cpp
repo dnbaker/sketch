@@ -35,7 +35,6 @@ PYBIND11_MODULE(sketch_hmh, m) {
              py::return_value_policy::take_ownership,
              "Compress an HLL sketch from a previous prefix length to a smaller one.")
 #endif
-        ;
 
     m.def("jaccard_index", [](sketch::HyperMinHash &h1, sketch::HyperMinHash &h2) {
             return jaccard_index(h1, h2);
