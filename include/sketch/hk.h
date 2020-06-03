@@ -59,7 +59,12 @@ public:
         PREC_REQ(data_.size() > 0, "HeavyKeeper must be greater than 0 in size");
     }
 
-    HeavyKeeper(const HeavyKeeper &o) = default;
+    HeavyKeeper(const HeavyKeeper &o): pol_(o.pol_), nh_(o.nh_), data_(o.data_), hasher_(o.hasher_), b_(o.b_), n_updates_(o.n_updates_)
+#if SKETCH_THREADSAFE
+        , mutexes_(new std::mutex[o.nh_])
+#endif
+    {
+    }
     HeavyKeeper(HeavyKeeper &&o)      = default;
     HeavyKeeper& operator=(HeavyKeeper &&o)      = default;
     HeavyKeeper& operator=(const HeavyKeeper &o) = default;
