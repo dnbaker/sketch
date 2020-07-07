@@ -4,7 +4,6 @@ import subprocess
 import sys
 import setuptools
 
-__version__ = subprocess.check_output(["git", "describe", "--abbrev=4"]).decode().strip().split('-')[0]
 
 
 
@@ -38,6 +37,8 @@ include_dirs=[
    "..",
    "../pybind11/include"
 ]
+
+__version__ = subprocess.check_output(["git", "describe", "--abbrev=4"]).decode().strip().split('-')[0]
 
 def make_namepair(name):
     return ('sketch_' + name, name + ".cpp")
