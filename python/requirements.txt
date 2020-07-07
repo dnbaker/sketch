@@ -1,1 +1,2 @@
 setuptools>=44.0
+numpy>=0.17
