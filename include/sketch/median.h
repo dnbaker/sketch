@@ -72,8 +72,10 @@ INLINE T median(T *v, size_t n) {
 #else
         std::sort(v, v + n);
 #endif
-    if(n&1) return v[n/2];
-    return (v[n / 2] + v[(n - 1) / 2]) / 2;
+    T ret;
+    if(n&1) ret = *(v + n / 2);
+    else    ret = (v[n / 2] + v[(n - 1) / 2]) / 2;
+    return ret;
 }
 
 } //inline namespace med

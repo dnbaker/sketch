@@ -1,5 +1,7 @@
 #include "bbmh.h"
 #include "hll.h"
+#include <ostream>
+
 using namespace sketch;
 using namespace common;
 using namespace mh;

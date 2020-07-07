@@ -1159,7 +1159,7 @@ public:
     auto make_packed16hll() const {
         //std::fprintf(stderr, "TODO [%s]: update estimation to account for lowering the radix for p_ >= 8\n", __PRETTY_FUNCTION__);
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size() >> 1);
-        static const long double base = 16;
+        //static constexpr long double base = 16;
         for(size_t i = 0; i < retvec.size(); ++i) {
             auto reg2val = [dv=detail::default_val<T>()] (auto x) {
                 return x == dv ? uint8_t(0): ((uint8_t(clz(x)) >> 2) + 1);
