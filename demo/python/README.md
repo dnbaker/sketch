@@ -24,5 +24,14 @@ sets = [np.random.poisson(np.random.poisson(basen), size=(np.random.poisson(base
 sketches = [hll.from_np(x, p) for x in sets]
 pairwise_similarity = su.tri2full(su.jaccard_matrix(sketches))
 print(pairwise_similarity)
+```
 
+which, may yield output similar to:
+
+```
+[[1.         0.7324644  0.8108363  0.70000005 0.6123147 ]
+ [0.7324644  1.         0.7398335  0.55596244 0.7499867 ]
+ [0.8108363  0.7398335  1.         0.69787663 0.6316901 ]
+ [0.70000005 0.55596244 0.69787663 1.         0.44032815]
+ [0.6123147  0.7499867  0.6316901  0.44032815 1.        ]]
 ```
