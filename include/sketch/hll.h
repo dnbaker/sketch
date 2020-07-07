@@ -886,7 +886,7 @@ public:
     void parsum(int nthreads=-1, size_t pb=4096) {
         if(nthreads < 0) nthreads = nthreads > 0 ? nthreads: std::thread::hardware_concurrency();
         std::atomic<uint64_t> acounts[64];
-        std::memset(acounts, 0, sizeof acounts);
+        std::fill(std::begin(acounts), std::end(acounts), 0);
         detail::parsum_data_t<decltype(core_)> data{acounts, core_, m(), pb};
         const uint64_t nr(core_.size() / pb + (core_.size() % pb != 0));
         kt_for(nthreads, detail::parsum_helper<decltype(core_)>, &data, nr);

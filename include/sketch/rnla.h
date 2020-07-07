@@ -404,23 +404,11 @@ public:
     double union_size(const PStableSketcher &o) const {
         PREC_REQ(o.mat_.rows() == this->mat_.rows(), "Mismatched row counts");
         PREC_REQ(o.mat_.columns() == this->mat_.columns(), "Mismatched row counts");
-        sketch::common::detail::tmpbuffer<FloatType> tmpvs(this->ntables());
-#if !NDEBUG
-        sketch::common::detail::tmpbuffer<FloatType> tmpv2(this->ntables());
-#endif
-        auto p = tmpvs.get();
-#if !NDEBUG
-        auto p2 = tmpv2.get();;
-#endif
+        std::vector<float> tmpvs(this->ntables());
+        auto p = tmpvs.data();
         for(size_t i = 0; i < this->ntables(); ++i) {
             p[i] = norm(row(this->mat_, i) + row(o.mat_, i));
-#if !NDEBUG
-            p2[i] = norm(row(this->mat_, i));
-#endif
         }
-#if !NDEBUG
-        std::fprintf(stderr, "my l1norm: %f\n", median(p2, this->ntables()));
-#endif
         return median(p, this->ntables());
     }
     template<typename FT, template<typename, bool> class ContainerTemplate>

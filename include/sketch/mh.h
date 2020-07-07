@@ -989,17 +989,16 @@ struct ShrivastavaHash {
         return val;
     }
 public:
-    ShrivastavaHash(size_t ndim, size_t nhashes, size_t seedseed=0): nd_(ndim), nh_(nhashes), seedseed_(seedseed), div_(ndim) {
+    ShrivastavaHash(size_t ndim, size_t nhashes, size_t seedseed=0): nd_(ndim), nh_(nhashes), seedseed_(seedseed), seeds_(new uint64_t[nh_]), div_(ndim) {
         CONST_IF(weighted) { // Defaults to weight of 1 until a weight is provided.
             mv_ = 1.;
         }
-        seeds_.reset(new uint64_t[nh_]);
         uint64_t cseed = seedseed_;
         for(size_t i = 0; i < nh_; ++i) {
             seeds_[i] = wy::wyhash64_stateless(&cseed);
         }
         CONST_IF(sparsecache) {
-            mintimes.resize(nh_ * nd_, std::numeric_limits<Signature>::max());
+            mintimes.resize(size_t(nh_) * nd_, std::numeric_limits<Signature>::max());
             OMP_PFOR
             for(size_t i = 0; i < nh_; ++i) {
                 std::fprintf(stderr, "Starting caching for hash %zu/%u\n", i, nh_);

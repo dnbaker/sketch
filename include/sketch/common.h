@@ -9,13 +9,17 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <ostream>
 #include <random>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
+
 #include "unistd.h"
+
+#include "aesctr/wy.h"
 #include "macros.h"
 
 #include "kthread.h"
@@ -32,7 +36,6 @@
 #endif
 
 
-#include "aesctr/wy.h"
 
 #if ZWRAP_USE_ZSTD
 #  include "zstd_zlibwrapper.h"
@@ -45,8 +48,8 @@
 #define sk__xstr__(x) sk__str__(x)
 #define SKETCH_SHIFT 8
 #define SKETCH_MAJOR 0
-#define SKETCH_MINOR 10
-#define SKETCH_REVISION 3
+#define SKETCH_MINOR 13
+#define SKETCH_REVISION 0
 #define SKETCH_VERSION_INTEGER ((((SKETCH_MAJOR << SKETCH_SHIFT) | SKETCH_MINOR) << SKETCH_SHIFT) | SKETCH_REVISION)
 #define SKETCH_VERSION SKETCH_MAJOR.SKETCH_MINOR##SKETCH_REVISION
 #define SKETCH_VERSION_STR sk__xstr__(SKETCH_MAJOR.SKETCH_MINOR.SKETCH_REVISION)

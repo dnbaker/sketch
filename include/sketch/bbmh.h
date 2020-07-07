@@ -489,7 +489,7 @@ public:
 };
 
 template<typename T, typename Allocator>
-FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator> &core_ref, double cest=0.);
+FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator> &core_ref, double est_v=0.);
 
 
 
@@ -1159,7 +1159,7 @@ public:
     auto make_packed16hll() const {
         //std::fprintf(stderr, "TODO [%s]: update estimation to account for lowering the radix for p_ >= 8\n", __PRETTY_FUNCTION__);
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size() >> 1);
-        static const long double base = 16;
+        //static constexpr long double base = 16;
         for(size_t i = 0; i < retvec.size(); ++i) {
             auto reg2val = [dv=detail::default_val<T>()] (auto x) {
                 return x == dv ? uint8_t(0): ((uint8_t(clz(x)) >> 2) + 1);
@@ -1623,9 +1623,9 @@ template<typename T, typename Allocator>
 FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator> &core_ref, double est_v) {
     using detail::getnthbit;
     using detail::setnthbit;
-    const double cest = est_v ? est_v : detail::harmonic_cardinality_estimate_impl(core_ref);
+    if(est_v == 0.) est_v = detail::harmonic_cardinality_estimate_impl(core_ref);
     //std::fprintf(stderr, "Calling with core_ref size of %zu and b as %d\n", core_ref.size(), b);
-    FinalDivBBitMinHash ret(core_ref.size(), b, cest);
+    FinalDivBBitMinHash ret(core_ref.size(), b, est_v);
     using FinalType = typename FinalDivBBitMinHash::value_type;
     assert(ret.core_.size() % b == 0);
     assert(core_ref.size() % 64 == 0);

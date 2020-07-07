@@ -71,6 +71,7 @@ public:
         }
         // Otherwise, probabilistically insert at position.
         if(it != bfs_.end()) {
+            return -1u;
         } // Else already at capacity
         return 1u << (std::distance(bfs_.begin(), it) - 1);
     }
