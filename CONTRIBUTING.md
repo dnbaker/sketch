@@ -14,4 +14,4 @@
 * If you need related functionality, feel free to reach out.
 
 
-Thanks! :heart:
+Thanks!
