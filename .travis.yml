@@ -11,12 +11,12 @@ addons:
     packages:
     - g++-7
     - python3
+    - python3-dev
 install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
   - sudo apt-get install python3 python3-dev
   - sudo apt-get install -y python3-setuptools
   - sudo apt-get install python3-pip
-  - pip3 install -r python/requirements.txt
 before_install:
   - git submodule update --init --recursive
 script:
