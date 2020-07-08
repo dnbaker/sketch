@@ -737,7 +737,7 @@ using bf_t = bfbase_t<>;
 
 // Returns the size of the set intersection
 template<typename BloomType>
-inline double intersection_size(BloomType &first, BloomType &other) noexcept {
+inline double intersection_size(BloomType &first, BloomType &other) {
     throw std::runtime_error("NotImplementedError");
     return 0.;
 }

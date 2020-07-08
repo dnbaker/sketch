@@ -1,5 +1,6 @@
 #include "pysketch.h"
 #include "sketch/isz.h"
+#include "xxHash/xxh3.h"
 
 template<typename T>
 struct dumbrange {
@@ -11,6 +12,63 @@ struct dumbrange {
 
 template<typename T>
 inline dumbrange<T> make_dumbrange(T beg, T end) {return dumbrange<T>(beg, end);}
+
+inline uint64_t xxhash(py::str x, uint64_t seed) {
+    Py_ssize_t sz;
+    auto cstr = PyUnicode_AsUTF8AndSize(x.ptr(), &sz);
+    if(!cstr) throw std::invalid_argument("hash has no c string?");
+    return XXH3_64bits_withSeed(static_cast<const void *>(cstr), sz, seed);
+}
+
+XXH3_state_t fromseed(uint64_t seed) {
+    XXH3_state_t state;
+    if(seed)
+        XXH3_64bits_reset_withSeed(&state, seed);
+    else
+        XXH3_64bits_reset(&state);
+    return state;
+}
+
+inline uint64_t xxhash(py::str x) {
+    Py_ssize_t sz;
+    auto cstr = PyUnicode_AsUTF8AndSize(x.ptr(), &sz);
+    if(!cstr) throw std::invalid_argument("hash has no c string?");
+    return XXH3_64bits(static_cast<const void *>(cstr), sz);
+}
+
+inline uint64_t xxhash(py::list x, uint64_t seed=0) {
+    XXH3_state_t state = fromseed(seed);
+    Py_ssize_t sz;
+    for(auto obj: x) {
+        auto s = py::cast<py::str>(obj);
+        auto p = PyUnicode_AsUTF8AndSize(s.ptr(), &sz);
+        XXH3_64bits_update(&state, p, sz);
+    }
+    return XXH3_64bits_digest(&state);
+}
+
+py::array_t<uint64_t> xxhash_ngrams(py::list x, Py_ssize_t n, uint64_t seed) {
+    auto lx = len(x);
+    py::array_t<uint64_t> ret(std::max(Py_ssize_t(lx - n + 1), Py_ssize_t(0)));
+    if(!ret.size()) {
+        return ret;
+    }
+    Py_ssize_t sz;
+    auto hashrange = [&](auto start, auto end) {
+        XXH3_state_t state = fromseed(seed);
+        for(auto i = start; i < end; ++i) {
+            auto s = py::cast<py::str>(x[i]);
+            auto p = PyUnicode_AsUTF8AndSize(s.ptr(), &sz);
+            XXH3_64bits_update(&state, p, sz);
+        }
+        return XXH3_64bits_digest(&state);
+    };
+    auto rp = (uint64_t *)ret.request().ptr;
+    for(size_t i = 0; i < lx - n + 1; ++i) {
+        rp[i] = hashrange(i, i + n);
+    }
+    return ret;
+}
 
 PYBIND11_MODULE(sketch_util, m) {
     m.doc() = "General utilities: shs_isz, which performs fast set intersections\n"
@@ -102,5 +160,14 @@ PYBIND11_MODULE(sketch_util, m) {
     .def("union_size_matrix", [](py::list l) {return CmpFunc::apply(l, USF());},
          "Compare sketches in parallel. Input: list of sketches.")
     .def("symmetric_containment_matrix", [](py::list l) {return CmpFunc::apply(l, SCF());},
-         "Compare sketches in parallel. Input: list of sketches.");
+         "Compare sketches in parallel. Input: list of sketches.")
+    .def("hash", [](py::str x, uint64_t seed) {
+        return xxhash(x, seed);
+    }, py::arg("x"), py::arg("seed") = 0)
+    .def("hash", [](py::list x, uint64_t seed) {
+        return xxhash(x, seed);
+    }, py::arg("x"), py::arg("seed") = 0)
+    .def("hash_ngrams", [](py::list x, int n, Py_ssize_t seed) {
+        return xxhash_ngrams(x, n, seed);
+    }, py::arg("x"), py::arg("n") = 3, py::arg("seed") = 0);
 } // pybind11 module

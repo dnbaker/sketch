@@ -1,13 +1,17 @@
-## Python demos
+# Python demos
 
 This directory contains demos for using sketch from within Python.
 
+
+## Getting started
 1. First, install python bindings from the `sketch/python` diretory
 2. `import sketch`
 3. Start coding
 
 
-A first program might be:
+
+## A first program
+An example might be:
 ```
 import bns
 import sys
@@ -35,3 +39,10 @@ which, may yield output similar to:
  [0.70000005 0.55596244 0.69787663 1.         0.44032815]
  [0.6123147  0.7499867  0.6316901  0.44032815 1.        ]]
 ```
+
+
+
+## Contents
+`shakespeare.py`: downloads, compares, and finds ngram nearest neighbors in text using pure python + the sketch library.
+`shakespeare_fast.py`: same as shakespeare.py, except uses xxhash and C++ to perform the hashing faster.
+
