@@ -43,12 +43,14 @@ PYBIND11_MODULE(sketch_hll, m) {
          hll_t ret(ss);
          auto ptr = input.data();
          for(ssize_t i = 0; i < input.size();ret.add(ptr[i++]));
+         ret.sum();
          return ret;
     }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of 64-bit hashes.")
     .def("from_np", [](const py::array_t<uint64_t> &input, size_t ss=10) {
          hll_t ret(ss);
          auto ptr = input.data();
          for(ssize_t i = 0; i < input.size();ret.addh(ptr[i++]));
+         ret.sum();
          return ret;
      }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers")
     .def("union_size", [](const hll_t &h1, const hll_t &h2) {return h1.union_size(h2);}, "Calculate union size");

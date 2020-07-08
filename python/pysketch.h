@@ -105,7 +105,11 @@ struct USF {
 struct ISF {
     template<typename T>
     auto operator()(T &x, T &y) const {
-        return intersection_size(x, y);
+        try {
+            return intersection_size(x, y);
+        } catch(std::runtime_error &e) {
+            throw std::invalid_argument("Unsupported types");
+        }
     }
 };
 struct SCF {

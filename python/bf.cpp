@@ -45,16 +45,17 @@ PYBIND11_MODULE(sketch_bf, m) {
     m.def("jaccard_index", [](bf_t &h1, bf_t &h2) {
             return jaccard_index(h1, h2);
         }, "Calculates jaccard indexes between two sketches")
-    .def("from_shs", [](const py::array_t<uint64_t> &input, size_t ss=10) {
-         bf_t ret(ss);
+    .def("from_shs", [](const py::array_t<uint64_t> &input, size_t ss, int nhashes) {
+         bf_t ret(ss, nhashes);
          auto ptr = input.data();
          for(ssize_t i = 0; i < input.size();ret.add(ptr[i++]));
          return ret;
-    }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of 64-bit hashes.")
-    .def("from_np", [](const py::array_t<uint64_t> &input, size_t ss=10) {
-         bf_t ret(ss);
+    }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of 64-bit hashes.",
+        py::arg("a"), py::arg("ss") = 10, py::arg("nhashes") = 4)
+    .def("from_np", [](const py::array_t<uint64_t> &input, size_t ss, int nhashes) {
+         bf_t ret(ss, nhashes);
          auto ptr = input.data();
          for(ssize_t i = 0; i < input.size();ret.addh(ptr[i++]));
          return ret;
-     }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers");
+     }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers", py::arg("a"), py::arg("ss") = 10, py::arg("nhashes") = 4);
 } // pybind11 module

@@ -14,7 +14,6 @@ size_t shared_rems(const uint16_t *lhs, const uint16_t *rhs, size_t nh) {
     size_t ret = 0;
     const __m256i *lhp((const __m256i *)lhs);
     const __m256i *rhp((const __m256i *)rhs);
-    SK_UNROLL_4
     while(nh >= sizeof(__m256i) / sizeof(uint16_t)) {
         ret += count_paired_1bits(_mm256_movemask_epi8(_mm256_cmpeq_epi16(_mm256_loadu_si256(lhp++), _mm256_loadu_si256(rhp++))));
         nh -= sizeof(__m256i) / sizeof(uint16_t);
@@ -30,7 +29,6 @@ size_t shared_rems(const uint32_t *lhs, const uint32_t *rhs, size_t nh) {
     size_t ret = 0;
     const __m256i *lhp((const __m256i *)lhs);
     const __m256i *rhp((const __m256i *)rhs);
-    SK_UNROLL_4
     while(nh >= sizeof(__m256i) / sizeof(uint32_t)) {
         ret += sketch::popcount(_mm256_movemask_ps((__m256)_mm256_cmpeq_epi32(_mm256_loadu_si256(lhp++), _mm256_loadu_si256(rhp++))));
         nh -= sizeof(__m256i) / sizeof(uint32_t);
@@ -110,7 +108,6 @@ int main(int argc, char **argv) {
     auto stop = std::chrono::high_resolution_clock::now();
     std::fprintf(stderr, "Hashing took %g ms\n", std::chrono::duration<double, std::milli>(stop - start).count());
     std::vector<float> wsimilarities(nsamples * nsamples);
-    const size_t n = nsamples;
     const float nhinv = 1. / nh;
     start = std::chrono::high_resolution_clock::now();
     OMP_PFOR
