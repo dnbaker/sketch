@@ -100,31 +100,34 @@ PYBIND11_MODULE(sketch_util, m) {
         end:
         return ret;
     }, "shs_isz: computes the intersection size of two sorted hash set lists as numpy arrays. These must be 1-dimensional contiguous and of the same dtype");
-    m.def("fastmod", [](py::array lhs, int64_t v) {
-        auto inf = lhs.request();
-        std::fprintf(stderr, "found format: %s\n", inf.format.data());
-
-#define PERF_DUMB_RANGE(type, func) \
-        if(py::isinstance<py::array_t<type>>(lhs)) { \
-            schism::Schismatic<type> div(v); \
-            for(auto &i: make_dumbrange((type *)inf.ptr, (type *)inf.ptr + inf.size)) i = div.func(i);\
-            return; \
-        }
-        PERF_DUMB_RANGE(uint64_t, mod)
-        PERF_DUMB_RANGE(int64_t, mod)
-        PERF_DUMB_RANGE(uint32_t, mod)
-        PERF_DUMB_RANGE(int32_t, mod)
-        throw std::runtime_error("Invalid type for fastmod");
-    });
-    m.def("fastdiv", [](py::array lhs, int64_t v) {
-        auto inf = lhs.request();
-        PERF_DUMB_RANGE(uint64_t, div)
-        PERF_DUMB_RANGE(int64_t, div)
-        PERF_DUMB_RANGE(uint32_t, div)
-        PERF_DUMB_RANGE(int32_t, div)
-        throw std::runtime_error("Invalid type for fastmod");
-#undef PERF_DUMB_RANGE
-    });
+#define PERF_FM(TYPE, NAME, OP) do {\
+    m.def(NAME, [](py::array_t<TYPE> lhs, Py_ssize_t v) { \
+        schism::Schismatic<TYPE> div(v);\
+        auto inf = lhs.request();\
+        auto ptr = (const TYPE *)inf.ptr;\
+        py::array_t<TYPE> ret(inf.size);\
+        auto retptr = (TYPE *)ret.request().ptr;\
+        std::transform(ptr, ptr + inf.size, retptr, [&](auto x) {return div.OP(x);});\
+        return ret;\
+    });\
+    m.def(NAME "_", [](py::array_t<TYPE> lhs, Py_ssize_t v) { \
+        schism::Schismatic<TYPE> div(v);\
+        auto inf = lhs.request();\
+        auto ptr = (TYPE *)inf.ptr;\
+        py::array_t<TYPE> ret(inf.size);\
+        auto retptr = (TYPE *)ret.request().ptr;\
+        std::transform(ptr, ptr + inf.size, retptr, [&](auto x) {return div.OP(x);});\
+        return lhs;\
+    }); } while(0);
+    PERF_FM(int32_t, "fastdiv", div);
+    PERF_FM(int32_t, "fastmod", mod);
+    PERF_FM(int64_t, "fastdiv", div);
+    PERF_FM(int64_t, "fastmod", mod);
+    PERF_FM(uint32_t, "fastdiv", div);
+    PERF_FM(uint32_t, "fastmod", mod);
+    PERF_FM(uint64_t, "fastdiv", div);
+    PERF_FM(uint64_t, "fastmod", mod);
+#undef PERF_FM
     m.def("tri2full", [](py::array_t<float> arr) {
         size_t dim = flat2fullsz(arr.size());
         py::array_t<float> ret({dim, dim});
