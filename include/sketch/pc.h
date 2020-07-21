@@ -70,11 +70,13 @@ public:
         counters_[ind] |= detail::R(value);
     }
     double report() const {
-        double mean = 
-            double(std::accumulate(counters_.get(), counters_.get() + n_, 0u, [](auto x, auto y) {
-                return detail::r(y) + x;
-            })) / n_;
         CONST_IF(sizeof(T) == 4) {
+        /* Notes: this could be accelerated for more cases.
+           1. Apply R(x) - 1 using SIMD
+           2. Apply popcount using SIMD
+           3. convert to floats
+           4. Accumulate into a result
+        */
 #if __AVX2__
             __m256 sums = _mm256_setzero_ps();
             static constexpr size_t nper = sizeof(__m256i) / 4;
@@ -104,12 +106,10 @@ public:
             return n_ * 1.292808 * sum * sum;
 #endif
         }
-        /* Notes: this could be accelerated
-           1. Apply R(x) - 1 using SIMD
-           2. Apply popcount using SIMD
-           3. convert to floats
-           4. Accumulate into a result
-        */
+        double mean = 
+            double(std::accumulate(counters_.get(), counters_.get() + n_, 0u, [](auto x, auto y) {
+                return detail::r(y) + x;
+            })) / n_;
         return n_ * 1.292808 * std::pow(2, mean);
     }
 };
