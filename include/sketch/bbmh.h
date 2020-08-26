@@ -61,8 +61,8 @@ static inline double harmonic_cardinality_estimate_diffmax_impl(const Cont &minv
 
 template<typename Cont>
 static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
-    using VT = typename Cont::value_type;
-    if(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>() != minvec.end())) {
+    using VT = std::decay_t<decltype(*minvec.begin())>;
+    if(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>()) != minvec.end()) {
         if(!std::all_of(minvec.begin(), minvec.end(), [](auto x) {return x == detail::default_val<VT>();}))
             throw std::runtime_error("Should have been densified");
     }
