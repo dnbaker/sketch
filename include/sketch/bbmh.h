@@ -1557,7 +1557,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
         std::replace(tmp.begin(), tmp.end(), std::numeric_limits<T>::max() >> p_, detail::default_val<T>());
         int ret = detail::densifybin(tmp);
         if(ret < 0) {
-            std::cerr << "Could not densify empty sketch; setting all minimizers to empty value. It will compare completely equal to all empty sketches and full dissimilar to all others.\n";
+            std::fprintf(stderr, "Could not densify empty sketch; setting all minimizers to empty value. It will compare completely equal to all empty sketches and full dissimilar to all others.\n");
         }
         assert(std::find(tmp.begin(), tmp.end(), detail::default_val<T>()) == tmp.end());
         ptr = &tmp;
