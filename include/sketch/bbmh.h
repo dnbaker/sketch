@@ -40,6 +40,7 @@ inline int densifybin(Container &hashes) {
         return 0; // Full sketch
     }
     if (min == empty_val) {
+        std::fill(hashes.begin(), hashes.end(), empty_val);
         return -1; // Empty sketch
     }
     for (uint64_t i = 0; i < hashes.size(); i++) {
@@ -60,7 +61,11 @@ static inline double harmonic_cardinality_estimate_diffmax_impl(const Cont &minv
 
 template<typename Cont>
 static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
-    using VT = typename Cont::value_type;
+    using VT = std::decay_t<decltype(*minvec.begin())>;
+    if(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>()) != minvec.end()) {
+        if(!std::all_of(minvec.begin(), minvec.end(), [](auto x) {return x == detail::default_val<VT>();}))
+            throw std::runtime_error("Should have been densified");
+    }
     assert(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>()) == minvec.end());
     const long double num = is_pow2(minvec.size()) ? std::ldexp(static_cast<long double>(1.), sizeof(VT) * CHAR_BIT - ilog2(minvec.size()))
                                               : ((long double)UINT64_C(-1)) / minvec.size();
@@ -748,7 +753,7 @@ public:
         }
 #endif
         assert(core_.size() % 64 == 0);
-        if(b_ < 1 || b_ > 64) throw "a party";
+        if(b_ < 1 || b_ > 64) throw std::invalid_argument("b must be >= 1 and <= 64");
     }
     bool operator==(const DivBBitMinHasher &o) const {
         return b_ == o.b_ && std::equal(core_.begin(), core_.end(), o.core_.begin());
@@ -1556,15 +1561,12 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
         std::replace(tmp.begin(), tmp.end(), std::numeric_limits<T>::max() >> p_, detail::default_val<T>());
         int ret = detail::densifybin(tmp);
         if(ret < 0) {
-            throw std::runtime_error("Could not densify empty sketch");
+            std::fprintf(stderr, "Could not densify empty sketch; setting all minimizers to empty value. It will compare completely equal to all empty sketches and full dissimilar to all others.\n");
         }
-        //if(ret) throw std::runtime_error((std::string("Error code ") + std::to_string(ret)).data());
-        assert(std::find(tmp.begin(), tmp.end(), detail::default_val<T>()) == tmp.end());
         ptr = &tmp;
     }
     const auto &core_ref = *ptr;
     if(cest < 0) cest = detail::harmonic_cardinality_estimate_impl(core_ref);
-    assert(std::find(core_ref.begin(), core_ref.end(), detail::default_val<T>()) == core_ref.end());
     using detail::getnthbit;
     using detail::setnthbit;
     FinalBBitMinHash ret(p_, b, cest);

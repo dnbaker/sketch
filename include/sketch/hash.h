@@ -257,13 +257,10 @@ inline uint64_t CWtrick64(uint64_t x, const std::array<int96_t, k> &keys) {
 }
 
 namespace nosiam {
+
 INLINE __uint128_t mod127(__uint128_t x) {
     static constexpr __uint128_t mod = (__uint128_t(1) << 127) - 1;
     x = (x >> 127) + (x & mod);
-    if(HEDLEY_UNLIKELY(x == __uint128_t(-1))) {
-        return mod + 3;
-        // = (x >> 127) + (x & mod);
-    }
     if(x > mod) x -= mod;
     return x;
 }

@@ -466,6 +466,10 @@ class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {
         }
         VType(T v, CountType c): first(v), second(c) {}
         VType(const VType &o): first(o.first), second(o.second) {}
+        VType &operator=(const VType &o) {
+            this->first = o.first;
+            this->second = o.second;
+        }
         VType(gzFile fp) {if(gzread(fp, this, sizeof(*this)) != sizeof(*this)) throw ZlibError("Failed to read");}
     };
     Hasher hf_;
