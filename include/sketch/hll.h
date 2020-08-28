@@ -1077,17 +1077,16 @@ public:
 #define CR(fp, dst, len) \
     do {\
         if(static_cast<uint64_t>(gzread(fp, dst, len)) != len) {\
-            char buf[512];\
             throw ZlibError(std::string(buf, buf + std::sprintf(buf, "[E:%s:%d:%s] Error reading from file\n", __FILE__, __LINE__, __PRETTY_FUNCTION__))); \
         }\
     } while(0)
+        char buf[512];
         uint32_t bf[4];
         CR(fp, bf, sizeof(bf));
         is_calculated_ = 0;
         estim_  = static_cast<EstimationMethod>(bf[1]);
         jestim_ = static_cast<JointEstimationMethod>(bf[2]);
         CR(fp, &np_, sizeof(np_));
-        std::fprintf(stderr, "read np: %u\n", np_);
         CR(fp, &value_, sizeof(value_));
         core_.resize(m());
         CR(fp, core_.data(), core_.size());
