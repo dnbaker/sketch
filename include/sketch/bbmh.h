@@ -62,10 +62,8 @@ static inline double harmonic_cardinality_estimate_diffmax_impl(const Cont &minv
 template<typename Cont>
 static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
     using VT = std::decay_t<decltype(*minvec.begin())>;
-    if(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>()) != minvec.end()) {
-        if(!std::all_of(minvec.begin(), minvec.end(), [](auto x) {return x == detail::default_val<VT>();}))
-            throw std::runtime_error("Should have been densified");
-    }
+    if(std::all_of(minvec.begin(), minvec.end(), [](auto x) {return x == detail::default_val<VT>();}))
+        return 0.;
     assert(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>()) == minvec.end());
     const long double num = is_pow2(minvec.size()) ? std::ldexp(static_cast<long double>(1.), sizeof(VT) * CHAR_BIT - ilog2(minvec.size()))
                                               : ((long double)UINT64_C(-1)) / minvec.size();
@@ -1556,7 +1554,6 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
         std::fprintf(stderr, "requires densification: %zu/%zu need to be densified\n", ndef, core_.size());
 #endif
         tmp = core_;
-        std::replace(tmp.begin(), tmp.end(), detail::default_val<T>(), std::numeric_limits<T>::max() >> p_);
         cest = detail::harmonic_cardinality_estimate_impl(tmp);
         std::replace(tmp.begin(), tmp.end(), std::numeric_limits<T>::max() >> p_, detail::default_val<T>());
         int ret = detail::densifybin(tmp);
