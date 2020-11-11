@@ -77,7 +77,7 @@ struct CmpFunc {
             ptrs[i++] = lp;
         }
         const size_t lsz = l.size(), nc2 = nchoose2(lsz);
-        py::array_t<float> ret({nc2});
+        py::array_t<float> ret({Py_ssize_t(nc2)});
         float *ptr = static_cast<float *>(ret.request().ptr);
         for(size_t i = 0; i < lsz; ++i) {
             OMP_PRAGMA("omp parallel for")
