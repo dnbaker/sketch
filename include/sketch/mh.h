@@ -1160,10 +1160,15 @@ struct BottomKHasher {
         }
     };
 
-    const size_t k_;
+    size_t k_;
     HashStruct hs_;
     mpq mpq_;
     ska::flat_hash_set<VT> set_;
+
+    void clear() {
+        set_.clear();
+        mpq_.getq().clear();
+    }
 
     BottomKHasher(size_t k, HashStruct &&hs=HashStruct()): k_(k), hs_(std::move(hs)) {}
     void addh(uint64_t v) {add(hs_(v));}
@@ -1189,6 +1194,26 @@ struct BottomKHasher {
     }
     void write(gzFile fp) const {
         this->finalize().write(fp);
+    }
+    ssize_t read(std::string s) {
+        FinalRMinHash<VT> ret(s.data());
+        k_ = ret.first.size();
+        set_.reserve(k_);
+        for(const auto v: ret.first) {
+            set_.insert(v);
+            mpq_.push(v);
+        }
+        return sizeof(ret.first[0]) * ret.first.size() + sizeof(ret);
+    }
+    ssize_t read(gzFile fp) {
+        FinalRMinHash<VT> ret(fp);
+        k_ = ret.first.size();
+        set_.reserve(k_);
+        for(const auto v: ret.first) {
+            set_.insert(v);
+            mpq_.push(v);
+        }
+        return sizeof(ret.first[0]) * ret.first.size() + sizeof(ret);
     }
 };
 
