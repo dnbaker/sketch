@@ -19,10 +19,10 @@ static constexpr const std::array<double, 64> INVPOWERSOFTWO = {
 };
 
 #define SHOW_CASES(CASE_MACRO)  \
-        CASE_MACRO(uint8_t, 0); \
-        CASE_MACRO(uint16_t, 1); \
-        CASE_MACRO(uint32_t, 2); \
-        CASE_MACRO(uint64_t, 3);
+        CASE_MACRO(uint8_t, 0, 2); \
+        CASE_MACRO(uint16_t, 1, 10); \
+        CASE_MACRO(uint32_t, 2, 26); \
+        CASE_MACRO(uint64_t, 3, 58);
 
 struct hmh_t {
 protected:
@@ -95,7 +95,7 @@ public:
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: return perform_merge<type>(o)
+#define CASE_U(type, index, __unused) case index: return perform_merge<type>(o)
             SHOW_CASES(CASE_U)
             default: return *this;
         }
@@ -161,7 +161,7 @@ public:
     uint64_t calculate_cc_nc(const hmh_t &o) const {
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, i) case i: return __calc_cc_nc<type>(o); break
+#define CASE_U(type, i, __unused) case i: return __calc_cc_nc<type>(o); break
             SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -196,7 +196,7 @@ public:
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, i) case i: __for_each_union_register<type>(o, func); break
+#define CASE_U(type, i, __UNUSED) case i: __for_each_union_register<type>(o, func); break
         SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -212,7 +212,7 @@ public:
         };
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e)); break
+#define CASE_U(type, index, __UNUSED) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e)); break
             SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -228,7 +228,7 @@ public:
         };
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e), reinterpret_cast<const type *>(o.data_.data())); break
+#define CASE_U(type, index, __unused) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e), reinterpret_cast<const type *>(o.data_.data())); break
             SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -246,7 +246,7 @@ public:
     void add(uint64_t h1, uint64_t h2) {
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: perform_add<type>(h1, h2); break
+#define CASE_U(type, index, __UNUSED) case index: perform_add<type>(h1, h2); break
             SHOW_CASES(CASE_U)
 #undef CASE_U
             default: HEDLEY_UNREACHABLE();
@@ -266,7 +266,15 @@ public:
             const typename Space::Type mask = Space::set1(0x3Fu);
             auto update_point = [&](auto x) {
 #if __AVX512BW__ || ((__AVX2__ || __SSE2__) && !(__AVX512F__))
-                 SIMDHolder(Space::and_fn(Space::srli(x, r_), mask)).inc_counts_by_type<IT>(ret);
+                CONST_IF(sizeof(IT) == 1) {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 2), mask)).inc_counts_by_type<IT>(ret);
+                } else CONST_IF(sizeof(IT) == 2) {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 10), mask)).inc_counts_by_type<IT>(ret);
+                } else CONST_IF(sizeof(IT) == 4) {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 26), mask)).inc_counts_by_type<IT>(ret);
+                } else {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 58), mask)).inc_counts_by_type<IT>(ret);
+                }
 #elif __AVX512F__
                 CONST_IF(sizeof(IT) == 1) {
                     SIMDHolder(_mm512_and_si512(_mm512_srli_epi8(x, 2), mask)).inc_counts_by_type<IT>(ret);
@@ -278,8 +286,8 @@ public:
                     SIMDHolder(_mm512_and_si512(_mm512_srli_epi32(x, 26), mask)).inc_counts_by_type<IT>(ret);
                     assert(r_ == 26);
                 } else {
-                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi64(x, 56), mask)).inc_counts_by_type<IT>(ret);
-                    assert(r_ == 56);
+                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi64(x, 58), mask)).inc_counts_by_type<IT>(ret);
+                    assert(r_ == 58);
                 }
 #else
 #error("sse2+ required")
@@ -321,7 +329,7 @@ public:
         double ret;
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: ret = hll::detail::ertl_ml_estimate(this->sum_counts<type>(), p_, 64 - p_); break
+#define CASE_U(type, index, __UNUSED) case index: ret = hll::detail::ertl_ml_estimate(this->sum_counts<type>(), p_, 64 - p_); break
             SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -357,15 +365,16 @@ public:
         } else {
             switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, i) case i: \
+#define CASE_U(type, i, rshift) case i: \
             __for_each_union_vector<type>(o, [&](auto v) { \
                 using Space = vec::SIMDTypes<type>;\
                 using VType = Space::VType;\
-                auto lzcs = VType(Space::srli(v, r_));\
-                auto rems = Space::and_fn(v, Space::set1(maxremi)));\
-                for(unsigned i = 0; i < sizeof(VType) / sizeof(type); ++i) \
-                    ret += mrx2 - double(((const type *)&rems)[i]) * mri * INVPOWERSOFTWO[((uint8_t *)&lzcs)[i]];\
+                auto lzcs = VType(Space::srli(v, rshift));\
+                auto rems = Space::and_fn(v, Space::set1(maxremi));\
+                for(unsigned j = 0; j < sizeof(VType) / sizeof(type); ++j) \
+                    ret += mrx2 - double(((const type *)&rems)[j]) * mri * INVPOWERSOFTWO[((uint8_t *)&lzcs)[j]];\
             }); break
+            SHOW_CASES(CASE_U)
                 default: HEDLEY_UNREACHABLE();
             }
         }
