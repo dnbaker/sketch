@@ -493,11 +493,23 @@ public:
 #  define __MOVEMASK32(x) _mm256_movemask_ps((__m256)x)
 #  define __MOVEMASK64(x) _mm256_movemask_pd((__m256d)x)
 #  define __SETZERO() _mm256_set1_epi32(0)
+#  define __CMPEQ8(x, y) _mm256_cmpeq_epi8(x, y)
+#  define __CMPEQ16(x, y) _mm256_cmpeq_epi16(x, y)
+#  define __CMPEQ32(x, y) _mm256_cmpeq_epi32(x, y)
+#  define __CMPEQ64(x, y) _mm256_cmpeq_epi64(x, y)
 #  define TYPE __m256i
 #elif __SSE2__
 #  define __MOVEMASK8(x) _mm_movemask_epi8(x)
 #  define __MOVEMASK32(x) _mm_movemask_ps((__m128)x)
 #  define __MOVEMASK64(x) _mm_movemask_pd((__m128d)x)
+#  define __CMPEQ8(x, y) _mm_cmpeq_epi8(x, y)
+#  define __CMPEQ16(x, y) _mm_cmpeq_epi16(x, y)
+#  define __CMPEQ32(x, y) _mm_cmpeq_epi32(x, y)
+#  if __SSE4_1__
+#    define __CMPEQ64(x, y) _mm_cmpeq_epi64(x, y)
+#  else
+#    define __CMPEQ64(x, y) _mm_and_si128(_mm_cmpeq_epi32(x, y), _mm_cmpeq_epi32(_mm_srli_epi64(x, 32), _mm_srli_epi64(y, 32)))
+#  endif 
 #  define __SETZERO() _mm_set1_epi32(0)
 #  define TYPE __m128i
 #endif
@@ -509,31 +521,31 @@ public:
                 TYPE lh_nonzero, rh_nonzero, any_nonzero;
                 TYPE lhv = *lhp++, rhv = *rhp++;
                 CONST_IF(sizeof(IT) == 1) {
-                    lh_nonzero = ~_mm256_cmpeq_epi8(lhv, zero);
-                    rh_nonzero = ~_mm256_cmpeq_epi8(rhv, zero);
+                    lh_nonzero = ~__CMPEQ8(lhv, zero);
+                    rh_nonzero = ~__CMPEQ8(rhv, zero);
                     any_nonzero = lh_nonzero | rh_nonzero;
-                    const TYPE eq_and_nonzero = any_nonzero & _mm256_cmpeq_epi8(lhv, rhv);
+                    const TYPE eq_and_nonzero = any_nonzero & __CMPEQ8(lhv, rhv);
                     nc += popcount(__MOVEMASK8(any_nonzero));
                     cc += popcount(__MOVEMASK8(eq_and_nonzero));
                 } else CONST_IF(sizeof(IT) == 2) {
-                    lh_nonzero = ~_mm256_cmpeq_epi16(lhv, zero);
-                    rh_nonzero = ~_mm256_cmpeq_epi16(rhv, zero);
+                    lh_nonzero = ~__CMPEQ16(lhv, zero);
+                    rh_nonzero = ~__CMPEQ16(rhv, zero);
                     any_nonzero = lh_nonzero | rh_nonzero;
-                    const TYPE eq_and_nonzero = any_nonzero & _mm256_cmpeq_epi16(lhv, rhv);
+                    const TYPE eq_and_nonzero = any_nonzero & __CMPEQ16(lhv, rhv);
                     nc += count_paired_1bits(__MOVEMASK8(any_nonzero));
                     cc += count_paired_1bits(__MOVEMASK8(eq_and_nonzero));
                 } else CONST_IF(sizeof(IT)== 4) {
-                    lh_nonzero = ~_mm256_cmpeq_epi32(lhv, zero);
-                    rh_nonzero = ~_mm256_cmpeq_epi32(rhv, zero);
+                    lh_nonzero = ~__CMPEQ32(lhv, zero);
+                    rh_nonzero = ~__CMPEQ32(rhv, zero);
                     any_nonzero = lh_nonzero | rh_nonzero;
-                    const TYPE eq_and_nonzero = any_nonzero & _mm256_cmpeq_epi32(lhv, rhv);
+                    const TYPE eq_and_nonzero = any_nonzero & __CMPEQ32(lhv, rhv);
                     nc += popcount(__MOVEMASK32(any_nonzero));
                     cc += popcount(__MOVEMASK32(eq_and_nonzero));
                 } else {
-                    lh_nonzero = ~_mm256_cmpeq_epi64(lhv, zero);
-                    rh_nonzero = ~_mm256_cmpeq_epi64(rhv, zero);
+                    lh_nonzero = ~__CMPEQ64(lhv, zero);
+                    rh_nonzero = ~__CMPEQ64(rhv, zero);
                     any_nonzero = lh_nonzero | rh_nonzero;
-                    const TYPE eq_and_nonzero = any_nonzero & _mm256_cmpeq_epi64(lhv, rhv);
+                    const TYPE eq_and_nonzero = any_nonzero & __CMPEQ64(lhv, rhv);
                     nc += popcount(__MOVEMASK64(any_nonzero));
                     cc += popcount(__MOVEMASK64(eq_and_nonzero));
                 }
@@ -545,6 +557,15 @@ public:
 #endif 
         return (uint64_t(cc) << 32) | nc;
     }
+#undef TYPE
+#undef __SETZERO
+#undef __MOVEMASK8
+#undef __MOVEMASK32
+#undef __MOVEMASK64
+#undef __CMPEQ8
+#undef __CMPEQ16
+#undef __CMPEQ32
+#undef __CMPEQ64
 
     void write(gzFile fp) const {
         uint8_t buf[2];
@@ -673,9 +694,5 @@ using HyperMinHash = HyperMinHasher<>;
 
 } // namespace sketch::hmh
 
-#undef TYPE
-#undef __MOVEMASK8
-#undef __MOVEMASK32
-#undef __MOVEMASK64
 
 #endif /* SKETCH_HMH2_H__ */

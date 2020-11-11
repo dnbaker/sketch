@@ -182,10 +182,17 @@ struct phll_t {
             for(size_t i = 0; i < core_.size() / Space::COUNT; ++i) {
                 Space::VType lhs = Space::load(ptr + i), rhs = Space::load(optr + i);
                 auto getbits = [&](auto mask) {return hll::detail::SIMDHolder::max_fn(Space::and_fn(lhs.simd_, mask), Space::and_fn(rhs.simd_, mask));};
+#if __AVX512F__ && !__AVX512BW__
+                auto lv = getbits(lmask);
+                ((Space::VType *)(&lv))->for_each([&counts](auto x) {++counts[x];});
+                lv = Space::srli(getbits(umask), 4);
+                ((Space::VType *)(&lv))->for_each([&](auto x) {++counts[x];});
+#else
                 Space::VType lv = getbits(lmask);
                 lv.for_each([&](auto x) {++counts[x];});
                 lv = Space::srli(getbits(umask), 4);
                 lv.for_each([&](auto x) {++counts[x];});
+#endif
             }
         }
         return register_estimate(counts);
@@ -226,7 +233,11 @@ struct phll_t {
             const auto lmask = Space::set1(0x0F0F0F0F0F0F0F0FULL), umask = Space::set1(0xF0F0F0F0F0F0F0F0ULL);
             for(size_t i = 0; i < core_.size() / Space::COUNT; ++i) {
                 Space::VType lhs = Space::load(ptr + i), rhs = Space::load(optr + i);
-                auto getbits = [&](auto mask) {return SIMDHolder::max_fn(Space::and_fn(lhs.simd_, mask), Space::and_fn(rhs.simd_, mask));};
+                auto getbits = [&](auto mask) {
+                    Space::VType ret = Space::max(Space::and_fn(lhs.simd_, mask), Space::and_fn(rhs.simd_, mask));
+                    return ret.simd_;
+                    //static_assert(sizeof(ret) == sizeof(v));
+                };
                 Space::store(reinterpret_cast<Space::Type *>(core_.data() + i * Space::COUNT),
                              getbits(lmask) | getbits(umask));
             }
