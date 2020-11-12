@@ -76,6 +76,7 @@ public:
 };
 
 template<typename T, typename Allocator> struct FinalRMinHash; // Forward definition
+template<typename HashStruct=WangHash, typename VT=uint64_t, bool select_bottom=true> struct BottomKHasher;
 /*
 The sketch is the set of minimizers.
 
@@ -400,6 +401,8 @@ struct FinalRMinHash {
     FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(std::move(ofirst)) {
         sort();
     }
+    template<typename Hasher, bool is_bottom>
+    FinalRMinHash(const BottomKHasher<Hasher, T, is_bottom> &bk);
     FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)) {sort();}
     ssize_t read(gzFile fp) {
         uint64_t sz;
@@ -424,10 +427,13 @@ struct FinalRMinHash {
         assert(std::accumulate(first.begin(), first.end(), true, [&](bool t, auto v) {return t && ret >= v;}));
         return ret;
     }
+    template<typename Hasher, bool ismax>
+    FinalRMinHash(BottomKHasher<Hasher, T, ismax> &&prefinal): FinalRMinHash(std::move(prefinal.mpq_.getq())) {
+        prefinal.clear();
+    }
     template<typename Hasher, typename Cmp>
     FinalRMinHash(RangeMinHash<T, Cmp, Hasher> &&prefinal): FinalRMinHash(std::move(prefinal.finalize())) {
         prefinal.clear();
-        sort();
     }
     FinalRMinHash(const std::string &s): FinalRMinHash(s.data()) {}
     FinalRMinHash(gzFile fp) {read(fp);}
@@ -441,6 +447,7 @@ protected:
         common::sort::default_sort(this->first.begin(), this->first.end());
     }
 };
+
 
 template<typename T, typename CountType> struct FinalCRMinHash; // Forward
 
@@ -1146,7 +1153,7 @@ struct SparseShrivastavaHash: public ShrivastavaHash<weighted, Signature, IndexT
         ShrivastavaHash<weighted, Signature, IndexType, FT, true>(std::forward<Args>(args)...) {}
 };
 
-template<typename HashStruct=WangHash, typename VT=uint64_t, bool select_bottom=true>
+template<typename HashStruct, typename VT, bool select_bottom>
 struct BottomKHasher {
     using final_type = FinalRMinHash<VT, Allocator<VT>>;
     using heap_cmp = std::conditional_t<select_bottom,
@@ -1160,10 +1167,23 @@ struct BottomKHasher {
         }
     };
 
-    const size_t k_;
+    size_t k_;
     HashStruct hs_;
     mpq mpq_;
     ska::flat_hash_set<VT> set_;
+
+    void clear() {
+        set_.clear();
+        mpq_.getq().clear();
+    }
+
+    double cardinality_estimate() const {
+        if(select_bottom) {
+            return double(std::numeric_limits<VT>::max()) / this->mpq_.top() * mpq_.size();
+        } else {
+            return double(std::numeric_limits<VT>::max()) / (std::numeric_limits<VT>::max() - this->mpq_.top()) * mpq_.size();
+        }
+    }
 
     BottomKHasher(size_t k, HashStruct &&hs=HashStruct()): k_(k), hs_(std::move(hs)) {}
     void addh(uint64_t v) {add(hs_(v));}
@@ -1189,6 +1209,26 @@ struct BottomKHasher {
     }
     void write(gzFile fp) const {
         this->finalize().write(fp);
+    }
+    ssize_t read(std::string s) {
+        FinalRMinHash<VT> ret(s.data());
+        k_ = ret.first.size();
+        set_.reserve(k_);
+        for(const auto v: ret.first) {
+            set_.insert(v);
+            mpq_.push(v);
+        }
+        return sizeof(ret.first[0]) * ret.first.size() + sizeof(ret);
+    }
+    ssize_t read(gzFile fp) {
+        FinalRMinHash<VT> ret(fp);
+        k_ = ret.first.size();
+        set_.reserve(k_);
+        for(const auto v: ret.first) {
+            set_.insert(v);
+            mpq_.push(v);
+        }
+        return sizeof(ret.first[0]) * ret.first.size() + sizeof(ret);
     }
 };
 

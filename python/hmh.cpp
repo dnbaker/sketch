@@ -3,8 +3,8 @@
 PYBIND11_MODULE(sketch_hmh, m) {
     m.doc() = "HyperMinHash support";
     py::class_<sketch::HyperMinHash> (m, "hmh")
-        .def(py::init<unsigned, unsigned>())
-        .def(py::init<std::string>())
+        .def(py::init<unsigned, unsigned>(), py::arg("p"), py::arg("rsize") = 8)
+        .def(py::init<std::string>(), py::arg("path"))
         .def("getcard", &sketch::HyperMinHash::getcard, "Emit estimated cardinality. Performs sum if not performed, but sum must be recalculated if further entries are added.")
         .def("add", [](sketch::HyperMinHash &h1, uint64_t v) {h1.add(v);}, "Add a (hashed) value to the sketch.")
         .def("addh", [](sketch::HyperMinHash &h1, py::object p) {
@@ -30,11 +30,6 @@ PYBIND11_MODULE(sketch_hmh, m) {
         }).def("write", [](const sketch::HyperMinHash &h, std::string path) {
             h.write(path);
         });
-#if 0
-        .def("compress", [](const sketch::HyperMinHash &h1, unsigned newnp) {return h1.compress(newnp);},
-             py::return_value_policy::take_ownership,
-             "Compress an HLL sketch from a previous prefix length to a smaller one.")
-#endif
 
     m.def("jaccard_index", [](sketch::HyperMinHash &h1, sketch::HyperMinHash &h2) {
             return jaccard_index(h1, h2);
