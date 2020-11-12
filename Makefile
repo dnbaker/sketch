@@ -17,6 +17,8 @@ FLAGS=-O3 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Ivec/blaze -I
 
 CXXFLAGS=$(FLAGS) -Wreorder  \
 
+CXXFLAGS+= $(EXTRA)
+
 PYCONF?=python3-config
 
 ifeq ($(shell uname),Darwin)

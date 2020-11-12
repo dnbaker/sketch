@@ -19,10 +19,10 @@ static constexpr const std::array<double, 64> INVPOWERSOFTWO = {
 };
 
 #define SHOW_CASES(CASE_MACRO)  \
-        CASE_MACRO(uint8_t, 0); \
-        CASE_MACRO(uint16_t, 1); \
-        CASE_MACRO(uint32_t, 2); \
-        CASE_MACRO(uint64_t, 3);
+        CASE_MACRO(uint8_t, 0, 2); \
+        CASE_MACRO(uint16_t, 1, 10); \
+        CASE_MACRO(uint32_t, 2, 26); \
+        CASE_MACRO(uint64_t, 3, 58);
 
 struct hmh_t {
 protected:
@@ -95,7 +95,7 @@ public:
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: return perform_merge<type>(o)
+#define CASE_U(type, index, __unused) case index: return perform_merge<type>(o)
             SHOW_CASES(CASE_U)
             default: return *this;
         }
@@ -161,7 +161,7 @@ public:
     uint64_t calculate_cc_nc(const hmh_t &o) const {
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, i) case i: return __calc_cc_nc<type>(o); break
+#define CASE_U(type, i, __unused) case i: return __calc_cc_nc<type>(o); break
             SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -196,7 +196,7 @@ public:
         PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, i) case i: __for_each_union_register<type>(o, func); break
+#define CASE_U(type, i, __UNUSED) case i: __for_each_union_register<type>(o, func); break
         SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -212,7 +212,7 @@ public:
         };
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e)); break
+#define CASE_U(type, index, __UNUSED) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e)); break
             SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -228,7 +228,7 @@ public:
         };
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e), reinterpret_cast<const type *>(o.data_.data())); break
+#define CASE_U(type, index, __unused) case index: fe(reinterpret_cast<const type *>(s), reinterpret_cast<const type *>(e), reinterpret_cast<const type *>(o.data_.data())); break
             SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -246,7 +246,7 @@ public:
     void add(uint64_t h1, uint64_t h2) {
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: perform_add<type>(h1, h2); break
+#define CASE_U(type, index, __UNUSED) case index: perform_add<type>(h1, h2); break
             SHOW_CASES(CASE_U)
 #undef CASE_U
             default: HEDLEY_UNREACHABLE();
@@ -255,6 +255,8 @@ public:
     template<typename IT> IT access(size_t index) const {
         return reinterpret_cast<const IT *>(data_.data())[index];
     }
+#define _mm512_srli_epi16(mm, Imm) _mm512_and_si512(_mm512_set1_epi16(0xFFFFu >> Imm), _mm512_srli_epi32(mm, Imm))
+#define _mm512_srli_epi8(mm, Imm) _mm512_and_si512(_mm512_set1_epi8(0xFFu >> Imm), _mm512_srli_epi32(mm, Imm))
     template<typename IT>
     std::array<uint32_t, 64> sum_counts() const {
         using hll::detail::SIMDHolder;
@@ -263,7 +265,33 @@ public:
         if(data_.size() >= sizeof(SIMDHolder)) {
             const typename Space::Type mask = Space::set1(0x3Fu);
             auto update_point = [&](auto x) {
-                 SIMDHolder(Space::and_fn(Space::srli(x, r_), mask)).inc_counts_by_type<IT>(ret);
+#if __AVX512BW__ || ((__AVX2__ || __SSE2__) && !(__AVX512F__))
+                CONST_IF(sizeof(IT) == 1) {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 2), mask)).inc_counts_by_type<IT>(ret);
+                } else CONST_IF(sizeof(IT) == 2) {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 10), mask)).inc_counts_by_type<IT>(ret);
+                } else CONST_IF(sizeof(IT) == 4) {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 26), mask)).inc_counts_by_type<IT>(ret);
+                } else {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 58), mask)).inc_counts_by_type<IT>(ret);
+                }
+#elif __AVX512F__
+                CONST_IF(sizeof(IT) == 1) {
+                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi8(x, 2), mask)).inc_counts_by_type<IT>(ret);
+                    assert(r_ == 2);
+                } else CONST_IF(sizeof(IT) == 2) {
+                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi16(x, 10), mask)).inc_counts_by_type<IT>(ret);
+                    assert(r_ == 10);
+                } else CONST_IF(sizeof(IT) == 4) {
+                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi32(x, 26), mask)).inc_counts_by_type<IT>(ret);
+                    assert(r_ == 26);
+                } else {
+                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi64(x, 58), mask)).inc_counts_by_type<IT>(ret);
+                    assert(r_ == 58);
+                }
+#else
+#error("sse2+ required")
+#endif
             };
             auto ptr = reinterpret_cast<const SIMDHolder *>(data_.data());
             auto eptr = reinterpret_cast<const SIMDHolder *>(&data_[data_.size()]);
@@ -282,6 +310,8 @@ public:
         assert(std::accumulate(ret.begin(), ret.end(), size_t(0)) == (1ull << p_));
         return ret;
     }
+#undef _mm512_srli_epi16
+#undef _mm512_srli_epi8
     template<typename IT>
     INLINE void perform_add(uint64_t h1, uint64_t h2) {
         const IT reg = encode_register(r_,
@@ -299,7 +329,7 @@ public:
         double ret;
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index) case index: ret = hll::detail::ertl_ml_estimate(this->sum_counts<type>(), p_, 64 - p_); break
+#define CASE_U(type, index, __UNUSED) case index: ret = hll::detail::ertl_ml_estimate(this->sum_counts<type>(), p_, 64 - p_); break
             SHOW_CASES(CASE_U)
             default: HEDLEY_UNREACHABLE();
         }
@@ -335,15 +365,16 @@ public:
         } else {
             switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, i) case i: \
+#define CASE_U(type, i, rshift) case i: \
             __for_each_union_vector<type>(o, [&](auto v) { \
                 using Space = vec::SIMDTypes<type>;\
                 using VType = Space::VType;\
-                auto lzcs = VType(Space::srli(v, r_));\
-                auto rems = Space::and_fn(v, Space::set1(maxremi)));\
-                for(unsigned i = 0; i < sizeof(VType) / sizeof(type); ++i) \
-                    ret += mrx2 - double(((const type *)&rems)[i]) * mri * INVPOWERSOFTWO[((uint8_t *)&lzcs)[i]];\
+                auto lzcs = VType(Space::srli(v, rshift));\
+                auto rems = Space::and_fn(v, Space::set1(maxremi));\
+                for(unsigned j = 0; j < sizeof(VType) / sizeof(type); ++j) \
+                    ret += mrx2 - double(((const type *)&rems)[j]) * mri * INVPOWERSOFTWO[((uint8_t *)&lzcs)[j]];\
             }); break
+            SHOW_CASES(CASE_U)
                 default: HEDLEY_UNREACHABLE();
             }
         }
@@ -437,71 +468,113 @@ public:
     }
     template<typename IT>
     uint64_t __calc_cc_nc(const hmh_t &o) const {
-        using Space = vec::SIMDTypes<IT>;
-        using Type = typename Space::Type;
 
         auto start = (const IT *)data_.data(), end = (const IT *)&data_[data_.size()];
         auto ostart = (const IT *)o.data_.data();
         uint32_t cc = 0, nc = 0;
-        if(data_.size() < sizeof(Type)) {
+        if(data_.size() < VECTOR_WIDTH / sizeof(IT)) {
             do {
                 cc += *start && *start == *ostart;
                 nc += *start || *ostart;
                 ++ostart; ++start;
             } while(start < end);
-        } else {
+        }
+#if __AVX512BW__ || __AVX2__ || __SSE2__
+        else {
+#if __AVX512BW__ // TODO: replace this with a (potentially separate) check per type
+            using Type = typename vec::SIMDTypes<IT>::Type;
             const Type *lhp = (const Type *)data_.data(), *lhe = (const Type *)&data_[data_.size()],
                        *rhp = (const Type *)o.data_.data();
             const Type zero = Space::set1(0);
             SK_UNROLL_4
             do { //while(lhp < lhe)
                 Type lhv = Space::load(lhp++), rhv = Space::load(rhp++);
-#if __AVX512BW__ // TODO: replace this with a (potentially separate) check per type
                 auto lhnz = Space::cmpneq_mask(lhv, zero);
                 auto rhnz = Space::cmpneq_mask(rhv, zero);
                 auto anynz = lhnz | rhnz;
                 nc += popcount(anynz);
                 cc += popcount(Space::cmpeq_mask(lhv, rhv) & anynz);
-#else
-                Type lh_nonzero = ~Space::cmpeq(lhv, zero);
-                Type rh_nonzero = ~Space::cmpeq(rhv, zero);
-                Type any_nonzero = Space::or_fn(lh_nonzero, rh_nonzero);
-                const Type eq_and_nonzero = Space::and_fn(any_nonzero, Space::cmpeq(lhv, rhv));
+            } while(lhp < lhe);
+#elif __AVX2__ || __SSE2__
+
 #if __AVX2__
 #  define __MOVEMASK8(x) _mm256_movemask_epi8(x)
 #  define __MOVEMASK32(x) _mm256_movemask_ps((__m256)x)
 #  define __MOVEMASK64(x) _mm256_movemask_pd((__m256d)x)
+#  define __SETZERO() _mm256_set1_epi32(0)
+#  define __CMPEQ8(x, y) _mm256_cmpeq_epi8(x, y)
+#  define __CMPEQ16(x, y) _mm256_cmpeq_epi16(x, y)
+#  define __CMPEQ32(x, y) _mm256_cmpeq_epi32(x, y)
+#  define __CMPEQ64(x, y) _mm256_cmpeq_epi64(x, y)
+#  define TYPE __m256i
 #elif __SSE2__
 #  define __MOVEMASK8(x) _mm_movemask_epi8(x)
 #  define __MOVEMASK32(x) _mm_movemask_ps((__m128)x)
 #  define __MOVEMASK64(x) _mm_movemask_pd((__m128d)x)
-#else
-#error("NEED SSE2")
+#  define __CMPEQ8(x, y) _mm_cmpeq_epi8(x, y)
+#  define __CMPEQ16(x, y) _mm_cmpeq_epi16(x, y)
+#  define __CMPEQ32(x, y) _mm_cmpeq_epi32(x, y)
+#  if __SSE4_1__
+#    define __CMPEQ64(x, y) _mm_cmpeq_epi64(x, y)
+#  else
+#    define __CMPEQ64(x, y) _mm_and_si128(_mm_cmpeq_epi32(x, y), _mm_cmpeq_epi32(_mm_srli_epi64(x, 32), _mm_srli_epi64(y, 32)))
+#  endif 
+#  define __SETZERO() _mm_set1_epi32(0)
+#  define TYPE __m128i
 #endif
-
+            const TYPE *lhp = (const TYPE *)data_.data(), *lhe = (const TYPE *)&data_[data_.size()],
+                       *rhp = (const TYPE *)o.data_.data();
+            const TYPE zero = __SETZERO();
+            SK_UNROLL_4
+            do {
+                TYPE lh_nonzero, rh_nonzero, any_nonzero;
+                TYPE lhv = *lhp++, rhv = *rhp++;
                 CONST_IF(sizeof(IT) == 1) {
+                    lh_nonzero = ~__CMPEQ8(lhv, zero);
+                    rh_nonzero = ~__CMPEQ8(rhv, zero);
+                    any_nonzero = lh_nonzero | rh_nonzero;
+                    const TYPE eq_and_nonzero = any_nonzero & __CMPEQ8(lhv, rhv);
                     nc += popcount(__MOVEMASK8(any_nonzero));
                     cc += popcount(__MOVEMASK8(eq_and_nonzero));
                 } else CONST_IF(sizeof(IT) == 2) {
+                    lh_nonzero = ~__CMPEQ16(lhv, zero);
+                    rh_nonzero = ~__CMPEQ16(rhv, zero);
+                    any_nonzero = lh_nonzero | rh_nonzero;
+                    const TYPE eq_and_nonzero = any_nonzero & __CMPEQ16(lhv, rhv);
                     nc += count_paired_1bits(__MOVEMASK8(any_nonzero));
                     cc += count_paired_1bits(__MOVEMASK8(eq_and_nonzero));
-                } else CONST_IF(sizeof(IT) == 4) {
+                } else CONST_IF(sizeof(IT)== 4) {
+                    lh_nonzero = ~__CMPEQ32(lhv, zero);
+                    rh_nonzero = ~__CMPEQ32(rhv, zero);
+                    any_nonzero = lh_nonzero | rh_nonzero;
+                    const TYPE eq_and_nonzero = any_nonzero & __CMPEQ32(lhv, rhv);
                     nc += popcount(__MOVEMASK32(any_nonzero));
                     cc += popcount(__MOVEMASK32(eq_and_nonzero));
                 } else {
+                    lh_nonzero = ~__CMPEQ64(lhv, zero);
+                    rh_nonzero = ~__CMPEQ64(rhv, zero);
+                    any_nonzero = lh_nonzero | rh_nonzero;
+                    const TYPE eq_and_nonzero = any_nonzero & __CMPEQ64(lhv, rhv);
                     nc += popcount(__MOVEMASK64(any_nonzero));
                     cc += popcount(__MOVEMASK64(eq_and_nonzero));
                 }
+            } while(lhp < lhe);
+
+
+#endif // #if __AVX512BW__ else sse/avx
+        } // if avx2 or 512 or sse2
+#endif 
+        return (uint64_t(cc) << 32) | nc;
+    }
+#undef TYPE
+#undef __SETZERO
 #undef __MOVEMASK8
 #undef __MOVEMASK32
 #undef __MOVEMASK64
-
-#endif // #if __AVX512BW__ else sse/avx
-
-            } while(lhp < lhe);
-        }
-        return (uint64_t(cc) << 32) | nc;
-    }
+#undef __CMPEQ8
+#undef __CMPEQ16
+#undef __CMPEQ32
+#undef __CMPEQ64
 
     void write(gzFile fp) const {
         uint8_t buf[2];
@@ -629,5 +702,6 @@ using hmh::HyperMinHasher;
 using HyperMinHash = HyperMinHasher<>;
 
 } // namespace sketch::hmh
+
 
 #endif /* SKETCH_HMH2_H__ */
