@@ -11,8 +11,9 @@ struct OrderedMinHash {
     // and the bottom-k sketches provide
     // estimators for the edit distance LSH (OMH) by Guillaume Marcais
     // https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6612865/
+    using MinHasher = minhash::BottomKHasher<Hash>;
+    MinHasher h_;
     circ::deque<uint64_t, uint32_t> q_;
-    minhash::BottomKHasher<Hash> h_;
     int t_;
     OrderedMinHash(int t, size_t k): h_(k), q_(t), t_(t) {
     }
@@ -29,7 +30,10 @@ struct OrderedMinHash {
         }
         h_.add(hv);
     }
-    using final_type = typename minhash::BottomKHasher<Hash>::final_type;
+    using final_type = typename MinHasher::final_type;
+    operator const std::vector<uint64_t, Allocator<uint64_t>> & () const {
+        return this->h_.mpq_.getq();
+    }
     final_type finalize() const {
         return h_.finalize();
     }

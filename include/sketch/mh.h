@@ -402,7 +402,7 @@ struct FinalRMinHash {
         sort();
     }
     template<typename Hasher, bool is_bottom>
-    FinalRMinHash(const BottomKHasher<Hasher, T, is_bottom> &bk);
+    FinalRMinHash(const BottomKHasher<Hasher, T, is_bottom> &bk): FinalRMinHash(bk.mpq_.getq().begin(), bk.mpq_.getq().end()) {}
     FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)) {sort();}
     ssize_t read(gzFile fp) {
         uint64_t sz;
