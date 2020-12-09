@@ -58,6 +58,7 @@ inline void insertion_sort(Iter begin, Iter end) {
 } // detail
 template<typename T>
 INLINE T median(T *v, size_t n) {
+    static_assert(std::is_arithmetic<T>::value, "must be arithmetic");
     switch(n) {
         case 1: return v[0];
         case 2: return (v[0] + v[1]) / 2;
@@ -73,7 +74,7 @@ INLINE T median(T *v, size_t n) {
         std::sort(v, v + n);
 #endif
     T ret;
-    if(n&1) ret = *(v + n / 2);
+    if(n&1) ret = v[n / 2];
     else    ret = (v[n / 2] + v[(n - 1) / 2]) / 2;
     return ret;
 }

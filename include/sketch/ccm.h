@@ -409,15 +409,13 @@ public:
         return sqrl2(core_, nh_, np_);
     }
     CounterType addh_val(uint64_t val) {
-        tmpbuffer<CounterType> counts(nh_);
-        auto cptr = counts.get();
+        std::vector<CounterType> counts(nh_);
+        auto cptr = counts.data();
         uint64_t v = hf_(val);
-        auto it = seeds_.begin();
-        *cptr++ = add(v, 0);
-        unsigned ind = 1;
-        while(ind < nh_)
-            *cptr++ = add(hf_(*it++ ^ val), ind++);
-        return median(counts.get(), nh_);
+        cptr[0] = add(v, 0);
+        for(unsigned ind = 1;ind < nh_; ++ind)
+            cptr[ind] = add(hf_(seeds_[ind] ^ val), ind);
+        return median(cptr, nh_);
     }
     template<typename T>
     CounterType addh_val(const T &x) {
@@ -598,13 +596,11 @@ public:
         return sqrl2(core_, nh_, np_);
     }
     CounterType addh_val(uint64_t val) {
-        tmpbuffer<CounterType> counts(nh_);
-        auto cptr = counts.get();
-        auto cp2 = cptr;
+        std::vector<CounterType> counts(nh_);
+        auto cptr = counts.data();
         for(unsigned added = 0; added < nh_; ++added)
-            *cptr++ = add(val, added);
-
-        return median(cp2, nh_);
+            cptr[added] = add(val, added);
+        return median(cptr, nh_);
     }
     auto addh(uint64_t val) {return addh_val(val);}
     auto nhashes() const {return nh_;}
@@ -628,10 +624,9 @@ public:
     auto subh_val(uint64_t val) {
         tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
-        for(unsigned added = 0; added < nh_; ++added) {
-            *cptr++ = sub(val, added);
-        }
-        return median(counts.get(), nh_);
+        for(unsigned added = 0; added < nh_; ++added)
+            cptr[added] = sub(val, added);
+        return median(cptr, nh_);
     }
     INLINE size_t index(uint64_t hv, unsigned subidx) const noexcept {
         return (hv & mask_) + (subidx << np_);
