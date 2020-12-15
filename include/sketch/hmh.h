@@ -24,6 +24,17 @@ static constexpr const std::array<double, 64> INVPOWERSOFTWO = {
         CASE_MACRO(uint32_t, 2, 26); \
         CASE_MACRO(uint64_t, 3, 58);
 
+/*
+ * The HyperMinHash paper directs to subtract the expected collisions;
+ * however, this doesn't account for the 'true' positives
+ * and lower error rates are achieved by using the scaled
+ * BIAS_SUB methods
+ */
+
+#ifndef BIAS_SUB
+#define BIAS_SUB 1
+#endif
+
 struct hmh_t {
 protected:
     uint64_t rbm_;
@@ -346,8 +357,8 @@ public:
     }
     double estimate_mh_portion() const {
         double ret = 0.;
-        double maxrem = max_remainder(), mri = 1. / maxrem, mrx2 = 2. * maxrem;
-        for_each_lzrem([&](auto lzc, auto rem) {
+        double maxrem = max_remainder(), mri = 1. / (maxrem), mrx2 = 2. * maxrem;
+        for_each_lzrem([mrx2,mri,&ret](auto lzc, auto rem) {
             ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];
             //ret += (1. + (maxrem - rem) * mri) * INVPOWERSOFTWO[lzc];
             // We substitute     (2 * maxrem - rem) * mri
@@ -359,7 +370,7 @@ public:
     double union_size(const hmh_t &o) const {
         double ret = 0.;
         auto maxremi = max_remainder();
-        double maxrem = maxremi, mri = 1. / maxrem, mrx2 = 2. * maxrem;
+        double maxrem = maxremi, mri = 1. / (maxrem), mrx2 = 2. * maxrem;
         if(data_.size() < sizeof(vec::SIMDTypes<uint64_t>::Type)) {
             for_each_union_lzrem(o, [&](auto lzc, auto rem) {ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];});
         } else {
@@ -459,7 +470,11 @@ public:
         auto ocard = o.cardinality_estimate();
         assert(this != &o || card == ocard);
         auto ec = approx_ec(card, ocard);
+#if BIAS_SUB
+        return (1. - double(ec) / nc) * cc;
+#else
         return std::max(0., cc - ec) / nc;
+#endif
     }
     template<typename IT>
     static INLINE auto count_paired_1bits(IT x) {
@@ -685,7 +700,11 @@ struct HyperMinHasher: public hmh_t {
         if(!cc) return 0.;
         if(cc == nc) return 1.;
         auto ec = this->approx_ec(getcard(), o.getcard());
+#if BIAS_SUB
+        return (1. - double(ec) / nc) * cc / nc;
+#else
         return std::max(0., cc - ec) / nc;
+#endif
     }
     double intersection_size(const HyperMinHasher &o) const {
         return this->union_size(o) * jaccard_index(o);
