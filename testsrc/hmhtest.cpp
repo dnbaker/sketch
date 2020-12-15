@@ -3,7 +3,7 @@
 
 int main() {
     const char *hm1p = "__hm1.hmh", *hm2p = "__hm2.hmh";
-    size_t nelem = 2500000;
+    size_t nelem = 1000000;
     for(const auto hms: {8, 10, 12}) {
         std::mt19937_64 rng(hms);
         for(const auto rem: {8, 16, 64, 32}) {
@@ -13,7 +13,6 @@ int main() {
                 sketch::HyperMinHash hm(hms, rem), hm2(hms, rem), hmh4(hms, rem);
                 size_t hlls = hms + sketch::ilog2(rem) - 3;
                 sketch::hll_t hl(hlls), hl2(hlls), hl4(hlls);
-                std::fprintf(stderr, "hll size %zu, compared to hmh %zu\n", hlls, size_t(hms));
                 auto seed = rng();
                 for(size_t i = 0; i < nelem; ++i) {
                     hm.addh(seed + i);
@@ -33,24 +32,24 @@ int main() {
                 }
                 // True JI should be 50%.
                 double ce = hm.cardinality_estimate();
-                std::cerr << ce << " vs " << nelem << " for %" << std::abs(ce - nelem) / nelem * 100 << " error.\n";
-                std::cerr << rem << "HLL est: " << hm.estimate_hll_portion() << '\n';
-                std::cerr << rem << "MH est: " << hm.estimate_mh_portion() << '\n';
+                //std::cerr << ce << " vs " << nelem << " for %" << std::abs(ce - nelem) / nelem * 100 << " error.\n";
+                //std::cerr << rem << "HLL est: " << hm.estimate_hll_portion() << '\n';
+                //std::cerr << rem << "MH est: " << hm.estimate_mh_portion() << '\n';
                 hme += std::abs(ce - nelem);
                 hle += std::abs(hl.cardinality_estimate() - nelem);
                 double h2 = hm2.estimate_hll_portion(), mh2 = hm2.estimate_mh_portion();
-                std::cerr << rem << "2HLL est: " << h2 << '\n';
-                std::cerr << rem << "2MH est: " << mh2 << '\n';
+                //std::cerr << rem << "2HLL est: " << h2 << '\n';
+                //std::cerr << rem << "2MH est: " << mh2 << '\n';
                 double ji = hm.jaccard_index(hm2);
-                std::cerr << ji << '\n';
-                std::cerr << "JI via HLL: " << hl.jaccard_index(hl2) << '\n';
+                //std::cerr << ji << '\n';
+                //std::cerr << "JI via HLL: " << hl.jaccard_index(hl2) << '\n';
                 hm.write(hm1p);
                 hm2.write(hm2p);
                 assert(hm == sketch::HyperMinHash(hm1p));
                 assert(hm2 == sketch::HyperMinHash(hm2p));
                 double ji4 = hm.jaccard_index(hmh4);
-                std::fprintf(stderr, "JI for hm and hmh4: %g. (expected 25%% (1/4))\n", ji4);
-                std::fprintf(stderr, "JI for hll and hll4: %g. (expected 25%% (1/4))\n", hl.jaccard_index(hl4));
+                //std::fprintf(stderr, "JI for hm and hmh4: %g. (expected 25%% (1/4))\n", ji4);
+                //std::fprintf(stderr, "JI for hll and hll4: %g. (expected 25%% (1/4))\n", hl.jaccard_index(hl4));
                 jhle += std::abs(hl.jaccard_index(hl4) - .25);
                 jhme += std::abs(ji4 - .25);
             }

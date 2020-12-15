@@ -31,10 +31,6 @@ static constexpr const std::array<double, 64> INVPOWERSOFTWO = {
  * BIAS_SUB methods
  */
 
-#ifndef BIAS_SUB
-#define BIAS_SUB 1
-#endif
-
 struct hmh_t {
 protected:
     uint64_t rbm_;
@@ -470,11 +466,7 @@ public:
         auto ocard = o.cardinality_estimate();
         assert(this != &o || card == ocard);
         auto ec = approx_ec(card, ocard);
-#if BIAS_SUB
         return (1. - double(ec) / nc) * cc;
-#else
-        return std::max(0., cc - ec) / nc;
-#endif
     }
     template<typename IT>
     static INLINE auto count_paired_1bits(IT x) {
@@ -698,13 +690,9 @@ struct HyperMinHasher: public hmh_t {
         uint64_t cc_nc = calculate_cc_nc(o);
         uint32_t cc = cc_nc >> 32, nc = cc_nc & 0xFFFFFFFFu;
         if(!cc) return 0.;
-        if(cc == nc) return 1.;
+        else if(cc == nc) return 1.;
         auto ec = this->approx_ec(getcard(), o.getcard());
-#if BIAS_SUB
         return (1. - double(ec) / nc) * cc / nc;
-#else
-        return std::max(0., cc - ec) / nc;
-#endif
     }
     double intersection_size(const HyperMinHasher &o) const {
         return this->union_size(o) * jaccard_index(o);
