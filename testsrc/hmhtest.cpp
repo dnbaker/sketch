@@ -6,13 +6,13 @@ int main() {
     size_t nelem = 1000000;
     for(const auto hms: {8, 10, 12}) {
         std::mt19937_64 rng(hms);
-        for(const auto rem: {8, 16, 64, 32}) {
+        for(const auto rem: {8, 16, 32}) {
             double hle = 0., hme = 0.;
-            double jhle = 0., jhme = 0.;
-            for(size_t inum = 0; inum < 10; ++inum) {
-                sketch::HyperMinHash hm(hms, rem), hm2(hms, rem), hmh4(hms, rem);
+            double jhle = 0., jhme = 0., cjhme = 0.;
+            for(size_t inum = 0; inum < 40; ++inum) {
+                sketch::HyperMinHash hm(hms, rem), hm2(hms, rem), hmh4(hms, rem), hmh8(hms, rem);
                 size_t hlls = hms + sketch::ilog2(rem) - 3;
-                sketch::hll_t hl(hlls), hl2(hlls), hl4(hlls);
+                sketch::hll_t hl(hlls), hl2(hlls), hl4(hlls), hl8(hlls);
                 auto seed = rng();
                 for(size_t i = 0; i < nelem; ++i) {
                     hm.addh(seed + i);
@@ -29,6 +29,10 @@ int main() {
                     hl4.addh(~(seed + i));
                     hl4.addh(sketch::hash::WangHash::hash(~(seed + i)));
                     hl4.addh(sketch::hash::WangHash::hash(seed + i));
+                    hmh8.addh(seed + i);
+                    hl8.addh(seed + i);
+                    wy::WyRand<uint64_t> rng(seed + i);
+                    for(size_t i = 7; i--;) {auto r = rng();hl8.addh(r); hmh8.addh(r);}
                 }
                 // True JI should be 50%.
                 double ce = hm.cardinality_estimate();
@@ -50,10 +54,10 @@ int main() {
                 double ji4 = hm.jaccard_index(hmh4);
                 //std::fprintf(stderr, "JI for hm and hmh4: %g. (expected 25%% (1/4))\n", ji4);
                 //std::fprintf(stderr, "JI for hll and hll4: %g. (expected 25%% (1/4))\n", hl.jaccard_index(hl4));
-                jhle += std::abs(hl.jaccard_index(hl4) - .25);
-                jhme += std::abs(ji4 - .25);
+                jhle += std::abs(hl.jaccard_index(hl4) - .25); jhme += std::abs(ji4 - .25);
+                cjhme += std::abs(hm.card_ji(hmh4) - .25);
             }
-            std::fprintf(stderr, "[%d:%d] ji error hll: %g. ji error hmh: %g\n", hms, rem, jhle, jhme);
+            std::fprintf(stderr, "[%d:%d] ji error hll: %g. ji error hmh: %g. HMH via card: %g\n", hms, rem, jhle, jhme, cjhme);
             std::fprintf(stderr, "[%d:%d] card error hll: %g. card error hmh: %g\n", hms, rem, hle, hme);
         }
     }

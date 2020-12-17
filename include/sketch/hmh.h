@@ -119,7 +119,8 @@ public:
         static_assert(sizeof(IT4) >= std::max(std::max(sizeof(IT1), sizeof(IT2)), sizeof(IT3)), "size");
         IT4 enc = (IT4(lzc) << r) | rem;
         assert((enc >> r) == lzc);
-        assert(reg2lzc(enc, r) == lzc || !std::fprintf(stderr, "lzc of %ld should be decoded as %ld from %ld", static_cast<long int>(reg2lzc(enc, r)), static_cast<long int>(lzc), static_cast<long int>(enc)));
+        assert(reg2lzc(enc, r) == lzc);
+        assert((enc & ((1ull << r) - 1)) == rem);
         assert((enc % (1ull << r)) == rem);
         return enc;
     }
@@ -129,7 +130,7 @@ public:
     }
     template<typename IT>
     static inline constexpr std::pair<IT, IT> decode_register(IT value, IT r, IT bm) {  // cache bitmask
-        return {value >> r, value & bm}; // same as reg2lzc, reg2rem
+        return {reg2lzc(value,r), reg2rem(value, bm)}; // same as reg2lzc, reg2rem
     }
     template<typename IT, typename IT2>
     static inline constexpr IT reg2lzc(IT reg, IT2 r) {
@@ -155,13 +156,17 @@ public:
     }
     template<typename Func>
     void for_each_union_lzrem(const hmh_t &o, const Func &func) const {
-        for_each_union_register(o, [&func,rbm=rbm_,r=r_](auto x) {
+        DBG_ONLY(size_t i = 0;)
+        for_each_union_register(o, [&func,rbm=rbm_,r=r_ DBG_ONLY(,&i,this)](auto x) {
+            //DBG_ONLY(std::fprintf(stderr, "[%p] ulzrem: egister #%zu=%zu -> %zu lzc, %zu rem, with r = %d\n", (void *)this, ++i, size_t(x), size_t(reg2lzc(x, r)), size_t(reg2rem(x, rbm)), r);)
             func(reg2lzc(x, r), reg2rem(x, rbm));
         });
     }
     template<typename Func>
     void for_each_lzrem(const Func &func) const {
-        for_each_register([&func,rbm=rbm_,r=r_](auto x) {
+        DBG_ONLY(size_t i = 0;)
+        for_each_register([&func,rbm=rbm_,r=r_ DBG_ONLY(,&i,this)](auto x) {
+            //DBG_ONLY(std::fprintf(stderr, "[%p] lzrem: egister #%zu=%zu -> %zu lzc, %zu rem, with r = %d\n", (void *)this, ++i, size_t(x), size_t(reg2lzc(x, r)), size_t(reg2rem(x, rbm)), r);)
             func(reg2lzc(x, r), reg2rem(x, rbm));
         });
     }
@@ -190,12 +195,27 @@ public:
         using Space = vec::SIMDTypes<IT>;
         using VType = typename Space::VType;
 
-        auto d  = reinterpret_cast<const typename Space::Type *>(data_.data()),
-             e  = d + ((num_registers() / Space::COUNT) * Space::COUNT);
+        auto d  = reinterpret_cast<const typename Space::Type *>(data_.data());
+        auto e  = d + (num_registers() / Space::COUNT);
         auto od = reinterpret_cast<const typename Space::Type *>(o.data_.data());
-        SK_UNROLL_8
-        while(d < e)
-            VType(Space::max(Space::load(d++), Space::load(od++))).for_each(func);
+        while(d < e) {
+            auto lhv = Space::load(d++), rhv = Space::load(od++);
+            VType maxv = Space::max(lhv, rhv);
+#ifndef NDEBUG
+            bool pass = true;
+            for(size_t i = 0; i < sizeof(lhv) / sizeof(IT); ++i) {
+                IT _lh = ((IT *)&lhv)[i], 
+                   _rh = ((IT *)&rhv)[i],
+                   _mh = ((IT *)&maxv)[i];
+                if(_mh != std::max(_lh, _rh)) {
+                    std::fprintf(stderr, "lh %zu, rh %zu, maxv %zu\n", size_t(_lh), size_t(_rh), size_t(_mh));
+                    pass = false;
+                }
+            }
+            if(!pass) throw std::runtime_error("Incorrect Max calculation.");
+#endif
+            maxv.for_each(func);
+        }
         for(const IT *w = (const IT *)d, *e = (const IT *)&data_[data_.size()]; w < e; func(*w++));
     }
     template<typename Func>
@@ -349,13 +369,24 @@ public:
         return ret;
     }
     static INLINE double mhsum2ret(double ret, int p) {
-        return (uint64_t(1) << (2 * p)) / ret;
+        //std::fprintf(stderr, "mhsum: %g. p: %d, ret: %g\n", ret, p, std::ldexp(1. / ret, 2 * p));
+        return std::ldexp(1. / ret, 2 * p);
+    }
+    template<size_t N, typename IT, typename OIT>
+    static void __lzrem_func(IT lzc, OIT rem, double &ret) {
+        static constexpr double mri = 1. / ((uint64_t(1) << N) - 1);
+        static constexpr double mrx2 = 2. * ((uint64_t(1) << N) - 1);
+        ret += std::ldexp((mrx2 - rem) * mri,
+                           -static_cast<std::make_signed_t<IT>>(lzc));
+        // TODO: Better manual intrinsics
     }
     double estimate_mh_portion() const {
         double ret = 0.;
-        double maxrem = max_remainder(), mri = 1. / (maxrem), mrx2 = 2. * maxrem;
-        for_each_lzrem([mrx2,mri,&ret](auto lzc, auto rem) {
-            ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];
+        for_each_lzrem([&ret,r=this->r_](auto lzc, auto rem) {
+            if(r == 2) __lzrem_func<2>(lzc, rem, ret);
+            else if(r == 10) __lzrem_func<10>(lzc, rem, ret);
+            else if(r == 26) __lzrem_func<26>(lzc, rem, ret);
+            else __lzrem_func<56>(lzc, rem, ret);
             //ret += (1. + (maxrem - rem) * mri) * INVPOWERSOFTWO[lzc];
             // We substitute     (2 * maxrem - rem) * mri
             // for               (1 + (mr - rem) * mri)
@@ -363,12 +394,28 @@ public:
         });
         return mhsum2ret(ret, p_);
     }
+    double card_ji(const hmh_t &o) const {
+        double mv = this->cardinality_estimate(), ov = o.cardinality_estimate();
+        double us = union_size(o);
+        return std::max(0., mv + ov - us); // Inclusion-exclusion principle
+    }
     double union_size(const hmh_t &o) const {
         double ret = 0.;
         auto maxremi = max_remainder();
         double maxrem = maxremi, mri = 1. / (maxrem), mrx2 = 2. * maxrem;
+#if 0
         if(data_.size() < sizeof(vec::SIMDTypes<uint64_t>::Type)) {
-            for_each_union_lzrem(o, [&](auto lzc, auto rem) {ret += ((mrx2 - rem) * mri) * INVPOWERSOFTWO[lzc];});
+#endif
+            for_each_union_lzrem(o, [&](auto lzc, auto rem) {
+                switch(r_) {
+                    case 2: __lzrem_func<2>(lzc, rem, ret); break;
+                    case 10: __lzrem_func<10>(lzc, rem, ret); break;
+                    case 26: __lzrem_func<26>(lzc, rem, ret); break;
+                    case 56: __lzrem_func<56>(lzc, rem, ret); break;
+                    default: __builtin_unreachable(); break;
+                }
+            });
+#if 0
         } else {
             switch(lrszm3_) {
 #undef CASE_U
@@ -385,6 +432,7 @@ public:
                 default: HEDLEY_UNREACHABLE();
             }
         }
+#endif
         return mhsum2ret(ret, p_);
     }
     double approx_ec(double n, double m, int laziness=1) const {
@@ -696,6 +744,12 @@ struct HyperMinHasher: public hmh_t {
     }
     double intersection_size(const HyperMinHasher &o) const {
         return this->union_size(o) * jaccard_index(o);
+    }
+    double card_ji(const HyperMinHasher &o) const {
+        double mv = this->getcard(), ov = o.getcard();
+        double us = union_size(o);
+        double ret = std::max(0., mv + ov - us) / us;
+        return ret; // Inclusion-exclusion principle
     }
 
     using final_type = HyperMinHasher<Hasher>;
