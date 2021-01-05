@@ -6,10 +6,10 @@ int main() {
     size_t nelem = 1000000;
     for(const auto hms: {8, 10, 12}) {
         std::mt19937_64 rng(hms);
-        for(const auto rem: {8, 16, 32}) {
+        for(const auto rem: {8, 16, 32, 64}) {
             double hle = 0., hme = 0.;
             double jhle = 0., jhme = 0., cjhme = 0.;
-            for(size_t inum = 0; inum < 40; ++inum) {
+            for(size_t inum = 0; inum < 4; ++inum) {
                 sketch::HyperMinHash hm(hms, rem), hm2(hms, rem), hmh4(hms, rem), hmh8(hms, rem);
                 size_t hlls = hms + sketch::ilog2(rem) - 3;
                 sketch::hll_t hl(hlls), hl2(hlls), hl4(hlls), hl8(hlls);

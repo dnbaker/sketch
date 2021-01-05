@@ -401,8 +401,6 @@ public:
     }
     double union_size(const hmh_t &o) const {
         double ret = 0.;
-        auto maxremi = max_remainder();
-        double maxrem = maxremi, mri = 1. / (maxrem), mrx2 = 2. * maxrem;
 #if 0
         if(data_.size() < sizeof(vec::SIMDTypes<uint64_t>::Type)) {
 #endif
@@ -411,12 +409,14 @@ public:
                     case 2: __lzrem_func<2>(lzc, rem, ret); break;
                     case 10: __lzrem_func<10>(lzc, rem, ret); break;
                     case 26: __lzrem_func<26>(lzc, rem, ret); break;
-                    case 56: __lzrem_func<56>(lzc, rem, ret); break;
+                    case 58: __lzrem_func<58>(lzc, rem, ret); break;
                     default: __builtin_unreachable(); break;
                 }
             });
 #if 0
         } else {
+            auto maxremi = max_remainder();
+            double maxrem = maxremi, mri = 1. / (maxrem), mrx2 = 2. * maxrem;
             switch(lrszm3_) {
 #undef CASE_U
 #define CASE_U(type, i, rshift) case i: \
@@ -426,7 +426,7 @@ public:
                 auto lzcs = VType(Space::srli(v, rshift));\
                 auto rems = Space::and_fn(v, Space::set1(maxremi));\
                 for(unsigned j = 0; j < sizeof(VType) / sizeof(type); ++j) \
-                    ret += mrx2 - double(((const type *)&rems)[j]) * mri * INVPOWERSOFTWO[((uint8_t *)&lzcs)[j]];\
+                    ret += mrx2 - double(((const type *)&rems)[j]) * mri * INVPOWERSOFTWO[((const type *)&lzcs)[j]];\
             }); break
             SHOW_CASES(CASE_U)
                 default: HEDLEY_UNREACHABLE();
