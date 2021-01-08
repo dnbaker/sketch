@@ -98,9 +98,6 @@ divtest: testsrc/divtest.cpp kthread.o $(HEADERS)
 lztest: testsrc/hlltest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
 
-dev_test_p: dev_test.cpp kthread.o hll.h
-	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -static-libstdc++ -static-libgcc $< -o $@ -lz
-
 clean:
 	rm -f test.o test hll.o kthread.o *hll*cpython*so $(EX)
 
