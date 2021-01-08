@@ -666,6 +666,7 @@ public:
     void clear() {
         std::memset(data_.data(), 0, data_.size());
     }
+    void reset() {clear();}
     void free() {
         auto tmp(std::move(data_));
         rbm_ = p_ = r_ = lrszm3_ = 0;

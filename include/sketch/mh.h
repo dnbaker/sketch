@@ -1176,6 +1176,7 @@ struct BottomKHasher {
         set_.clear();
         mpq_.getq().clear();
     }
+    void reset() {clear();}
 
     double cardinality_estimate() const {
         if(select_bottom) {

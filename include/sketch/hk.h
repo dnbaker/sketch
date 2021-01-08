@@ -30,10 +30,10 @@ class HeavyKeeper {
 
     // Members
     Policy pol_;
-    const size_t nh_;
+    size_t nh_;
     std::vector<uint64_t, Allocator> data_;
     Hasher hasher_;
-    const double b_;
+    double b_;
     uint64_t n_updates_;
 #if SKETCH_THREADSAFE
     std::unique_ptr<std::mutex[]> mutexes_;
@@ -65,9 +65,17 @@ public:
 #endif
     {
     }
+    HeavyKeeper& operator=(const HeavyKeeper &o) {
+        pol_ = o.pol_;
+        nh_ = o.nh_;
+        data_ = o.data_;
+        hasher_ = o.hasher_;
+        b_ = o.b_;
+        n_updates_ = o.n_updates_;
+        return *this;
+    }
     HeavyKeeper(HeavyKeeper &&o)      = default;
     HeavyKeeper& operator=(HeavyKeeper &&o)      = default;
-    HeavyKeeper& operator=(const HeavyKeeper &o) = default;
 
 
     // utilities

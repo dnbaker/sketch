@@ -1,4 +1,4 @@
-.PHONY:all python clean mostlyclean
+.PHONY:all python clean mostlyclean test
 CXX?=g++
 CC?=gcc
 ifndef DBG
@@ -103,6 +103,9 @@ dev_test_p: dev_test.cpp kthread.o hll.h
 
 clean:
 	rm -f test.o test hll.o kthread.o *hll*cpython*so $(EX)
+
+test:
+	bash ./run_tests.sh
 
 
 PREFIX?=/usr/local
