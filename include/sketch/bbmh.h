@@ -65,21 +65,9 @@ static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
     size_t nz = 0;
     for(const auto v: minvec) nz += v == detail::default_val<VT>();
     if(nz == minvec.size()) return 0.;
-    else if(nz == 0) {
-        const long double num = is_pow2(minvec.size()) ? std::ldexp(static_cast<long double>(1.), sizeof(VT) * CHAR_BIT - ilog2(minvec.size()))
-                                                       : ((long double)UINT64_C(-1)) / minvec.size();
-        return harmonic_cardinality_estimate_diffmax_impl(minvec, num);
-    } else {
-        std::vector<uint8_t> hllv(minvec.size());
-        for(size_t i = 0; i < minvec.size(); ++i) {
-            if(minvec[i] != detail::default_val<VT>()) hllv[i] = clz(minvec[i]) + 1;
-        }
-        std::vector<uint64_t> v(64);
-        for(size_t i = 0; i < v.size(); ++i) ++v[hllv[i]];
-        auto p = ilog2(minvec.size());
-        return hll::detail::ertl_ml_estimate(v.data(), p, 64 - p);
-    }
-    assert(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>()) == minvec.end());
+    const long double num = is_pow2(minvec.size()) ? std::ldexp(static_cast<long double>(1.), sizeof(VT) * CHAR_BIT - ilog2(minvec.size()))
+                                                   : ((long double)UINT64_C(-1)) / minvec.size();
+    return harmonic_cardinality_estimate_diffmax_impl(minvec, num);
 }
 
 template<typename T, typename Allocator>
