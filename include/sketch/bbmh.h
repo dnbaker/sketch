@@ -1236,6 +1236,107 @@ void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
     a.swap(b);
 }
 
+size_t count_eq_nibbles(const uint16_t *lhs, const uint16_t *rhs, size_t n) {
+    size_t ret = 0;
+#if __AVX512BW__
+    const size_t nsimd = (n / (sizeof(__m512) / sizeof(uint16_t)));
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    for(size_t i = 0; i < nsimd4; i += 4) {
+#if SEPARATE_POPC
+        auto v1 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i));
+        auto v2 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i));
+        ret += popcount((uint64_t(v1) << 32) | v2);
+        auto v3 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 2), _mm512_loadu_si512((_mm512i *)rhs + i + 2));
+        auto v4 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 3), _mm512_loadu_si512((_mm512i *)rhs + i + 3));
+        ret += popcount((uint64_t(v3) << 32) | v4);
+#else
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 0), _mm512_loadu_si512((_mm512i *)rhs + i + 0)));
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 1), _mm512_loadu_si512((_mm512i *)rhs + i + 1)));
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 2), _mm512_loadu_si512((_mm512i *)rhs + i + 2)));
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 3), _mm512_loadu_si512((_mm512i *)rhs + i + 3)));
+#endif
+    }
+    for(size_t i = nsimd4; i < nsimd; ++i)
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i)));
+    for(size_t i = nsimd * sizeof(__m512) / sizeof(uint16_t); i < n; ++i)
+        ret += lhs[i] != rhs[i];
+#elif __AVX2__
+    const size_t nsimd = (n / (sizeof(__m256) / sizeof(uint64_t)));
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    // Each vector register has at most 16 1-bits, so we can pack the bitmasks into 4 uint64_t popcounts.
+    for(size_t i = 0; i < nsimd4; i += 4) {
+        auto eq_reg = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i), _mm256_loadu_si256((__m256i*)rhs + i));
+        auto bitmask = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg), _mm256_extracti128_si256(eq_reg, 1)));
+        auto eq_reg2 = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i + 1), _mm256_loadu_si256((__m256i*)rhs + i + 1));
+        auto bitmask2 = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg2), _mm256_extracti128_si256(eq_reg2, 1)));
+        auto eq_reg3 = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i + 2), _mm256_loadu_si256((__m256i*)rhs + i + 2));
+        auto bitmask3 = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg3), _mm256_extracti128_si256(eq_reg3, 1)));
+        auto eq_reg4 = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i + 3), _mm256_loadu_si256((__m256i*)rhs + i + 3));
+        auto bitmask4 = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg4), _mm256_extracti128_si256(eq_reg4, 1)));
+        ret += popcount((uint64_t(bitmask) << 48) | (uint64_t(bitmask2) << 32) | (uint64_t(bitmask3) << 16) | bitmask4);
+    }
+    for(size_t i = nsimd4; i < nsimd; ++i) {
+        auto eq_reg = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i), _mm256_loadu_si256((__m256i*)rhs + i));
+        auto bitmask = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg), _mm256_extracti128_si256(eq_reg, 1)));
+        ret += popcount(bitmask);
+    }
+    for(size_t i = nsimd * sizeof(__m256) / sizeof(uint64_t); i < n; ++i)
+        ret += lhs[i] == rhs[i];
+#else
+    for(size_t i = 0; i < n; ++i) {
+        ret += lhs[i] == rhs[i];
+    }
+#endif
+    return ret;
+}
+size_t count_eq_longs(const uint64_t *lhs, const uint64_t *rhs, size_t n) {
+    size_t ret = 0;
+    for(size_t i = 0; i < n; ++i) ret += lhs[i] != rhs[i];
+    return ret;
+}
+
+size_t count_eq_words(const uint32_t *lhs, const uint32_t *rhs, size_t n) {
+    size_t ret = 0;
+    for(size_t i = 0; i < n; ++i) ret += lhs[i] != rhs[i];
+    return ret;
+}
+
+size_t count_eq_bytes(const uint8_t *lhs, const uint8_t *rhs, size_t n) {
+    size_t ret = 0;
+#if __AVX512BW__
+    const size_t nsimd = (n / (sizeof(__m512) / sizeof(char)));
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    for(size_t i = 0; i < nsimd4; i += 4) {
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i)));
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 1), _mm512_loadu_si512((_mm512i *)rhs + i + 1)));
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 2), _mm512_loadu_si512((_mm512i *)rhs + i + 2)));
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 3), _mm512_loadu_si512((_mm512i *)rhs + i + 3)));
+    }
+    for(size_t i = nsimd4; i < nsimd; ++i)
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i)));
+    for(size_t i = nsimd * sizeof(__m512) / sizeof(char); i < n; ++i)
+        ret += lhs[i] == rhs[i];
+#elif __AVX2__
+    const size_t nsimd = (n / (sizeof(__m256) / sizeof(char)));
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    for(size_t i = 0; i < nsimd4; i += 4) {
+        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i), _mm256_loadu_si256((__m256i *)rhs + i))));
+        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 1), _mm256_loadu_si256((__m256i *)rhs + i + 1))));
+        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 2), _mm256_loadu_si256((__m256i *)rhs + i + 2))));
+        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 3), _mm256_loadu_si256((__m256i *)rhs + i + 3))));
+    }
+    for(size_t i = nsimd4; i < nsimd; ++i)
+        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i), _mm256_loadu_si256((__m256i *)rhs + i))));
+    for(size_t i = nsimd * sizeof(__m256) / sizeof(char); i < n; ++i)
+        ret += lhs[i] == rhs[i];
+#else
+    for(size_t i = 0; i < n; ++i) {
+        ret += lhs[i] == rhs[i];
+    }
+#endif
+    return ret;
+}
+
 template<typename T, typename CountingType, typename Hasher=common::WangHash>
 class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
     using super = BBitMinHasher<T, Hasher>;
@@ -1279,7 +1380,7 @@ struct FinalBBitMinHash {
 protected:
     FinalBBitMinHash() {}
 public:
-    using value_type = uint64_t; // This may be templated someday
+    using value_type = uint64_t;
     double est_cardinality_;
     uint32_t b_, p_;
     std::vector<value_type, Allocator<value_type>> core_;
@@ -1418,6 +1519,13 @@ public:
     }
 #endif
     uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
+        switch(b_) {
+            case 8: return count_eq_bytes((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() * 8);
+            case 16: return count_eq_nibbles((uint16_t *)core_.data(), (uint16_t *)o.core_.data(), core_.size() * 4);
+            case 32: return count_eq_words((uint32_t *)core_.data(), (uint32_t *)o.core_.data(), core_.size() * 2);
+            case 64: return count_eq_longs(core_.data(), o.core_.data(), core_.size());
+            default: ;
+        }
         assert(o.core_.size() == core_.size());
         const value_type *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
@@ -1589,10 +1697,15 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
 #else
 #define CASE_6_TEST
 #endif
-    // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b_ == 64) {
         // We've already failed for the case of b_ + p_ being greater than the width of T
-        std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
+        std::copy(core_ref.begin(), core_ref.end(), (uint64_t *)ret.core_.data());
+    } else if(b_ == 32) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint32_t *)ret.core_.data());
+    } else if(b_ == 16) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint16_t *)ret.core_.data());
+    } else if(b_ == 8) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint8_t *)ret.core_.data());
     } else {
         if(HEDLEY_UNLIKELY(p_ < 6))
             throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently. We could reduce this requirement using 32-bit integers.");
