@@ -1243,21 +1243,21 @@ size_t count_eq_nibbles(const uint16_t *lhs, const uint16_t *rhs, size_t n) {
     const size_t nsimd4 = (nsimd / 4) * 4;
     for(size_t i = 0; i < nsimd4; i += 4) {
 #if SEPARATE_POPC
-        auto v1 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i));
-        auto v2 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i));
+        auto v1 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i));
+        auto v2 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i));
         ret += popcount((uint64_t(v1) << 32) | v2);
-        auto v3 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 2), _mm512_loadu_si512((_mm512i *)rhs + i + 2));
-        auto v4 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 3), _mm512_loadu_si512((_mm512i *)rhs + i + 3));
+        auto v3 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 2), _mm512_loadu_si512((__m512i *)rhs + i + 2));
+        auto v4 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 3), _mm512_loadu_si512((__m512i *)rhs + i + 3));
         ret += popcount((uint64_t(v3) << 32) | v4);
 #else
-        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 0), _mm512_loadu_si512((_mm512i *)rhs + i + 0)));
-        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 1), _mm512_loadu_si512((_mm512i *)rhs + i + 1)));
-        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 2), _mm512_loadu_si512((_mm512i *)rhs + i + 2)));
-        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 3), _mm512_loadu_si512((_mm512i *)rhs + i + 3)));
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 0), _mm512_loadu_si512((__m512i *)rhs + i + 0)));
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 1), _mm512_loadu_si512((__m512i *)rhs + i + 1)));
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 2), _mm512_loadu_si512((__m512i *)rhs + i + 2)));
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 3), _mm512_loadu_si512((__m512i *)rhs + i + 3)));
 #endif
     }
     for(size_t i = nsimd4; i < nsimd; ++i)
-        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i)));
+        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i)));
     for(size_t i = nsimd * sizeof(__m512) / sizeof(uint16_t); i < n; ++i)
         ret += lhs[i] != rhs[i];
 #elif __AVX2__
@@ -1307,13 +1307,13 @@ size_t count_eq_bytes(const uint8_t *lhs, const uint8_t *rhs, size_t n) {
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(char)));
     const size_t nsimd4 = (nsimd / 4) * 4;
     for(size_t i = 0; i < nsimd4; i += 4) {
-        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i)));
-        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 1), _mm512_loadu_si512((_mm512i *)rhs + i + 1)));
-        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 2), _mm512_loadu_si512((_mm512i *)rhs + i + 2)));
-        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i + 3), _mm512_loadu_si512((_mm512i *)rhs + i + 3)));
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i)));
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((__m512i *)lhs + i + 1), _mm512_loadu_si512((__m512i *)rhs + i + 1)));
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((__m512i *)lhs + i + 2), _mm512_loadu_si512((__m512i *)rhs + i + 2)));
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((__m512i *)lhs + i + 3), _mm512_loadu_si512((__m512i *)rhs + i + 3)));
     }
     for(size_t i = nsimd4; i < nsimd; ++i)
-        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((_mm512i *)lhs + i), _mm512_loadu_si512((_mm512i *)rhs + i)));
+        ret += popcount(_mm512_cmpeq_epi8_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i)));
     for(size_t i = nsimd * sizeof(__m512) / sizeof(char); i < n; ++i)
         ret += lhs[i] == rhs[i];
 #elif __AVX2__
