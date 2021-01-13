@@ -1236,7 +1236,7 @@ void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
     a.swap(b);
 }
 
-size_t count_eq_nibbles(const uint16_t *lhs, const uint16_t *rhs, size_t n) {
+static inline size_t count_eq_nibbles(const uint16_t *lhs, const uint16_t *rhs, size_t n) {
     size_t ret = 0;
 #if __AVX512BW__
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(uint16_t)));
@@ -1259,7 +1259,7 @@ size_t count_eq_nibbles(const uint16_t *lhs, const uint16_t *rhs, size_t n) {
     for(size_t i = nsimd4; i < nsimd; ++i)
         ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i)));
     for(size_t i = nsimd * sizeof(__m512) / sizeof(uint16_t); i < n; ++i)
-        ret += lhs[i] != rhs[i];
+        ret += lhs[i] == rhs[i];
 #elif __AVX2__
     const size_t nsimd = (n / (sizeof(__m256) / sizeof(uint64_t)));
     const size_t nsimd4 = (nsimd / 4) * 4;
@@ -1289,19 +1289,19 @@ size_t count_eq_nibbles(const uint16_t *lhs, const uint16_t *rhs, size_t n) {
 #endif
     return ret;
 }
-size_t count_eq_longs(const uint64_t *lhs, const uint64_t *rhs, size_t n) {
+static inline size_t count_eq_longs(const uint64_t *lhs, const uint64_t *rhs, size_t n) {
     size_t ret = 0;
-    for(size_t i = 0; i < n; ++i) ret += lhs[i] != rhs[i];
+    for(size_t i = 0; i < n; ++i) ret += lhs[i] == rhs[i];
     return ret;
 }
 
-size_t count_eq_words(const uint32_t *lhs, const uint32_t *rhs, size_t n) {
+static inline size_t count_eq_words(const uint32_t *lhs, const uint32_t *rhs, size_t n) {
     size_t ret = 0;
-    for(size_t i = 0; i < n; ++i) ret += lhs[i] != rhs[i];
+    for(size_t i = 0; i < n; ++i) ret += lhs[i] == rhs[i];
     return ret;
 }
 
-size_t count_eq_bytes(const uint8_t *lhs, const uint8_t *rhs, size_t n) {
+static inline size_t count_eq_bytes(const uint8_t *lhs, const uint8_t *rhs, size_t n) {
     size_t ret = 0;
 #if __AVX512BW__
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(char)));
@@ -1320,10 +1320,10 @@ size_t count_eq_bytes(const uint8_t *lhs, const uint8_t *rhs, size_t n) {
     const size_t nsimd = (n / (sizeof(__m256) / sizeof(char)));
     const size_t nsimd4 = (nsimd / 4) * 4;
     for(size_t i = 0; i < nsimd4; i += 4) {
-        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i), _mm256_loadu_si256((__m256i *)rhs + i))));
-        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 1), _mm256_loadu_si256((__m256i *)rhs + i + 1))));
-        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 2), _mm256_loadu_si256((__m256i *)rhs + i + 2))));
-        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 3), _mm256_loadu_si256((__m256i *)rhs + i + 3))));
+        const uint64_t v0 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i), _mm256_loadu_si256((__m256i *)rhs + i)));
+        ret += popcount((v0 << 32) | _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 1), _mm256_loadu_si256((__m256i *)rhs + i + 1))));
+        const uint64_t v2 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 2), _mm256_loadu_si256((__m256i *)rhs + i + 2)));
+        ret += popcount((v2 << 32) | _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 3), _mm256_loadu_si256((__m256i *)rhs + i + 3))));
     }
     for(size_t i = nsimd4; i < nsimd; ++i)
         ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i), _mm256_loadu_si256((__m256i *)rhs + i))));
