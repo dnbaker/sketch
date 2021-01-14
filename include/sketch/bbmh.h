@@ -381,7 +381,7 @@ public:
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
 #if 0
         switch(b_) {
-            case 4: return eq::count_eq_nibbles((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() << 4);
+            case 4: return eq::count_eq_nibbles((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() << 3);
             case 8: return eq::count_eq_bytes((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() << 3);
             case 16: return eq::count_eq_shorts((uint16_t *)core_.data(), (uint16_t *)o.core_.data(), core_.size() << 2);
             case 32: return eq::count_eq_words((uint32_t *)core_.data(), (uint32_t *)o.core_.data(), core_.size() << 1);
@@ -1429,7 +1429,7 @@ public:
     }
 #endif
     uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
-#if 0
+#if 1
         switch(b_) {
             case 4: return eq::count_eq_nibbles((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() * 16);
             case 8: return eq::count_eq_bytes((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() * 8);
@@ -1615,7 +1615,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
     if(b_ == 64) {
         // We've already failed for the case of b_ + p_ being greater than the width of T
         std::copy(core_ref.begin(), core_ref.end(), (uint64_t *)ret.core_.data());
-#if 0
+#if 1
     } else if(b_ == 32) {
         std::copy(core_ref.begin(), core_ref.end(), (uint32_t *)ret.core_.data());
     } else if(b_ == 16) {

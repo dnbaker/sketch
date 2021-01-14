@@ -76,6 +76,7 @@ static inline size_t count_eq_words(const uint32_t *lhs, const uint32_t *rhs, si
     return ret;
 }
 static inline size_t count_eq_nibbles(const uint8_t *lhs, const uint8_t *rhs, size_t n) {
+    n >>= 1;
     size_t ret = 0;
 #if __AVX512BW__
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(char)));
