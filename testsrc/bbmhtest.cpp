@@ -165,7 +165,9 @@ int main(int argc, char *argv[]) {
             auto fdb2 = db2.finalize();
             auto smh1 = smhp2.finalize(16), smh2 = smhp21.finalize(16);
             auto smhd1 = smhdp.finalize(16), smhd2 = smhdp1.finalize(16);
-            assert(smh1.jaccard_index(smh1) == 1.);
+            auto smh1ji = smh1.jaccard_index(smh1);
+            std::fprintf(stderr, "smh1ji: %g\n", smh1ji);
+            assert(smh1ji == 1.);
             auto pji = smh1.jaccard_index(smh2);
             std::fprintf(stderr, "estimate: %f. nmin: %u. b: %u\n", pji, 1u << i, b);
             if(std::abs(pji - .5)  > 0.05) {
