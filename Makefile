@@ -75,7 +75,7 @@ hpython: pybbmh.cpython.so
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 %: testsrc/%.cpp kthread.o $(HEADERS)
-	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
+	$(CXX) $(STD) $(CXXFLAGS) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)

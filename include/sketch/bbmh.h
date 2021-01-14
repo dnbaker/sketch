@@ -11,6 +11,12 @@
 namespace sketch {
 inline namespace minhash {
 
+static inline size_t count_eq_shorts(const uint16_t *lhs, const uint16_t *rhs, size_t n);
+static inline size_t count_eq_bytes(const uint8_t *lhs, const uint8_t *rhs, size_t n);
+static inline size_t count_eq_nibbles(const uint8_t *lhs, const uint8_t *rhs, size_t n);
+static inline size_t count_eq_words(const uint32_t *lhs, const uint32_t *rhs, size_t n);
+static inline size_t count_eq_longs(const uint64_t *lhs, const uint64_t *rhs, size_t n);
+
 namespace detail {
 
 // Based on content from BinDash https://github.com/zhaoxiaofei/bindash
@@ -378,6 +384,12 @@ public:
     uint64_t equal_bblocks(const FinalDivBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
+        switch(b_) {
+            case 8: return count_eq_bytes((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() << 3);
+            case 16: return count_eq_shorts((uint16_t *)core_.data(), (uint16_t *)o.core_.data(), core_.size() << 2);
+            case 32: return count_eq_words((uint32_t *)core_.data(), (uint32_t *)o.core_.data(), core_.size() << 1);
+            case 64: return count_eq_longs(core_.data(), o.core_.data(), core_.size());
+        }
         // p_ already guaranteed to be greater than 6
         auto l2szfloor = ilog2(nbuckets_);
         const value_type *p1 = core_.data(), *pe = core_.data() + b_ * (1ull << l2szfloor) / 64, *p2 = o.core_.data();
@@ -1236,7 +1248,7 @@ void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
     a.swap(b);
 }
 
-static inline size_t count_eq_nibbles(const uint16_t *lhs, const uint16_t *rhs, size_t n) {
+static inline size_t count_eq_shorts(const uint16_t *lhs, const uint16_t *rhs, size_t n) {
     size_t ret = 0;
 #if __AVX512BW__
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(uint16_t)));
@@ -1298,6 +1310,37 @@ static inline size_t count_eq_longs(const uint64_t *lhs, const uint64_t *rhs, si
 static inline size_t count_eq_words(const uint32_t *lhs, const uint32_t *rhs, size_t n) {
     size_t ret = 0;
     for(size_t i = 0; i < n; ++i) ret += lhs[i] == rhs[i];
+    return ret;
+}
+
+static inline size_t count_eq_nibbles(const uint8_t *lhs, const uint8_t *rhs, size_t n) {
+    size_t ret = 0;
+#if __AVX512BW__
+    const size_t nsimd = (n / (sizeof(__m512) / sizeof(char)));
+    for(size_t i = 0; i < nsimd; ++i) {
+        auto lhv = _mm512_loadu_si512((__m512i *)lhs + i), rhv = _mm512_loadu_si512((__m512i *)rhs + i);
+        auto lomask = _mm512_set1_epi8(0xF), himask = _mm512_set1_epi8(0x0F);
+        ret += popcount(_mm512_cmpeq_epi8_mask(lhv & lomask, rhv & lomask));
+        ret += popcount(_mm512_cmpeq_epi8_mask(lhv & himask, rhv & himask));
+    }
+    for(size_t i = nsimd * sizeof(__m512) / sizeof(char); i < n; ++i)
+        ret += lhs[i] == rhs[i];
+#elif __AVX2__
+    const size_t nsimd = (n / (sizeof(__m256) / sizeof(char)));
+    for(size_t i = 0; i < nsimd; ++i) {
+        auto lhv = _mm256_loadu_si256((__m256i *)lhs + i), rhv = _mm256_loadu_si256((__m256i *)rhs + i);
+        auto lomask = _mm256_set1_epi8(0xF), himask = _mm256_set1_epi8(0x0F);
+        uint64_t mm1 = uint64_t(_mm256_movemask_epi8(_mm256_cmpeq_epi8(lhv & lomask, rhv & lomask))) << 32;
+        mm1 |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(lhv & himask, rhv & himask));
+        ret += popcount(mm1);
+    }
+    for(size_t i = nsimd * sizeof(__m256) / sizeof(char); i < n; ++i)
+        ret += lhs[i] == rhs[i];
+#else
+    for(size_t i = 0; i < n; ++i) {
+        ret += lhs[i] == rhs[i];
+    }
+#endif
     return ret;
 }
 
@@ -1520,8 +1563,9 @@ public:
 #endif
     uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
         switch(b_) {
+            case 4: return count_eq_nibbles((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() * 16);
             case 8: return count_eq_bytes((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() * 8);
-            case 16: return count_eq_nibbles((uint16_t *)core_.data(), (uint16_t *)o.core_.data(), core_.size() * 4);
+            case 16: return count_eq_shorts((uint16_t *)core_.data(), (uint16_t *)o.core_.data(), core_.size() * 4);
             case 32: return count_eq_words((uint32_t *)core_.data(), (uint32_t *)o.core_.data(), core_.size() * 2);
             case 64: return count_eq_longs(core_.data(), o.core_.data(), core_.size());
             default: ;
@@ -1750,12 +1794,18 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
     //std::fprintf(stderr, "Calling with core_ref size of %zu and b as %d\n", core_ref.size(), b);
     FinalDivBBitMinHash ret(core_ref.size(), b, est_v);
     using FinalType = typename FinalDivBBitMinHash::value_type;
-    assert(ret.core_.size() % b == 0);
-    assert(core_ref.size() % 64 == 0);
+    assert(ret.core_.size() % b == 0 || !(b & (b - 1)));
+    assert(core_ref.size() % 64 == 0 || !(b & (b - 1)));
     //std::fprintf(stderr, "core size: %zu being collapsed into b (%d)-bit samples in core of size %zu\n", core_ref.size(), int(b), ret.core_.size());
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b == 64) {
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
+    } else if(b == 32) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint32_t *)ret.core_.data());
+    } else if(b == 16) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint16_t *)ret.core_.data());
+    } else if(b == 8) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint8_t *)ret.core_.data());
     } else {
         const auto l2szfloor = ilog2(core_ref.size());
         const auto pow2 = 1ull << l2szfloor;
