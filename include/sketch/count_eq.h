@@ -1,6 +1,7 @@
 #ifndef SKETCH_COUNT_EQ_H__
 #define SKETCH_COUNT_EQ_H__
 #include <x86intrin.h>
+#include <sys/mman.h>
 #include "sketch/common.h"
 
 namespace sketch {namespace eq {
@@ -11,7 +12,33 @@ static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint
 static inline size_t count_eq_words(const uint32_t *SK_RESTRICT lhs, const uint32_t *SK_RESTRICT rhs, size_t n);
 static inline size_t count_eq_longs(const uint64_t *SK_RESTRICT lhs, const uint64_t *SK_RESTRICT rhs, size_t n);
 
+template<typename T>
+void advise_mem(const T *lhs, const T *rhs, size_t nbytes) {
+    ::madvise((void *)(lhs), nbytes, MADV_SEQUENTIAL);
+    ::madvise((void *)(rhs), nbytes, MADV_SEQUENTIAL);
+}
+
+template<typename T>
+static inline size_t count_eq(const T *SK_RESTRICT lhs, const T *SK_RESTRICT rhs, size_t n) {
+    size_t ret = 0;
+    for(size_t i = 0; i < n; ++i) ret += lhs[i] == rhs[i];
+    return ret;
+}
+template<> inline size_t count_eq<uint16_t>(const uint16_t *SK_RESTRICT lhs, const uint16_t *SK_RESTRICT rhs, size_t n) {
+   return count_eq_shorts(lhs, rhs, n);
+}
+template<> inline size_t count_eq<uint8_t>(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
+   return count_eq_bytes(lhs, rhs, n);
+}
+template<> inline size_t count_eq<uint32_t>(const uint32_t *SK_RESTRICT lhs, const uint32_t *SK_RESTRICT rhs, size_t n) {
+   return count_eq_words(lhs, rhs, n);
+}
+template<> inline size_t count_eq<uint64_t>(const uint64_t *SK_RESTRICT lhs, const uint64_t *SK_RESTRICT rhs, size_t n) {
+   return count_eq_longs(lhs, rhs, n);
+}
+
 static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint16_t *SK_RESTRICT rhs, size_t n) {
+    advise_mem(lhs, rhs, n * sizeof(*lhs));
     size_t ret = 0;
 #if __AVX512BW__
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(uint16_t)));
@@ -36,7 +63,7 @@ static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint
     for(size_t i = nsimd * sizeof(__m512) / sizeof(uint16_t); i < n; ++i)
         ret += lhs[i] == rhs[i];
 #elif __AVX2__
-    const size_t nsimd = (n / (sizeof(__m256) / sizeof(uint64_t)));
+    const size_t nsimd = (n / (sizeof(__m256) / sizeof(uint16_t)));
     const size_t nsimd4 = (nsimd / 4) * 4;
     // Each vector register has at most 16 1-bits, so we can pack the bitmasks into 4 uint64_t popcounts.
     for(size_t i = 0; i < nsimd4; i += 4) {
@@ -55,7 +82,7 @@ static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint
         auto bitmask = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg), _mm256_extracti128_si256(eq_reg, 1)));
         ret += popcount(bitmask);
     }
-    for(size_t i = nsimd * sizeof(__m256) / sizeof(uint64_t); i < n; ++i)
+    for(size_t i = nsimd * sizeof(__m256) / sizeof(uint16_t); i < n; ++i)
         ret += lhs[i] == rhs[i];
 #else
     for(size_t i = 0; i < n; ++i) {
@@ -64,18 +91,22 @@ static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint
 #endif
     return ret;
 }
+
 static inline size_t count_eq_longs(const uint64_t *SK_RESTRICT lhs, const uint64_t *SK_RESTRICT rhs, size_t n) {
+    advise_mem(lhs, rhs, n * sizeof(*lhs));
     size_t ret = 0;
     for(size_t i = 0; i < n; ++i) ret += lhs[i] == rhs[i];
     return ret;
 }
 
 static inline size_t count_eq_words(const uint32_t *SK_RESTRICT lhs, const uint32_t *SK_RESTRICT rhs, size_t n) {
+    advise_mem(lhs, rhs, n * sizeof(*lhs));
     size_t ret = 0;
     for(size_t i = 0; i < n; ++i) ret += lhs[i] == rhs[i];
     return ret;
 }
 static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
+    advise_mem(lhs, rhs, n * sizeof(*lhs));
     n >>= 1;
     size_t ret = 0;
 #if __AVX512BW__
@@ -97,8 +128,10 @@ static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint
         mm1 |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(lhv & himask, rhv & himask));
         ret += popcount(mm1);
     }
-    for(size_t i = nsimd * sizeof(__m256) / sizeof(char); i < n; ++i)
-        ret += lhs[i] == rhs[i];
+    for(size_t i = nsimd * sizeof(__m256) / sizeof(char); i < n; ++i) {
+        ret += (lhs[i] & 0xF) == (rhs[i] & 0xF);
+        ret += (lhs[i] & 0x0F) == (rhs[i] & 0x0F);
+    }
 #else
     for(size_t i = 0; i < n; ++i) {
         ret += lhs[i] == rhs[i];
@@ -108,6 +141,7 @@ static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint
 }
 
 static inline size_t count_eq_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
+    advise_mem(lhs, rhs, n * sizeof(*lhs));
     size_t ret = 0;
 #if __AVX512BW__
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(char)));
