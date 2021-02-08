@@ -1510,7 +1510,7 @@ public:
     }
     double frac_equal(const FinalBBitMinHash &o) const {
         auto num = equal_bblocks(o);
-        std::fprintf(stderr, "numeq: %zu. total blocks: %zu\n", num, core_.size() * (64 / b_));
+        std::fprintf(stderr, "numeq: %zu. total blocks: %zu\n", size_t(num), core_.size() * (64 / b_));
         return std::ldexp(num, -int(p_));
     }
     uint64_t nmin() const {

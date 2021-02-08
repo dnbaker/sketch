@@ -438,10 +438,10 @@ struct FinalRMinHash {
     FinalRMinHash(const std::string &s): FinalRMinHash(s.data()) {}
     FinalRMinHash(gzFile fp) {read(fp);}
     FinalRMinHash(const char *infname) {read(infname);}
+    FinalRMinHash(const FinalRMinHash &o): first(o.first) {sort();}
     size_t size() const {return first.size();}
 protected:
     FinalRMinHash() {}
-    FinalRMinHash(const FinalRMinHash &o) = default;
     FinalRMinHash &operator=(const FinalRMinHash &o) = default;
     void sort() {
         common::sort::default_sort(this->first.begin(), this->first.end());
