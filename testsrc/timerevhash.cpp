@@ -54,18 +54,24 @@ int main() {
     std::array<size_t, 8> arr{0};
     auto start = std::chrono::high_resolution_clock::now();
     uint64_t accum = 0;
-    uint64_t nelem = 1000000000;
+    uint64_t nelem = 100000000;
+    std::vector<uint64_t> vals(nelem);
     for(uint64_t i = 0; i < nelem; ++i) {
+        assert(irving_inv_hash(hash(uint64_t(i))) == i);
         doNotOptimizeAway(irving_inv_hash(hash(uint64_t(i))));
     }
     auto end = std::chrono::high_resolution_clock::now();
     arr[0] = size_t(std::chrono::nanoseconds(end - start).count());
     std::fprintf(stderr, "diff: %zu. accum %zu\n", size_t(std::chrono::nanoseconds(end - start).count()), size_t(accum));
+    //constexpr size_t nper = sizeof(vec::SIMDTypes<uint64_t>::VType);
 #define DO_THING(hasher, namer, ind) \
+    for(uint64_t i = 0; i < nelem; ++i) {\
+       if(ind !=5) assert(hasher.inverse(hasher(vals[i])) == vals[i]);\
+    }\
     start = std::chrono::high_resolution_clock::now();\
     accum = 0;\
     for(uint64_t i = 0; i < nelem; ++i) {\
-       doNotOptimizeAway(hasher.inverse(hasher(i)));\
+       doNotOptimizeAway(hasher.inverse(hasher(vals[i])));\
     }\
     end = std::chrono::high_resolution_clock::now();\
     arr[ind] = size_t(std::chrono::nanoseconds(end - start).count());\

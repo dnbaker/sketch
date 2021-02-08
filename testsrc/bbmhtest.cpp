@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
     const unsigned long long niter = argc == 1 ? 5000000uLL: std::strtoull(argv[1], nullptr, 10);
 
     for(size_t i = 7; i < 15; i += 2) {
-        for(const auto b: {13u, 7u, 14u, 17u, 3u, 1u}) {
+        for(const auto b: {13u, 32u, 8u, 7u, 14u, 17u, 3u, 1u}) {
             std::fprintf(stderr, "b: %u. i: %zu\n", b, i);
             SuperMinHash<policy::SizePow2Policy> smhp2(1 << i);
             SuperMinHash<policy::SizeDivPolicy>  smhdp(1 << i);
@@ -165,7 +165,9 @@ int main(int argc, char *argv[]) {
             auto fdb2 = db2.finalize();
             auto smh1 = smhp2.finalize(16), smh2 = smhp21.finalize(16);
             auto smhd1 = smhdp.finalize(16), smhd2 = smhdp1.finalize(16);
-            assert(smh1.jaccard_index(smh1) == 1.);
+            auto smh1ji = smh1.jaccard_index(smh1);
+            std::fprintf(stderr, "smh1ji: %g\n", smh1ji);
+            assert(smh1ji == 1.);
             auto pji = smh1.jaccard_index(smh2);
             std::fprintf(stderr, "estimate: %f. nmin: %u. b: %u\n", pji, 1u << i, b);
             if(std::abs(pji - .5)  > 0.05) {

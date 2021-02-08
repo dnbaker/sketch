@@ -402,7 +402,7 @@ public:
         return add(hv);
     }
     // Reset.
-    void clear() {
+    void reset() {
         static constexpr const size_t MEMSET_CUTOFF = 1ull << 16;
         if(core_.size() >= MEMSET_CUTOFF) {
             // Typically this can be faster by swapping around virtual memory pages
@@ -428,6 +428,7 @@ public:
             std::fill(core_.begin(), core_.end(), static_cast<uint64_t>(0));
         }
     }
+    void clear() {reset();}
     bfbase_t(bfbase_t&&) = default;
     bfbase_t(const bfbase_t &other) = default;
     bfbase_t& operator=(const bfbase_t &other) {

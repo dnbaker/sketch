@@ -6,7 +6,9 @@ namespace sketch {
 
 inline namespace hbb {
 
+#ifndef SLOW_WAY
 #define SLOW_WAY 0
+#endif
 
 /**
  *
@@ -39,7 +41,7 @@ public:
     }
 
     double cardinality_estimate() const {
-        std::fprintf(stderr, "pcsum for this: %g\n", logn_ + 5.15 + popcount(s1_) / 32.);
+        //std::fprintf(stderr, "pcsum for this: %g\n", logn_ + 5.15 + popcount(s1_) / 32.);
         return std::pow(2., (logn_ + 5.8 + popcount(s1_) / 32.));
     }
     double report() const {return cardinality_estimate();}
@@ -56,16 +58,29 @@ struct HyperHyperBitBitSimple {
         add(x);
     }
     void add(uint64_t x) {
+#if SLOW_WAY
+        x = hash::WangHash::hash(x);
+        for(auto &i: data_) {
+            uint64_t v = hash::WangHash::hash(x ^ seeds_[x % data_.size()]);
+            i.addh(v);
+        }
+#else
         data_[x % data_.size()].addh(hash::WangHash()(x ^ seeds_[x % data_.size()]));
+#endif
     }
     double report() {
         double estsum = 0.;
         double harmestsum = 0.;
+        std::vector<double> v;
         for(const auto &i: data_) {
             auto r = i.report();
             estsum += r;
             harmestsum += 1. / r;
+            v.push_back(r);
         }
+        std::sort(v.begin(), v.end());
+        double oret = .5 * (v[v.size() / 2] + v[(v.size() - 1) / 2]);
+        fprintf(stderr, "median: %g\n", oret);
         harmestsum = data_.size() / harmestsum;
         std::fprintf(stderr, "total sum: %g. harmestsum: %g\n", estsum, harmestsum);
         return estsum;

@@ -590,6 +590,21 @@ struct RShiftXor {
     template<typename...Args>
     RShiftXor(Args &&...args) {}
     uint64_t constexpr operator()(uint64_t v) const {return v ^ (v >> n);}
+#ifdef __SSE2__
+    __m128i operator()(__m128i v) const {
+        return _mm_xor_si128(_mm_srli_epi64(v, n), v);
+    }
+#endif
+#ifdef __AVX2__
+    __m256i operator()(__m256i v) const {
+        return _mm256_xor_si256(_mm256_srli_epi64(v, n), v);
+    }
+#endif
+#ifdef __AVX512DQ__
+    __m512i operator()(__m512i v) const {
+        return _mm512_xor_si512(_mm512_srli_epi64(v, n), v);
+    }
+#endif
     uint64_t inverse(uint64_t x) const {return InverseOperation()(x);}
     using InverseOperation = InvRShiftXor<n>;
 };

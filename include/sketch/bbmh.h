@@ -1,6 +1,6 @@
 #ifndef SKETCH_BB_MINHASH_H__
 #define SKETCH_BB_MINHASH_H__
-#include "common.h"
+#include "sketch/count_eq.h"
 #include "hll.h"
 #include "aesctr/wy.h"
 #if !NDEBUG
@@ -10,6 +10,7 @@
 
 namespace sketch {
 inline namespace minhash {
+
 
 namespace detail {
 
@@ -62,11 +63,11 @@ static inline double harmonic_cardinality_estimate_diffmax_impl(const Cont &minv
 template<typename Cont>
 static inline double harmonic_cardinality_estimate_impl(const Cont &minvec) {
     using VT = std::decay_t<decltype(*minvec.begin())>;
-    if(std::all_of(minvec.begin(), minvec.end(), [](auto x) {return x == detail::default_val<VT>();}))
-        return 0.;
-    assert(std::find(minvec.begin(), minvec.end(), detail::default_val<VT>()) == minvec.end());
+    size_t nz = 0;
+    for(const auto v: minvec) nz += v == detail::default_val<VT>();
+    if(nz == minvec.size()) return 0.;
     const long double num = is_pow2(minvec.size()) ? std::ldexp(static_cast<long double>(1.), sizeof(VT) * CHAR_BIT - ilog2(minvec.size()))
-                                              : ((long double)UINT64_C(-1)) / minvec.size();
+                                                   : ((long double)UINT64_C(-1)) / minvec.size();
     return harmonic_cardinality_estimate_diffmax_impl(minvec, num);
 }
 
@@ -337,8 +338,8 @@ public:
         return equal_bblocks(o);
     }
     double frac_equal(const FinalDivBBitMinHash &o) const {
-        // TODO: needs more dragons
-        return double(equal_bblocks(o)) / nbuckets_;
+        auto neq = equal_bblocks(o);
+        return double(neq) / (nbuckets_);
     }
     uint64_t nmin() const {
         return nbuckets_;
@@ -378,6 +379,15 @@ public:
     uint64_t equal_bblocks(const FinalDivBBitMinHash &o) const {
         assert(o.core_.size() == core_.size());
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
+#if 0
+        switch(b_) {
+            case 4: return eq::count_eq_nibbles((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() << 3);
+            case 8: return eq::count_eq_bytes((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() << 3);
+            case 16: return eq::count_eq_shorts((uint16_t *)core_.data(), (uint16_t *)o.core_.data(), core_.size() << 2);
+            case 32: return eq::count_eq_words((uint32_t *)core_.data(), (uint32_t *)o.core_.data(), core_.size() << 1);
+            case 64: return eq::count_eq_longs(core_.data(), o.core_.data(), core_.size());
+        }
+#endif
         // p_ already guaranteed to be greater than 6
         auto l2szfloor = ilog2(nbuckets_);
         const value_type *p1 = core_.data(), *pe = core_.data() + b_ * (1ull << l2szfloor) / 64, *p2 = o.core_.data();
@@ -1236,6 +1246,7 @@ void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
     a.swap(b);
 }
 
+
 template<typename T, typename CountingType, typename Hasher=common::WangHash>
 class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
     using super = BBitMinHasher<T, Hasher>;
@@ -1279,7 +1290,7 @@ struct FinalBBitMinHash {
 protected:
     FinalBBitMinHash() {}
 public:
-    using value_type = uint64_t; // This may be templated someday
+    using value_type = uint64_t;
     double est_cardinality_;
     uint32_t b_, p_;
     std::vector<value_type, Allocator<value_type>> core_;
@@ -1418,6 +1429,16 @@ public:
     }
 #endif
     uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
+#if 1
+        switch(b_) {
+            case 4: return eq::count_eq_nibbles((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() * 16);
+            case 8: return eq::count_eq_bytes((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() * 8);
+            case 16: return eq::count_eq_shorts((uint16_t *)core_.data(), (uint16_t *)o.core_.data(), core_.size() * 4);
+            case 32: return eq::count_eq_words((uint32_t *)core_.data(), (uint32_t *)o.core_.data(), core_.size() * 2);
+            case 64: return eq::count_eq_longs(core_.data(), o.core_.data(), core_.size());
+            default: ;
+        }
+#endif
         assert(o.core_.size() == core_.size());
         const value_type *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
@@ -1488,7 +1509,9 @@ public:
         }
     }
     double frac_equal(const FinalBBitMinHash &o) const {
-        return std::ldexp(equal_bblocks(o), -int(p_));
+        auto num = equal_bblocks(o);
+        std::fprintf(stderr, "numeq: %zu. total blocks: %zu\n", size_t(num), core_.size() * (64 / b_));
+        return std::ldexp(num, -int(p_));
     }
     uint64_t nmin() const {
         return uint64_t(1) << p_;
@@ -1589,10 +1612,17 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
 #else
 #define CASE_6_TEST
 #endif
-    // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b_ == 64) {
         // We've already failed for the case of b_ + p_ being greater than the width of T
-        std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
+        std::copy(core_ref.begin(), core_ref.end(), (uint64_t *)ret.core_.data());
+#if 1
+    } else if(b_ == 32) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint32_t *)ret.core_.data());
+    } else if(b_ == 16) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint16_t *)ret.core_.data());
+    } else if(b_ == 8) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint8_t *)ret.core_.data());
+#endif
     } else {
         if(HEDLEY_UNLIKELY(p_ < 6))
             throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently. We could reduce this requirement using 32-bit integers.");
@@ -1637,12 +1667,20 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
     //std::fprintf(stderr, "Calling with core_ref size of %zu and b as %d\n", core_ref.size(), b);
     FinalDivBBitMinHash ret(core_ref.size(), b, est_v);
     using FinalType = typename FinalDivBBitMinHash::value_type;
-    assert(ret.core_.size() % b == 0);
-    assert(core_ref.size() % 64 == 0);
+    assert(ret.core_.size() % b == 0 || !(b & (b - 1)));
+    assert(core_ref.size() % 64 == 0 || !(b & (b - 1)));
     //std::fprintf(stderr, "core size: %zu being collapsed into b (%d)-bit samples in core of size %zu\n", core_ref.size(), int(b), ret.core_.size());
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b == 64) {
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
+#if 0
+    } else if(b == 32) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint32_t *)ret.core_.data());
+    } else if(b == 16) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint16_t *)ret.core_.data());
+    } else if(b == 8) {
+        std::copy(core_ref.begin(), core_ref.end(), (uint8_t *)ret.core_.data());
+#endif
     } else {
         const auto l2szfloor = ilog2(core_ref.size());
         const auto pow2 = 1ull << l2szfloor;

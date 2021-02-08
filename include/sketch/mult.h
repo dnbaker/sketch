@@ -349,6 +349,9 @@ public:
     }
     template<typename...Args>
     ExactCountingAdapter(Args &&...) {} // Do nothing otherwise.
+    void clear() {
+        data_.clear();
+    }
     uint64_t addh(uint64_t key) {
         typename ska::flat_hash_map<uint64_t, uint32_t>::iterator it;
         uint64_t ret;
@@ -436,6 +439,10 @@ struct WeightedSketcher {
     void clear() {
         CoreSketch tmp(std::move(sketch_));
         CountingSketchType tmp2(std::move(cst_));
+    }
+    void reset() {
+        sketch_.reset();
+        cst_.clear();
     }
 };
 

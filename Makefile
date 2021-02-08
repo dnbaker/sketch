@@ -1,4 +1,4 @@
-.PHONY:all python clean mostlyclean
+.PHONY:all python clean mostlyclean test
 CXX?=g++
 CC?=gcc
 ifndef DBG
@@ -10,10 +10,11 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
 		 -pedantic -Wunused-variable  -Wpedantic \
+        -Wno-cast-align
 
 FLAGS=-O3 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Ivec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing \
-      -DXXH_INLINE_ALL  \
+      -DXXH_INLINE_ALL
 
 CXXFLAGS=$(FLAGS) -Wreorder  \
 
@@ -74,7 +75,7 @@ hpython: pybbmh.cpython.so
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 %: testsrc/%.cpp kthread.o $(HEADERS)
-	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
+	$(CXX) $(STD) $(CXXFLAGS) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
 
 heaptest: testsrc/heaptest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)
@@ -97,11 +98,11 @@ divtest: testsrc/divtest.cpp kthread.o $(HEADERS)
 lztest: testsrc/hlltest.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -DLZ_COUNTER $< -o $@ -lz
 
-dev_test_p: dev_test.cpp kthread.o hll.h
-	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o -static-libstdc++ -static-libgcc $< -o $@ -lz
-
 clean:
 	rm -f test.o test hll.o kthread.o *hll*cpython*so $(EX)
+
+test:
+	bash ./run_tests.sh
 
 
 PREFIX?=/usr/local

@@ -402,7 +402,7 @@ struct FinalRMinHash {
         sort();
     }
     template<typename Hasher, bool is_bottom>
-    FinalRMinHash(const BottomKHasher<Hasher, T, is_bottom> &bk);
+    FinalRMinHash(const BottomKHasher<Hasher, T, is_bottom> &bk): FinalRMinHash(bk.mpq_.getq().begin(), bk.mpq_.getq().end()) {}
     FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)) {sort();}
     ssize_t read(gzFile fp) {
         uint64_t sz;
@@ -438,10 +438,10 @@ struct FinalRMinHash {
     FinalRMinHash(const std::string &s): FinalRMinHash(s.data()) {}
     FinalRMinHash(gzFile fp) {read(fp);}
     FinalRMinHash(const char *infname) {read(infname);}
+    FinalRMinHash(const FinalRMinHash &o): first(o.first) {sort();}
     size_t size() const {return first.size();}
 protected:
     FinalRMinHash() {}
-    FinalRMinHash(const FinalRMinHash &o) = default;
     FinalRMinHash &operator=(const FinalRMinHash &o) = default;
     void sort() {
         common::sort::default_sort(this->first.begin(), this->first.end());
@@ -1176,6 +1176,7 @@ struct BottomKHasher {
         set_.clear();
         mpq_.getq().clear();
     }
+    void reset() {clear();}
 
     double cardinality_estimate() const {
         if(select_bottom) {
