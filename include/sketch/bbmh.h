@@ -1429,7 +1429,6 @@ public:
     }
 #endif
     uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
-#if 1
         switch(b_) {
             case 4: return eq::count_eq_nibbles((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() * 16);
             case 8: return eq::count_eq_bytes((uint8_t *)core_.data(), (uint8_t *)o.core_.data(), core_.size() * 8);
@@ -1438,7 +1437,6 @@ public:
             case 64: return eq::count_eq_longs(core_.data(), o.core_.data(), core_.size());
             default: ;
         }
-#endif
         assert(o.core_.size() == core_.size());
         const value_type *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
@@ -1615,14 +1613,18 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
     if(b_ == 64) {
         // We've already failed for the case of b_ + p_ being greater than the width of T
         std::copy(core_ref.begin(), core_ref.end(), (uint64_t *)ret.core_.data());
-#if 1
     } else if(b_ == 32) {
         std::copy(core_ref.begin(), core_ref.end(), (uint32_t *)ret.core_.data());
     } else if(b_ == 16) {
         std::copy(core_ref.begin(), core_ref.end(), (uint16_t *)ret.core_.data());
     } else if(b_ == 8) {
         std::copy(core_ref.begin(), core_ref.end(), (uint8_t *)ret.core_.data());
-#endif
+    } else if(b_ == 4) {
+        auto rp = (uint8_t *)ret.core_.data();
+        const size_t end = core_ref.size() >> 1;
+        for(size_t i = 0; i < end; ++i) {
+            *rp++ = ((core_ref[2 * i] & 0xFu) << 4) | (core_ref[2 * i + 1] & 0xFu);
+        }
     } else {
         if(HEDLEY_UNLIKELY(p_ < 6))
             throw std::runtime_error("BBit minhashing requires at least p = 6 for non-power of two b currently. We could reduce this requirement using 32-bit integers.");
