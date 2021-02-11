@@ -365,23 +365,10 @@ static inline double g_b(double b, double arg) {
     return (1 - std::pow(b, -arg)) / (1. - 1. / b);
 }
 
-template<typename Container, typename F>
-void for_each_delta_decode(const Container &c, const F &func) {
-    throw NotImplementedError("delta decoding is currently incorrect. DO NOT USE.");
-#if 0
-    using T = std::decay_t<decltype(*std::begin(c))>;
-    auto it = std::begin(c);
-    for(T cv = *it++;;) {
-        func(cv);
-        if(it == std::end(c)) break;
-        else cv += *it++;
-    }
-#endif
-}
 template<typename T>
-void advise_mem(const T *lhs, const T *rhs, size_t nelem) {
-    ::madvise((void *)(lhs), sizeof(T) * nelem, MADV_SEQUENTIAL);
-    ::madvise((void *)(rhs), sizeof(T) * nelem, MADV_SEQUENTIAL);
+void advise_mem(const T *lhs, const T *rhs, size_t nelem, int advice=MADV_SEQUENTIAL) {
+    ::madvise((void *)(lhs), sizeof(T) * nelem, advice);
+    ::madvise((void *)(rhs), sizeof(T) * nelem, advice);
 }
 
 #ifdef __CUDACC__
