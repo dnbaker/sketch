@@ -13,9 +13,9 @@ static inline size_t count_eq_words(const uint32_t *SK_RESTRICT lhs, const uint3
 static inline size_t count_eq_longs(const uint64_t *SK_RESTRICT lhs, const uint64_t *SK_RESTRICT rhs, size_t n);
 
 template<typename T>
-void advise_mem(const T *lhs, const T *rhs, size_t nbytes) {
-    ::madvise((void *)(lhs), nbytes, MADV_SEQUENTIAL);
-    ::madvise((void *)(rhs), nbytes, MADV_SEQUENTIAL);
+void advise_mem(const T *lhs, const T *rhs, size_t nelem) {
+    ::madvise((void *)(lhs), nelem * sizeof(T), MADV_SEQUENTIAL);
+    ::madvise((void *)(rhs), nelem * sizeof(T), MADV_SEQUENTIAL);
 }
 
 template<typename T>
@@ -38,7 +38,7 @@ template<> inline size_t count_eq<uint64_t>(const uint64_t *SK_RESTRICT lhs, con
 }
 
 static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint16_t *SK_RESTRICT rhs, size_t n) {
-    advise_mem(lhs, rhs, n * sizeof(*lhs));
+    advise_mem(lhs, rhs, n);
     size_t ret = 0;
 #if __AVX512BW__
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(uint16_t)));
@@ -93,20 +93,20 @@ static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint
 }
 
 static inline size_t count_eq_longs(const uint64_t *SK_RESTRICT lhs, const uint64_t *SK_RESTRICT rhs, size_t n) {
-    advise_mem(lhs, rhs, n * sizeof(*lhs));
+    advise_mem(lhs, rhs, n);
     size_t ret = 0;
     for(size_t i = 0; i < n; ++i) ret += lhs[i] == rhs[i];
     return ret;
 }
 
 static inline size_t count_eq_words(const uint32_t *SK_RESTRICT lhs, const uint32_t *SK_RESTRICT rhs, size_t n) {
-    advise_mem(lhs, rhs, n * sizeof(*lhs));
+    advise_mem(lhs, rhs, n);
     size_t ret = 0;
     for(size_t i = 0; i < n; ++i) ret += lhs[i] == rhs[i];
     return ret;
 }
 static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
-    advise_mem(lhs, rhs, n * sizeof(*lhs));
+    advise_mem(lhs, rhs, n);
     n >>= 1;
     size_t ret = 0;
 #if __AVX512BW__
@@ -141,7 +141,7 @@ static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint
 }
 
 static inline size_t count_eq_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
-    advise_mem(lhs, rhs, n * sizeof(*lhs));
+    advise_mem(lhs, rhs, n);
     size_t ret = 0;
 #if __AVX512BW__
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(char)));
@@ -176,42 +176,6 @@ static inline size_t count_eq_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_
 #endif
     return ret;
 }
-#if 0
-static inline std::pair<uint32_t, uint32_t> count_eq_and_nonzero_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
-    size_t ret = 0, nnz = 0;
-#if __AVX512BW__
-    const size_t nsimd = (n / (sizeof(__m512) / sizeof(char)));
-    for(size_t i = 0; i < nsimd; ++i) {
-        auto lh0 = _mm512_loadu_si512((__m512i *)lhs + i), rh0 = _mm512_loadu_si512((__m512i *)rhs + i);
-        auto lheq0 = _mm512_cmpeq_epi8_mask(lh0, _mm512_setzero()), rheq0 = _mm512_cmpeq_epi8_mask(rh0, _mm512_setzero());
-        auto beq0 = ~lheq0 & ~rheq0;
-        ret += popcount(_mm512_cmpeq_epi8_mask(lh0, rh0) & beq0);
-        nnz += popcount(beq0);
-    }
-    for(size_t i = nsimd * sizeof(__m512) / sizeof(char); i < n; ++i)
-        if(lhs[i] && rhs[i]) ret += lhs[i] == rhs[i], ++nnz;
-#elif __AVX2__
-    const size_t nsimd = (n / (sizeof(__m256) / sizeof(char)));
-    const size_t nsimd4 = (nsimd / 4) * 4;
-    for(size_t i = 0; i < nsimd4; i += 4) {
-        const uint64_t v0 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i), _mm256_loadu_si256((__m256i *)rhs + i)));
-        ret += popcount((v0 << 32) | _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 1), _mm256_loadu_si256((__m256i *)rhs + i + 1))));
-        const uint64_t v2 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 2), _mm256_loadu_si256((__m256i *)rhs + i + 2)));
-        ret += popcount((v2 << 32) | _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i + 3), _mm256_loadu_si256((__m256i *)rhs + i + 3))));
-    }
-    for(size_t i = nsimd4; i < nsimd; ++i)
-        ret += popcount(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i *)lhs + i), _mm256_loadu_si256((__m256i *)rhs + i))));
-    for(size_t i = nsimd * sizeof(__m256) / sizeof(char); i < n; ++i)
-        ret += lhs[i] == rhs[i];
-#else
-    for(size_t i = 0; i < n; ++i) {
-        ret += lhs[i] == rhs[i];
-    }
-#endif
-    return ret;
-}
-#endif
-
 
 }} // sketch::eq
 
