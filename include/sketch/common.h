@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "unistd.h"
+#include "sys/mman.h"
 
 #include "aesctr/wy.h"
 #include "macros.h"
@@ -356,6 +357,14 @@ std::vector<T, Alloc> delta_encode(const std::vector<T, Alloc> &x) {
     return ret;
 }
 
+static inline double ab2cosine(double alpha, double beta) {
+    return (1. - alpha - beta) / std::sqrt((1. - alpha) * (1. - beta));
+}
+
+static inline double g_b(double b, double arg) {
+    return (1 - std::pow(b, -arg)) / (1. - 1. / b);
+}
+
 template<typename Container, typename F>
 void for_each_delta_decode(const Container &c, const F &func) {
     throw NotImplementedError("delta decoding is currently incorrect. DO NOT USE.");
@@ -368,6 +377,11 @@ void for_each_delta_decode(const Container &c, const F &func) {
         else cv += *it++;
     }
 #endif
+}
+template<typename T>
+void advise_mem(const T *lhs, const T *rhs, size_t nelem) {
+    ::madvise((void *)(lhs), sizeof(T) * nelem, MADV_SEQUENTIAL);
+    ::madvise((void *)(rhs), sizeof(T) * nelem, MADV_SEQUENTIAL);
 }
 
 #ifdef __CUDACC__
