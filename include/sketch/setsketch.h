@@ -22,16 +22,21 @@ template<typename ResT>
 struct LowKHelper {
     const ResT *vals_;
     uint64_t natval_, nvals_;
+    double b_ = -1.;
+    double explim_;
     int klow_ = 0;
-    void assign(const ResT *vals, size_t nvals) {
+    void assign(const ResT *vals, size_t nvals, double b) {
         vals_ = vals; nvals_ = nvals;
+        b_ = b;
         reset();
     }
     int klow() const {return klow_;}
+    double explim() const {return explim_;}
     void reset() {
         klow_ =  *std::min_element(vals_, vals_ + nvals_);
         size_t i;
         for(i = natval_ = 0; i < nvals_; ++i) natval_ += (vals_[i] == klow_);
+        explim_ = std::pow(b_, -klow_);
     }
     void remove(int kval) {
         if(kval == klow_) {
@@ -72,7 +77,7 @@ public:
         ResT *p = allocate(m_);
         data_.reset(p);
         std::fill(p, p + m_, static_cast<ResT>(0));
-        lowkh_.assign(p, m_);
+        lowkh_.assign(p, m_, b_);
     }
     size_t size() const {return m_;}
     double b() const {return b_;}
@@ -95,11 +100,9 @@ public:
 #endif
         for(;;) {
             static constexpr double mul = 1. / (1ull << 52);
-            auto randv = -getbeta(bi) * ainv_ * std::log((rv >> 12) * mul);
-            ev += randv;
-            if(ev > std::pow(b_, -klow())) return;
+            ev += -getbeta(bi) * ainv_ * std::log((rv >> 12) * mul);
+            if(ev > lowkh_.explim()) return;
             const int k = std::max(0, std::min(q_ + 1, static_cast<int>((1. - std::log(ev) * logbinv_))));
-            //if(b_ >= 2.) std::fprintf(stderr, "ev: %g. k: %u. klow: %u\n", ev, k, klow());
             if(k <= klow()) return;
             auto idx = ls_.step();
 #ifndef NDEBUG
@@ -114,7 +117,6 @@ public:
                 return;
             }
             assert(bi == idxs.size());
-            //std::fprintf(stderr, "Current klow: %u, with %zu at\n", klow(), lowkh_.natval_);
             //assert(lowkh_.natval_ == std::accumulate(data_.get(), data_.get() + m_, size_t(0), [&](size_t ret, auto x) {return ret + (x == lowkh_.klow());}));
             rv = wy::wyhash64_stateless(&id);
         }
@@ -186,7 +188,7 @@ struct ByteSetS: public SetSketch<uint8_t> {
     ByteSetS(int nreg): SetSketch<uint8_t>(nreg, 1.2, 20., 254) {}
 };
 struct ShortSetS: public SetSketch<uint16_t> {
-    ShortSetS(int nreg): SetSketch<uint16_t>(nreg, 1.001, 30., 65534) {}
+    ShortSetS(int nreg): SetSketch<uint16_t>(nreg, 1.001, 1., 65534 / 4) {}
 };
 
 
