@@ -1,12 +1,18 @@
 #include "sketch/count_eq.h"
+#include <iostream>
 
 template<typename T>
 int do_main() {
     std::vector<T> rhs(100), lhs(100);
     std::iota(rhs.begin(), rhs.end(), 0u);
-    std::iota(lhs.begin(), lhs.end(), 0u);
+    lhs = rhs;
+    std::fprintf(stderr, "%s\n", __PRETTY_FUNCTION__);
     lhs[17] = 1;
+    assert(rhs[17] > lhs[17]);
     auto nm = sketch::eq::count_eq(lhs.data(), rhs.data(), 100);
+    auto gtlt = sketch::eq::count_gtlt(lhs.data(), rhs.data(), 100);
+    assert(gtlt.first == 0);
+    assert(gtlt.second == 1);
     std::fprintf(stderr, "nmatched: %zu\n", nm);
     if(sizeof(T) == 1) {
         std::memset(&rhs[0], 0, 100);

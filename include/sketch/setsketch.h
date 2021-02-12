@@ -163,10 +163,10 @@ public:
 };
 
 struct NibbleSetS: public SetSketch<uint8_t> {
-    NibbleSetS(int nreg): SetSketch<uint8_t>(nreg, 4., 1e-3, 14) {}
+    NibbleSetS(int nreg): SetSketch<uint8_t>(nreg, 16., 1., 14) {}
 };
 struct SmallNibbleSetS: public SetSketch<uint8_t> {
-    SmallNibbleSetS(int nreg): SetSketch<uint8_t>(nreg, 4., 1., 14) {}
+    SmallNibbleSetS(int nreg): SetSketch<uint8_t>(nreg, 4., 1e-6, 14) {}
 };
 struct ByteSetS: public SetSketch<uint8_t> {
     ByteSetS(int nreg): SetSketch<uint8_t>(nreg, 1.2, 20., 254) {}
