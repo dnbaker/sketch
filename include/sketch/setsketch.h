@@ -8,10 +8,13 @@
 #include <unordered_map>
 #include <memory>
 #include "fy.h"
+#include "count_eq.h"
 
 #ifndef NDEBUG
 #include <unordered_set>
 #endif
+
+namespace sketch {
 
 // Implementations of set sketch
 
@@ -65,7 +68,6 @@ public:
     SetSketch(size_t m, FT b, FT a, int q): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_) {
         ResT *p = allocate(m_);
         data_.reset(p);
-        std::fprintf(stderr, "base %g, a = %g\n", b, a);
         std::fill(p, p + m_, static_cast<ResT>(0));
         lowkh_.assign(p, m_);
     }
@@ -104,23 +106,67 @@ public:
                 auto oldv = data_[idx];
                 data_[idx] = k;
                 lowkh_.remove(oldv);
-                assert(lowkh_.natval_ == std::accumulate(data_.get(), data_.get() + m_, size_t(0), [&](size_t ret, auto x) {return ret + (x == lowkh_.klow());}));
             }
             if(++bi == m_) {
-                assert(lowkh_.natval_ == std::accumulate(data_.get(), data_.get() + m_, size_t(0), [&](size_t ret, auto x) {return ret + (x == lowkh_.klow());}));
-                std::fprintf(stderr, "[%g] bi: %zu = m. Current klow: %u with %zu. Current %g. ev limit: %g\n", b_, bi, klow(), size_t(lowkh_.natval_), ev, std::pow(b_, -klow()));
                 return;
             }
             assert(bi == idxs.size());
             //std::fprintf(stderr, "Current klow: %u, with %zu at\n", klow(), lowkh_.natval_);
-            assert(lowkh_.natval_ == std::accumulate(data_.get(), data_.get() + m_, size_t(0), [&](size_t ret, auto x) {return ret + (x == lowkh_.klow());}));
+            //assert(lowkh_.natval_ == std::accumulate(data_.get(), data_.get() + m_, size_t(0), [&](size_t ret, auto x) {return ret + (x == lowkh_.klow());}));
             rv = wy::wyhash64_stateless(&id);
         }
+    }
+    bool same_params(const SetSketch<ResT,FT> &o) {
+        return std::tie(b_, a_, m_, q_) == std::tie(o.b_, o.a_, o.m_, o.q_);
+    }
+    double harmean(const SetSketch<ResT, FT> *ptr=static_cast<const SetSketch<ResT, FT> *>(nullptr)) const {
+        static std::unordered_map<FT, std::vector<FT>> powers;
+        auto it = powers.find(b_);
+        if(it == powers.end()) {
+            it = powers.emplace(b_, std::vector<FT>()).first;
+            it->second.resize(q_ + 2);
+            for(size_t i = 0; i < it->second.size(); ++i) {
+                it->second[i] = std::pow(static_cast<long double>(b_), -static_cast<ptrdiff_t>(i));
+            }
+        }
+        std::vector<uint32_t> counts(q_ + 2);
+        if(ptr) {
+            for(size_t i = 0; i < m_; ++i) {
+                ++counts[std::max(data_[i], ptr->data_[i])];
+            }
+        } else {
+            for(size_t i = 0; i < m_; ++i) {
+                ++counts[data_[i]];
+            }
+        }
+        long double ret = 0.;
+        for(ptrdiff_t i = lowkh_.klow(); i <= q_ + 1; ++i) {
+            ret += counts[i] * it->second[i];
+        }
+        return ret;
+    }
+    double union_size(const SetSketch<ResT, FT> &o) const {
+        double num = m_ * (1. - 1. / b_) * logbinv_ * ainv_;
+        return num / harmean(&o);
+    }
+    double cardinality() const {
+        double num = m_ * (1. - 1. / b_) * logbinv_ * ainv_;
+        return num / harmean();
+    }
+    void merge(const SetSketch<ResT, FT> &o) {
+        if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
+        std::transform(data(), data() + m_, o.data(), data(), [](auto x, auto y) {return std::max(x, y);});
+    }
+    size_t shared_registers(const SetSketch<ResT, FT> &o) const {
+        return eq::count_eq(data(), o.data(), m_);
     }
 };
 
 struct NibbleSetS: public SetSketch<uint8_t> {
-    NibbleSetS(int nreg): SetSketch<uint8_t>(nreg, 4., 1., 14) {}
+    NibbleSetS(int nreg): SetSketch<uint8_t>(nreg, 4., 1e-3, 14) {}
+};
+struct SmallNibbleSetS: public SetSketch<uint8_t> {
+    SmallNibbleSetS(int nreg): SetSketch<uint8_t>(nreg, 4., 1., 14) {}
 };
 struct ByteSetS: public SetSketch<uint8_t> {
     ByteSetS(int nreg): SetSketch<uint8_t>(nreg, 1.2, 20., 254) {}
@@ -128,5 +174,7 @@ struct ByteSetS: public SetSketch<uint8_t> {
 struct ShortSetS: public SetSketch<uint16_t> {
     ShortSetS(int nreg): SetSketch<uint16_t>(nreg, 1.001, 30., 65534) {}
 };
+
+} // namespace sketch
 
 #endif

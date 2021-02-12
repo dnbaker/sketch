@@ -16,7 +16,7 @@
 #include "./vac.h"
 #include "./hbb.h"
 #include "./mod.h"
-#include "./rnla.h"
+#include "./setsketch.h"
 
 #ifdef __CUDACC__
 #include "hllgpu.h"

@@ -99,9 +99,9 @@ static inline size_t count_eq_words(const uint32_t *SK_RESTRICT lhs, const uint3
     for(size_t i = 0; i < n; ++i) ret += lhs[i] == rhs[i];
     return ret;
 }
-static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
+static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, const size_t nelem) {
+    const size_t n = nelem >> 1;
     advise_mem(lhs, rhs, n);
-    n >>= 1;
     size_t ret = 0;
 #if __AVX512BW__
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(char)));
@@ -111,8 +111,10 @@ static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint
         ret += popcount(_mm512_cmpeq_epi8_mask(lhv & lomask, rhv & lomask));
         ret += popcount(_mm512_cmpeq_epi8_mask(lhv & himask, rhv & himask));
     }
-    for(size_t i = nsimd * sizeof(__m512) / sizeof(char); i < n; ++i)
-        ret += lhs[i] == rhs[i];
+    for(size_t i = nsimd * sizeof(__m512) / sizeof(char); i < n; ++i) {
+        ret += (lhs[i] & 0xF) == (rhs[i] & 0xF);
+        ret += (lhs[i] & 0x0F) == (rhs[i] & 0x0F);
+    }
 #elif __AVX2__
     const size_t nsimd = (n / (sizeof(__m256) / sizeof(char)));
     for(size_t i = 0; i < nsimd; ++i) {
@@ -128,9 +130,12 @@ static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint
     }
 #else
     for(size_t i = 0; i < n; ++i) {
-        ret += lhs[i] == rhs[i];
+        ret += (lhs[i] & 0xF) == (rhs[i] & 0xF);
+        ret += (lhs[i] & 0x0F) == (rhs[i] & 0x0F);
     }
 #endif
+    if(nelem & 1)
+        ret += (lhs[nelem - 1] & 0xF) == (rhs[nelem - 1] & 0xF);
     return ret;
 }
 
