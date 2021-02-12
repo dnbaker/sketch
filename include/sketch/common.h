@@ -361,10 +361,6 @@ static inline double ab2cosine(double alpha, double beta) {
     return (1. - alpha - beta) / std::sqrt((1. - alpha) * (1. - beta));
 }
 
-static inline double g_b(double b, double arg) {
-    return (1 - std::pow(b, -arg)) / (1. - 1. / b);
-}
-
 template<typename T>
 void advise_mem(const T *lhs, const T *rhs, size_t nelem, int advice=MADV_SEQUENTIAL) {
     ::madvise((void *)(lhs), sizeof(T) * nelem, advice);
