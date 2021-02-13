@@ -293,7 +293,7 @@ static inline std::pair<uint32_t, uint32_t> count_gtlt_nibbles(const uint8_t *SK
 static inline std::pair<uint32_t, uint32_t> count_gtlt_shorts(const uint16_t *SK_RESTRICT lhs, const uint16_t *SK_RESTRICT rhs, size_t n) {
     uint32_t lhgt = 0, rhgt = 0;
 #if __AVX512BW__
-    const size_t nper = sizeof(__m512);
+    const size_t nper = sizeof(__m512) / sizeof(uint16_t);
     const size_t nsimd = n / nper;
     const size_t nsimd4 = (nsimd / 4) * 4;
     for(size_t i = 0; i < nsimd4; i += 4) {
@@ -331,21 +331,29 @@ static inline std::pair<uint32_t, uint32_t> count_gtlt_shorts(const uint16_t *SK
         rhgt += rhs[i] > lhs[i];
     }
 #elif __AVX2__
-    const size_t nper = sizeof(__m256);
+    const size_t nper = sizeof(__m256) / sizeof(uint16_t);
     const size_t nsimd = n / nper;
+#ifndef NDEBUG
+    size_t lhgtn = 0, rhgtn = 0;
+    for(size_t i = 0; i < n; ++i)
+        lhgtn += lhs[i] > rhs[i], rhgtn += rhs[i] > lhs[i];
+#endif
+    SK_UNROLL_4
     for(size_t i = 0; i < nsimd; ++i) {
         auto lhv = _mm256_loadu_si256((__m256i *)lhs + i);
         auto rhv = _mm256_loadu_si256((__m256i *)rhs + i);
-        uint64_t v0 = _mm256_movemask_epi8(_mm256_cmpgt_epi8(lhv, rhv));
-        uint64_t v1 = _mm256_movemask_epi8(_mm256_cmpgt_epi8(rhv, lhv));
-        lhgt += popcount(v0);
-        rhgt += popcount(v1);
+        auto lhgtv = _mm256_cmpgt_epi16(lhv, rhv);
+        lhgt += popcount(_mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(lhgtv), _mm256_extracti128_si256(lhgtv, 1))));
+        auto rhgtv = _mm256_cmpgt_epi16(rhv, lhv);
+        rhgt += popcount(_mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(rhgtv), _mm256_extracti128_si256(rhgtv, 1))));
     }
     for(size_t i = nsimd * nper; i < n; ++i) {
         lhgt += lhs[i] > rhs[i];
         rhgt += rhs[i] > lhs[i];
     }
+    assert(lhgtn == lhgt);
 #else
+    SK_UNROLL_4
     for(size_t i = 0; i < n; ++i) {
         lhgt += lhs[i] > rhs[i];
         rhgt += rhs[i] > lhs[i];

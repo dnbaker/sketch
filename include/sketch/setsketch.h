@@ -166,15 +166,19 @@ public:
         return eq::count_eq(data(), o.data(), m_);
     }
     std::pair<double, double> alpha_beta(const SetSketch<ResT, FT> &o) const {
-        auto gtlt = count_gtlt(data(), o.data(), m_);
-        return {g_b(b_, double(gtlt.first) / m_), g_b(b_, double(gtlt.second) / m_)};
+        auto gtlt = eq::count_gtlt(data(), o.data(), m_);
+        double alpha = g_b(b_, double(gtlt.first) / m_);
+        double beta = g_b(b_, double(gtlt.second) / m_);
+        return {alpha, beta};
     }
     static constexpr double __union_card(double alph, double beta, double lhcard, double rhcard) {
         return std::max((lhcard + rhcard) / (2. - alph - beta), 0.);
     }
     std::tuple<double, double, double> alpha_beta_mu(const SetSketch<ResT, FT> &o, double mycard, double ocard) const {
-        auto ab = alpha_beta(o);
-        return {ab.first, ab.second, ___union_card(ab.first, ab.second, mycard, ocard)};
+        const auto ab = alpha_beta(o);
+        if(ab.first + ab.second >= 1.) // They seem to be disjoint sets, use SetSketch (15)
+            return {(mycard) / (mycard + ocard), ocard / (mycard + ocard), mycard + ocard};
+        return {ab.first, ab.second, __union_card(ab.first, ab.second, mycard, ocard)};
     }
 };
 
@@ -188,7 +192,7 @@ struct ByteSetS: public SetSketch<uint8_t> {
     ByteSetS(int nreg): SetSketch<uint8_t>(nreg, 1.2, 20., 254) {}
 };
 struct ShortSetS: public SetSketch<uint16_t> {
-    ShortSetS(int nreg): SetSketch<uint16_t>(nreg, 1.001, 1., 65534 / 4) {}
+    ShortSetS(int nreg): SetSketch<uint16_t>(nreg, 1.001, 1., 65534) {}
 };
 
 
