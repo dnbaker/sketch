@@ -246,7 +246,7 @@ static inline std::pair<uint32_t, uint32_t> count_gtlt_bytes(const uint8_t *SK_R
     uint32_t lhgt = 0, rhgt = 0;
 #if __AVX512BW__
     const size_t nper = sizeof(__m512);
-    const size_t nsimd = (n + nper - 1) / nper;
+    const size_t nsimd = n / nper;
     for(size_t i = 0; i < nsimd; ++i) {
         auto lhv = _mm512_loadu_si512((__m512i *)lhs + i);
         auto rhv = _mm512_loadu_si512((__m512i *)rhs + i);
@@ -254,6 +254,28 @@ static inline std::pair<uint32_t, uint32_t> count_gtlt_bytes(const uint8_t *SK_R
         uint64_t v1 = _mm512_cmpgt_epi8_mask(rhv, lhv);
         lhgt += popcount(v0);
         rhgt += popcount(v1);
+    }
+    for(size_t i = nsimd * nper; i < n; ++i) {
+        lhgt += lhs[i] > rhs[i];
+        rhgt += rhs[i] > lhs[i];
+    }
+#elif __AVX512F__
+    const size_t nper = sizeof(__m512);
+    const size_t nsimd = n / nper;
+    for(size_t i = 0; i < nsimd; ++i) {
+        auto lhv = _mm512_loadu_si512((__m512i *)lhs + i);
+        auto rhv = _mm512_loadu_si512((__m512i *)rhs + i);
+        auto lhsd = _mm512_srli_epi32(lhv, 24), rhsd =  _mm512_srli_epi32(rhv, 24);
+        auto lhsu = _mm512_slli_epi32(lhv, 24), rhsu = _mm512_slli_epi32(rhv, 24);
+        auto ulmask = _mm512_set1_epi32(0x00FF0000u), llmask = _mm512_set1_epi32(0x0000FF00u);
+        lhgt += popcount((uint64_t(_mm512_cmpgt_epi32_mask(lhsd, rhsd)) << 48) |
+                       (uint64_t(_mm512_cmpgt_epi32_mask(lhv & ulmask, rhv & ulmask)) << 32) |
+                       (uint64_t(_mm512_cmpgt_epi32_mask(lhv & llmask, rhv & llmask)) << 16) |
+                       _mm512_cmpgt_epi32_mask(lhsu, rhsu));
+        rhgt += popcount((uint64_t(_mm512_cmpgt_epi32_mask(rhsd, lhsd)) << 48) |
+                       (uint64_t(_mm512_cmpgt_epi32_mask(rhv & ulmask, lhv & ulmask)) << 32) |
+                       (uint64_t(_mm512_cmpgt_epi32_mask(rhv & llmask, lhv & llmask)) << 16) |
+                       _mm512_cmpgt_epi32_mask(rhsu, lhsu));
     }
     for(size_t i = nsimd * nper; i < n; ++i) {
         lhgt += lhs[i] > rhs[i];
