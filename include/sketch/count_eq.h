@@ -38,7 +38,7 @@ static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint
     const size_t nsimd = (n / (sizeof(__m512) / sizeof(uint16_t)));
     const size_t nsimd4 = (nsimd / 4) * 4;
     for(size_t i = 0; i < nsimd4; i += 4) {
-        __m512i v1, v2, v3, v4;
+        uint64_t v1, v2, v3, v4;
         v1 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i));
         v2 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 1), _mm512_loadu_si512((__m512i *)rhs + i + 1));
         ret += popcount((uint64_t(v1) << 32) | v2);
@@ -323,21 +323,28 @@ static inline std::pair<uint32_t, uint32_t> count_gtlt_nibbles(const uint8_t *SK
         rhgt += popcount(v1hi);
     }
     for(size_t i = nsimd * nper; i < n; ++i) {
-        lhgt += (lhs[i] & 0xFu)  > (rhs[i] & 0xFu);
-        lhgt += (lhs[i] & 0xF0u) > (rhs[i] & 0xF0u);
-        rhgt += (rhs[i] & 0xFu)  > (lhs[i] & 0xFu);
-        rhgt += (rhs[i] & 0xF0u) > (lhs[i] & 0xF0u);
+        const auto lhl = lhs[i] & 0xFu, rhl = rhs[i] & 0xFu,
+                   lhh  = lhs[i] & 0xF0u, rhh = rhs[i] & 0xF0u;
+        lhgt += lhl > rhl; lhgt += lhh > rhh;
+        rhgt += rhl > lhl; rhgt += rhh > lhh;
     }
 #elif __AVX2__
     const size_t nper = sizeof(__m256);
     const size_t nsimd = n / nper;
+    auto lomask = _mm256_set1_epi8(0xFu);
+    auto himask = _mm256_set1_epi8(static_cast<unsigned char>(0xF0u));
+#ifdef __GNUC__
+    #pragma GCC unroll 4
+#endif
     for(size_t i = 0; i < nsimd; ++i) {
         auto lhv = _mm256_loadu_si256((__m256i *)lhs + i);
         auto rhv = _mm256_loadu_si256((__m256i *)rhs + i);
-        uint64_t v0 = _mm256_movemask_epi8(_mm256_cmpgt_epi8(lhv, rhv));
-        uint64_t v1 = _mm256_movemask_epi8(_mm256_cmpgt_epi8(rhv, lhv));
-        lhgt += popcount(v0);
-        rhgt += popcount(v1);
+        auto lhl = lhv & lomask, rhl = rhv & lomask,
+             lhh = lhv & himask, rhh = rhv & himask;
+        lhgt += popcount((uint64_t(_mm256_movemask_epi8(_mm256_cmpgt_epi8(lhl, rhl))) << 32)
+                    | _mm256_movemask_epi8(_mm256_cmpgt_epi8(lhh, rhh)));
+        rhgt += popcount((uint64_t(_mm256_movemask_epi8(_mm256_cmpgt_epi8(rhl, lhl))) << 32)
+                    | _mm256_movemask_epi8(_mm256_cmpgt_epi8(rhh, lhh)));
     }
     for(size_t i = nsimd * nper; i < n; ++i) {
         lhgt += (lhs[i] & 0xFu)  > (rhs[i] & 0xFu);
