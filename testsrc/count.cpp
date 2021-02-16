@@ -3,17 +3,24 @@
 
 template<typename T>
 int do_main() {
-    std::vector<T> rhs(100), lhs(100);
+    std::vector<T, sketch::Allocator<T>> rhs(100, 0), lhs(100, 0);
     std::iota(rhs.begin(), rhs.end(), 0u);
     lhs = rhs;
     std::fprintf(stderr, "%s\n", __PRETTY_FUNCTION__);
     lhs[17] = 1;
     assert(rhs[17] > lhs[17]);
     auto nm = sketch::eq::count_eq(lhs.data(), rhs.data(), 100);
-    auto gtlt = sketch::eq::count_gtlt(lhs.data(), rhs.data(), 100);
+    auto gtlti = sketch::eq::count_gtlt(lhs.data(), rhs.data(), 100);
+    std::pair<size_t, size_t> gtlt = {gtlti.first, gtlti.second};
     assert(gtlt.first == 0);
     assert(gtlt.second == 1);
     std::fprintf(stderr, "nmatched: %zu\n", nm);
+    for(size_t i = 0; i < 100; ++i) lhs[i] = rhs[i] + 1;
+    gtlti = sketch::eq::count_gtlt(lhs.data(), rhs.data(), 100);
+    gtlt = {gtlti.first, gtlti.second};
+    std::fprintf(stderr, "[%s] gtlt %zu/%zu\n", __PRETTY_FUNCTION__, gtlt.first, gtlt.second);
+    assert(gtlt.first == 100);
+    lhs = rhs;
     if(sizeof(T) == 1) {
         std::memset(&rhs[0], 0, 100);
         std::memset(&lhs[0], 0, 100);

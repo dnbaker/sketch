@@ -6,11 +6,15 @@
 
 namespace sketch {namespace eq {
 
-static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint16_t *SK_RESTRICT rhs, size_t n);
+static inline size_t count_eq_shorts(const uint16_t *const SK_RESTRICT lhs, const uint16_t *const SK_RESTRICT rhs, size_t n);
 static inline size_t count_eq_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n);
 static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n);
 static inline size_t count_eq_words(const uint32_t *SK_RESTRICT lhs, const uint32_t *SK_RESTRICT rhs, size_t n);
 static inline size_t count_eq_longs(const uint64_t *SK_RESTRICT lhs, const uint64_t *SK_RESTRICT rhs, size_t n);
+
+static INLINE unsigned int _mm256_movemask_epi16(__m256i x) {
+    return _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(x), _mm256_extracti128_si256(x, 1)));
+}
 
 template<typename T>
 static inline size_t count_eq(const T *SK_RESTRICT lhs, const T *SK_RESTRICT rhs, size_t n) {
@@ -87,18 +91,18 @@ static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint
     // Each vector register has at most 16 1-bits, so we can pack the bitmasks into 4 uint64_t popcounts.
     for(size_t i = 0; i < nsimd4; i += 4) {
         auto eq_reg = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i), _mm256_loadu_si256((__m256i*)rhs + i));
-        auto bitmask = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg), _mm256_extracti128_si256(eq_reg, 1)));
+        auto bitmask = _mm256_movemask_epi16(eq_reg);
         auto eq_reg2 = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i + 1), _mm256_loadu_si256((__m256i*)rhs + i + 1));
-        auto bitmask2 = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg2), _mm256_extracti128_si256(eq_reg2, 1)));
+        auto bitmask2 = _mm256_movemask_epi16(eq_reg2);
         auto eq_reg3 = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i + 2), _mm256_loadu_si256((__m256i*)rhs + i + 2));
-        auto bitmask3 = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg3), _mm256_extracti128_si256(eq_reg3, 1)));
+        auto bitmask3 = _mm256_movemask_epi16(eq_reg3);
         auto eq_reg4 = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i + 3), _mm256_loadu_si256((__m256i*)rhs + i + 3));
-        auto bitmask4 = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg4), _mm256_extracti128_si256(eq_reg4, 1)));
+        auto bitmask4 = _mm256_movemask_epi16(eq_reg4);
         ret += popcount((uint64_t(bitmask) << 48) | (uint64_t(bitmask2) << 32) | (uint64_t(bitmask3) << 16) | bitmask4);
     }
     for(size_t i = nsimd4; i < nsimd; ++i) {
         auto eq_reg = _mm256_cmpeq_epi16(_mm256_loadu_si256((__m256i*)lhs + i), _mm256_loadu_si256((__m256i*)rhs + i));
-        auto bitmask = _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(eq_reg), _mm256_extracti128_si256(eq_reg, 1)));
+        auto bitmask = _mm256_movemask_epi16(eq_reg);
         ret += popcount(bitmask);
     }
     for(size_t i = nsimd * sizeof(__m256) / sizeof(uint16_t); i < n; ++i)
@@ -225,25 +229,25 @@ static inline size_t count_eq_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_
     return ret;
 }
 
-static inline std::pair<uint32_t, uint32_t> count_gtlt_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n);
-static inline std::pair<uint32_t, uint32_t> count_gtlt_shorts(const uint16_t *SK_RESTRICT lhs, const uint16_t *SK_RESTRICT rhs, size_t n);
+static inline std::pair<uint64_t, uint64_t> count_gtlt_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n);
+static inline std::pair<uint64_t, uint64_t> count_gtlt_shorts(const uint16_t *const SK_RESTRICT lhs, const uint16_t *const SK_RESTRICT rhs, size_t n);
 template<typename T>
-static inline std::pair<uint32_t, uint32_t> count_gtlt(const T *SK_RESTRICT lhs, const T *SK_RESTRICT rhs, size_t n) {
-    uint32_t lhgt = 0, rhgt = 0;
+static inline std::pair<uint64_t, uint64_t> count_gtlt(const T *SK_RESTRICT lhs, const T *SK_RESTRICT rhs, size_t n) {
+    uint64_t lhgt = 0, rhgt = 0;
     for(size_t i = 0; i < n; ++i) {
         lhgt += lhs[i] > rhs[i];
         rhgt += rhs[i] > lhs[i];
     }
     return std::make_pair(lhgt, rhgt);
 }
-template<> inline std::pair<uint32_t, uint32_t> count_gtlt(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
+template<> inline std::pair<uint64_t, uint64_t> count_gtlt(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
     return count_gtlt_bytes(lhs, rhs, n);
 }
-template<> inline std::pair<uint32_t, uint32_t> count_gtlt(const uint16_t *SK_RESTRICT lhs, const uint16_t *SK_RESTRICT rhs, size_t n) {
+template<> inline std::pair<uint64_t, uint64_t> count_gtlt(const uint16_t *SK_RESTRICT lhs, const uint16_t *SK_RESTRICT rhs, size_t n) {
     return count_gtlt_shorts(lhs, rhs, n);
 }
-static inline std::pair<uint32_t, uint32_t> count_gtlt_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
-    uint32_t lhgt = 0, rhgt = 0;
+static inline std::pair<uint64_t, uint64_t> count_gtlt_bytes(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
+    uint64_t lhgt = 0, rhgt = 0;
 #if __AVX512BW__
     const size_t nper = sizeof(__m512);
     const size_t nsimd = n / nper;
@@ -302,8 +306,8 @@ static inline std::pair<uint32_t, uint32_t> count_gtlt_bytes(const uint8_t *SK_R
 #endif
     return std::make_pair(lhgt, rhgt);
 }
-static inline std::pair<uint32_t, uint32_t> count_gtlt_nibbles(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t nelem) {
-    uint32_t lhgt = 0, rhgt = 0;
+static inline std::pair<uint64_t, uint64_t> count_gtlt_nibbles(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t nelem) {
+    uint64_t lhgt = 0, rhgt = 0;
     const size_t n = nelem >> 1;
 #if __AVX512BW__
     const size_t nper = sizeof(__m512);
@@ -368,8 +372,8 @@ static inline std::pair<uint32_t, uint32_t> count_gtlt_nibbles(const uint8_t *SK
 }
 
 
-static inline std::pair<uint32_t, uint32_t> count_gtlt_shorts(const uint16_t *SK_RESTRICT lhs, const uint16_t *SK_RESTRICT rhs, size_t n) {
-    uint32_t lhgt = 0, rhgt = 0;
+static inline std::pair<uint64_t, uint64_t> count_gtlt_shorts(const uint16_t *const SK_RESTRICT lhs, const uint16_t *const SK_RESTRICT rhs, size_t n) {
+    uint64_t lhgt = 0, rhgt = 0;
 #if __AVX512BW__
     const size_t nper = sizeof(__m512) / sizeof(uint16_t);
     const size_t nsimd = n / nper;
@@ -435,20 +439,23 @@ static inline std::pair<uint32_t, uint32_t> count_gtlt_shorts(const uint16_t *SK
     for(size_t i = 0; i < n; ++i)
         lhgtn += lhs[i] > rhs[i], rhgtn += rhs[i] > lhs[i];
 #endif
+    assert(lhs != rhs);
     SK_UNROLL_4
     for(size_t i = 0; i < nsimd; ++i) {
-        auto lhv = _mm256_loadu_si256((__m256i *)lhs + i);
-        auto rhv = _mm256_loadu_si256((__m256i *)rhs + i);
-        auto lhgtv = _mm256_cmpgt_epi16(lhv, rhv);
-        lhgt += popcount(_mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(lhgtv), _mm256_extracti128_si256(lhgtv, 1))));
-        auto rhgtv = _mm256_cmpgt_epi16(rhv, lhv);
-        rhgt += popcount(_mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(rhgtv), _mm256_extracti128_si256(rhgtv, 1))));
+        const auto lhv = _mm256_loadu_si256((__m256i *)lhs + i);
+        const auto rhv = _mm256_loadu_si256((__m256i *)rhs + i);
+        assert(std::equal((uint16_t *)((__m256i *)lhs + i), (uint16_t *)((__m256i *)lhs + i) + 16, (uint16_t *)&lhv));
+        assert(std::equal((uint16_t *)((__m256i *)rhs + i), (uint16_t *)((__m256i *)rhs + i) + 16, (uint16_t *)&rhv));
+        const auto rhgtv = _mm256_cmpgt_epi16(rhv, lhv);
+        const auto lhgtv = _mm256_cmpgt_epi16(lhv, rhv);
+        lhgt += popcount(_mm256_movemask_epi16(lhgtv));
+        rhgt += popcount(_mm256_movemask_epi16(rhgtv));
     }
-    for(size_t i = nsimd * nper; i < n; ++i) {
-        lhgt += lhs[i] > rhs[i];
-        rhgt += rhs[i] > lhs[i];
+    for(size_t i = nper * nsimd; i < n; ++i) {
+        const auto lhv = lhs[nsimd * nper], rhv = rhs[nsimd * nper];
+        lhgt += (lhv > rhv); rhgt += (rhv > lhv);
     }
-    assert(lhgtn == lhgt);
+    assert(lhgtn == lhgt || !std::fprintf(stderr, "lhgtn: %zu. lhgt: %zu\n", lhgtn, size_t(lhgt)));
 #else
     SK_UNROLL_4
     for(size_t i = 0; i < n; ++i) {
