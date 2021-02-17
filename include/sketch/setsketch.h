@@ -258,6 +258,9 @@ struct ShortSetS: public SetSketch<uint16_t, long double> {
 struct WideShortSetS: public SetSketch<uint16_t, long double> {
     WideShortSetS(int nreg, long double b=1.00095, long double a=.03): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
 };
+struct EShortSetS: public SetSketch<uint16_t, long double> {
+    EShortSetS(int nreg, long double b=1.0006, long double a=.001): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+};
 
 
 } // namespace sketch
