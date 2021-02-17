@@ -521,7 +521,8 @@ inline void inc_counts(T &counts, const SIMDHolder *p, const SIMDHolder *pend) {
 static inline std::array<uint32_t, 64> sum_counts(const SIMDHolder *p, const SIMDHolder *pend) {
     // Should add Contiguous Container requirement.
     std::array<uint32_t, 64> counts{0};
-    if((uint8_t *)pend - (uint8_t *)p < sizeof(*p)) {
+    const size_t nelem = (uint8_t *)pend - (uint8_t *)p;
+    if(nelem < sizeof(*p)) {
         const size_t e = (uint8_t *)pend - (uint8_t *)p;
         for(size_t i = 0; i < e; ++i) ++counts[((uint8_t *)p)[i]];
     } else {
@@ -704,12 +705,6 @@ static constexpr double make_alpha(size_t m) {
 }
 
 
-// TODO: add a compact, 6-bit version
-// For now, I think that it's preferable for thread safety,
-// considering there's an intrinsic for the atomic load/store, but there would not
-// be for bit-packed versions.
-
-
 
 template<typename HashStruct=WangHash>
 class hllbase_t {
@@ -769,9 +764,6 @@ public:
 #if LZ_COUNTER
         for(size_t i = 0; i < clz_counts_.size(); ++i)
             clz_counts_[i].store(uint64_t(0));
-#endif
-#if VERBOSE_AF
-        std::fprintf(stderr, "p = %u. q = %u. size = %zu\n", np_, q(), core_.size());
 #endif
     }
     explicit hllbase_t(size_t np, HashStruct &&hs): hllbase_t(np, ERTL_MLE, (JointEstimationMethod)ERTL_MLE, std::move(hs)) {}
@@ -840,15 +832,15 @@ public:
     }
 
     INLINE void add(uint64_t hashval) noexcept {
+        const uint32_t index(q() == 64 ? uint32_t(0): uint32_t(hashval >> q()));
+        const uint32_t lzt = clz(((hashval << 1)|1) << (np_ - 1)) + 1;
 #ifndef NOT_THREADSAFE
-        for(const uint32_t index(hashval >> q()), lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
-            core_[index] < lzt;
-            __sync_bool_compare_and_swap(core_.data() + index, core_[index], lzt));
+        for(;core_[index] < lzt;
+             __sync_bool_compare_and_swap(&core_[index], core_[index], lzt));
 #else
-        const uint32_t index(hashval >> q());
-        const uint8_t lzt(clz(((hashval << 1)|1) << (np_ - 1)) + 1);
         core_[index] = std::max(core_[index], lzt);
 #endif
+
 #if LZ_COUNTER
         ++clz_counts_[clz(((hashval << 1)|1) << (np_ - 1)) + 1];
 #endif
@@ -1343,81 +1335,6 @@ static inline double intersection_size(const hllbase_t<HS> &h1, const hllbase_t<
     return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
 }
 
-
-template<typename HashStruct=WangHash>
-class seedhllbase_t: public hllbase_t<HashStruct> {
-protected:
-    uint64_t seed_; // 64-bit integers are xored with this value before passing it to a hash.
-                          // This is almost free, in the content of
-    using hll_t = hllbase_t<HashStruct>;
-public:
-    template<typename... Args>
-    seedhllbase_t(uint64_t seed, Args &&...args): hll_t(std::forward<Args>(args)...), seed_(seed) {
-        if(seed_ == 0) std::fprintf(stderr,
-            "[W:%s:%d] Note: seed is set to 0. No more than one of these at a time should have this value, and this is only for the purpose of multiplying hashes."
-            " Also, if you are only using one of these at a time, don't use seedhllbase_t, just use hll_t and save yourself an xor per insertion"
-            ", not to mention a 64-bit integer in space.", __PRETTY_FUNCTION__, __LINE__);
-    }
-    seedhllbase_t(gzFile fp): hll_t() {
-        this->read(fp);
-    }
-    void addh(uint64_t element) {
-        element ^= seed_;
-        this->add(this->hf_(element));
-    }
-    uint64_t seed() const {return seed_;}
-    void reseed(uint64_t seed) {seed_= seed;}
-    void write(const char *fn, bool write_gz) {
-        if(write_gz) {
-            gzFile fp = gzopen(fn, "wb");
-            if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for writing at ") + fn);
-            this->write(fp);
-            gzclose(fp);
-        } else {
-            std::FILE *fp = std::fopen(fn, "wb");
-            if(fp == nullptr) throw std::runtime_error("Could not open file for writing.");
-            this->write(fileno(fp));
-            std::fclose(fp);
-        }
-    }
-    void write(gzFile fp) const {
-        hll_t::write(fp);
-        gzwrite(fp, &seed_, sizeof(seed_));
-    }
-    void read(gzFile fp) {
-        hll_t::read(fp);
-        gzread(fp, &seed_, sizeof(seed_));
-    }
-    void write(int fn) const {
-        hll_t::write(fn);
-        if(::write(fn, &seed_, sizeof(seed_)) != ssize_t(sizeof(seed_))) throw std::runtime_error("Failed to write to file.");
-    }
-    void read(int fn) {
-        hll_t::read(fn);
-        if(::read(fn, &seed_, sizeof(seed_)) != ssize_t(sizeof(seed_))) throw std::runtime_error("Failed to read from file.");
-    }
-    void read(const char *fn) {
-        gzFile fp = gzopen(fn, "rb");
-        if(fp == nullptr) throw ZlibError(Z_ERRNO, std::string("Could not open file for reading at ") + fn);
-        gzclose(fp);
-    }
-    template<typename T, typename Hasher=std::hash<T>>
-    INLINE void adds(const T element, const Hasher &hasher) {
-        MurFinHash mfh;
-        static_assert(std::is_same<std::decay_t<decltype(hasher(element))>, uint64_t>::value, "Must return 64-bit hash");
-        add(mfh(hasher(element) ^ seed_));
-    }
-
-#ifdef ENABLE_CLHASH
-    template<typename Hasher=clhasher>
-    INLINE void adds(const char *s, size_t len, const Hasher &hasher) {
-        common::MurFinHash hf;
-        static_assert(std::is_same<std::decay_t<decltype(hasher(s, len))>, uint64_t>::value, "Must return 64-bit hash");
-        add(hf(hasher(s, len) ^ seed_));
-    }
-#endif
-};
-using seedhll_t = seedhllbase_t<>;
 
 template<typename SeedHllType=hll_t>
 class hlfbase_t {

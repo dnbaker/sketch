@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
     NibbleSetS shl(m<<1), shr(m<<1);
     NibbleSet8 nshl(m<<1), nshr(m<<1);
     ShortSetS lhn(m, sb, sa), rhn(m, sb, sa);
-    hll_t h(ilog2(roundup(m)));
+    hll_t h(ilog2(roundup(m));
     auto t = std::chrono::high_resolution_clock::now();
     for(size_t i = 0; i < n; ++i) {
         h.addh(i);
@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
         auto a = std::get<0>(abmu);
         auto b = std::get<1>(abmu);
         auto mu = std::get<2>(abmu);
-        auto isz = mu * (1. - a - b);
+        auto isz = std::max(0., mu * (1. - a - b));
         std::fprintf(stderr, "Alpha: %g. beta: %g. mu: %g. isz: %g. JI: %g\n", a, b, mu, isz, isz / mu);
     }
     std::fprintf(stderr, "Registers for nibbles: Max: %u. min: %u.\n", *std::max_element(shl.data(), shl.data() + m), *std::min_element(shl.data(), shl.data() + m));
