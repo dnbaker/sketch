@@ -15,6 +15,12 @@ static inline size_t count_eq_longs(const uint64_t *SK_RESTRICT lhs, const uint6
 static INLINE unsigned int _mm256_movemask_epi16(__m256i x) {
     return _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(x), _mm256_extracti128_si256(x, 1)));
 }
+static INLINE __m256i _mm256_cmpgt_epi8_unsigned(__m256i a, __m256i b) {
+    return _mm256_cmpeq_epi8(a, b) ^ _mm256_cmpeq_epi8(_mm256_max_epu8(a, b), a);
+}
+static INLINE __m256i _mm256_cmpgt_epi16_unsigned(__m256i a, __m256i b) {
+    return _mm256_cmpeq_epi16(a, b) ^ _mm256_cmpeq_epi16(_mm256_max_epu16(a, b), a);
+}
 
 template<typename T>
 static inline size_t count_eq(const T *SK_RESTRICT lhs, const T *SK_RESTRICT rhs, size_t n) {
@@ -43,15 +49,15 @@ static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint
     const size_t nsimd4 = (nsimd / 4) * 4;
     for(size_t i = 0; i < nsimd4; i += 4) {
         uint64_t v1, v2, v3, v4;
-        v1 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i));
-        v2 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 1), _mm512_loadu_si512((__m512i *)rhs + i + 1));
+        v1 = _mm512_cmpeq_epu16_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i));
+        v2 = _mm512_cmpeq_epu16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 1), _mm512_loadu_si512((__m512i *)rhs + i + 1));
         ret += popcount((uint64_t(v1) << 32) | v2);
-        v3 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 2), _mm512_loadu_si512((__m512i *)rhs + i + 2));
-        v4 = _mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 3), _mm512_loadu_si512((__m512i *)rhs + i + 3));
+        v3 = _mm512_cmpeq_epu16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 2), _mm512_loadu_si512((__m512i *)rhs + i + 2));
+        v4 = _mm512_cmpeq_epu16_mask(_mm512_loadu_si512((__m512i *)lhs + i + 3), _mm512_loadu_si512((__m512i *)rhs + i + 3));
         ret += popcount((uint64_t(v3) << 32) | v4);
     }
     for(size_t i = nsimd4; i < nsimd; ++i)
-        ret += popcount(_mm512_cmpeq_epi16_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i)));
+        ret += popcount(_mm512_cmpeq_epu16_mask(_mm512_loadu_si512((__m512i *)lhs + i), _mm512_loadu_si512((__m512i *)rhs + i)));
     for(size_t i = nsimd * sizeof(__m512) / sizeof(uint16_t); i < n; ++i)
         ret += lhs[i] == rhs[i];
 #elif __AVX512F__
@@ -254,8 +260,8 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_bytes(const uint8_t *SK_R
     for(size_t i = 0; i < nsimd; ++i) {
         auto lhv = _mm512_loadu_si512((__m512i *)lhs + i);
         auto rhv = _mm512_loadu_si512((__m512i *)rhs + i);
-        uint64_t v0 = _mm512_cmpgt_epi8_mask(lhv, rhv);
-        uint64_t v1 = _mm512_cmpgt_epi8_mask(rhv, lhv);
+        uint64_t v0 = _mm512_cmpgt_epu8_mask(lhv, rhv);
+        uint64_t v1 = _mm512_cmpgt_epu8_mask(rhv, lhv);
         lhgt += popcount(v0);
         rhgt += popcount(v1);
     }
@@ -291,8 +297,8 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_bytes(const uint8_t *SK_R
     for(size_t i = 0; i < nsimd; ++i) {
         auto lhv = _mm256_loadu_si256((__m256i *)lhs + i);
         auto rhv = _mm256_loadu_si256((__m256i *)rhs + i);
-        lhgt += popcount(_mm256_movemask_epi8(_mm256_cmpgt_epi8(lhv, rhv)));
-        rhgt += popcount(_mm256_movemask_epi8(_mm256_cmpgt_epi8(rhv, lhv)));
+        lhgt += popcount(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(lhv, rhv)));
+        rhgt += popcount(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(rhv, lhv)));
     }
     for(size_t i = nsimd * nper; i < n; ++i) {
         lhgt += lhs[i] > rhs[i];
@@ -317,10 +323,10 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_nibbles(const uint8_t *SK
     for(size_t i = 0; i < nsimd; ++i) {
         auto lhv = _mm512_loadu_si512((__m512i *)lhs + i);
         auto rhv = _mm512_loadu_si512((__m512i *)rhs + i);
-        uint64_t v0lo = _mm512_cmpgt_epi8_mask(lhv & lomask, rhv & lomask);
-        uint64_t v0hi = _mm512_cmpgt_epi8_mask(lhv & himask, rhv & himask);
-        uint64_t v1lo = _mm512_cmpgt_epi8_mask(rhv & lomask, lhv & lomask);
-        uint64_t v1hi = _mm512_cmpgt_epi8_mask(rhv & himask, lhv & himask);
+        uint64_t v0lo = _mm512_cmpgt_epu8_mask(lhv & lomask, rhv & lomask);
+        uint64_t v0hi = _mm512_cmpgt_epu8_mask(lhv & himask, rhv & himask);
+        uint64_t v1lo = _mm512_cmpgt_epu8_mask(rhv & lomask, lhv & lomask);
+        uint64_t v1hi = _mm512_cmpgt_epu8_mask(rhv & himask, lhv & himask);
         lhgt += popcount(v0lo);
         lhgt += popcount(v0hi);
         rhgt += popcount(v1lo);
@@ -345,10 +351,10 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_nibbles(const uint8_t *SK
         auto rhv = _mm256_loadu_si256((__m256i *)rhs + i);
         auto lhl = lhv & lomask, rhl = rhv & lomask,
              lhh = lhv & himask, rhh = rhv & himask;
-        lhgt += popcount((uint64_t(_mm256_movemask_epi8(_mm256_cmpgt_epi8(lhl, rhl))) << 32)
-                    | _mm256_movemask_epi8(_mm256_cmpgt_epi8(lhh, rhh)));
-        rhgt += popcount((uint64_t(_mm256_movemask_epi8(_mm256_cmpgt_epi8(rhl, lhl))) << 32)
-                    | _mm256_movemask_epi8(_mm256_cmpgt_epi8(rhh, lhh)));
+        lhgt += popcount((uint64_t(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(lhl, rhl))) << 32)
+                    | _mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(lhh, rhh)));
+        rhgt += popcount((uint64_t(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(rhl, lhl))) << 32)
+                    | _mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(rhh, lhh)));
     }
     for(size_t i = nsimd * nper; i < n; ++i) {
         lhgt += (lhs[i] & 0xFu)  > (rhs[i] & 0xFu);
@@ -381,30 +387,30 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_shorts(const uint16_t *co
     for(size_t i = 0; i < nsimd4; i += 4) {
         auto lhv0 = _mm512_loadu_si512((__m512i *)lhs + i);
         auto rhv0 = _mm512_loadu_si512((__m512i *)rhs + i);
-        uint64_t lv0 = _mm512_cmpgt_epi16_mask(lhv0, rhv0);
-        uint64_t rv0 = _mm512_cmpgt_epi16_mask(rhv0, lhv0);
+        uint64_t lv0 = _mm512_cmpgt_epu16_mask(lhv0, rhv0);
+        uint64_t rv0 = _mm512_cmpgt_epu16_mask(rhv0, lhv0);
         auto lhv1 = _mm512_loadu_si512((__m512i *)lhs + (i + 1));
         auto rhv1 = _mm512_loadu_si512((__m512i *)rhs + (i + 1));
-        lv0 = (lv0 << 32) | _mm512_cmpgt_epi16_mask(lhv1, rhv1);
-        rv0 = (rv0 << 32) | _mm512_cmpgt_epi16_mask(rhv1, lhv1);
+        lv0 = (lv0 << 32) | _mm512_cmpgt_epu16_mask(lhv1, rhv1);
+        rv0 = (rv0 << 32) | _mm512_cmpgt_epu16_mask(rhv1, lhv1);
         lhgt += popcount(lv0);
         rhgt += popcount(rv0);
         auto lhv2 = _mm512_loadu_si512((__m512i *)lhs + (i + 2));
         auto rhv2 = _mm512_loadu_si512((__m512i *)rhs + (i + 2));
-        lv0 = _mm512_cmpgt_epi16_mask(lhv2, rhv2);
-        rv0 = _mm512_cmpgt_epi16_mask(rhv2, lhv2);
+        lv0 = _mm512_cmpgt_epu16_mask(lhv2, rhv2);
+        rv0 = _mm512_cmpgt_epu16_mask(rhv2, lhv2);
         auto lhv3 = _mm512_loadu_si512((__m512i *)lhs + (i + 3));
         auto rhv3 = _mm512_loadu_si512((__m512i *)rhs + (i + 3));
-        lv0 = (lv0 << 32) | _mm512_cmpgt_epi16_mask(lhv3, rhv3);
-        rv0 = (rv0 << 32) | _mm512_cmpgt_epi16_mask(rhv3, lhv3);
+        lv0 = (lv0 << 32) | _mm512_cmpgt_epu16_mask(lhv3, rhv3);
+        rv0 = (rv0 << 32) | _mm512_cmpgt_epu16_mask(rhv3, lhv3);
         lhgt += popcount(lv0);
         rhgt += popcount(rv0);
     }
     for(size_t i = nsimd4; i < nsimd; ++i) {
         auto lhv = _mm512_loadu_si512((__m512i *)lhs + i);
         auto rhv = _mm512_loadu_si512((__m512i *)rhs + i);
-        uint64_t v0 = _mm512_cmpgt_epi16_mask(lhv, rhv);
-        uint64_t v1 = _mm512_cmpgt_epi16_mask(rhv, lhv);
+        uint64_t v0 = _mm512_cmpgt_epu16_mask(lhv, rhv);
+        uint64_t v1 = _mm512_cmpgt_epu16_mask(rhv, lhv);
         lhgt += popcount(v0);
         rhgt += popcount(v1);
     }
@@ -436,26 +442,34 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_shorts(const uint16_t *co
     const size_t nsimd = n / nper;
 #ifndef NDEBUG
     size_t lhgtn = 0, rhgtn = 0;
+    size_t lhgtni = 0, rhgtni = 0;
     for(size_t i = 0; i < n; ++i)
         lhgtn += lhs[i] > rhs[i], rhgtn += rhs[i] > lhs[i];
+    for(size_t i = 0; i < nsimd * nper; ++i)
+        lhgtni += lhs[i] > rhs[i], rhgtni += rhs[i] > lhs[i];
+    size_t lhman =0, rhman = 0;
 #endif
     assert(lhs != rhs);
-    SK_UNROLL_4
     for(size_t i = 0; i < nsimd; ++i) {
         const auto lhv = _mm256_loadu_si256((__m256i *)lhs + i);
         const auto rhv = _mm256_loadu_si256((__m256i *)rhs + i);
         assert(std::equal((uint16_t *)((__m256i *)lhs + i), (uint16_t *)((__m256i *)lhs + i) + 16, (uint16_t *)&lhv));
         assert(std::equal((uint16_t *)((__m256i *)rhs + i), (uint16_t *)((__m256i *)rhs + i) + 16, (uint16_t *)&rhv));
-        const auto rhgtv = _mm256_cmpgt_epi16(rhv, lhv);
-        const auto lhgtv = _mm256_cmpgt_epi16(lhv, rhv);
-        lhgt += popcount(_mm256_movemask_epi16(lhgtv));
-        rhgt += popcount(_mm256_movemask_epi16(rhgtv));
+#ifndef NDEBUG
+        for(size_t j = 0; j < nper; ++j) {
+            lhman += lhs[i * nper + j] > rhs[i * nper + j];
+            rhman += rhs[i * nper + j] > lhs[i * nper + j];
+        }
+#endif
+        lhgt += popcount(_mm256_movemask_epi16(_mm256_cmpgt_epi16_unsigned(lhv, rhv)));
+        rhgt += popcount(_mm256_movemask_epi16(_mm256_cmpgt_epi16_unsigned(rhv, lhv)));
+        assert(lhgt == lhman || !std::fprintf(stderr, "lhgt %zu, lhman %zu\n", size_t(lhgt), lhman));
+        assert(rhgt == rhman || !std::fprintf(stderr, "rhgt %zu, rhman %zu\n", size_t(rhgt), rhman));
     }
     for(size_t i = nper * nsimd; i < n; ++i) {
-        const auto lhv = lhs[nsimd * nper], rhv = rhs[nsimd * nper];
+        const auto lhv = lhs[i], rhv = rhs[i];
         lhgt += (lhv > rhv); rhgt += (rhv > lhv);
     }
-    assert(lhgtn == lhgt || !std::fprintf(stderr, "lhgtn: %zu. lhgt: %zu\n", lhgtn, size_t(lhgt)));
 #else
     SK_UNROLL_4
     for(size_t i = 0; i < n; ++i) {

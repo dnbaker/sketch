@@ -253,7 +253,7 @@ struct ByteSetS: public SetSketch<uint8_t, long double> {
     ByteSetS(int nreg, long double b=1.2, long double a=20.): Super(nreg, b, a, 254) {}
 };
 struct ShortSetS: public SetSketch<uint16_t, long double> {
-    ShortSetS(int nreg, long double b=1.001, long double a=1.): SetSketch<uint16_t, long double>(nreg, b, a, 65534) {}
+    ShortSetS(int nreg, long double b=1.001, long double a=.25): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
 };
 
 
