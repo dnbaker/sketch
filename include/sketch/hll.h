@@ -521,7 +521,12 @@ inline void inc_counts(T &counts, const SIMDHolder *p, const SIMDHolder *pend) {
 static inline std::array<uint32_t, 64> sum_counts(const SIMDHolder *p, const SIMDHolder *pend) {
     // Should add Contiguous Container requirement.
     std::array<uint32_t, 64> counts{0};
-    inc_counts(counts, p, pend);
+    if((uint8_t *)pend - (uint8_t *)p < sizeof(*p)) {
+        const size_t e = (uint8_t *)pend - (uint8_t *)p;
+        for(size_t i = 0; i < e; ++i) ++counts[((uint8_t *)p)[i]];
+    } else {
+        inc_counts(counts, p, pend);
+    }
     return counts;
 }
 

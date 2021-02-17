@@ -18,10 +18,16 @@ static INLINE unsigned int _mm256_movemask_epi16(__m256i x) {
     return _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(x), _mm256_extracti128_si256(x, 1)));
 }
 static INLINE __m256i _mm256_cmpgt_epi8_unsigned(__m256i a, __m256i b) {
-    return _mm256_cmpeq_epi8(a, b) ^ _mm256_cmpeq_epi8(_mm256_max_epu8(a, b), a);
+    return _mm256_andnot_si256(_mm256_cmpeq_epi8(a, b), _mm256_cmpeq_epi8(_mm256_max_epu8(a, b), a));
 }
 static INLINE __m256i _mm256_cmpgt_epi16_unsigned(__m256i a, __m256i b) {
-    return _mm256_cmpeq_epi16(a, b) ^ _mm256_cmpeq_epi16(_mm256_max_epu16(a, b), a);
+    return _mm256_andnot_si256(_mm256_cmpeq_epi16(a, b), _mm256_cmpeq_epi16(_mm256_max_epu16(a, b), a));
+}
+#endif
+
+#if 0 && __AVX512F__
+static INLINE __m512i _mm512_cmpgt_epi16_unsigned(__m512i a, __m512i b) {
+    return _mm512_cmpeq_epi16(a, b) ^ _mm512_cmpeq_epi16(_mm512_max_epu16(a, b), a);
 }
 #endif
 
@@ -445,11 +451,8 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_shorts(const uint16_t *co
     const size_t nsimd = n / nper;
 #ifndef NDEBUG
     size_t lhgtn = 0, rhgtn = 0;
-    size_t lhgtni = 0, rhgtni = 0;
     for(size_t i = 0; i < n; ++i)
         lhgtn += lhs[i] > rhs[i], rhgtn += rhs[i] > lhs[i];
-    for(size_t i = 0; i < nsimd * nper; ++i)
-        lhgtni += lhs[i] > rhs[i], rhgtni += rhs[i] > lhs[i];
     size_t lhman =0, rhman = 0;
 #endif
     assert(lhs != rhs);

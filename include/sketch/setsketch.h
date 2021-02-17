@@ -163,8 +163,13 @@ public:
         std::unordered_set<uint64_t> idxs;
 #endif
         for(;;) {
-            static constexpr double mul = 1. / (1ull << 52);
-            ev += -getbeta(bi) * ainv_ * std::log((rv >> 12) * mul);
+            static constexpr double mul = 
+#if __cplusplus >= 201703L
+                0x1p-64;
+#else
+                5.421010862427522e-20;
+#endif
+            ev += -getbeta(bi) * ainv_ * std::log(rv * mul);
             if(ev > lowkh_.explim()) return;
             const int k = std::max(0, std::min(q_ + 1, static_cast<int>((1. - std::log(ev) * logbinv_))));
             if(k <= klow()) return;
