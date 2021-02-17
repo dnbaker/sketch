@@ -12,6 +12,8 @@ static inline size_t count_eq_nibbles(const uint8_t *SK_RESTRICT lhs, const uint
 static inline size_t count_eq_words(const uint32_t *SK_RESTRICT lhs, const uint32_t *SK_RESTRICT rhs, size_t n);
 static inline size_t count_eq_longs(const uint64_t *SK_RESTRICT lhs, const uint64_t *SK_RESTRICT rhs, size_t n);
 
+
+#ifdef __AVX2__
 static INLINE unsigned int _mm256_movemask_epi16(__m256i x) {
     return _mm_movemask_epi8(_mm_packs_epi16(_mm256_castsi256_si128(x), _mm256_extracti128_si256(x, 1)));
 }
@@ -21,6 +23,7 @@ static INLINE __m256i _mm256_cmpgt_epi8_unsigned(__m256i a, __m256i b) {
 static INLINE __m256i _mm256_cmpgt_epi16_unsigned(__m256i a, __m256i b) {
     return _mm256_cmpeq_epi16(a, b) ^ _mm256_cmpeq_epi16(_mm256_max_epu16(a, b), a);
 }
+#endif
 
 template<typename T>
 static inline size_t count_eq(const T *SK_RESTRICT lhs, const T *SK_RESTRICT rhs, size_t n) {
