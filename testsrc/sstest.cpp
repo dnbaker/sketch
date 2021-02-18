@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
     NibbleSetS shl(m<<1), shr(m<<1);
     NibbleSet8 nshl(m<<1), nshr(m<<1);
     ShortSetS lhn(m, sb, sa), rhn(m, sb, sa);
-    hll_t h(ilog2(roundup(m));
+    hll_t h(ilog2(roundup(m)));
     auto t = std::chrono::high_resolution_clock::now();
     for(size_t i = 0; i < n; ++i) {
         h.addh(i);

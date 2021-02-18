@@ -38,7 +38,7 @@ struct minvt_t {
         explim_ = std::pow(b_, -min());
     }
     typename std::make_signed<ResT>::type min() const {
-        return data_[m_ << 1];
+        return data_[(m_ << 1) - 2];
     }
     typename std::make_signed<ResT>::type klow() const {
         return min();
@@ -52,10 +52,11 @@ struct minvt_t {
                 data_[index] = x;
                 if((index = m_ + (index >> 1)) >= sz) break;
                 const size_t lhi = (index - m_) << 1, rhi = lhi + 1;
-                if((x = std::min(data_[lhi], data_[rhi])) <= data_[index])
-                    break;
+                x = std::min(data_[lhi], data_[rhi]);
+                if(x <= data_[index]) break;
             }
             explim_ = std::pow(b_, -min());
+            assert(min() == *std::min_element(data_, data_ + m_));
             return true;
         }
         return false;
@@ -102,7 +103,7 @@ struct LowKHelper {
 static inline long double g_b(long double b, long double arg) {
     return (1.L - std::pow(b, -arg)) / (1.L - 1.L / b);
 }
-template<typename ResT, typename FT=double, bool ScanHelper=false>
+template<typename ResT, typename FT=double, bool use_count_lowk=false>
 struct SetSketch {
 private:
     static_assert(std::is_floating_point<FT>::value, "Must float");
@@ -116,11 +117,11 @@ private:
     int q_;
     std::unique_ptr<ResT[]> data_;
     fy::LazyShuffler ls_;
-    typename std::conditional<true,
+    typename std::conditional<use_count_lowk,
                               LowKHelper<ResT>, minvt_t<ResT>
     >::type lowkh_;
     static ResT *allocate(size_t n) {
-        if(!ScanHelper) n = (n << 1) - 1;
+        if(!use_count_lowk) n = (n << 1) - 1;
         ResT *ret = nullptr;
         static constexpr size_t ALN =
 #if __AVX512F__
