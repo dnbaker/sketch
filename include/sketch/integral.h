@@ -36,7 +36,7 @@ namespace sketch {
 inline namespace integral {
 #if defined(__GNUC__) || defined(__clang__)
 CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(signed long long x) noexcept {
-    return 
+    return
 #ifdef __CUDA_ARCH__
     __clzll(x);
 #else
@@ -287,7 +287,6 @@ template<>
 INLINE uint64_t sum_of_u64s<__m256i>(const __m256i val) noexcept {
     return *(const uint64_t *)&val + ((const uint64_t *)&val)[1] +
             ((const uint64_t *)&val)[2] + ((const uint64_t *)&val)[3];
-
 }
 #endif
 #if __SSE2__
