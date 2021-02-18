@@ -90,5 +90,6 @@ int main(int argc, char *argv[]) {
         ss.write("ss100.ss");
         EShortSetS ss2("ss100.ss");
         assert(ss2 == ss);
+        if(std::system("rm ss100.ss")) throw "sideways";
     }
 }

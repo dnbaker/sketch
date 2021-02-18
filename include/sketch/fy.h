@@ -1,6 +1,6 @@
 #ifndef WMH_FY_H__
 #define WMH_FY_H__
-#include <div.h>
+#include "sketch/div.h"
 #include <vector>
 #include <cstdlib>
 #include <memory>

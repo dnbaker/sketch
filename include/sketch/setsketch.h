@@ -4,7 +4,7 @@
 #include <cassert>
 #include "aesctr/wy.h"
 #include <queue>
-#include <div.h>
+#include "sketch/div.h"
 #include <unordered_map>
 #include <memory>
 #include "fy.h"
