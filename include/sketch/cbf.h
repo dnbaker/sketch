@@ -118,7 +118,7 @@ class pcbfbase_t {
     // Much like cbf_t, but also provides cardinality estimates for the number of elements reaching each stage.
 protected:
     using bf_t  = bf::bfbase_t<HashStruct>;
-    using hll_t = hll::seedhllbase_t<HashStruct>;
+    using hll_t = hll::hllbase_t<HashStruct>;
 
     std::vector<hll_t> hlls_;
     std::vector<bf_t>   bfs_;

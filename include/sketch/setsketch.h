@@ -291,10 +291,22 @@ public:
         for(size_t i = 0;i < m_; ++i) lowkh_.update(i, data_[i]);
         ls_.resize(m_);
     }
+    int checkwrite(std::FILE *fp, const void *ptr, size_t nb) const {
+        auto ret = ::write(::fileno(fp), ptr, nb);
+        if(size_t(ret) != nb) throw ZlibError("Failed to write setsketch to file");
+        return ret;
+    }
     int checkwrite(gzFile fp, const void *ptr, size_t nb) const {
         auto ret = gzwrite(fp, ptr, nb);
         if(size_t(ret) != nb) throw ZlibError("Failed to write setsketch to file");
         return ret;
+    }
+    void write(std::FILE *fp) const {
+        checkwrite(fp, (const void *)&m_, sizeof(m_));
+        checkwrite(fp, (const void *)&a_, sizeof(a_));
+        checkwrite(fp, (const void *)&b_, sizeof(b_));
+        checkwrite(fp, (const void *)&q_, sizeof(q_));
+        checkwrite(fp, (const void *)data_.get(), m_ * sizeof(ResT));
     }
     void write(gzFile fp) const {
         checkwrite(fp, (const void *)&m_, sizeof(m_));
@@ -309,34 +321,49 @@ public:
 };
 
 struct NibbleSetS: public SetSketch<uint8_t> {
-    NibbleSetS(size_t nreg, double b=16., double a=1.): SetSketch<uint8_t>(nreg, b, a, 14) {}
+    NibbleSetS(size_t nreg, double b=16., double a=1.): SetSketch<uint8_t>(nreg, b, a, QV) {}
+    static constexpr size_t QV = 14u;
     template<typename Arg> NibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };
 struct SmallNibbleSetS: public SetSketch<uint8_t> {
-    SmallNibbleSetS(size_t nreg, double b=4., double a=1e-6): SetSketch<uint8_t>(nreg, b, a, 14) {}
+    SmallNibbleSetS(size_t nreg, double b=4., double a=1e-6): SetSketch<uint8_t>(nreg, b, a, QV) {}
+    static constexpr size_t QV = 14u;
     template<typename Arg> SmallNibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };
 struct ByteSetS: public SetSketch<uint8_t, long double> {
     using Super = SetSketch<uint8_t, long double>;
-    ByteSetS(size_t nreg, long double b=1.2, long double a=20.): Super(nreg, b, a, 254) {}
+    static constexpr size_t QV = 254u;
+    ByteSetS(size_t nreg, long double b=1.2, long double a=20.): Super(nreg, b, a, QV) {}
     template<typename Arg> ByteSetS(const Arg &arg): Super(arg) {}
 };
 struct ShortSetS: public SetSketch<uint16_t, long double> {
-    ShortSetS(size_t nreg, long double b=1.001, long double a=.25): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+    static constexpr long double DEFAULT_B = 1.001;
+    static constexpr long double DEFAULT_A = .25;
+    static constexpr size_t QV = 65534u;
+    ShortSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): SetSketch<uint16_t, long double>(nreg, b, a, QV) {}
     template<typename Arg> ShortSetS(const Arg &arg): SetSketch<uint16_t, long double>(arg) {}
 };
 struct WideShortSetS: public SetSketch<uint16_t, long double> {
-    WideShortSetS(size_t nreg, long double b=1.00095, long double a=.03): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+    static constexpr long double DEFAULT_B = 1.0006;
+    static constexpr long double DEFAULT_A = .001;
+    static constexpr size_t QV = 65534u;
+    WideShortSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): SetSketch<uint16_t, long double>(nreg, b, a, QV) {}
     template<typename...Args> WideShortSetS(Args &&...args): SetSketch<uint16_t, long double>(std::forward<Args>(args)...) {}
 };
 struct EShortSetS: public SetSketch<uint16_t, long double> {
-    template<typename IT, typename=typename std::enable_if<std::is_integral<IT>::value>::type>
-    EShortSetS(IT nreg, long double b=1.0006, long double a=.001): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+    static constexpr long double DEFAULT_B = 1.0006;
+    static constexpr long double DEFAULT_A = .001;
+    static constexpr size_t QV = 65534u;
+    template<typename IT, typename OFT, typename=typename std::enable_if<std::is_integral<IT>::value && std::is_floating_point<OFT>::value>::type>
+    EShortSetS(IT nreg, OFT b=DEFAULT_B, OFT a=DEFAULT_A): SetSketch<uint16_t, long double>(nreg, b, a, QV) {}
     template<typename...Args> EShortSetS(Args &&...args): SetSketch<uint16_t, long double>(std::forward<Args>(args)...) {}
 };
 struct EByteSetS: public SetSketch<uint8_t, double> {
+    static constexpr double DEFAULT_B = 1.09;
+    static constexpr double DEFAULT_A = .08;
+    static constexpr size_t QV = 254u;
     template<typename IT, typename=typename std::enable_if<std::is_integral<IT>::value>::type>
-    EByteSetS(IT nreg, double b=1.09, double a=.08): SetSketch<uint8_t, double>(nreg, b, a, 254u) {}
+    EByteSetS(IT nreg, double b=DEFAULT_B, double a=DEFAULT_A): SetSketch<uint8_t, double>(nreg, b, a, QV) {}
     template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
 };
 
