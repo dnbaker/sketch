@@ -20,7 +20,6 @@ class get_pybind_include(object):
         import pybind11
         return pybind11.get_include(self.user)
 
-
 extra_compile_args = ['-march=native',
                       '-Wno-char-subscripts', '-Wno-unused-function',
                       '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv',

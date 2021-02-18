@@ -272,11 +272,30 @@ static INLINE uint64_t vatpos(const T v, size_t ind) noexcept {
 
 template<typename T>
 INLINE uint64_t sum_of_u64s(const T val) noexcept {
+    if(sizeof(val) < sizeof(uint64_t)) {
+        if(sizeof(val) == 8) return *(uint64_t *)&val;
+        if(sizeof(val) == 4) return *((uint32_t *)&val);
+    }
     uint64_t sum = vatpos(val, 0);
     for(size_t i = 1; i < sizeof(T) / sizeof(uint64_t); ++i)
         sum += vatpos(val, i);
     return sum;
 }
+
+#if __AVX2__
+template<>
+INLINE uint64_t sum_of_u64s<__m256i>(const __m256i val) noexcept {
+    return *(const uint64_t *)&val + ((const uint64_t *)&val)[1] +
+            ((const uint64_t *)&val)[2] + ((const uint64_t *)&val)[3];
+
+}
+#endif
+#if __SSE2__
+template<>
+INLINE uint64_t sum_of_u64s<__m128i>(const __m128i val) noexcept {
+    return *(const uint64_t *)&val + ((const uint64_t *)&val)[1];
+}
+#endif
 
 #ifndef AVX512_REDUCE_OPERATIONS_ENABLED
 #  if (defined(__AVX512F__) || defined(__KNCNI__)) && ((defined(__clang__) && __clang_major__ >= 4) \

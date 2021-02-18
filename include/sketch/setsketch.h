@@ -37,14 +37,13 @@ struct minvt_t {
         std::fill(data_, data_ + (m_ << 1) - 1, minv_);
         explim_ = std::pow(b_, -min());
     }
-    typename std::make_signed<ResT>::type min() const {
+    typename std::ptrdiff_t min() const {
         return data_[(m_ << 1) - 2];
     }
-    typename std::make_signed<ResT>::type klow() const {
+    typename std::ptrdiff_t klow() const {
         return min();
     }
     
-
     bool update(size_t index, ResT x) {
         const auto sz = (m_ << 1) - 1;
         if(x > data_[index]) {
@@ -103,25 +102,23 @@ struct LowKHelper {
 static inline long double g_b(long double b, long double arg) {
     return (1.L - std::pow(b, -arg)) / (1.L - 1.L / b);
 }
-template<typename ResT, typename FT=double, bool use_count_lowk=false>
+template<typename ResT, typename FT=double>
 struct SetSketch {
 private:
     static_assert(std::is_floating_point<FT>::value, "Must float");
     static_assert(std::is_integral<ResT>::value, "Must be integral");
     // Set sketch 1
     size_t m_; // Number of registers
-    const FT a_; // Exponential parameter
-    const FT b_; // Base
-    const FT ainv_;
-    const FT logbinv_;
+    FT a_; // Exponential parameter
+    FT b_; // Base
+    FT ainv_;
+    FT logbinv_;
     int q_;
     std::unique_ptr<ResT[]> data_;
     fy::LazyShuffler ls_;
-    typename std::conditional<use_count_lowk,
-                              LowKHelper<ResT>, minvt_t<ResT>
-    >::type lowkh_;
+    minvt_t<ResT> lowkh_;
     static ResT *allocate(size_t n) {
-        if(!use_count_lowk) n = (n << 1) - 1;
+        n = (n << 1) - 1;
         ResT *ret = nullptr;
         static constexpr size_t ALN =
 #if __AVX512F__
@@ -139,11 +136,21 @@ private:
     }
 public:
     const ResT *data() const {return data_.get();}
+    ResT *data() {return data_.get();}
     SetSketch(size_t m, FT b, FT a, int q): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_), lowkh_(m) {
         ResT *p = allocate(m_);
         data_.reset(p);
         std::fill(p, p + m_, static_cast<ResT>(0));
         lowkh_.assign(p, m_, b_);
+    }
+    SetSketch(const SetSketch &o): m_(o.m_), a_(o.a_), b_(o.b_), ainv_(o.ainv_), logbinv_(o.logbinv_), q_(o.q_), ls_(m_), lowkh_(m_) {
+        ResT *p = allocate(m_);
+        data_.reset(p);
+        lowkh_.assign(p, m_, b_);
+        std::copy(o.data_.get(), &o.data_[2 * m_ - 1], p);
+    }
+    SetSketch(const std::string &s): ls_(1), lowkh_(1) {
+        read(s);
     }
     size_t size() const {return m_;}
     double b() const {return b_;}
@@ -151,9 +158,13 @@ public:
     ResT &operator[](size_t i) {return data_[i];}
     const ResT &operator[](size_t i) const {return data_[i];}
     int klow() const {return lowkh_.klow();}
+    void addh(uint64_t id) {update(id);}
+    void add(uint64_t id) {update(id);}
+    void print() const {
+        std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
+    }
     void update(uint64_t id) {
 #ifndef NDEBUG
-        //auto mys = std::accumulate(lowkh_.data(), lowkh_.data() + m_, size_t(0), [&](size_t ret, auto x) {return ret + (x == lowkh_.klow());});
 #endif
         size_t bi = 0;
         uint64_t rv = wy::wyhash64_stateless(&id);
@@ -183,11 +194,13 @@ public:
                 return;
             }
             assert(bi == idxs.size());
-            //assert(lowkh_.natval_ == std::accumulate(data_.get(), data_.get() + m_, size_t(0), [&](size_t ret, auto x) {return ret + (x == lowkh_.klow());}));
             rv = wy::wyhash64_stateless(&id);
         }
     }
-    bool same_params(const SetSketch<ResT,FT> &o) {
+    bool operator==(const SetSketch<ResT, FT> &o) const {
+        return same_params(o) && std::equal(data(), data() + m_, o.data());
+    }
+    bool same_params(const SetSketch<ResT,FT> &o) const {
         return std::tie(b_, a_, m_, q_) == std::tie(o.b_, o.a_, o.m_, o.q_);
     }
     double harmean(const SetSketch<ResT, FT> *ptr=static_cast<const SetSketch<ResT, FT> *>(nullptr)) const {
@@ -228,6 +241,12 @@ public:
         if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
         std::transform(data(), data() + m_, o.data(), data(), [](auto x, auto y) {return std::max(x, y);});
     }
+    SetSketch &operator+=(const SetSketch<ResT, FT> &o) {merge(o); return *this;}
+    SetSketch operator+(const SetSketch<ResT, FT> &o) const {
+        SetSketch ret(*this);
+        ret += o;
+        return ret;
+    }
     size_t shared_registers(const SetSketch<ResT, FT> &o) const {
         return eq::count_eq(data(), o.data(), m_);
     }
@@ -246,26 +265,79 @@ public:
             return {(mycard) / (mycard + ocard), ocard / (mycard + ocard), mycard + ocard};
         return {ab.first, ab.second, __union_card(ab.first, ab.second, mycard, ocard)};
     }
+    void write(std::string s) const {
+        gzFile fp = gzopen(s.data(), "w");
+        if(!fp) throw ZlibError(std::string("Failed to open file ") + s + "for writing");
+        write(fp);
+        gzclose(fp);
+    }
+    void read(std::string s) {
+        gzFile fp = gzopen(s.data(), "r");
+        if(!fp) throw ZlibError(std::string("Failed to open file ") + s);
+        read(fp);
+        gzclose(fp);
+    }
+    void read(gzFile fp) {
+        gzread(fp, &m_, sizeof(m_));
+        gzread(fp, &a_, sizeof(a_));
+        gzread(fp, &b_, sizeof(b_));
+        gzread(fp, &q_, sizeof(q_));
+        ainv_ = 1.L / a_;
+        logbinv_ = 1.L / std::log1p(b_ - 1.);
+        data_.reset(new ResT[2 * m_ - 1]);
+        lowkh_.assign(data_.get(), m_, b_);
+        gzread(fp, (void *)data_.get(), m_ * sizeof(ResT));
+        std::fill(&data_[m_], &data_[2 * m_ - 1], ResT(0));
+        for(size_t i = 0;i < m_; ++i) lowkh_.update(i, data_[i]);
+        ls_.resize(m_);
+    }
+    int checkwrite(gzFile fp, const void *ptr, size_t nb) const {
+        auto ret = gzwrite(fp, ptr, nb);
+        if(size_t(ret) != nb) throw ZlibError("Failed to write setsketch to file");
+        return ret;
+    }
+    void write(gzFile fp) const {
+        checkwrite(fp, (const void *)&m_, sizeof(m_));
+        checkwrite(fp, (const void *)&a_, sizeof(a_));
+        checkwrite(fp, (const void *)&b_, sizeof(b_));
+        checkwrite(fp, (const void *)&q_, sizeof(q_));
+        checkwrite(fp, (const void *)data_.get(), m_ * sizeof(ResT));
+    }
+    void clear() {
+        std::fill(data_.get(), &data_[m_ * 2 - 1], ResT(0));
+    }
 };
 
 struct NibbleSetS: public SetSketch<uint8_t> {
-    NibbleSetS(int nreg, double b=16., double a=1.): SetSketch<uint8_t>(nreg, b, a, 14) {}
+    NibbleSetS(size_t nreg, double b=16., double a=1.): SetSketch<uint8_t>(nreg, b, a, 14) {}
+    template<typename Arg> NibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };
 struct SmallNibbleSetS: public SetSketch<uint8_t> {
-    SmallNibbleSetS(int nreg, double b=4., double a=1e-6): SetSketch<uint8_t>(nreg, b, a, 14) {}
+    SmallNibbleSetS(size_t nreg, double b=4., double a=1e-6): SetSketch<uint8_t>(nreg, b, a, 14) {}
+    template<typename Arg> SmallNibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };
 struct ByteSetS: public SetSketch<uint8_t, long double> {
     using Super = SetSketch<uint8_t, long double>;
-    ByteSetS(int nreg, long double b=1.2, long double a=20.): Super(nreg, b, a, 254) {}
+    ByteSetS(size_t nreg, long double b=1.2, long double a=20.): Super(nreg, b, a, 254) {}
+    template<typename Arg> ByteSetS(const Arg &arg): Super(arg) {}
 };
 struct ShortSetS: public SetSketch<uint16_t, long double> {
-    ShortSetS(int nreg, long double b=1.001, long double a=.25): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+    ShortSetS(size_t nreg, long double b=1.001, long double a=.25): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+    template<typename Arg> ShortSetS(const Arg &arg): SetSketch<uint16_t, long double>(arg) {}
 };
 struct WideShortSetS: public SetSketch<uint16_t, long double> {
-    WideShortSetS(int nreg, long double b=1.00095, long double a=.03): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+    WideShortSetS(size_t nreg, long double b=1.00095, long double a=.03): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+    template<typename...Args> WideShortSetS(Args &&...args): SetSketch<uint16_t, long double>(std::forward<Args>(args)...) {}
 };
 struct EShortSetS: public SetSketch<uint16_t, long double> {
-    EShortSetS(int nreg, long double b=1.0006, long double a=.001): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+    template<typename IT, typename=typename std::enable_if<std::is_integral<IT>::value>::type>
+    EShortSetS(IT nreg, long double b=1.0006, long double a=.001): SetSketch<uint16_t, long double>(nreg, b, a, 65534u) {}
+    template<typename...Args> EShortSetS(Args &&...args): SetSketch<uint16_t, long double>(std::forward<Args>(args)...) {}
+};
+struct EByteSetS: public SetSketch<uint8_t, double> {
+    template<typename IT, typename=typename std::enable_if<std::is_integral<IT>::value>::type>
+    EByteSetS(IT nreg, double b=1.09, double a=.08): SetSketch<uint8_t, double>(nreg, b, a, 254u) {}
+    template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
 };
 
 

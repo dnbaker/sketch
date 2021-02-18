@@ -50,6 +50,15 @@ public:
     void seed(uint64_t seed) {
         rng_.seed(seed);
     }
+    void resize(size_t newsize, uint64_t seed=0) {
+        data_.resize(newsize * 2);
+        std::fill(data_.begin(), data_.end(), IT(0));
+        divs_.clear();
+        for(size_t i = 0; i < newsize; ++i)
+            divs_.emplace_back(newsize - i);
+        rng_.seed(seed);
+        reset();
+    }
     void reset() {
         i_ = 0;
         ++c_;

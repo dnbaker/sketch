@@ -13,6 +13,7 @@ int main(int argc, char **argv) {
     const double sa = argc <= 4 ? 30: std::atof(argv[4]);
     double hlv, bc, nc, sc, n8c;
     ByteSetS lhb(m), rhb(m);
+    //ByteSetS lhb(m, sb, sa), rhb(m, sb, sa);
     NibbleSetS shl(m<<1), shr(m<<1);
     NibbleSet8 nshl(m<<1), nshr(m<<1);
     ShortSetS lhn(m, sb, sa), rhn(m, sb, sa);
