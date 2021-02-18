@@ -294,7 +294,7 @@ INLINE uint64_t sum_of_u64s<__m256i>(const __m256i x) noexcept {
 #if __SSE2__
 template<>
 INLINE uint64_t sum_of_u64s<__m128i>(const __m128i val) noexcept {
-    return *(const uint64_t *)&val + ((const uint64_t *)&val)[1];
+    return _mm_extract_epi64(val, 0) + _mm_extract_epi64(val, 1);
 }
 #endif
 
