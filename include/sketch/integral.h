@@ -284,10 +284,11 @@ INLINE uint64_t sum_of_u64s(const T val) noexcept {
 
 #if __AVX2__
 template<>
-INLINE uint64_t sum_of_u64s<__m256i>(const __m256i val) noexcept {
-    return *(const uint64_t *)&val + ((const uint64_t *)&val)[1] +
-            ((const uint64_t *)&val)[2] + ((const uint64_t *)&val)[3];
-
+INLINE uint64_t sum_of_u64s<__m256i>(const __m256i x) noexcept {
+    __m256i y = (__m256i)(_mm256_permute2f128_pd((__m256d)x, (__m256d)x, 1));                          
+    __m256i m1 = _mm256_add_epi64(x, y);                                                               
+    __m256i m2 = (__m256i)_mm256_permute_pd((__m256d)m1, 5);                                           
+    return _mm256_extract_epi64(_mm256_add_epi64(m1, m2), 0);
 }
 #endif
 #if __SSE2__
