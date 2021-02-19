@@ -833,7 +833,7 @@ public:
 
     INLINE void add(uint64_t hashval) noexcept {
         const uint32_t index(q() == 64 ? uint32_t(0): uint32_t(hashval >> q()));
-        const uint32_t lzt = clz(((hashval << 1)|1) << (np_ - 1)) + 1;
+        const uint8_t lzt = clz(((hashval << 1)|1) << (np_ - 1)) + 1;
 #ifndef NOT_THREADSAFE
         for(;core_[index] < lzt;
              __sync_bool_compare_and_swap(&core_[index], core_[index], lzt));
