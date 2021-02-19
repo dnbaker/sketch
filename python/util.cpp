@@ -80,7 +80,7 @@ PYBIND11_MODULE(sketch_util, m) {
         py::buffer_info lhinfo = lhs.request(), rhinfo = rhs.request();
         if(lhinfo.format != rhinfo.format) throw std::runtime_error("dtypes for lhs and rhs array are not the same");
         if(lhinfo.ndim != rhinfo.ndim || lhinfo.ndim != 1) throw std::runtime_error("Wrong number of dimensions");
-        
+
         size_t ret;
 #define PERF_ISZ__(type) \
         if(py::isinstance<py::array_t<type>>(lhs)) { \

@@ -204,7 +204,7 @@ public:
 #ifndef NDEBUG
             bool pass = true;
             for(size_t i = 0; i < sizeof(lhv) / sizeof(IT); ++i) {
-                IT _lh = ((IT *)&lhv)[i], 
+                IT _lh = ((IT *)&lhv)[i],
                    _rh = ((IT *)&rhv)[i],
                    _mh = ((IT *)&maxv)[i];
                 if(_mh != std::max(_lh, _rh)) {
@@ -323,8 +323,8 @@ public:
             auto ptr = reinterpret_cast<const SIMDHolder *>(data_.data());
             auto eptr = reinterpret_cast<const SIMDHolder *>(&data_[data_.size()]);
             while(eptr - ptr > 8) {
-                update_point(ptr[0]); update_point(ptr[1]); update_point(ptr[2]); update_point(ptr[3]); 
-                update_point(ptr[4]); update_point(ptr[5]); update_point(ptr[6]); update_point(ptr[7]); 
+                update_point(ptr[0]); update_point(ptr[1]); update_point(ptr[2]); update_point(ptr[3]);
+                update_point(ptr[4]); update_point(ptr[5]); update_point(ptr[6]); update_point(ptr[7]);
                 ptr += 8;
             }
             while(ptr < eptr) update_point(*ptr++);
@@ -573,7 +573,7 @@ public:
 #    define __CMPEQ64(x, y) _mm_cmpeq_epi64(x, y)
 #  else
 #    define __CMPEQ64(x, y) _mm_and_si128(_mm_cmpeq_epi32(x, y), _mm_cmpeq_epi32(_mm_srli_epi64(x, 32), _mm_srli_epi64(y, 32)))
-#  endif 
+#  endif
 #  define __SETZERO() _mm_set1_epi32(0)
 #  define TYPE __m128i
 #endif
@@ -618,7 +618,7 @@ public:
 
 #endif // #if __AVX512BW__ else sse/avx
         } // if avx2 or 512 or sse2
-#endif 
+#endif
         return (uint64_t(cc) << 32) | nc;
     }
 #undef TYPE
@@ -679,7 +679,7 @@ struct HyperMinHasher: public hmh_t {
 
     mutable double card_ = UNSET_CARD;
     Hasher hf_;
-    
+
 
     template<typename...Args>
     HyperMinHasher(Args &&...args): hmh_t(std::forward<Args>(args)...) {}

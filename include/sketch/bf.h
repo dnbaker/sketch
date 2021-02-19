@@ -730,8 +730,8 @@ public:
 };
 
 template<typename T, typename Alloc> template<typename Hash>
-sparsebf_t<T, Alloc>::sparsebf_t(const bfbase_t<Hash> &dense): core_(dense.template to_sparse_representation<T, allocator_type>()), nh_(dense.nhashes()), tsz_(dense.m()) {
-    
+sparsebf_t<T, Alloc>::sparsebf_t(const bfbase_t<Hash> &dense): core_(dense.template to_sparse_representation<T, allocator_type>()), nh_(dense.nhashes()), tsz_(dense.m())
+{
 }
 
 using bf_t = bfbase_t<>;

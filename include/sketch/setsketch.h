@@ -18,6 +18,46 @@ namespace sketch {
 
 // Implementations of set sketch
 
+template<typename FT>
+struct mvt_t {
+    static constexpr FT mv_ = std::numeric_limits<FT>::max();
+    FT *data_ = nullptr;
+    size_t m_;
+    mvt_t(size_t m): m_(m) {}
+
+    FT *data() {return data_;}
+    const FT *data() const {return data_;}
+    // Check size and max
+    size_t getm() const {return m_;}
+    FT operator[](size_t i) const {return data_[i];}
+    void assign(FT *vals, size_t nvals) {
+        data_ = vals; m_ = nvals;
+        std::fill(data_, data_ + (m_ << 1) - 1, mv_);
+    }
+    typename std::ptrdiff_t max() const {
+        return data_[(m_ << 1) - 2];
+    }
+    typename std::ptrdiff_t klow() const {
+        return max();
+    }
+
+    bool update(size_t index, FT x) {
+        const auto sz = (m_ << 1) - 1;
+        if(x < data_[index]) {
+            for(;;) {
+                data_[index] = x;
+                if((index = m_ + (index >> 1)) >= sz) break;
+                const size_t lhi = (index - m_) << 1, rhi = lhi + 1;
+                x = std::max(data_[lhi], data_[rhi]);
+                if(x >= data_[index]) break;
+            }
+            assert(max() == *std::max_element(data_, data_ + m_));
+            return true;
+        }
+        return false;
+    }
+};
+
 template<typename ResT>
 struct minvt_t {
     static constexpr ResT minv_ = 0;
@@ -43,7 +83,7 @@ struct minvt_t {
     typename std::ptrdiff_t klow() const {
         return min();
     }
-    
+
     bool update(size_t index, ResT x) {
         const auto sz = (m_ << 1) - 1;
         if(x > data_[index]) {
@@ -102,9 +142,140 @@ struct LowKHelper {
 static inline long double g_b(long double b, long double arg) {
     return (1.L - std::pow(b, -arg)) / (1.L - 1.L / b);
 }
+template<typename FT=double>
+class CSetSketch {
+    static_assert(std::is_floating_point<FT>::value, "Must float");
+    // Set sketch 1
+    size_t m_; // Number of registers
+    std::unique_ptr<FT[]> data_;
+    fy::LazyShuffler ls_;
+    mvt_t<FT> mvt_;
+    static FT *allocate(size_t n) {
+        n = (n << 1) - 1;
+        FT *ret = nullptr;
+        static constexpr size_t ALN =
+#if __AVX512F__
+            64;
+#elif __AVX2__
+            32;
+#else
+            16;
+#endif
+        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT))) throw std::bad_alloc();
+        return ret;
+    }
+    FT getbeta(size_t idx) const {
+        return FT(1.) / (m_ - idx);
+    }
+public:
+    const FT *data() const {return data_.get();}
+    FT *data() {return data_.get();}
+    CSetSketch(size_t m, FT b, FT a, int q): m_(m), ls_(m_), mvt_(m) {
+        FT *p = allocate(m_);
+        data_.reset(p);
+        std::fill(p, p + m_, std::numeric_limits<FT>::max());
+        mvt_.assign(p, m_);
+    }
+    CSetSketch(const CSetSketch &o): m_(o.m_), ls_(m_), mvt_(m_) {
+        FT *p = allocate(m_);
+        data_.reset(p);
+        mvt_.assign(p, m_);
+        std::copy(o.data_.get(), &o.data_[2 * m_ - 1], p);
+    }
+    CSetSketch(const std::string &s): ls_(1), mvt_(1) {
+        read(s);
+    }
+    size_t size() const {return m_;}
+    FT &operator[](size_t i) {return data_[i];}
+    const FT &operator[](size_t i) const {return data_[i];}
+    void addh(uint64_t id) {update(id);}
+    void add(uint64_t id) {update(id);}
+    void update(uint64_t id) {
+        size_t bi = 0;
+        uint64_t rv = wy::wyhash64_stateless(&id);
+        FT ev = 0.;
+        ls_.reset();
+        ls_.seed(rv);
+        for(;;) {
+            static constexpr double mul =
+#if __cplusplus >= 201703L
+                0x1p-64;
+#else
+                5.421010862427522e-20;
+#endif
+            if((ev += -getbeta(bi) * std::log(rv * mul)) >= mvt_.max())
+                return;
+            auto idx = ls_.step();
+            mvt_.update(idx, ev);
+            if(++bi == m_) return;
+            rv = wy::wyhash64_stateless(&id);
+        }
+    }
+    bool operator==(const CSetSketch<FT> &o) const {
+        return same_params(o) && std::equal(data(), data() + m_, o.data());
+    }
+    bool same_params(const CSetSketch<FT> &o) const {
+        return m_ == o.m_;
+    }
+    void merge(const CSetSketch<FT> &o) {
+        if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
+        std::transform(data(), data() + m_, o.data(), data(), [](auto x, auto y) {return std::min(x, y);});
+    }
+    CSetSketch &operator+=(const CSetSketch<FT> &o) {merge(o); return *this;}
+    CSetSketch operator+(const CSetSketch<FT> &o) const {
+        CSetSketch ret(*this);
+        ret += o;
+        return ret;
+    }
+    size_t shared_registers(const CSetSketch<FT> &o) const {
+        return eq::count_eq(data(), o.data(), m_);
+    }
+    void write(std::string s) const {
+        gzFile fp = gzopen(s.data(), "w");
+        if(!fp) throw ZlibError(std::string("Failed to open file ") + s + "for writing");
+        write(fp);
+        gzclose(fp);
+    }
+    void read(std::string s) {
+        gzFile fp = gzopen(s.data(), "r");
+        if(!fp) throw ZlibError(std::string("Failed to open file ") + s);
+        read(fp);
+        gzclose(fp);
+    }
+    void read(gzFile fp) {
+        gzread(fp, &m_, sizeof(m_));
+        data_.reset(new FT[2 * m_ - 1]);
+        mvt_.assign(data_.get(), m_);
+        gzread(fp, (void *)data_.get(), m_ * sizeof(FT));
+        std::fill(&data_[m_], &data_[2 * m_ - 1], std::numeric_limits<FT>::max());
+        for(size_t i = 0;i < m_; ++i) mvt_.update(i, data_[i]);
+        ls_.resize(m_);
+    }
+    int checkwrite(std::FILE *fp, const void *ptr, size_t nb) const {
+        auto ret = ::write(::fileno(fp), ptr, nb);
+        if(size_t(ret) != nb) throw ZlibError("Failed to write setsketch to file");
+        return ret;
+    }
+    int checkwrite(gzFile fp, const void *ptr, size_t nb) const {
+        auto ret = gzwrite(fp, ptr, nb);
+        if(size_t(ret) != nb) throw ZlibError("Failed to write setsketch to file");
+        return ret;
+    }
+    void write(std::FILE *fp) const {
+        checkwrite(fp, (const void *)&m_, sizeof(m_));
+        checkwrite(fp, (const void *)data_.get(), m_ * sizeof(FT));
+    }
+    void write(gzFile fp) const {
+        checkwrite(fp, (const void *)&m_, sizeof(m_));
+        checkwrite(fp, (const void *)data_.get(), m_ * sizeof(FT));
+    }
+    void clear() {
+        std::fill(data_.get(), &data_[m_ * 2 - 1], std::numeric_limits<FT>::max());
+    }
+};
+
 template<typename ResT, typename FT=double>
-struct SetSketch {
-private:
+class SetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
     static_assert(std::is_integral<ResT>::value, "Must be integral");
     // Set sketch 1
@@ -164,18 +335,13 @@ public:
         std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
     }
     void update(uint64_t id) {
-#ifndef NDEBUG
-#endif
         size_t bi = 0;
         uint64_t rv = wy::wyhash64_stateless(&id);
         double ev = 0.;
         ls_.reset();
         ls_.seed(rv);
-#ifndef NDEBUG
-        std::unordered_set<uint64_t> idxs;
-#endif
         for(;;) {
-            static constexpr double mul = 
+            static constexpr double mul =
 #if __cplusplus >= 201703L
                 0x1p-64;
 #else
@@ -186,14 +352,9 @@ public:
             const int k = std::max(0, std::min(q_ + 1, static_cast<int>((1. - std::log(ev) * logbinv_))));
             if(k <= klow()) return;
             auto idx = ls_.step();
-#ifndef NDEBUG
-            assert(idxs.find(idx) == idxs.end()); idxs.emplace(idx);
-#endif
             lowkh_.update(idx, k);
-            if(++bi == m_) {
+            if(++bi == m_)
                 return;
-            }
-            assert(bi == idxs.size());
             rv = wy::wyhash64_stateless(&id);
         }
     }
