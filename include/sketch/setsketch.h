@@ -9,6 +9,7 @@
 #include <memory>
 #include "fy.h"
 #include "count_eq.h"
+#include "blaze/Math.h"
 
 #ifndef NDEBUG
 #include <unordered_set>
@@ -16,33 +17,42 @@
 
 namespace sketch {
 
+
+#if __cplusplus >= 201703L
+    static constexpr double INVMUL64 = 0x1p-64;
+#else
+    static constexpr double INVMUL64 = 5.42101086242752217e-20;
+#endif
+
 // Implementations of set sketch
 
 template<typename FT>
-struct mvt_t {
+class mvt_t {
     static constexpr FT mv_ = std::numeric_limits<FT>::max();
     FT *data_ = nullptr;
     size_t m_;
+public:
     mvt_t(size_t m): m_(m) {}
 
     FT *data() {return data_;}
     const FT *data() const {return data_;}
     // Check size and max
     size_t getm() const {return m_;}
+    size_t nelem() const {return 2 * m_ - 1;}
     FT operator[](size_t i) const {return data_[i];}
     void assign(FT *vals, size_t nvals) {
         data_ = vals; m_ = nvals;
-        std::fill(data_, data_ + (m_ << 1) - 1, mv_);
+        std::fill(data_, data_ + nelem(), mv_);
     }
-    typename std::ptrdiff_t max() const {
-        return data_[(m_ << 1) - 2];
+    FT max() const {
+        return data_[nelem() - 1];
     }
-    typename std::ptrdiff_t klow() const {
+    FT klow() const {
         return max();
     }
 
     bool update(size_t index, FT x) {
-        const auto sz = (m_ << 1) - 1;
+        const auto sz = nelem();
         if(x < data_[index]) {
             for(;;) {
                 data_[index] = x;
@@ -139,15 +149,154 @@ struct LowKHelper {
     }
 };
 
+#if __AVX2__
+INLINE float broadcast_reduce_sum(__m256 x) {
+    const __m256 permHalves = _mm256_permute2f128_ps(x, x, 1);
+    const __m256 m0 = _mm256_add_ps(permHalves, x);
+    const __m256 perm0 = _mm256_permute_ps(m0, 0b01001110);
+    const __m256 m1 = _mm256_add_ps(m0, perm0);
+    const __m256 perm1 = _mm256_permute_ps(m1, 0b10110001);
+    const __m256 m2 = _mm256_add_ps(perm1, m1);
+    float ret = m2[0];
+    std::fprintf(stderr, "sum of %g/%g/%g/%g/%g/%g/%g/%g is %g\n", x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], ret);
+    return ret;
+}
+INLINE double broadcast_reduce_sum(__m256d x) {
+    __m256d m1 = _mm256_add_pd(x, _mm256_permute2f128_pd(x, x, 1));
+    return _mm256_add_pd(m1, _mm256_permute_pd(m1, 5))[0];
+}
+#endif
+
 static inline long double g_b(long double b, long double arg) {
     return (1.L - std::pow(b, -arg)) / (1.L - 1.L / b);
 }
+
+template<typename FT>
+inline double calc_card(const FT *start, const FT *end) {
+    bool is_aligned = (reinterpret_cast<uint64_t>(start) % 
+#if __AVX512F__
+        64
+#elif __AVX2__
+        32
+#else
+        1
+#endif
+        ) == 0;
+    double sum;
+    const size_t n = end - start;
+    if(is_aligned) sum = blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(const_cast<FT *>(start), n)));
+    else           sum = blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::unaligned, blaze::unpadded>(const_cast<FT *>(start), n)));
+    return n / sum;
+}
+
+#if 0
+template<> inline double calc_card(const float *const start, const float *const end) {
+    const std::ptrdiff_t n = end - start;
+    auto blzsum = blaze::sum(blaze::CustomVector<float, blaze::unaligned, blaze::unpadded>(const_cast<float *>(start), n));
+    std::fprintf(stderr, "blzsum: %g\n", blzsum);
+    double sum = 0.;
+    size_t i;
+#if __AVX512F__
+    static constexpr size_t nper = sizeof(__m512i) / sizeof(float);
+    const size_t nsimd = n / nper;
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    for(i = 0; i < nsimd4; i += 4) {
+        __m512 v0 = _mm512_loadu_ps(&start[i * nper]),
+               v1 = _mm512_loadu_ps(&start[(i + 1) * nper])
+               v2 = _mm512_loadu_ps(&start[(i + 2) * nper])
+               v3 = _mm512_loadu_ps(&start[(i + 3) * nper]);
+        sum += _mm512_reduce_add_ps(_mm512_add_ps(_mm512_add_ps(v0, v1), _mm512_add_ps(v2, v3)));
+    }
+    for(i = nsimd4; i < nsimd; ++i) {
+        sum += _mm512_reduce_add_ps(_mm512_loadu_ps(&start[i * nper]));
+    }
+    i = nsimd * nper;
+#elif __AVX2__
+    static constexpr size_t nper = sizeof(__m256i) / sizeof(float);
+    const size_t nsimd = n / nper;
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    i = 0;
+#if 0
+    for(; i < nsimd4; i += 4) {
+        __m256 v0 = _mm256_loadu_ps(&start[i * nper]),
+               v1 = _mm256_loadu_ps(&start[(i + 1) * nper]),
+               v2 = _mm256_loadu_ps(&start[(i + 2) * nper]),
+               v3 = _mm256_loadu_ps(&start[(i + 3) * nper]);
+        sum += broadcast_reduce_sum(_mm256_add_ps(_mm256_add_ps(v0, v1), _mm256_add_ps(v2, v3)));
+    }
+#endif
+    for(; i < nsimd; ++i) {
+        sum += broadcast_reduce_sum(_mm256_loadu_ps(&start[i * nsimd]));
+    }
+    i = nsimd * nper;
+#endif
+    for(;i < n; ++i) {
+        sum += start[i];
+    }
+    std::fprintf(stderr, "blzsum: %g. mysum:%g\n", blzsum, sum);
+    return n / sum;
+}
+template<> inline double calc_card(const double *start, const double *end) {
+    const std::ptrdiff_t n = end - start;
+    auto blzsum = blaze::sum(blaze::CustomVector<double, blaze::unaligned, blaze::unpadded>(const_cast<double *>(start), n));
+    std::fprintf(stderr, "blzsum: %g\n", blzsum);
+    double sum = 0.;
+    size_t i;
+#if __AVX512F__
+    static constexpr size_t nper = sizeof(__m512i) / *start;
+    const size_t nsimd = n / nper;
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    __m512d vsum = _mm512_setzero_pd();
+    for(i = 0; i < nsimd4; i += 4) {
+        vsum = _mm512_add_pd(vsum,
+                _mm512_add_pd(
+                    _mm512_add_pd(_mm512_loadu_pd(&start[i * nper]), _mm512_loadu_pd(&start[(i + 1) * nper])),
+                    _mm512_add_pd(_mm512_loadu_pd(&start[(i + 2) * nper]), _mm512_loadu_pd(&start[(i + 3) * nper]))
+        ));
+    }
+    switch(nsimd - i) {
+        case 3: vsum = _mm512_add_pd(vsum, _mm512_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
+        case 2: vsum = _mm512_add_pd(vsum, _mm512_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
+        case 1: vsum = _mm512_add_pd(vsum, _mm512_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
+        case 0: ;
+    }
+    sum = _mm512_reduce_add_pd(vsum);
+    i = nsimd * nper;
+#elif __AVX2__
+    static constexpr size_t nper = sizeof(__m256i) / sizeof(*start);
+    const size_t nsimd = n / nper;
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    __m256d vsum = _mm256_setzero_pd();
+    for(i = 0; i < nsimd4; i += 4) {
+        vsum = _mm256_add_pd(vsum, _mm256_add_pd(
+                    _mm256_add_pd(_mm256_loadu_pd(&start[i * nper]), _mm256_loadu_pd(&start[(i + 1) * nper])),
+                    _mm256_add_pd(_mm256_loadu_pd(&start[(i + 2) * nper]), _mm256_loadu_pd(&start[(i + 3) * nper]))
+        ));
+    }
+    switch(nsimd - i) {
+        case 3: vsum = _mm256_add_pd(vsum, _mm256_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
+        case 2: vsum = _mm256_add_pd(vsum, _mm256_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
+        case 1: vsum = _mm256_add_pd(vsum, _mm256_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
+        default: [[fallthrough]];
+        case 0: ;
+    }
+    sum = broadcast_reduce_sum(vsum);
+    i = nsimd * nper;
+#endif
+    for(;i < n; ++i) sum += start[i];
+    std::fprintf(stderr, "mysum: %0.20g. osum: %0.20g\n", sum, blzsum);
+    return n / sum;
+}
+#endif
+
+
 template<typename FT=double>
 class CSetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
     // Set sketch 1
     size_t m_; // Number of registers
     std::unique_ptr<FT[]> data_;
+    std::vector<uint64_t> ids_;
     fy::LazyShuffler ls_;
     mvt_t<FT> mvt_;
     static FT *allocate(size_t n) {
@@ -170,11 +319,12 @@ class CSetSketch {
 public:
     const FT *data() const {return data_.get();}
     FT *data() {return data_.get();}
-    CSetSketch(size_t m, FT b, FT a, int q): m_(m), ls_(m_), mvt_(m) {
+    CSetSketch(size_t m, bool track_ids=false): m_(m), ls_(m_), mvt_(m) {
         FT *p = allocate(m_);
         data_.reset(p);
         std::fill(p, p + m_, std::numeric_limits<FT>::max());
         mvt_.assign(p, m_);
+        if(track_ids) ids_.resize(m_);
     }
     CSetSketch(const CSetSketch &o): m_(o.m_), ls_(m_), mvt_(m_) {
         FT *p = allocate(m_);
@@ -190,25 +340,29 @@ public:
     const FT &operator[](size_t i) const {return data_[i];}
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
-    void update(uint64_t id) {
+    void update(const uint64_t id) {
+        uint64_t hid = id;
         size_t bi = 0;
-        uint64_t rv = wy::wyhash64_stateless(&id);
+        uint64_t rv = wy::wyhash64_stateless(&hid);
         FT ev = 0.;
         ls_.reset();
         ls_.seed(rv);
         for(;;) {
-            static constexpr double mul =
-#if __cplusplus >= 201703L
-                0x1p-64;
-#else
-                5.421010862427522e-20;
-#endif
-            if((ev += -getbeta(bi) * std::log(rv * mul)) >= mvt_.max())
-                return;
+            if(sizeof(FT) > 8) {
+                auto lrv = __uint128_t(rv) << 64;
+                lrv |= wy::wyhash64_stateless(&rv);
+                ev += -getbeta(bi) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+            } else {
+                ev += -getbeta(bi) * std::log(rv * INVMUL64);
+            }
+            if(ev >= mvt_.max()) break;
             auto idx = ls_.step();
-            mvt_.update(idx, ev);
-            if(++bi == m_) return;
-            rv = wy::wyhash64_stateless(&id);
+            if(mvt_.update(idx, ev)) {
+                if(!ids_.empty()) ids_[idx] = id;
+            }
+            if(++bi == m_)
+                break;
+            rv = wy::wyhash64_stateless(&hid);
         }
     }
     bool operator==(const CSetSketch<FT> &o) const {
@@ -227,8 +381,21 @@ public:
         ret += o;
         return ret;
     }
+    double jaccard_index(const CSetSketch<FT> &o) const {
+        return shared_registers(o) / double(m_);
+    }
     size_t shared_registers(const CSetSketch<FT> &o) const {
-        return eq::count_eq(data(), o.data(), m_);
+        CONST_IF(sizeof(FT) == 4) {
+            return eq::count_eq((uint32_t *)data(), (uint32_t *)o.data(), m_);
+        } else CONST_IF(sizeof(FT) == 8) {
+            return eq::count_eq((uint64_t *)data(), (uint64_t *)o.data(), m_);
+        } else CONST_IF(sizeof(FT) = 2) {
+            return eq::count_eq((uint16_t *)data(), (uint16_t *)o.data(), m_);
+        }
+        auto optr = o.data();
+        return std::accumulate(data(), data() + m_, size_t(0), [&optr](size_t nshared, FT x) {
+            return nshared + (x == *optr++);
+        });
     }
     void write(std::string s) const {
         gzFile fp = gzopen(s.data(), "w");
@@ -272,6 +439,10 @@ public:
     void clear() {
         std::fill(data_.get(), &data_[m_ * 2 - 1], std::numeric_limits<FT>::max());
     }
+    const std::vector<uint64_t> &ids() const {return ids_;}
+    double cardinality() const {
+        return calc_card(data_.get(), &data_[m_]);
+    }
 };
 
 template<typename ResT, typename FT=double>
@@ -284,8 +455,12 @@ class SetSketch {
     FT b_; // Base
     FT ainv_;
     FT logbinv_;
-    int q_;
+    using QType = std::common_type_t<ResT, int>;
+    QType q_;
     std::unique_ptr<ResT[]> data_;
+    std::vector<uint64_t> ids_; // The IDs representing the sampled items.
+                                // Only used if SetSketch is
+    std::vector<FT> lbetas_; // Cache Beta values * 1. / a
     fy::LazyShuffler ls_;
     minvt_t<ResT> lowkh_;
     static ResT *allocate(size_t n) {
@@ -308,18 +483,24 @@ class SetSketch {
 public:
     const ResT *data() const {return data_.get();}
     ResT *data() {return data_.get();}
-    SetSketch(size_t m, FT b, FT a, int q): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_), lowkh_(m) {
+    SetSketch(size_t m, FT b, FT a, int q, bool track_ids = false): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_), lowkh_(m) {
         ResT *p = allocate(m_);
         data_.reset(p);
         std::fill(p, p + m_, static_cast<ResT>(0));
         lowkh_.assign(p, m_, b_);
+        if(track_ids) ids_.resize(m_);
+        lbetas_.resize(m_);
+        for(size_t i = 0; i < m_; ++i) {
+            lbetas_[i] = -ainv_ / (m_ - i);
+        }
     }
-    SetSketch(const SetSketch &o): m_(o.m_), a_(o.a_), b_(o.b_), ainv_(o.ainv_), logbinv_(o.logbinv_), q_(o.q_), ls_(m_), lowkh_(m_) {
+    SetSketch(const SetSketch &o): m_(o.m_), a_(o.a_), b_(o.b_), ainv_(o.ainv_), logbinv_(o.logbinv_), q_(o.q_), ls_(m_), lowkh_(m_), lbetas_(o.lbetas_) {
         ResT *p = allocate(m_);
         data_.reset(p);
         lowkh_.assign(p, m_, b_);
         std::copy(o.data_.get(), &o.data_[2 * m_ - 1], p);
     }
+    SetSketch(SetSketch &&o) = default;
     SetSketch(const std::string &s): ls_(1), lowkh_(1) {
         read(s);
     }
@@ -334,28 +515,34 @@ public:
     void print() const {
         std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
     }
-    void update(uint64_t id) {
+    void update(const uint64_t id) {
+        uint64_t hid = id;
         size_t bi = 0;
-        uint64_t rv = wy::wyhash64_stateless(&id);
+        uint64_t rv = wy::wyhash64_stateless(&hid);
         double ev = 0.;
         ls_.reset();
         ls_.seed(rv);
         for(;;) {
-            static constexpr double mul =
-#if __cplusplus >= 201703L
-                0x1p-64;
-#else
-                5.421010862427522e-20;
-#endif
-            ev += -getbeta(bi) * ainv_ * std::log(rv * mul);
+            const auto ba = lbetas_[bi];
+            if(sizeof(FT) > 8) {
+                auto lrv = __uint128_t(rv) << 64;
+                lrv |= wy::wyhash64_stateless(&rv);
+                ev += ba * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+            } else {
+                ev += ba * std::log(rv * INVMUL64);
+            }
             if(ev > lowkh_.explim()) return;
-            const int k = std::max(0, std::min(q_ + 1, static_cast<int>((1. - std::log(ev) * logbinv_))));
+            const QType k = std::max(0, std::min(q_ + 1, static_cast<QType>((1. - std::log(ev) * logbinv_))));
             if(k <= klow()) return;
             auto idx = ls_.step();
-            lowkh_.update(idx, k);
+            if(lowkh_.update(idx, k)) {
+                if(!ids_.empty()) {
+                    ids_[idx] = id;
+                }
+            }
             if(++bi == m_)
                 return;
-            rv = wy::wyhash64_stateless(&id);
+            rv = wy::wyhash64_stateless(&hid);
         }
     }
     bool operator==(const SetSketch<ResT, FT> &o) const {
@@ -479,6 +666,7 @@ public:
     void clear() {
         std::fill(data_.get(), &data_[m_ * 2 - 1], ResT(0));
     }
+    const std::vector<uint64_t> &ids() const {return ids_;}
 };
 
 struct NibbleSetS: public SetSketch<uint8_t> {

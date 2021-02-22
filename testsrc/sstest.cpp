@@ -1,4 +1,5 @@
 #include "setsketch.h"
+#include "blaze/Math.h"
 #include "hll.h"
 #include <chrono>
 
@@ -6,6 +7,18 @@ using namespace sketch;
 struct NibbleSet8: public SetSketch<uint8_t> {
     NibbleSet8(int nreg): SetSketch<uint8_t>(nreg, 8., 1., 14) {}
 };
+
+
+template<typename FT>
+double card(const CSetSketch<FT> &o) {
+    long double ret = 0.;
+    auto p = o.data();
+    for(size_t i = 0; i < o.size(); ++i) {
+        ret += p[i];
+    }
+    return o.size() / ret;
+}
+
 int main(int argc, char **argv) {
     const size_t n = argc <= 1 ? 1000: std::atoi(argv[1]);
     const size_t m = argc <= 2 ? 25: std::atoi(argv[2]);
@@ -13,6 +26,7 @@ int main(int argc, char **argv) {
     const double sa = argc <= 4 ? 30: std::atof(argv[4]);
     double hlv, bc, nc, sc, n8c;
     ByteSetS lhb(m), rhb(m);
+    CSetSketch<long double> css(m), css2(m), css3(m);
     //ByteSetS lhb(m, sb, sa), rhb(m, sb, sa);
     NibbleSetS shl(m<<1), shr(m<<1);
     NibbleSet8 nshl(m<<1), nshr(m<<1);
@@ -30,12 +44,15 @@ int main(int argc, char **argv) {
         lhn.update(i + 0x1FFFFFFFFFFFull);
         rhn.update(i + 0xFFFFFFFFFFFFFFull);
         rhn.update(i + 0x1FFFFFFFFFFFFFFull);
+        css.update(i); css2.update(i); css3.update(i);
     }
     auto t2 = std::chrono::high_resolution_clock::now();
     std::fprintf(stderr, "Time for %zu : %0.20g\n", n, std::chrono::duration<double, std::milli>(t2 - t).count());
     hlv = h.report();
     bc = lhb.cardinality(), nc = shl.cardinality(), sc = rhn.cardinality(), n8c = nshl.cardinality();
     std::fprintf(stderr, "h report: %0.20g, %%%f error\n", hlv, std::abs(hlv - n) / n * 100.);
+    std::fprintf(stderr, "css est: %0.20g. %%%f error\n", card(css), std::abs((card(css) - n) / (n) * 100.));
+    std::fprintf(stderr, "css est: %0.20g\n", css.cardinality());
     assert(std::equal(lhb.data(), lhb.data() + lhb.size(), rhb.data()));
     std::fprintf(stderr, "Cardinality for nibs: %0.20g, %%%f error\n", nc, std::abs(nc - n) / n * 100.);
     std::fprintf(stderr, "Cardinality for nib8s: %0.20g, %%%f error\n", n8c, std::abs(n8c - n) / n * 100.);
