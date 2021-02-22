@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
     }
     {
         auto lhb =lhn.data(), lhe = lhb + lhn.size();
-        std::fprintf(stderr, "Matching registers for Short set: %zu/%zu. Max: %u. min: %u.\n", mat, lhn.size(), *std::max_element(lhb, lhe), *std::min_element(lhb, lhe));
+        std::fprintf(stderr, "Matching registers for Short set: %zu/%zu. Max: %0.10Lg. min: %0.10Lg.\n", mat, lhn.size(), (long double)*std::max_element(lhb, lhe), (long double)*std::min_element(lhb, lhe));
         auto abmu = lhn.alpha_beta_mu(rhn, lhn.cardinality(), rhn.cardinality());
         auto a = std::get<0>(abmu);
         auto b = std::get<1>(abmu);
@@ -72,6 +72,7 @@ int main(int argc, char **argv) {
         auto isz = std::max(0., mu * (1. - a - b));
         std::fprintf(stderr, "Alpha: %g. beta: %g. mu: %g. isz: %g. JI: %g\n", a, b, mu, isz, isz / mu);
     }
+    std::fprintf(stderr, "CSetSketch min: %0.20Lg, max: %0.20Lg\n", (long double)css.min(), (long double)css.max());
     std::fprintf(stderr, "Registers for nibbles: Max: %u. min: %u.\n", *std::max_element(shl.data(), shl.data() + m), *std::min_element(shl.data(), shl.data() + m));
     std::fprintf(stderr, "Registers for smallnibbles: Max: %u. min: %u.\n", *std::max_element(nshl.data(), nshl.data() + m), *std::min_element(nshl.data(), nshl.data() + m));
     std::fprintf(stderr, "Registers for bytes: Max: %u. min: %u.\n", *std::max_element(lhb.data(), lhb.data() + m), *std::min_element(lhb.data(), lhb.data() + m));

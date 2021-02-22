@@ -173,7 +173,7 @@ static inline long double g_b(long double b, long double arg) {
 
 template<typename FT>
 inline double calc_card(const FT *start, const FT *end) {
-    bool is_aligned = (reinterpret_cast<uint64_t>(start) % 
+    bool is_aligned = (reinterpret_cast<uint64_t>(start) %
 #if __AVX512F__
         64
 #elif __AVX2__
@@ -335,6 +335,8 @@ public:
     CSetSketch(const std::string &s): ls_(1), mvt_(1) {
         read(s);
     }
+    FT min() const {return *std::min_element(data(), data() + m_);}
+    FT max() const {return mvt_.max();}
     size_t size() const {return m_;}
     FT &operator[](size_t i) {return data_[i];}
     const FT &operator[](size_t i) const {return data_[i];}
@@ -442,6 +444,15 @@ public:
     const std::vector<uint64_t> &ids() const {return ids_;}
     double cardinality() const {
         return calc_card(data_.get(), &data_[m_]);
+    }
+    static std::pair<FT, FT> optimal_parameters(FT maxreg, FT minreg, size_t q) {
+        FT b = std::exp(std::log(minreg / maxreg) / q);
+        return {b, minreg / b};
+    }
+    template<typename ResT=uint16_t>
+    static std::pair<FT, FT> optimal_parameters(FT maxreg, FT minreg) {
+        static constexpr unsigned long long q = sizeof(ResT) = 1 ? 254ull : sizeof(ResT) == 2 ? 65534ull: sizeof(ResT) == 4 ? 4294967294ull: 18446744073709551614ull;
+        return optimal_parameters(maxreg, minreg, q);
     }
 };
 

@@ -15,7 +15,7 @@ int main() {
     auto step1_2 = cs_compress(init, 13, hf);
     auto step2 = cs_decompress(step1, D, hf);
     auto step2_1 = cs_decompress(step1_1, D, hf);
-    // top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, const KWiseHasherSet<4> &hf, unsigned k) 
+    // top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, const KWiseHasherSet<4> &hf, unsigned k)
     auto topind = top_indices_from_compressed(step1, D, 100, hf, 20);
     std::fprintf(stderr, "topind sizes: %zu, %zu\n", topind.first.size(), topind.second.size());
     for(const auto i: topind.first) {
@@ -58,6 +58,6 @@ int main() {
     //assert((is3.pnorm() - sn) / sn * 100. <= 12.);
     auto us = is2.union_size(is3);
     std::fprintf(stderr, "us: %f. n1 %f, n2 %f. expected: %zu. %% diff: %f\n", us, is2.pnorm(), is3.pnorm(), sn * 19, fracdiff(us, is2.pnorm() + is3.pnorm()) * 100.);
-    //std::fprintf(stderr, "Expected us: %f\n", 
+    //std::fprintf(stderr, "Expected us: %f\n",
     auto diff = is2 - is3;
 }

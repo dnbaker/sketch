@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e 
+set -e
 set -o pipefail
 
 make setup_tests -j8

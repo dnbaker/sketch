@@ -3,7 +3,7 @@
 
 using namespace sketch;
 int main() {
-    modsketch_t<hash::WangHash, uint64_t, 
+    modsketch_t<hash::WangHash, uint64_t,
                 policy::SizeDivPolicy<uint64_t>,
                 std::allocator<uint64_t>
                 > mod(16);
