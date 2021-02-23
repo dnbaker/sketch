@@ -1,7 +1,7 @@
 #include "python/pysketch.h"
 #include "sketch/setsketch.h"
 
-PYBIND11_MODULE(sketch_hll, m) {
+PYBIND11_MODULE(sketch_ss, m) {
     m.doc() = "SetSketch python bindings"; // optional module docstring
     py::class_<EShortSetS> (m, "ShortSetSketch")
         .def(py::init<size_t>())

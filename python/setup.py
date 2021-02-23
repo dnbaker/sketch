@@ -24,7 +24,7 @@ extra_compile_args = ['-march=native',
                       '-Wno-char-subscripts', '-Wno-unused-function',
                       '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv',
                       '-lz', '-fopenmp', '-lgomp', '-DNDEBUG',
-                      '-DBLAZE_SHARED_MEMORY_PARALLELIZATION=0']
+                      '-DBLAZE_SHARED_MEMORY_PARALLELIZATION=0', "-O3"]
 
 include_dirs=[
     # Path to pybind11 headers

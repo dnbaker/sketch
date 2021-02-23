@@ -157,9 +157,7 @@ INLINE float broadcast_reduce_sum(__m256 x) {
     const __m256 m1 = _mm256_add_ps(m0, perm0);
     const __m256 perm1 = _mm256_permute_ps(m1, 0b10110001);
     const __m256 m2 = _mm256_add_ps(perm1, m1);
-    float ret = m2[0];
-    std::fprintf(stderr, "sum of %g/%g/%g/%g/%g/%g/%g/%g is %g\n", x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], ret);
-    return ret;
+    return m2[0];
 }
 INLINE double broadcast_reduce_sum(__m256d x) {
     __m256d m1 = _mm256_add_pd(x, _mm256_permute2f128_pd(x, x, 1));
@@ -173,122 +171,12 @@ static inline long double g_b(long double b, long double arg) {
 
 template<typename FT>
 inline double calc_card(const FT *start, const FT *end) {
-    bool is_aligned = (reinterpret_cast<uint64_t>(start) %
-#if __AVX512F__
-        64
-#elif __AVX2__
-        32
-#else
-        1
-#endif
-        ) == 0;
-    double sum;
-    const size_t n = end - start;
-    if(is_aligned) sum = blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(const_cast<FT *>(start), n)));
-    else           sum = blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::unaligned, blaze::unpadded>(const_cast<FT *>(start), n)));
-    return n / sum;
-}
-
-#if 0
-template<> inline double calc_card(const float *const start, const float *const end) {
+    // return n / sum = 
     const std::ptrdiff_t n = end - start;
-    auto blzsum = blaze::sum(blaze::CustomVector<float, blaze::unaligned, blaze::unpadded>(const_cast<float *>(start), n));
-    std::fprintf(stderr, "blzsum: %g\n", blzsum);
-    double sum = 0.;
-    size_t i;
-#if __AVX512F__
-    static constexpr size_t nper = sizeof(__m512i) / sizeof(float);
-    const size_t nsimd = n / nper;
-    const size_t nsimd4 = (nsimd / 4) * 4;
-    for(i = 0; i < nsimd4; i += 4) {
-        __m512 v0 = _mm512_loadu_ps(&start[i * nper]),
-               v1 = _mm512_loadu_ps(&start[(i + 1) * nper])
-               v2 = _mm512_loadu_ps(&start[(i + 2) * nper])
-               v3 = _mm512_loadu_ps(&start[(i + 3) * nper]);
-        sum += _mm512_reduce_add_ps(_mm512_add_ps(_mm512_add_ps(v0, v1), _mm512_add_ps(v2, v3)));
-    }
-    for(i = nsimd4; i < nsimd; ++i) {
-        sum += _mm512_reduce_add_ps(_mm512_loadu_ps(&start[i * nper]));
-    }
-    i = nsimd * nper;
-#elif __AVX2__
-    static constexpr size_t nper = sizeof(__m256i) / sizeof(float);
-    const size_t nsimd = n / nper;
-    const size_t nsimd4 = (nsimd / 4) * 4;
-    i = 0;
-#if 0
-    for(; i < nsimd4; i += 4) {
-        __m256 v0 = _mm256_loadu_ps(&start[i * nper]),
-               v1 = _mm256_loadu_ps(&start[(i + 1) * nper]),
-               v2 = _mm256_loadu_ps(&start[(i + 2) * nper]),
-               v3 = _mm256_loadu_ps(&start[(i + 3) * nper]);
-        sum += broadcast_reduce_sum(_mm256_add_ps(_mm256_add_ps(v0, v1), _mm256_add_ps(v2, v3)));
-    }
-#endif
-    for(; i < nsimd; ++i) {
-        sum += broadcast_reduce_sum(_mm256_loadu_ps(&start[i * nsimd]));
-    }
-    i = nsimd * nper;
-#endif
-    for(;i < n; ++i) {
-        sum += start[i];
-    }
-    std::fprintf(stderr, "blzsum: %g. mysum:%g\n", blzsum, sum);
-    return n / sum;
+    return n /
+        blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(
+                const_cast<FT *>(start), n)));
 }
-template<> inline double calc_card(const double *start, const double *end) {
-    const std::ptrdiff_t n = end - start;
-    auto blzsum = blaze::sum(blaze::CustomVector<double, blaze::unaligned, blaze::unpadded>(const_cast<double *>(start), n));
-    std::fprintf(stderr, "blzsum: %g\n", blzsum);
-    double sum = 0.;
-    size_t i;
-#if __AVX512F__
-    static constexpr size_t nper = sizeof(__m512i) / *start;
-    const size_t nsimd = n / nper;
-    const size_t nsimd4 = (nsimd / 4) * 4;
-    __m512d vsum = _mm512_setzero_pd();
-    for(i = 0; i < nsimd4; i += 4) {
-        vsum = _mm512_add_pd(vsum,
-                _mm512_add_pd(
-                    _mm512_add_pd(_mm512_loadu_pd(&start[i * nper]), _mm512_loadu_pd(&start[(i + 1) * nper])),
-                    _mm512_add_pd(_mm512_loadu_pd(&start[(i + 2) * nper]), _mm512_loadu_pd(&start[(i + 3) * nper]))
-        ));
-    }
-    switch(nsimd - i) {
-        case 3: vsum = _mm512_add_pd(vsum, _mm512_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 2: vsum = _mm512_add_pd(vsum, _mm512_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 1: vsum = _mm512_add_pd(vsum, _mm512_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 0: ;
-    }
-    sum = _mm512_reduce_add_pd(vsum);
-    i = nsimd * nper;
-#elif __AVX2__
-    static constexpr size_t nper = sizeof(__m256i) / sizeof(*start);
-    const size_t nsimd = n / nper;
-    const size_t nsimd4 = (nsimd / 4) * 4;
-    __m256d vsum = _mm256_setzero_pd();
-    for(i = 0; i < nsimd4; i += 4) {
-        vsum = _mm256_add_pd(vsum, _mm256_add_pd(
-                    _mm256_add_pd(_mm256_loadu_pd(&start[i * nper]), _mm256_loadu_pd(&start[(i + 1) * nper])),
-                    _mm256_add_pd(_mm256_loadu_pd(&start[(i + 2) * nper]), _mm256_loadu_pd(&start[(i + 3) * nper]))
-        ));
-    }
-    switch(nsimd - i) {
-        case 3: vsum = _mm256_add_pd(vsum, _mm256_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 2: vsum = _mm256_add_pd(vsum, _mm256_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 1: vsum = _mm256_add_pd(vsum, _mm256_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        default: [[fallthrough]];
-        case 0: ;
-    }
-    sum = broadcast_reduce_sum(vsum);
-    i = nsimd * nper;
-#endif
-    for(;i < n; ++i) sum += start[i];
-    std::fprintf(stderr, "mysum: %0.20g. osum: %0.20g\n", sum, blzsum);
-    return n / sum;
-}
-#endif
-
 
 template<typename FT=double>
 class CSetSketch {
@@ -311,11 +199,13 @@ class CSetSketch {
             16;
 #endif
 #if __cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC)
-        if((ret = static_cast<FT *>(std::aligned_alloc(ALN, n * sizeof(FT)))) == nullptr)
+        size_t nbytes = n * sizeof(FT);
+        if(auto rem = nbytes % ALN)
+            nbytes += ALN - rem;
+        if(!(ret = static_cast<FT *>(std::aligned_alloc(ALN, nbytes)))) throw std::bad_alloc();
 #else
-        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT)))
+        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT))) throw std::bad_alloc();
 #endif
-            throw std::bad_alloc();
         return ret;
     }
     FT getbeta(size_t idx) const {
@@ -451,12 +341,13 @@ public:
         return calc_card(data_.get(), &data_[m_]);
     }
     static std::pair<FT, FT> optimal_parameters(FT maxreg, FT minreg, size_t q) {
-        FT b = std::exp(std::log(minreg / maxreg) / q);
-        return {b, minreg / b};
+        FT b = std::exp(std::log(maxreg / minreg) / q);
+        return {b, maxreg / b};
     }
     template<typename ResT=uint16_t>
     static std::pair<FT, FT> optimal_parameters(FT maxreg, FT minreg) {
-        static constexpr unsigned long long q = sizeof(ResT) = 1 ? 254ull : sizeof(ResT) == 2 ? 65534ull: sizeof(ResT) == 4 ? 4294967294ull: 18446744073709551614ull;
+        if(maxreg < minreg) std::swap(maxreg, minreg);
+        static constexpr uint64_t q = sizeof(ResT) = 1 ? uint64_t(uint8_t(-1)) : sizeof(ResT) == 2 ? uint64_t(uint16_t(-1)): sizeof(ResT) == 4 ? uint64_t(uint32_t(-1)): uint64_t(-1);
         return optimal_parameters(maxreg, minreg, q);
     }
 };
