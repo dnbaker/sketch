@@ -184,9 +184,10 @@ class CSetSketch {
     // Set sketch 1
     size_t m_; // Number of registers
     std::unique_ptr<FT[]> data_;
-    std::vector<uint64_t> ids_;
     fy::LazyShuffler ls_;
     mvt_t<FT> mvt_;
+    std::vector<uint64_t> ids_;
+    std::vector<uint32_t> idcounts_;
     static FT *allocate(size_t n) {
         n = (n << 1) - 1;
         FT *ret = nullptr;
@@ -214,14 +215,15 @@ class CSetSketch {
 public:
     const FT *data() const {return data_.get();}
     FT *data() {return data_.get();}
-    CSetSketch(size_t m, bool track_ids=false): m_(m), ls_(m_), mvt_(m) {
+    CSetSketch(size_t m, bool track_ids=false, bool track_counts=false): m_(m), ls_(m_), mvt_(m) {
         FT *p = allocate(m_);
         data_.reset(p);
         std::fill(p, p + m_, std::numeric_limits<FT>::max());
         mvt_.assign(p, m_);
-        if(track_ids) ids_.resize(m_);
+        if(track_ids || track_counts) ids_.resize(m_);
+        if(track_counts)         idcounts_.resize(m_);
     }
-    CSetSketch(const CSetSketch &o): m_(o.m_), ls_(m_), mvt_(m_) {
+    CSetSketch(const CSetSketch &o): m_(o.m_), ls_(m_), mvt_(m_), ids_(o.ids_), idcounts_(o.idcounts_) {
         FT *p = allocate(m_);
         data_.reset(p);
         mvt_.assign(p, m_);
@@ -255,7 +257,12 @@ public:
             if(ev >= mvt_.max()) break;
             auto idx = ls_.step();
             if(mvt_.update(idx, ev)) {
-                if(!ids_.empty()) ids_[idx] = id;
+                if(!ids_.empty()) {
+                    ids_[idx] = id;
+                    if(!idcounts_.empty()) idcounts_[idx] = 1;
+                }
+            } else if(!idcounts_.empty()) {
+                if(id == ids_[idx]) ++idcounts_[idx];
             }
             if(++bi == m_)
                 break;
@@ -337,6 +344,7 @@ public:
         std::fill(data_.get(), &data_[m_ * 2 - 1], std::numeric_limits<FT>::max());
     }
     const std::vector<uint64_t> &ids() const {return ids_;}
+    const std::vector<uint32_t> &idcounts() const {return idcounts_;}
     double cardinality() const {
         return calc_card(data_.get(), &data_[m_]);
     }
