@@ -57,33 +57,9 @@ All have been accelerated with SIMD parallelism where possible, most are composa
     1. Reference: https://dl.acm.org/doi/10.1016/0022-0000%2885%2990041-8
        Journal of Computer and System Sciences.
        September 1985 https://doi.org/10.1016/0022-0000(85)90041-8
-
-The following sketches are experimental or variations on prior structures
-1. HyperLogFilter [hll.h]
-    1. `hlf_t`/`hlfbase_t<HashStruct>`, `chlf_t`/`chlfbase_t<HashStruct>`
-    2. New data structure which provides the same quantitative accuracy as a HyperLogLog while providing more effective approximate membership query functionality than the HyperLogLog.
-    2. `chlf_t` is identical to the `hlf_t` structure, with the exception that the memory is contiguous and each sketch cannot be used individually.
-    3. Threadsafe unless `-DNOT_THREADSAFE` is passed.
-2. filterhll [filterhll.h]
-    1. `fhll_t`/`fhllbase_t<HashStruct>`
-    2. Simple hll/bf combination without rigorous guarantees for requiring an element be present in the bloom filter to be inserted into the HyperLogLog.
-    3. Currently *not* threadsafe.
-3. Naive Approximate Counting Bloom Filter [cbf.h]
-    1. `cbf_t`/`cbfbase_t<HashStruct>`
-    2. An array of bloom filters where presence in a sketch at a given index replaces the count for the approximate counting algorithm.
-    3. Currently *not* threadsafe.
-7. Probabilistic Counting Bloom Filter
-    1. `pcbf_t`/`pcbfbase_t<HashStruct>`
-    2. An array each of bloom filters and hyperloglogs for approximate counting. The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation The hyperloglogs provide estimated cardinalities for inserted elements, which allows us to estimate the error rates of the bloom filters and therefore account for them in count estimation.
-    3. Currently *not* threadsafe.
-8. Multiplicity Adapter
-    1. In `mult.h`, the WeightedSketch template class uses a point querying counting structure (by default, a count-min sketch, but we have observed better results with HeavyKeeper).
-    2. You can find an example of an adapter providing a weighted jaccard HyperLogLog in `test/multtest.cpp`. This works for any of the structures working on unweighted sets.
-
-Future work
-1. Multiplicities
-    1. Consistent Weighted Sampling, Improved CWS
-2. Sampling algorithms and core-sets
+11. SetSketch
+    1. See setsketch.h for continuous and discretized versions of the SetSketch.
+    2. This also includes parameter-setting code.
 
 ### Test case
 To build and run the hll test case:
@@ -93,7 +69,7 @@ make test && ./test
 ```
 
 ### Example
-To use:
+To use as a header-only library:
 
 ```c++
 using namespace sketch;
