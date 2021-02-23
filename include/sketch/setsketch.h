@@ -310,7 +310,12 @@ class CSetSketch {
 #else
             16;
 #endif
-        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT))) throw std::bad_alloc();
+#if __cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC)
+        if((ret = static_cast<FT *>(std::aligned_alloc(ALN, n * sizeof(FT)))) == nullptr)
+#else
+        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT)))
+#endif
+            throw std::bad_alloc();
         return ret;
     }
     FT getbeta(size_t idx) const {
@@ -485,7 +490,12 @@ class SetSketch {
 #else
             16;
 #endif
-        if(posix_memalign((void **)&ret, ALN, n * sizeof(ResT))) throw std::bad_alloc();
+#if __cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC)
+        if((ret = static_cast<FT *>(std::aligned_alloc(ALN, n * sizeof(FT)))) == nullptr)
+#else
+        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT)))
+#endif
+            throw std::bad_alloc();
         return ret;
     }
     FT getbeta(size_t idx) const {
