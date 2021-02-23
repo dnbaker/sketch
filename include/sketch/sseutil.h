@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <cstddef>
 #include <cassert>
+#include <utility>
+#include <stdexcept>
 
 namespace sse {
 
@@ -35,6 +37,14 @@ enum class Alignment : size_t
     AVX512 = 64
 };
 
+
+#ifndef USE_ALIGNED_ALLOC
+#  if (__cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC))
+#    define USE_ALIGNED_ALLOC 1
+#  else
+#    define USE_ALIGNED_ALLOC 0
+#  endif
+#endif
 
 namespace detail {
     static inline void* allocate_aligned_memory(size_t align, size_t size) {

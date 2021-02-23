@@ -67,7 +67,7 @@ INLINE T median(T *v, size_t n) {
     }
     if(n < 50)
         detail::insertion_sort(v, v + n);
-    else 
+    else
 #ifdef PDQSORT_H
         pdqsort(v, v + n);
 #else

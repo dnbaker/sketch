@@ -1,5 +1,6 @@
 #include "hll.h"
 #include "bbmh.h"
+#include "sketch/setsketch.h"
 #include "aesctr/wy.h"
 #include <chrono>
 using namespace sketch;
@@ -82,5 +83,13 @@ int main(int argc, char *argv[]) {
         gzclose(fp);
         if(std::system("rm 10hlls.whooo")) throw "sideways";
         assert(std::equal(hlls.begin(), hlls.end(), ohlls.begin()));
+    }
+    {
+        EShortSetS ss(100);
+        for(size_t i = 0; i < 1000; ++i) ss.add(i);
+        ss.write("ss100.ss");
+        EShortSetS ss2("ss100.ss");
+        assert(ss2 == ss);
+        if(std::system("rm ss100.ss")) throw "sideways";
     }
 }

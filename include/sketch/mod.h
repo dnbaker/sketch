@@ -90,7 +90,7 @@ public:
         size_t isz = this->intersection_size(o);
         return double(isz) / (this->first.size() + o.size() - isz);
     }
-    double containment_index(const FinalModHash &o) const {                                        
+    double containment_index(const FinalModHash &o) const {
         return double(this->intersection_size(o)) / this->first.size();
     }
     double cardinality_estimate() const {

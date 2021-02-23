@@ -106,7 +106,7 @@ public:
             return n_ * 1.292808 * sum * sum;
 #endif
         }
-        double mean = 
+        double mean =
             double(std::accumulate(counters_.get(), counters_.get() + n_, 0u, [](auto x, auto y) {
                 return detail::r(y) + x;
             })) / n_;

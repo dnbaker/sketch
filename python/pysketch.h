@@ -7,6 +7,7 @@
 #include "sketch/hmh.h"
 #include <omp.h>
 #include "aesctr/wy.h"
+#include "sketch/setsketch.h"
 namespace py = pybind11;
 using namespace sketch;
 using namespace hll;
@@ -130,5 +131,29 @@ struct CSF {
         return x.containment_index(y);
     }
 };
+
+template<typename ResT, typename FT>
+py::array setsketch2np(const SetSketch<ResT, FT> &o) {
+    std::string s(1, sizeof(ResT) == 2 ? 'S': 'B');
+    py::array ret(py::dtype(s), std::vector<py::ssize_t>({py::ssize_t(o.size())}));
+    auto ri = ret.request();
+    if(sizeof(ResT) == 2) {
+        std::copy(o.data(), o.data() + o.size(), (uint16_t *)ri.ptr);
+    } else {
+        if(sizeof(ResT) != 1) throw std::runtime_error("Expected SetSketch with 2 bytes or 1 byte per register");
+        std::copy(o.data(), o.data() + o.size(), (uint8_t *)ri.ptr);
+    }
+    return ret;
+}
+template<typename FT>
+py::array setsketch2np(const CSetSketch<FT> &o) {
+    static constexpr size_t itemsize = sizeof(FT);
+    const char fc = itemsize == 4 ? 'f': itemsize == 8 ? 'd': itemsize ? 'g': 'e'; // g = longdouble, e = float16
+    std::string s(1, fc);
+    py::array ret(py::dtype(s), std::vector<py::ssize_t>({py::ssize_t(o.size())}));
+    auto ri = ret.request();
+    std::copy(o.data(), o.data() + o.size(), (FT *)ri.ptr);
+    return ret;
+}
 
 #endif

@@ -36,7 +36,7 @@ namespace sketch {
 inline namespace integral {
 #if defined(__GNUC__) || defined(__clang__)
 CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(signed long long x) noexcept {
-    return 
+    return
 #ifdef __CUDA_ARCH__
     __clzll(x);
 #else
@@ -272,11 +272,31 @@ static INLINE uint64_t vatpos(const T v, size_t ind) noexcept {
 
 template<typename T>
 INLINE uint64_t sum_of_u64s(const T val) noexcept {
+    if(sizeof(val) < sizeof(uint64_t)) {
+        if(sizeof(val) == 8) return *(uint64_t *)&val;
+        if(sizeof(val) == 4) return *((uint32_t *)&val);
+    }
     uint64_t sum = vatpos(val, 0);
     for(size_t i = 1; i < sizeof(T) / sizeof(uint64_t); ++i)
         sum += vatpos(val, i);
     return sum;
 }
+
+#if __AVX2__
+template<>
+INLINE uint64_t sum_of_u64s<__m256i>(const __m256i x) noexcept {
+    __m256i y = (__m256i)(_mm256_permute2f128_pd((__m256d)x, (__m256d)x, 1));
+    __m256i m1 = _mm256_add_epi64(x, y);
+    __m256i m2 = (__m256i)_mm256_permute_pd((__m256d)m1, 5);
+    return _mm256_extract_epi64(_mm256_add_epi64(m1, m2), 0);
+}
+#endif
+#if __SSE2__
+template<>
+INLINE uint64_t sum_of_u64s<__m128i>(const __m128i val) noexcept {
+    return _mm_extract_epi64(val, 0) + _mm_extract_epi64(val, 1);
+}
+#endif
 
 #ifndef AVX512_REDUCE_OPERATIONS_ENABLED
 #  if (defined(__AVX512F__) || defined(__KNCNI__)) && ((defined(__clang__) && __clang_major__ >= 4) \
