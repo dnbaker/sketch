@@ -81,13 +81,13 @@ static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint
     const size_t nsimd4 = (nsimd / 4) * 4;
     for(size_t i = 0; i < nsimd4; i += 4) {
         __m512i lhv0 = _mm512_loadu_si512((__m512i *)lhs + i + 0),
-                rhv0 = _mm512_loadu_si512((__m512i *)lhs + i + 0);
+                rhv0 = _mm512_loadu_si512((__m512i *)rhs + i + 0);
         __m512i lhv1 = _mm512_loadu_si512((__m512i *)lhs + i + 1),
-                rhv1 = _mm512_loadu_si512((__m512i *)lhs + i + 1);
+                rhv1 = _mm512_loadu_si512((__m512i *)rhs + i + 1);
         __m512i lhv2 = _mm512_loadu_si512((__m512i *)lhs + i + 2),
-                rhv2 = _mm512_loadu_si512((__m512i *)lhs + i + 2);
+                rhv2 = _mm512_loadu_si512((__m512i *)rhs + i + 2);
         __m512i lhv3 = _mm512_loadu_si512((__m512i *)lhs + i + 3),
-                rhv3 = _mm512_loadu_si512((__m512i *)lhs + i + 3);
+                rhv3 = _mm512_loadu_si512((__m512i *)rhs + i + 3);
         uint64_t eq_hi0 = _mm512_cmpeq_epi32_mask(lhv0 & _mm512_set1_epi32(0x0000FFFFu), rhv0 & _mm512_set1_epi32(0x0000FFFFu));
         uint64_t eq_lo0 = _mm512_cmpeq_epi32_mask(lhv0 & _mm512_set1_epi32(0xFFFF0000u), rhv0 & _mm512_set1_epi32(0xFFFF0000u));
         uint64_t eq_hi1 = _mm512_cmpeq_epi32_mask(lhv1 & _mm512_set1_epi32(0x0000FFFFu), rhv1 & _mm512_set1_epi32(0x0000FFFFu));
@@ -101,7 +101,7 @@ static inline size_t count_eq_shorts(const uint16_t *SK_RESTRICT lhs, const uint
     }
     for(size_t i = nsimd4; i < nsimd; ++i) {
         __m512i lhv0 = _mm512_loadu_si512((__m512i *)lhs + i + 0),
-                rhv0 = _mm512_loadu_si512((__m512i *)lhs + i + 0);
+                rhv0 = _mm512_loadu_si512((__m512i *)rhs + i + 0);
         uint64_t eq_hi0 = _mm512_cmpeq_epi32_mask(lhv0 & _mm512_set1_epi32(0x0000FFFFu), rhv0 & _mm512_set1_epi32(0x0000FFFFu));
         ret += popcount((eq_hi0 << 16) | _mm512_cmpeq_epi32_mask(lhv0 & _mm512_set1_epi32(0xFFFF0000u), rhv0 & _mm512_set1_epi32(0xFFFF0000u)));
     }
@@ -160,13 +160,13 @@ static inline size_t count_eq_shorts_aligned(const uint16_t *SK_RESTRICT lhs, co
     const size_t nsimd4 = (nsimd / 4) * 4;
     for(size_t i = 0; i < nsimd4; i += 4) {
         __m512i lhv0 = _mm512_load_si512((__m512i *)lhs + i + 0),
-                rhv0 = _mm512_load_si512((__m512i *)lhs + i + 0);
+                rhv0 = _mm512_load_si512((__m512i *)rhs + i + 0);
         __m512i lhv1 = _mm512_load_si512((__m512i *)lhs + i + 1),
-                rhv1 = _mm512_load_si512((__m512i *)lhs + i + 1);
+                rhv1 = _mm512_load_si512((__m512i *)rhs + i + 1);
         __m512i lhv2 = _mm512_load_si512((__m512i *)lhs + i + 2),
-                rhv2 = _mm512_load_si512((__m512i *)lhs + i + 2);
+                rhv2 = _mm512_load_si512((__m512i *)rhs + i + 2);
         __m512i lhv3 = _mm512_load_si512((__m512i *)lhs + i + 3),
-                rhv3 = _mm512_load_si512((__m512i *)lhs + i + 3);
+                rhv3 = _mm512_load_si512((__m512i *)rhs + i + 3);
         uint64_t eq_hi0 = _mm512_cmpeq_epi32_mask(lhv0 & _mm512_set1_epi32(0x0000FFFFu), rhv0 & _mm512_set1_epi32(0x0000FFFFu));
         uint64_t eq_lo0 = _mm512_cmpeq_epi32_mask(lhv0 & _mm512_set1_epi32(0xFFFF0000u), rhv0 & _mm512_set1_epi32(0xFFFF0000u));
         uint64_t eq_hi1 = _mm512_cmpeq_epi32_mask(lhv1 & _mm512_set1_epi32(0x0000FFFFu), rhv1 & _mm512_set1_epi32(0x0000FFFFu));
@@ -180,7 +180,7 @@ static inline size_t count_eq_shorts_aligned(const uint16_t *SK_RESTRICT lhs, co
     }
     for(size_t i = nsimd4; i < nsimd; ++i) {
         __m512i lhv0 = _mm512_load_si512((__m512i *)lhs + i + 0),
-                rhv0 = _mm512_load_si512((__m512i *)lhs + i + 0);
+                rhv0 = _mm512_load_si512((__m512i *)rhs + i + 0);
         uint64_t eq_hi0 = _mm512_cmpeq_epi32_mask(lhv0 & _mm512_set1_epi32(0x0000FFFFu), rhv0 & _mm512_set1_epi32(0x0000FFFFu));
         ret += popcount((eq_hi0 << 16) | _mm512_cmpeq_epi32_mask(lhv0 & _mm512_set1_epi32(0xFFFF0000u), rhv0 & _mm512_set1_epi32(0xFFFF0000u)));
     }
