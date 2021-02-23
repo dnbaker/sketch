@@ -183,7 +183,7 @@ public:
         val.for_each([&](uint64_t val) {this->addh(val);}); // Could be further accelerated with SIMD. I'm including this for interface compatibility.
     }
     bool may_contain(uint64_t val) const {
-        for(unsigned i(0); i < bfs_.size(); ++i) if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain) return false;
+        for(unsigned i(0); i < bfs_.size(); ++i) if(!bfs_[i].may_contain(val) || !hlls_[i].may_contain(val)) return false;
         return true;
     }
     void clear() {
