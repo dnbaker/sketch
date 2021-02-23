@@ -476,9 +476,9 @@ class SetSketch {
     std::unique_ptr<ResT[]> data_;
     std::vector<uint64_t> ids_; // The IDs representing the sampled items.
                                 // Only used if SetSketch is
-    std::vector<FT> lbetas_; // Cache Beta values * 1. / a
     fy::LazyShuffler ls_;
     minvt_t<ResT> lowkh_;
+    std::vector<FT> lbetas_; // Cache Beta values * 1. / a
     static ResT *allocate(size_t n) {
         n = (n << 1) - 1;
         ResT *ret = nullptr;
@@ -491,9 +491,9 @@ class SetSketch {
             16;
 #endif
 #if __cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC)
-        if((ret = static_cast<FT *>(std::aligned_alloc(ALN, n * sizeof(FT)))) == nullptr)
+        if((ret = static_cast<ResT *>(std::aligned_alloc(ALN, n * sizeof(ResT)))) == nullptr)
 #else
-        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT)))
+        if(posix_memalign((void **)&ret, ALN, n * sizeof(ResT)))
 #endif
             throw std::bad_alloc();
         return ret;
@@ -721,12 +721,14 @@ struct WideShortSetS: public SetSketch<uint16_t, long double> {
     template<typename...Args> WideShortSetS(Args &&...args): SetSketch<uint16_t, long double>(std::forward<Args>(args)...) {}
 };
 struct EShortSetS: public SetSketch<uint16_t, long double> {
+    using Super = SetSketch<uint16_t, long double>;
     static constexpr long double DEFAULT_B = 1.0006;
     static constexpr long double DEFAULT_A = .001;
     static constexpr size_t QV = 65534u;
     template<typename IT, typename OFT, typename=typename std::enable_if<std::is_integral<IT>::value && std::is_floating_point<OFT>::value>::type>
-    EShortSetS(IT nreg, OFT b=DEFAULT_B, OFT a=DEFAULT_A): SetSketch<uint16_t, long double>(nreg, b, a, QV) {}
-    template<typename...Args> EShortSetS(Args &&...args): SetSketch<uint16_t, long double>(std::forward<Args>(args)...) {}
+    EShortSetS(IT nreg, OFT b=DEFAULT_B, OFT a=DEFAULT_A): Super(nreg, b, a, QV) {}
+    EShortSetS(size_t nreg): Super(nreg, DEFAULT_B, DEFAULT_A, QV) {}
+    template<typename...Args> EShortSetS(Args &&...args): Super(std::forward<Args>(args)...) {}
 };
 struct EByteSetS: public SetSketch<uint8_t, double> {
     static constexpr double DEFAULT_B = 1.09;

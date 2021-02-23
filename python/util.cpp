@@ -148,7 +148,7 @@ PYBIND11_MODULE(sketch_util, m) {
     m.def("ij2ind", [](size_t i, size_t j, size_t n) {return i < j ? (((i) * (n * 2 - i - 1)) / 2 + j - (i + 1)): (((j) * (n * 2 - j - 1)) / 2 + i - (j + 1));});
     m.def("randset", [](size_t i) {
         thread_local wy::WyHash<uint64_t, 4> gen(1337 + std::hash<std::thread::id>()(std::this_thread::get_id()));
-        py::array_t<uint64_t> ret({i});
+        py::array_t<uint64_t> ret({py::ssize_t(i)});
         auto ptr = static_cast<uint64_t *>(ret.request().ptr);
         OMP_PFOR
         for(size_t j = 0; j < i; ++j) {

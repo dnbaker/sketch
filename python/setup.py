@@ -23,7 +23,8 @@ class get_pybind_include(object):
 extra_compile_args = ['-march=native',
                       '-Wno-char-subscripts', '-Wno-unused-function',
                       '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv',
-                      '-lz', '-fopenmp', '-lgomp', '-DNDEBUG']
+                      '-lz', '-fopenmp', '-lgomp', '-DNDEBUG',
+                      '-DBLAZE_SHARED_MEMORY_PARALLELIZATION=0']
 
 include_dirs=[
     # Path to pybind11 headers
@@ -33,6 +34,7 @@ include_dirs=[
    "../libpopcnt",
    "../include",
    "../vec",
+   "../vec/blaze",
    "..",
    "../pybind11/include"
 ]
@@ -52,7 +54,7 @@ def make_module(namecppf):
         extra_compile_args=extra_compile_args
     )
 
-ext_modules = list(map(make_module, map(make_namepair, ('hll', 'bbmh', 'util', 'bf', 'hmh'))))
+ext_modules = list(map(make_module, map(make_namepair, ('hll', 'bbmh', 'util', 'bf', 'hmh', 'ss'))))
 
 '''
 ext_modules = [
