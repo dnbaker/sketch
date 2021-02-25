@@ -17,6 +17,15 @@
 
 namespace sketch {
 
+namespace setsketch {
+
+namespace detail {
+    struct Deleter {
+        template<typename T>
+        void operator()(const T *x) const {std::free(const_cast<T *>(x));}
+    };
+}
+
 
 #if __cplusplus >= 201703L
     static constexpr double INVMUL64 = 0x1p-64;
@@ -28,18 +37,23 @@ namespace sketch {
 
 template<typename FT>
 class mvt_t {
-    static constexpr FT mv_ = std::numeric_limits<FT>::max();
+    FT mv_;
     FT *data_ = nullptr;
     size_t m_;
 public:
-    mvt_t(size_t m): m_(m) {}
+    mvt_t(size_t m, FT mv = std::numeric_limits<FT>::max()): mv_(m), m_(m) {}
 
+    FT mv() const {return mv_;}
     FT *data() {return data_;}
     const FT *data() const {return data_;}
     // Check size and max
     size_t getm() const {return m_;}
     size_t nelem() const {return 2 * m_ - 1;}
     FT operator[](size_t i) const {return data_[i];}
+    void assign(FT *vals, size_t nvals, FT mv) {
+        mv_ = mv;
+        assign(vals, nvals);
+    }
     void assign(FT *vals, size_t nvals) {
         data_ = vals; m_ = nvals;
         std::fill(data_, data_ + nelem(), mv_);
@@ -171,7 +185,6 @@ static inline long double g_b(long double b, long double arg) {
 
 template<typename FT>
 inline double calc_card(const FT *start, const FT *end) {
-    // return n / sum = 
     const std::ptrdiff_t n = end - start;
     return n /
         blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(
@@ -181,13 +194,14 @@ inline double calc_card(const FT *start, const FT *end) {
 template<typename FT=double>
 class CSetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
-    // Set sketch 1
+    // SetSketch 1
     size_t m_; // Number of registers
-    std::unique_ptr<FT[]> data_;
+    std::unique_ptr<FT[], detail::Deleter> data_;
     fy::LazyShuffler ls_;
     mvt_t<FT> mvt_;
     std::vector<uint64_t> ids_;
     std::vector<uint32_t> idcounts_;
+    blaze::DynamicVector<FT> beta_;
     uint64_t total_updates_ = 0;
     static FT *allocate(size_t n) {
         n = (n << 1) - 1;
@@ -210,31 +224,50 @@ class CSetSketch {
 #endif
         return ret;
     }
+    void generate_betas() {
+        beta_.resize(m_);
+        beta_ = blaze::serial(blaze::generate(m_, [m=m_](size_t i) {return 1. / (m - i);}));
+    }
     FT getbeta(size_t idx) const {
-        return FT(1.) / (m_ - idx);
+        return beta_[idx];
     }
 public:
     const FT *data() const {return data_.get();}
     FT *data() {return data_.get();}
-    CSetSketch(size_t m, bool track_ids=false, bool track_counts=false): m_(m), ls_(m_), mvt_(m) {
-        FT *p = allocate(m_);
-        data_.reset(p);
-        std::fill(p, p + m_, std::numeric_limits<FT>::max());
-        mvt_.assign(p, m_);
+    CSetSketch(size_t m, bool track_ids=false, bool track_counts=false, FT maxv=std::numeric_limits<FT>::max()): m_(m), ls_(m_), mvt_(m_) {
+        data_.reset(allocate(m_));
+        mvt_.assign(data_.get(), m_, maxv);
         if(track_ids || track_counts) ids_.resize(m_);
         if(track_counts)         idcounts_.resize(m_);
+        generate_betas();
     }
-    CSetSketch(const CSetSketch &o): m_(o.m_), ls_(m_), mvt_(m_), ids_(o.ids_), idcounts_(o.idcounts_) {
+    CSetSketch(const CSetSketch &o): m_(o.m_), ls_(m_), mvt_(m_, o.mvt_.mv()), ids_(o.ids_), idcounts_(o.idcounts_) {
         FT *p = allocate(m_);
         data_.reset(p);
-        mvt_.assign(p, m_);
+        mvt_.assign(p, m_, o.mvt_.mv());
         std::copy(o.data_.get(), &o.data_[2 * m_ - 1], p);
+        generate_betas();
+    }
+    CSetSketch &operator=(const CSetSketch &o) {
+        if(size() != o.size()) {
+            if(m_ < o.m_) data_.reset(allocate(o.m_));
+            m_ = o.m_;
+            ls_.resize(m_);
+            generate_betas();
+        }
+        mvt_.assign(data_.get(), m_, o.mvt_.mv());
+        std::copy(o.data(), o.data() + (2 * m_ - 1), data());
+        if(o.ids_.size()) {
+            ids_ = o.ids_;
+            if(o.idcounts_.size()) idcounts_ = o.idcounts_;
+        }
+        total_updates_ = o.total_updates_;
+        return *this;
     }
     CSetSketch(const std::string &s): ls_(1), mvt_(1) {
         read(s);
     }
     CSetSketch<FT> clone_like() const {
-        std::fprintf(stderr, "Clone like with track = %d nd %d\n", !ids().empty(), !idcounts().empty());
         return CSetSketch(m_, !ids().empty(), !idcounts().empty());
     }
     FT min() const {return *std::min_element(data(), data() + m_);}
@@ -244,35 +277,44 @@ public:
     const FT &operator[](size_t i) const {return data_[i];}
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
+    size_t total_updates() const {return total_updates_;}
     void update(const uint64_t id) {
         ++total_updates_;
         uint64_t hid = id;
         size_t bi = 0;
         uint64_t rv = wy::wyhash64_stateless(&hid);
-        FT ev = 0.;
+        FT ev;
+        if(sizeof(FT) > 8) {
+            auto lrv = __uint128_t(rv) << 64;
+            lrv |= wy::wyhash64_stateless(&rv);
+            ev = -getbeta(++bi) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+        } else {
+            ev = -getbeta(++bi) * std::log(rv * INVMUL64);
+        }
+        if(ev >= mvt_.max() || bi == m_) return;
         ls_.reset();
         ls_.seed(rv);
+        uint32_t idx = ls_.step();
         for(;;) {
+            if(mvt_.update(idx, ev)) {
+                if(!ids_.empty()) {
+                    ids_.operator[](idx) = id;
+                    if(!idcounts_.empty()) idcounts_.operator[](idx) = 1;
+                }
+            } else if(!idcounts_.empty()) {
+                if(id == ids_.operator[](idx)) ++idcounts_.operator[](idx);
+            }
+            if(bi == m_) return;
+            rv = wy::wyhash64_stateless(&hid);
             if(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev += -getbeta(bi) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+                ev += -getbeta(++bi) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
             } else {
-                ev += -getbeta(bi) * std::log(rv * INVMUL64);
+                ev += -getbeta(++bi) * std::log(rv * INVMUL64);
             }
             if(ev >= mvt_.max()) break;
-            auto idx = ls_.step();
-            if(mvt_.update(idx, ev)) {
-                if(!ids_.empty()) {
-                    ids_.at(idx) = id;
-                    if(!idcounts_.empty()) idcounts_.at(idx) = 1;
-                }
-            } else if(!idcounts_.empty()) {
-                if(id == ids_.at(idx)) ++idcounts_.at(idx);
-            }
-            if(++bi == m_)
-                break;
-            rv = wy::wyhash64_stateless(&hid);
+            idx = ls_.step();
         }
     }
     bool operator==(const CSetSketch<FT> &o) const {
@@ -288,7 +330,7 @@ public:
     void merge(const CSetSketch<FT> &o) {
         if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
         if(ids().empty()) {
-            cv() = blaze::min(cv(), o.cv());
+            cv() = blaze::serial(blaze::min(cv(), o.cv()));
         } else {
             for(size_t i = 0; i < size(); ++i) {
                 if(!idcounts_.empty() && !ids_.empty() && ids_[i] == o.ids_[i]) {
@@ -299,6 +341,7 @@ public:
                 }
             }
         }
+        total_updates_ += o.total_updates_;
     }
     CSetSketch &operator+=(const CSetSketch<FT> &o) {merge(o); return *this;}
     CSetSketch operator+(const CSetSketch<FT> &o) const {
@@ -336,10 +379,11 @@ public:
     }
     void read(gzFile fp) {
         gzread(fp, &m_, sizeof(m_));
-        data_.reset(new FT[2 * m_ - 1]);
-        mvt_.assign(data_.get(), m_);
+        FT mv;
+        gzread(fp, &mv, sizeof(mv));
+        data_.reset(allocate(m_));
+        mvt_.assign(data_.get(), m_, mv);
         gzread(fp, (void *)data_.get(), m_ * sizeof(FT));
-        std::fill(&data_[m_], &data_[2 * m_ - 1], std::numeric_limits<FT>::max());
         for(size_t i = 0;i < m_; ++i) mvt_.update(i, data_[i]);
         ls_.resize(m_);
     }
@@ -355,14 +399,23 @@ public:
     }
     void write(std::FILE *fp) const {
         checkwrite(fp, (const void *)&m_, sizeof(m_));
+        FT m = mvt_.mv();
+        checkwrite(fp, (const void *)&m, sizeof(m));
         checkwrite(fp, (const void *)data_.get(), m_ * sizeof(FT));
     }
     void write(gzFile fp) const {
         checkwrite(fp, (const void *)&m_, sizeof(m_));
+        FT m = mvt_.mv();
+        checkwrite(fp, (const void *)&m, sizeof(m));
         checkwrite(fp, (const void *)data_.get(), m_ * sizeof(FT));
     }
     void clear() {
-        std::fill(data_.get(), &data_[m_ * 2 - 1], std::numeric_limits<FT>::max());
+        mvt_.assign(data_.get(), m_, mvt_.mv());
+        total_updates_ = 0;
+        if(ids_.size()) {
+            std::fill(ids_.begin(), ids_.end(), uint64_t(0));
+            if(idcounts_.size()) std::fill(idcounts_.begin(), idcounts_.end(), uint32_t(0));
+        }
     }
     const std::vector<uint64_t> &ids() const {return ids_;}
     const std::vector<uint32_t> &idcounts() const {return idcounts_;}
@@ -392,7 +445,7 @@ class SetSketch {
     FT logbinv_;
     using QType = std::common_type_t<ResT, int>;
     QType q_;
-    std::unique_ptr<ResT[]> data_;
+    std::unique_ptr<ResT[], detail::Deleter> data_;
     std::vector<uint64_t> ids_; // The IDs representing the sampled items.
                                 // Only used if SetSketch is
     fy::LazyShuffler ls_;
@@ -572,7 +625,7 @@ public:
         gzread(fp, &q_, sizeof(q_));
         ainv_ = 1.L / a_;
         logbinv_ = 1.L / std::log1p(b_ - 1.);
-        data_.reset(new ResT[2 * m_ - 1]);
+        data_.reset(allocate(m_));
         lowkh_.assign(data_.get(), m_, b_);
         gzread(fp, (void *)data_.get(), m_ * sizeof(ResT));
         std::fill(&data_[m_], &data_[2 * m_ - 1], ResT(0));
@@ -658,6 +711,16 @@ struct EByteSetS: public SetSketch<uint8_t, double> {
     template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
 };
 
+
+} // namespace setsketch
+using setsketch::EByteSetS;
+using setsketch::ByteSetS;
+using setsketch::ShortSetS;
+using setsketch::EShortSetS;
+using setsketch::WideShortSetS;
+using setsketch::NibbleSetS;
+using setsketch::SmallNibbleSetS;
+using setsketch::CSetSketch;
 
 } // namespace sketch
 
