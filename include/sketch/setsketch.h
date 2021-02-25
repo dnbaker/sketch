@@ -188,6 +188,7 @@ class CSetSketch {
     mvt_t<FT> mvt_;
     std::vector<uint64_t> ids_;
     std::vector<uint32_t> idcounts_;
+    uint64_t total_updates_ = 0;
     static FT *allocate(size_t n) {
         n = (n << 1) - 1;
         FT *ret = nullptr;
@@ -232,6 +233,10 @@ public:
     CSetSketch(const std::string &s): ls_(1), mvt_(1) {
         read(s);
     }
+    CSetSketch<FT> clone_like() const {
+        std::fprintf(stderr, "Clone like with track = %d nd %d\n", !ids().empty(), !idcounts().empty());
+        return CSetSketch(m_, !ids().empty(), !idcounts().empty());
+    }
     FT min() const {return *std::min_element(data(), data() + m_);}
     FT max() const {return mvt_.max();}
     size_t size() const {return m_;}
@@ -240,6 +245,7 @@ public:
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     void update(const uint64_t id) {
+        ++total_updates_;
         uint64_t hid = id;
         size_t bi = 0;
         uint64_t rv = wy::wyhash64_stateless(&hid);
@@ -258,11 +264,11 @@ public:
             auto idx = ls_.step();
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
-                    ids_[idx] = id;
-                    if(!idcounts_.empty()) idcounts_[idx] = 1;
+                    ids_.at(idx) = id;
+                    if(!idcounts_.empty()) idcounts_.at(idx) = 1;
                 }
             } else if(!idcounts_.empty()) {
-                if(id == ids_[idx]) ++idcounts_[idx];
+                if(id == ids_.at(idx)) ++idcounts_.at(idx);
             }
             if(++bi == m_)
                 break;
@@ -273,11 +279,26 @@ public:
         return same_params(o) && std::equal(data(), data() + m_, o.data());
     }
     bool same_params(const CSetSketch<FT> &o) const {
-        return m_ == o.m_;
+        return m_ == o.m_
+            && (ids().empty() == o.ids().empty())
+            && (idcounts().empty() == o.idcounts().empty());
     }
+    auto cv() {return blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(data(), m_);}
+    auto cv() const {return blaze::CustomVector<const FT, blaze::aligned, blaze::unpadded>(data(), m_);}
     void merge(const CSetSketch<FT> &o) {
         if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
-        std::transform(data(), data() + m_, o.data(), data(), [](auto x, auto y) {return std::min(x, y);});
+        if(ids().empty()) {
+            cv() = blaze::min(cv(), o.cv());
+        } else {
+            for(size_t i = 0; i < size(); ++i) {
+                if(!idcounts_.empty() && !ids_.empty() && ids_[i] == o.ids_[i]) {
+                    idcounts_[i] += o.idcounts_[i];
+                } else if(mvt_.update(i, o.data_[i])) {
+                    if(!ids_.empty()) ids_[i] = o.ids_[i];
+                    if(!idcounts_.empty()) idcounts_[i] = o.idcounts_[i];
+                }
+            }
+        }
     }
     CSetSketch &operator+=(const CSetSketch<FT> &o) {merge(o); return *this;}
     CSetSketch operator+(const CSetSketch<FT> &o) const {
@@ -348,15 +369,14 @@ public:
     double cardinality() const {
         return calc_card(data_.get(), &data_[m_]);
     }
-    static std::pair<FT, FT> optimal_parameters(FT maxreg, FT minreg, size_t q) {
-        FT b = std::exp(std::log(maxreg / minreg) / q);
-        return {b, maxreg / b};
+    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, size_t q) {
+        long double b = std::exp(std::log((long double)maxreg / (long double)minreg) / (long double)q);
+        return {FT(b), FT((long double)maxreg / b)};
     }
     template<typename ResT=uint16_t>
-    static std::pair<FT, FT> optimal_parameters(FT maxreg, FT minreg) {
+    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg) {
         if(maxreg < minreg) std::swap(maxreg, minreg);
-        static constexpr uint64_t q = sizeof(ResT) = 1 ? uint64_t(uint8_t(-1)) : sizeof(ResT) == 2 ? uint64_t(uint16_t(-1)): sizeof(ResT) == 4 ? uint64_t(uint32_t(-1)): uint64_t(-1);
-        return optimal_parameters(maxreg, minreg, q);
+        return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
     }
 };
 
