@@ -8,8 +8,10 @@
 #include <unordered_map>
 #include <memory>
 #include "fy.h"
-#include "count_eq.h"
+#include "sketch/count_eq.h"
+#include "sketch/macros.h"
 #include "blaze/Math.h"
+#include "sketch/hash.h"
 
 #ifndef NDEBUG
 #include <unordered_set>
@@ -24,7 +26,12 @@ namespace detail {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
     };
+    union float_int {float f; unsigned int i; float_int(float x): f(x) {}};
+    union double_int {double f; uint64_t i; double_int(double x): f(x) {}};
 }
+
+using detail::float_int;
+using detail::double_int;
 
 
 #if __cplusplus >= 201703L
@@ -196,6 +203,7 @@ template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 template<typename FT=double>
 class CSetSketch {
+    static constexpr bool USE_STUPID_LOG = false;
     static_assert(std::is_floating_point<FT>::value, "Must float");
     // SetSketch 1
     size_t m_; // Number of registers
@@ -206,6 +214,7 @@ class CSetSketch {
     std::vector<uint32_t> idcounts_;
     blaze::DynamicVector<FT> beta_;
     uint64_t total_updates_ = 0;
+    uint64_t inner_loop_updates_= 0;
     static FT *allocate(size_t n) {
         n = (n << 1) - 1;
         FT *ret = nullptr;
@@ -217,14 +226,7 @@ class CSetSketch {
 #else
             16;
 #endif
-#if __cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC)
-        size_t nbytes = n * sizeof(FT);
-        if(auto rem = nbytes % ALN)
-            nbytes += ALN - rem;
-        if(!(ret = static_cast<FT *>(std::aligned_alloc(ALN, nbytes)))) throw std::bad_alloc();
-#else
         if(posix_memalign((void **)&ret, ALN, n * sizeof(FT))) throw std::bad_alloc();
-#endif
         return ret;
     }
     void generate_betas() {
@@ -252,11 +254,11 @@ public:
         generate_betas();
     }
     template<typename ResT=uint16_t>
-    SetSketch<ResT, FT> to_setsketch(double b, double a, uint32_t q=std::numeric_limits<ResT>::max()) const {
+    SetSketch<ResT, FT> to_setsketch(double b, double a, int64_t q=std::numeric_limits<ResT>::max() - 1) const {
         SetSketch<ResT, FT> ret(m_, b, a, q, ids_.size());
         const double logbinv = 1. / std::log1p(b - 1.);
         for(size_t i = 0; i < m_; ++i) {
-            ret.lowkh().update(i, std::max(0, std::min(int32_t(q) + 1, static_cast<int32_t>((1. - std::log(data_[i]) * logbinv)))));
+            ret.lowkh().update(i, std::max(int64_t(0), std::min(int64_t(q) + 1, static_cast<int64_t>((1. - std::log(data_[i]) * logbinv)))));
         }
         return ret;
     }
@@ -274,6 +276,7 @@ public:
             if(o.idcounts_.size()) idcounts_ = o.idcounts_;
         }
         total_updates_ = o.total_updates_;
+        inner_loop_updates_ = o.inner_loop_updates_;
         return *this;
     }
     CSetSketch(std::FILE *fp): ls_(1), mvt_(1) {read(fp);}
@@ -292,24 +295,44 @@ public:
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
+    size_t floopupdates = 0;
+    size_t inner_loop_updates() const {return inner_loop_updates_;}
+    double flog(double x) const {
+        uint64_t yi;
+        std::memcpy(&yi, &x, sizeof(yi));
+        return yi * 1.539095918623324e-16 - 709.0895657128241;
+    }
+    float flog(float x) const {
+        uint32_t yi;
+        std::memcpy(&yi, &x, sizeof(yi));
+        return yi * 8.2629582881927490e-8f - 88.02969186;
+    }
     void update(const uint64_t id) {
         ++total_updates_;
         uint64_t hid = id;
-        size_t bi = 0;
-        uint64_t rv = wy::wyhash64_stateless(&hid);
+        uint64_t rv = wy::wyhash64_stateless(&hid), bi = 0;
+
         FT ev;
-        if(sizeof(FT) > 8) {
+        CONST_IF(sizeof(FT) > 8) {
             auto lrv = __uint128_t(rv) << 64;
             lrv |= wy::wyhash64_stateless(&rv);
-            ev = -getbeta(++bi) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+            ev = -getbeta(bi++) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+            if(ev >= mvt_.max()) return;
         } else {
-            ev = -getbeta(++bi) * std::log(rv * INVMUL64);
+            auto tv = rv * INVMUL64;
+            auto bv = getbeta(bi++);
+            ev = -bv * flog(tv) * 0.95;
+            if(ev >= mvt_.max()) return;
+            //Filter with fast log first
+            ev = -bv * std::log(tv);
+            if(ev >= mvt_.max()) return;
         }
-        if(ev >= mvt_.max() || bi == m_) return;
+        ++floopupdates;
         ls_.reset();
         ls_.seed(rv);
         uint32_t idx = ls_.step();
         for(;;) {
+            ++inner_loop_updates_;
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
                     ids_.operator[](idx) = id;
@@ -355,6 +378,8 @@ public:
                 }
             }
         }
+        total_updates_ += o.total_updates_;
+        inner_loop_updates_ += o.inner_loop_updates_;
         total_updates_ += o.total_updates_;
     }
     CSetSketch &operator+=(const CSetSketch<FT> &o) {merge(o); return *this;}
@@ -716,6 +741,7 @@ struct EShortSetS: public SetSketch<uint16_t, long double> {
     template<typename IT, typename OFT, typename=typename std::enable_if<std::is_integral<IT>::value && std::is_floating_point<OFT>::value>::type>
     EShortSetS(IT nreg, OFT b=DEFAULT_B, OFT a=DEFAULT_A): Super(nreg, b, a, QV) {}
     EShortSetS(size_t nreg): Super(nreg, DEFAULT_B, DEFAULT_A, QV) {}
+    EShortSetS(int nreg): Super(nreg, DEFAULT_B, DEFAULT_A, QV) {}
     template<typename...Args> EShortSetS(Args &&...args): Super(std::forward<Args>(args)...) {}
 };
 struct EByteSetS: public SetSketch<uint8_t, double> {
@@ -737,6 +763,7 @@ using setsketch::WideShortSetS;
 using setsketch::NibbleSetS;
 using setsketch::SmallNibbleSetS;
 using setsketch::CSetSketch;
+using setsketch::SetSketch;
 
 } // namespace sketch
 

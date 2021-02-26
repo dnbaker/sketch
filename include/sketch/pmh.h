@@ -84,15 +84,7 @@ class PMinHasher {
 public:
     template<typename... Args>
     PMinHasher(size_t dim, uint64_t nelem, uint64_t seed=137, Args &&...args): d_(dim), n_(nelem), hf_(std::forward<Args>(args)...) {
-#if USE_ALIGNED_ALLOC
-        size_t nb = nelem * sizeof(*seeds_);
-        if(auto rem = nb % sizeof(Space::VType)) {
-            nb += sizeof(Space::VType) - rem;
-        }
-        if((seeds_ = static_cast<uint64_t *>(std::aligned_alloc(sizeof(Space::VType), nb))) == nullptr)
-#else
         if(posix_memalign((void **)&seeds_, sizeof(Space::VType), nelem * sizeof(*seeds_)))
-#endif
             throw std::bad_alloc();
         DefaultRNGType rng(seed);
         std::for_each(seeds_, seeds_ + nelem, [&rng](uint64_t &x) {x = rng();});
@@ -101,15 +93,7 @@ public:
         o.seeds_ = nullptr; o.d_ = o.n_ = 0;
     }
     PMinHasher(const PMinHasher &o): seeds_(nullptr), d_(o.d_), n_(o.n_), hf_(o.hf_) {
-#if USE_ALIGNED_ALLOC
-        size_t nb = nelem * sizeof(*seeds_);
-        if(auto rem = nb % sizeof(Space::VType)) {
-            nb += sizeof(Space::VType) - rem;
-        }
-        if((seeds_ = static_cast<uint64_t *>(std::aligned_alloc(sizeof(Space::VType), nb))) == nullptr)
-#else
         if(posix_memalign((void **)&seeds_, sizeof(Space::VType), n_ * sizeof(*seeds_)))
-#endif
             throw std::bad_alloc();
     }
     ~PMinHasher() {std::free(seeds_);}

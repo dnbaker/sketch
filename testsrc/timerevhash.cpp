@@ -68,10 +68,10 @@ int main() {
     for(uint64_t i = 0; i < nelem; ++i) {\
        if(ind !=5) assert(hasher.inverse(hasher(vals[i])) == vals[i]);\
     }\
-    start = std::chrono::high_resolution_clock::now();\
+    start = std::chrono::high_resolution_clock::now(); \
     accum = 0;\
     for(uint64_t i = 0; i < nelem; ++i) {\
-       doNotOptimizeAway(hasher.inverse(hasher(vals[i])));\
+       doNotOptimizeAway(hasher(vals[i]));\
     }\
     end = std::chrono::high_resolution_clock::now();\
     arr[ind] = size_t(std::chrono::nanoseconds(end - start).count());\

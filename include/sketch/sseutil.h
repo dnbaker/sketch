@@ -51,15 +51,8 @@ namespace detail {
         assert(align >= sizeof(void*));
         assert((align & (align - 1)) == 0); // Assert is power of two
 
-#if USE_ALIGNED_ALLOC
-        if(auto rem = size % align) {
-            size += align - rem;
-        }
-        return std::aligned_alloc(size, align);
-#else
         void *ret;
         return posix_memalign(&ret, align, size) ? nullptr: ret;
-#endif
     }
 }
 
