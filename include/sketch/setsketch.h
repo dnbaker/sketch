@@ -191,6 +191,9 @@ inline double calc_card(const FT *start, const FT *end) {
                 const_cast<FT *>(start), n)));
 }
 
+template<typename ResT, typename FT=double> class SetSketch; // Forward
+
+
 template<typename FT=double>
 class CSetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
@@ -248,6 +251,15 @@ public:
         std::copy(o.data_.get(), &o.data_[2 * m_ - 1], p);
         generate_betas();
     }
+    template<typename ResT=uint16_t>
+    SetSketch<ResT, FT> to_setsketch(double b, double a, uint32_t q=std::numeric_limits<ResT>::max()) const {
+        SetSketch<ResT, FT> ret(m_, b, a, q, ids_.size());
+        const double logbinv = 1. / std::log1p(b - 1.);
+        for(size_t i = 0; i < m_; ++i) {
+            ret.lowkh().update(i, std::max(0, std::min(int32_t(q) + 1, static_cast<int32_t>((1. - std::log(data_[i]) * logbinv)))));
+        }
+        return ret;
+    }
     CSetSketch &operator=(const CSetSketch &o) {
         if(size() != o.size()) {
             if(m_ < o.m_) data_.reset(allocate(o.m_));
@@ -264,6 +276,8 @@ public:
         total_updates_ = o.total_updates_;
         return *this;
     }
+    CSetSketch(std::FILE *fp): ls_(1), mvt_(1) {read(fp);}
+    CSetSketch(gzFile fp): ls_(1), mvt_(1) {read(fp);}
     CSetSketch(const std::string &s): ls_(1), mvt_(1) {
         read(s);
     }
@@ -433,7 +447,7 @@ public:
     }
 };
 
-template<typename ResT, typename FT=double>
+template<typename ResT, typename FT>
 class SetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
     static_assert(std::is_integral<ResT>::value, "Must be integral");
@@ -476,6 +490,8 @@ class SetSketch {
 public:
     const ResT *data() const {return data_.get();}
     ResT *data() {return data_.get();}
+    auto &lowkh() {return lowkh_;}
+    const auto &lowkh() const {return lowkh_;}
     SetSketch(size_t m, FT b, FT a, int q, bool track_ids = false): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_), lowkh_(m) {
         ResT *p = allocate(m_);
         data_.reset(p);
