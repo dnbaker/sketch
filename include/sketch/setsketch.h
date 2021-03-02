@@ -30,6 +30,8 @@ namespace detail {
     union double_int {double f; uint64_t i; double_int(double x): f(x) {}};
 }
 
+#define LC_ONLY(...)
+
 using detail::float_int;
 using detail::double_int;
 
@@ -203,6 +205,8 @@ template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 template<typename FT=double>
 class CSetSketch {
+    // TODO: Add stochastically-averaged case for faster sketching.
+    //      (With the approximate log trick, we're still around only twice the time as HLL)
     static constexpr bool USE_STUPID_LOG = false;
     static_assert(std::is_floating_point<FT>::value, "Must float");
     // SetSketch 1
@@ -305,7 +309,7 @@ public:
     float flog(float x) const {
         uint32_t yi;
         std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 8.2629582881927490e-8f - 88.02969186;
+        return yi * 8.2629582881927490e-8f - 88.02969186f;
     }
     void update(const uint64_t id) {
         ++total_updates_;
@@ -321,18 +325,18 @@ public:
         } else {
             auto tv = rv * INVMUL64;
             auto bv = getbeta(bi++);
-            ev = -bv * flog(tv) * 0.95;
+            ev = -bv * flog(tv) * static_cast<FT>(.7);
             if(ev >= mvt_.max()) return;
             //Filter with fast log first
             ev = -bv * std::log(tv);
             if(ev >= mvt_.max()) return;
         }
-        ++floopupdates;
+        LC_ONLY(++floopupdates;)
         ls_.reset();
         ls_.seed(rv);
         uint32_t idx = ls_.step();
         for(;;) {
-            ++inner_loop_updates_;
+            LC_ONLY(++inner_loop_updates_;)
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
                     ids_.operator[](idx) = id;
@@ -343,14 +347,18 @@ public:
             }
             if(bi == m_) return;
             rv = wy::wyhash64_stateless(&hid);
+            const FT bv = -getbeta(bi++);
             if(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev += -getbeta(++bi) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+                ev += bv * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
             } else {
-                ev += -getbeta(++bi) * std::log(rv * INVMUL64);
+                FT nv = rv * INVMUL64;
+                if(bv * flog(nv) * FT(.7) + ev >= mvt_.max())
+                    break;
+                ev += bv * std::log(nv);
+                if(unlikely(ev >= mvt_.max())) break;
             }
-            if(ev >= mvt_.max()) break;
             idx = ls_.step();
         }
     }
