@@ -207,7 +207,6 @@ template<typename FT=double>
 class CSetSketch {
     // TODO: Add stochastically-averaged case for faster sketching.
     //      (With the approximate log trick, we're still around only twice the time as HLL)
-    static constexpr bool USE_STUPID_LOG = false;
     static_assert(std::is_floating_point<FT>::value, "Must float");
     // SetSketch 1
     size_t m_; // Number of registers
@@ -351,13 +350,12 @@ public:
             if(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev += bv * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+                ev = std::fma(bv, std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L)), ev);
             } else {
                 FT nv = rv * INVMUL64;
-                if(bv * flog(nv) * FT(.7) + ev >= mvt_.max())
-                    break;
-                ev += bv * std::log(nv);
-                if(unlikely(ev >= mvt_.max())) break;
+                if(bv * flog(nv) * FT(.7) + ev >= mvt_.max()) break;
+                ev = std::fma(bv, std::log(nv), ev);
+                if(ev >= mvt_.max()) break;
             }
             idx = ls_.step();
         }
