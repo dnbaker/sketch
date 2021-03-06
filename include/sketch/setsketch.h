@@ -229,12 +229,19 @@ class CSetSketch {
         if(posix_memalign((void **)&ret, ALN, n * sizeof(FT))) throw std::bad_alloc();
         return ret;
     }
+#if 0
+    // Caching these coefficients doesn't seem to make a big difference.
     void generate_betas() {
         beta_.resize(m_);
         beta_ = blaze::serial(blaze::generate(m_, [m=m_](size_t i) {return 1. / (m - i);}));
     }
+#endif
     FT getbeta(size_t idx) const {
+#if 0
         return beta_[idx];
+#else
+        return FT(1.) / static_cast<FT>(m_ - idx);
+#endif
     }
 public:
     const FT *data() const {return data_.get();}
@@ -244,14 +251,12 @@ public:
         mvt_.assign(data_.get(), m_, maxv);
         if(track_ids || track_counts) ids_.resize(m_);
         if(track_counts)         idcounts_.resize(m_);
-        generate_betas();
+        //generate_betas();
     }
-    CSetSketch(const CSetSketch &o): m_(o.m_), ls_(m_), mvt_(m_, o.mvt_.mv()), ids_(o.ids_), idcounts_(o.idcounts_) {
-        FT *p = allocate(m_);
-        data_.reset(p);
-        mvt_.assign(p, m_, o.mvt_.mv());
-        std::copy(o.data_.get(), &o.data_[2 * m_ - 1], p);
-        generate_betas();
+    CSetSketch(const CSetSketch &o): m_(o.m_), data_(allocate(o.m_)), ls_(m_), mvt_(m_, o.mvt_.mv()), ids_(o.ids_), idcounts_(o.idcounts_) {
+        mvt_.assign(data_.get(), m_, o.mvt_.mv());
+        std::copy(o.data_.get(), &o.data_[2 * m_ - 1], data_.get());
+        //generate_betas();
     }
     template<typename ResT=uint16_t>
     SetSketch<ResT, FT> to_setsketch(double b, double a, int64_t q=std::numeric_limits<ResT>::max() - 1) const {
@@ -267,7 +272,7 @@ public:
             if(m_ < o.m_) data_.reset(allocate(o.m_));
             m_ = o.m_;
             ls_.resize(m_);
-            generate_betas();
+            //generate_betas();
         }
         mvt_.assign(data_.get(), m_, o.mvt_.mv());
         std::copy(o.data(), o.data() + (2 * m_ - 1), data());
@@ -321,7 +326,7 @@ public:
         } else {
             auto tv = rv * INVMUL64;
             auto bv = getbeta(bi++);
-            ev = -bv * flog(tv) * 0.95;
+            ev = -bv * flog(tv) * FT(0.65);
             if(ev >= mvt_.max()) return;
             //Filter with fast log first
             ev = -bv * std::log(tv);
@@ -396,7 +401,7 @@ public:
             return eq::count_eq((uint32_t *)data(), (uint32_t *)o.data(), m_);
         } else CONST_IF(sizeof(FT) == 8) {
             return eq::count_eq((uint64_t *)data(), (uint64_t *)o.data(), m_);
-        } else CONST_IF(sizeof(FT) = 2) {
+        } else CONST_IF(sizeof(FT) == 2) {
             return eq::count_eq((uint16_t *)data(), (uint16_t *)o.data(), m_);
         }
         auto optr = o.data();
@@ -448,6 +453,7 @@ public:
         checkwrite(fp, (const void *)&m, sizeof(m));
         checkwrite(fp, (const void *)data_.get(), m_ * sizeof(FT));
     }
+    void reset() {clear();}
     void clear() {
         mvt_.assign(data_.get(), m_, mvt_.mv());
         total_updates_ = 0;
