@@ -116,6 +116,7 @@ struct minvt_t {
     typename std::ptrdiff_t klow() const {
         return min();
     }
+    typename std::ptrdiff_t max() const {return *std::max_element(data_, &data_[(m_ << 1) - 1]);}
 
     bool update(size_t index, ResT x) {
         const auto sz = (m_ << 1) - 1;
@@ -149,6 +150,7 @@ struct LowKHelper {
         reset();
     }
     int klow() const {return klow_;}
+    auto max() const {return *std::max_element(vals_, vals_ + nvals_);}
     double explim() const {return explim_;}
     void reset() {
         klow_ =  *std::min_element(vals_, vals_ + nvals_);
@@ -318,26 +320,28 @@ public:
     void update(const uint64_t id) {
         ++total_updates_;
         uint64_t hid = id;
-        uint64_t rv = wy::wyhash64_stateless(&hid), bi = 0;
+        uint64_t rv = wy::wyhash64_stateless(&hid);
 
         FT ev;
         CONST_IF(sizeof(FT) > 8) {
             auto lrv = __uint128_t(rv) << 64;
             lrv |= wy::wyhash64_stateless(&rv);
-            ev = -getbeta(bi++) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
-            if(ev >= mvt_.max()) return;
+            ev = -getbeta(0) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+            if(ev >= max()) return;
         } else {
             auto tv = rv * INVMUL64;
-            auto bv = getbeta(bi++);
-            ev = -bv * flog(tv) * static_cast<FT>(.7);
-            if(ev >= mvt_.max()) return;
-            //Filter with fast log first
-            ev = -bv * std::log(tv);
+            const FT bv = -getbeta(0);
+            // Filter with fast log first
+#if 1
+            if(bv * flog(tv) * FT(.7) > max()) return;
+#endif
+            ev = bv * std::log(tv);
             if(ev >= mvt_.max()) return;
         }
         LC_ONLY(++floopupdates;)
         ls_.reset();
         ls_.seed(rv);
+        uint64_t bi = 1;
         uint32_t idx = ls_.step();
         for(;;) {
             LC_ONLY(++inner_loop_updates_;)
@@ -355,12 +359,14 @@ public:
             if(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev = std::fma(bv, std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L)), ev);
+                ev = std::fma(bv, std::log((lrv >> 32) * 1.2621774483536188887e-29L), ev);
             } else {
                 FT nv = rv * INVMUL64;
-                if(bv * flog(nv) * FT(.7) + ev >= mvt_.max()) break;
+#if 1
+                if(bv * flog(nv) * FT(.7) + ev >= max()) break;
+#endif
                 ev = std::fma(bv, std::log(nv), ev);
-                if(ev >= mvt_.max()) break;
+                if(ev >= max()) break;
             }
             idx = ls_.step();
         }
@@ -556,6 +562,8 @@ public:
     ResT &operator[](size_t i) {return data_[i];}
     const ResT &operator[](size_t i) const {return data_[i];}
     int klow() const {return lowkh_.klow();}
+    auto max() const {return lowkh_.max();}
+    auto min() const {return lowkh_.min();}
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     void print() const {
@@ -573,7 +581,7 @@ public:
             if(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev += ba * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+                ev += ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L);
             } else {
                 ev += ba * std::log(rv * INVMUL64);
             }
