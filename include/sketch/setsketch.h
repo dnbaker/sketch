@@ -326,11 +326,11 @@ public:
         CONST_IF(sizeof(FT) > 8) {
             auto lrv = __uint128_t(rv) << 64;
             lrv |= wy::wyhash64_stateless(&rv);
-            ev = -getbeta(0) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+            ev = -(1. / m_) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
             if(ev >= max()) return;
         } else {
             auto tv = rv * INVMUL64;
-            const FT bv = -getbeta(0);
+            const FT bv = -1. / m_;
             // Filter with fast log first
 #if 1
             if(bv * flog(tv) * FT(.7) > max()) return;
