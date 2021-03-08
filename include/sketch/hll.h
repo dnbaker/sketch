@@ -827,7 +827,7 @@ public:
         for(;core_[index] < lzt;
              __sync_bool_compare_and_swap(&core_[index], core_[index], lzt));
 #else
-        if(lzt < core_[index]) core_[index] = lzt;
+        if(core_[index] < lzt) core_[index] = lzt;
 #endif
 
 #if LZ_COUNTER
