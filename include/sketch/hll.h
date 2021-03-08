@@ -745,7 +745,6 @@ public:
     explicit hllbase_t(size_t np, EstimationMethod estim,
                        JointEstimationMethod jestim,
                        Args &&... args):
-        core_(static_cast<uint64_t>(1) << np),
         value_(0.), np_(np), is_calculated_(0),
         estim_(estim), jestim_(jestim)
         , hf_(std::forward<Args>(args)...)
@@ -754,6 +753,8 @@ public:
         for(size_t i = 0; i < clz_counts_.size(); ++i)
             clz_counts_[i].store(uint64_t(0));
 #endif
+        VERBOSE_ONLY(std::fprintf(stderr, "np = %zu, estim = %d, jest = %d\n", np, estim, jestim);)
+        core_.resize(static_cast<uint64_t>(1) << np);
     }
     explicit hllbase_t(size_t np, HashStruct &&hs): hllbase_t(np, ERTL_MLE, (JointEstimationMethod)ERTL_MLE, std::move(hs)) {}
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_MLE) {}
@@ -927,7 +928,7 @@ public:
         }
         value_ = is_calculated_ = 0;
     }
-    hllbase_t(hllbase_t&&o): value_(0), np_(0), is_calculated_(0), estim_(ERTL_MLE), jestim_(static_cast<JointEstimationMethod>(ERTL_MLE)) {
+    hllbase_t(hllbase_t&&o): value_(0), np_(0), is_calculated_(0), estim_(ERTL_MLE), jestim_(static_cast<JointEstimationMethod>(ERTL_MLE)), hf_(std::move(o.hf_)) {
         std::swap_ranges(reinterpret_cast<uint8_t *>(this),
                          reinterpret_cast<uint8_t *>(this) + sizeof(*this),
                          reinterpret_cast<uint8_t *>(std::addressof(o)));
@@ -948,6 +949,7 @@ public:
         value_ = other.value_;
         is_calculated_ = other.is_calculated_;
         estim_ = other.estim_;
+        hf_ = other.hf_;
         return *this;
     }
     hllbase_t& operator=(hllbase_t&&) = default;

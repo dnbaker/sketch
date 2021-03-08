@@ -307,6 +307,11 @@ public:
     size_t total_updates() const {return total_updates_;}
     size_t floopupdates = 0;
     size_t inner_loop_updates() const {return inner_loop_updates_;}
+    long double flog(long double x) const {
+        __uint128_t yi;
+        std::memcpy(&yi, &x, sizeof(x));
+        return yi * 3.7575583950764744255e-20L - 11356.176832703863597L;
+    }
     double flog(double x) const {
         uint64_t yi;
         std::memcpy(&yi, &x, sizeof(yi));
@@ -325,8 +330,10 @@ public:
         FT ev;
         CONST_IF(sizeof(FT) > 8) {
             auto lrv = __uint128_t(rv) << 64;
+            const FT bv = -1. / m_;
             lrv |= wy::wyhash64_stateless(&rv);
-            ev = -(1. / m_) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+            FT tv = static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L);
+            ev = -bv * std::log(tv);
             if(ev >= max()) return;
         } else {
             auto tv = rv * INVMUL64;
@@ -356,7 +363,7 @@ public:
             if(bi == m_) return;
             rv = wy::wyhash64_stateless(&hid);
             const FT bv = -getbeta(bi++);
-            if(sizeof(FT) > 8) {
+            CONST_IF(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
                 ev = std::fma(bv, std::log((lrv >> 32) * 1.2621774483536188887e-29L), ev);

@@ -41,12 +41,12 @@ int main() {
                 //std::cerr << rem << "MH est: " << hm.estimate_mh_portion() << '\n';
                 hme += std::abs(ce - nelem);
                 hle += std::abs(hl.cardinality_estimate() - nelem);
-                double h2 = hm2.estimate_hll_portion(), mh2 = hm2.estimate_mh_portion();
+                //double h2 = hm2.estimate_hll_portion(), mh2 = hm2.estimate_mh_portion();
                 //std::cerr << rem << "2HLL est: " << h2 << '\n';
                 //std::cerr << rem << "2MH est: " << mh2 << '\n';
                 double ji = hm.jaccard_index(hm2);
-                //std::cerr << ji << '\n';
-                //std::cerr << "JI via HLL: " << hl.jaccard_index(hl2) << '\n';
+                std::cerr << ji << '\n';
+                std::cerr << "JI via HLL: " << hl.jaccard_index(hl2) << '\n';
                 hm.write(hm1p);
                 hm2.write(hm2p);
                 assert(hm == sketch::HyperMinHash(hm1p));

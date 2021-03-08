@@ -8,11 +8,11 @@ namespace bf {
 
 namespace detail {
 // Utilities for generically selecting sketch parameters.
-static std::vector<unsigned> pcbf_hll_pgen(unsigned nsketches, unsigned l2sz, unsigned hllp=0, bool shrinkpow2=true) {
+static std::vector<unsigned> pcbf_hll_pgen(unsigned nsketches, int l2sz, unsigned hllp=0, bool shrinkpow2=true) {
     std::vector<unsigned> ret; ret.reserve(nsketches);
-    unsigned p = hllp ? hllp: std::max(l2sz - 4, 8u);
+    int p = hllp ? hllp: std::max(l2sz + 4, 8);
     std::generate_n(std::back_inserter(ret), nsketches, [&](){
-        auto ret = std::max(8u, p);
+        auto ret = std::max(8, p);
         p -= shrinkpow2;
         return ret;
     });
@@ -111,16 +111,26 @@ public:
 using cbf_t = cbfbase_t<>;
 
 
-
 template<typename HashStruct=WangHash, typename RngType=common::DefaultRNGType>
 class pcbfbase_t {
     // Probabilistic bloom filter counting.
     // Much like cbf_t, but also provides cardinality estimates for the number of elements reaching each stage.
 protected:
     using bf_t  = bf::bfbase_t<HashStruct>;
-    using hll_t = hll::hllbase_t<HashStruct>;
+    struct XorWHash {
+        const uint64_t seed_;
+        XorWHash(uint64_t seed): seed_(seed) {
+            std::fprintf(stderr, "Constructed with %zu = seed\n", size_t(seed));
+        }
+        XorWHash(const XorWHash &o): XorWHash(o.seed_) {std::fputs("Constructed with copy\n", stdout);}
+        uint64_t operator()(uint64_t x) const {
+            return WangHash::hash(x ^ seed_);
+        }
+        XorWHash &operator=(const XorWHash &o) {seed_ = o.seed_;}
+    };
+    using seedhll_t = hll::hllbase_t<XorWHash>;
 
-    std::vector<hll_t> hlls_;
+    std::vector<seedhll_t> hlls_;
     std::vector<bf_t>   bfs_;
     RngType             rng_;
     uint64_t            gen_;
@@ -128,7 +138,7 @@ protected:
 public:
     void free() {
         {
-            std::vector<hll_t> tmp;
+            std::vector<seedhll_t> tmp;
             std::swap(hlls_, tmp);
         }
         {
@@ -145,9 +155,9 @@ public:
         std::generate_n(std::back_inserter(bfs_), l2szs.size(), [&](){
             return bf_t(l2szs[bfs_.size()], nhashes, rng_());
         });
-        std::generate_n(std::back_inserter(hlls_), l2szs.size(), [&](){
-            return hll_t(rng_(), hllps[hlls_.size()], estim, jestim);
-        });
+        while(hlls_.size() < l2szs.size()) {
+            hlls_.emplace_back(hllps.at(hlls_.size()), estim, jestim, rng_());
+        }
     }
     explicit pcbfbase_t(size_t nbfs, size_t l2sz, unsigned nhashes,
                         uint64_t seedseedseedval, unsigned hllp=0, hll::EstimationMethod estim=hll::ERTL_MLE,
@@ -161,7 +171,7 @@ public:
         for(auto &hll: hlls_) hll.reseed(rng_());
     }
     const std::vector<bf_t>  &bfs()  const {return bfs_;}
-    const std::vector<hll_t> &hlls() const {return hlls_;}
+    const std::vector<seedhll_t> &hlls() const {return hlls_;}
     void resize_bloom(unsigned newsize) {for(auto &bf: bfs_) bf.resize(newsize);}
     size_t size() const {return bfs_.size();}
     INLINE void addh(uint64_t val) {
