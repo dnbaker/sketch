@@ -171,10 +171,6 @@ std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
     }
     double cAXBhalf = ertl_ml_estimate(countsAXBhalf, p, q - 1);
     double cBXAhalf = ertl_ml_estimate(countsBXAhalf, p, q - 1);
-#if !NDEBUG
-    std::fprintf(stderr, "cAXBhalf = %lf\n", cAXBhalf);
-    std::fprintf(stderr, "cBXAhalf = %lf\n", cBXAhalf);
-#endif
     ret[0] = cABX - cBX;
     ret[1] = cABX - cAX;
     double cX1 = (1.5 * cBX + 1.5*cAX - cBXAhalf - cAXBhalf);
@@ -214,10 +210,6 @@ static double calculate_estimate(const CountArrType &counts,
         double value(alpha * m * m / sum);
         if(value < 2.5 * m) {
             if(counts[0]) {
-#if !NDEBUG
-                std::fprintf(stderr, "[W:%s:%d] Small value correction. Original estimate %lf. New estimate %lf.\n",
-                             __PRETTY_FUNCTION__, __LINE__, value, m * std::log(static_cast<double>(m) / counts[0]));
-#endif
                 value = m * std::log(static_cast<double>(m) / counts[0]);
             }
         } else if(value > detail::LARGE_RANGE_CORRECTION_THRESHOLD) {
@@ -225,9 +217,6 @@ static double calculate_estimate(const CountArrType &counts,
             // I do think I've seen worse accuracy with the large range correction, but I would need to rerun experiments to be sure.
             sum = -std::pow(2.0L, 32) * std::log1p(-std::ldexp(value, -32));
             if(!std::isnan(sum)) value = sum;
-#if !NDEBUG
-            else std::fprintf(stderr, "[W:%s:%d] Large range correction returned nan. Defaulting to regular calculation.\n", __PRETTY_FUNCTION__, __LINE__);
-#endif
         }
         return value;
     }
@@ -756,7 +745,6 @@ public:
     explicit hllbase_t(size_t np, EstimationMethod estim,
                        JointEstimationMethod jestim,
                        Args &&... args):
-        core_(static_cast<uint64_t>(1) << np),
         value_(0.), np_(np), is_calculated_(0),
         estim_(estim), jestim_(jestim)
         , hf_(std::forward<Args>(args)...)
@@ -765,6 +753,8 @@ public:
         for(size_t i = 0; i < clz_counts_.size(); ++i)
             clz_counts_[i].store(uint64_t(0));
 #endif
+        VERBOSE_ONLY(std::fprintf(stderr, "np = %zu, estim = %d, jest = %d\n", np, estim, jestim);)
+        core_.resize(static_cast<uint64_t>(1) << np);
     }
     explicit hllbase_t(size_t np, HashStruct &&hs): hllbase_t(np, ERTL_MLE, (JointEstimationMethod)ERTL_MLE, std::move(hs)) {}
     explicit hllbase_t(size_t np, EstimationMethod estim=ERTL_MLE): hllbase_t(np, estim, (JointEstimationMethod)ERTL_MLE) {}
@@ -838,7 +828,7 @@ public:
         for(;core_[index] < lzt;
              __sync_bool_compare_and_swap(&core_[index], core_[index], lzt));
 #else
-        core_[index] = std::max(core_[index], lzt);
+        if(core_[index] < lzt) core_[index] = lzt;
 #endif
 
 #if LZ_COUNTER
@@ -938,7 +928,7 @@ public:
         }
         value_ = is_calculated_ = 0;
     }
-    hllbase_t(hllbase_t&&o): value_(0), np_(0), is_calculated_(0), estim_(ERTL_MLE), jestim_(static_cast<JointEstimationMethod>(ERTL_MLE)) {
+    hllbase_t(hllbase_t&&o): value_(0), np_(0), is_calculated_(0), estim_(ERTL_MLE), jestim_(static_cast<JointEstimationMethod>(ERTL_MLE)), hf_(std::move(o.hf_)) {
         std::swap_ranges(reinterpret_cast<uint8_t *>(this),
                          reinterpret_cast<uint8_t *>(this) + sizeof(*this),
                          reinterpret_cast<uint8_t *>(std::addressof(o)));
@@ -959,6 +949,7 @@ public:
         value_ = other.value_;
         is_calculated_ = other.is_calculated_;
         estim_ = other.estim_;
+        hf_ = other.hf_;
         return *this;
     }
     hllbase_t& operator=(hllbase_t&&) = default;
@@ -1086,7 +1077,7 @@ public:
         CR(fp, &np_, sizeof(np_));
         CR(fp, &value_, sizeof(value_));
         core_.resize(m());
-        CR(fp, core_.data(), core_.size());
+        CR(fp, core_.data(), (core_.size() * sizeof(core_[0])));
         csum();
 #undef CR
     }

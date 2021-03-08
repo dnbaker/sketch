@@ -1,7 +1,7 @@
 #include "python/pysketch.h"
 #include "sketch/setsketch.h"
 
-PYBIND11_MODULE(sketch_hll, m) {
+PYBIND11_MODULE(sketch_ss, m) {
     m.doc() = "SetSketch python bindings"; // optional module docstring
     py::class_<EShortSetS> (m, "ShortSetSketch")
         .def(py::init<size_t>())
@@ -110,6 +110,9 @@ PYBIND11_MODULE(sketch_hll, m) {
             return h1.jaccard_index(h2);
         })
         .def("union", [](const CSetSketch<double> &h1, const CSetSketch<double> &h2) {return h1 + h2;})
+        .def("nmatch", [](const CSetSketch<double> &h, const CSetSketch<double> &o) {
+            return h.shared_registers(o);
+        })
         //.def("union_size", [](const CSetSketch<double> &h1, const CSetSketch<double> &h2) {return h1.union_size(h2);})
         .def("__ior__", [](CSetSketch<double> &lh, const CSetSketch<double> &rh) {lh += rh; return lh;})
         .def("__or__", [](const CSetSketch<double> &lh, const CSetSketch<double> &rh) {return lh + rh;})

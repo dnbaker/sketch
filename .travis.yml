@@ -21,7 +21,7 @@ before_install:
   - git submodule update --init --recursive
 script:
   - make -f Makefile run_tests -j1
-  - ./run_tests.sh
+  - ./run_tests
   - cd python
   - python3 setup.py install --user --prefix=
 notifications:

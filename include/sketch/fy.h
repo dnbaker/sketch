@@ -18,7 +18,7 @@ struct LazyShuffler {
     using IT = uint32_t;
 private:
     std::vector<IT> data_;
-    wy::WyRand<uint32_t, 4> rng_;
+    wy::WyRand<uint32_t, 2> rng_;
     size_t i_ = 0, c_ = 0, sz_;
     std::vector<schism::Schismatic<IT>> divs_;
 

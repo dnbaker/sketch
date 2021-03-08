@@ -47,16 +47,12 @@ enum class Alignment : size_t
 #endif
 
 namespace detail {
-    static inline void* allocate_aligned_memory(size_t align, size_t size) {
+    static inline void* allocate_aligned_memory(const size_t align, size_t size) {
         assert(align >= sizeof(void*));
         assert((align & (align - 1)) == 0); // Assert is power of two
 
-#if USE_ALIGNED_ALLOC
-        return std::aligned_alloc(size, align);
-#else
         void *ret;
         return posix_memalign(&ret, align, size) ? nullptr: ret;
-#endif
     }
 }
 

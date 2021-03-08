@@ -8,14 +8,32 @@
 #include <unordered_map>
 #include <memory>
 #include "fy.h"
-#include "count_eq.h"
+#include "sketch/count_eq.h"
+#include "sketch/macros.h"
 #include "blaze/Math.h"
+#include "sketch/hash.h"
 
 #ifndef NDEBUG
 #include <unordered_set>
 #endif
 
 namespace sketch {
+
+namespace setsketch {
+
+namespace detail {
+    struct Deleter {
+        template<typename T>
+        void operator()(const T *x) const {std::free(const_cast<T *>(x));}
+    };
+    union float_int {float f; unsigned int i; float_int(float x): f(x) {}};
+    union double_int {double f; uint64_t i; double_int(double x): f(x) {}};
+}
+
+#define LC_ONLY(...)
+
+using detail::float_int;
+using detail::double_int;
 
 
 #if __cplusplus >= 201703L
@@ -28,18 +46,23 @@ namespace sketch {
 
 template<typename FT>
 class mvt_t {
-    static constexpr FT mv_ = std::numeric_limits<FT>::max();
+    FT mv_;
     FT *data_ = nullptr;
     size_t m_;
 public:
-    mvt_t(size_t m): m_(m) {}
+    mvt_t(size_t m, FT mv = std::numeric_limits<FT>::max()): mv_(m), m_(m) {}
 
+    FT mv() const {return mv_;}
     FT *data() {return data_;}
     const FT *data() const {return data_;}
     // Check size and max
     size_t getm() const {return m_;}
     size_t nelem() const {return 2 * m_ - 1;}
     FT operator[](size_t i) const {return data_[i];}
+    void assign(FT *vals, size_t nvals, FT mv) {
+        mv_ = mv;
+        assign(vals, nvals);
+    }
     void assign(FT *vals, size_t nvals) {
         data_ = vals; m_ = nvals;
         std::fill(data_, data_ + nelem(), mv_);
@@ -93,6 +116,7 @@ struct minvt_t {
     typename std::ptrdiff_t klow() const {
         return min();
     }
+    typename std::ptrdiff_t max() const {return *std::max_element(data_, &data_[(m_ << 1) - 1]);}
 
     bool update(size_t index, ResT x) {
         const auto sz = (m_ << 1) - 1;
@@ -126,6 +150,7 @@ struct LowKHelper {
         reset();
     }
     int klow() const {return klow_;}
+    auto max() const {return *std::max_element(vals_, vals_ + nvals_);}
     double explim() const {return explim_;}
     void reset() {
         klow_ =  *std::min_element(vals_, vals_ + nvals_);
@@ -157,9 +182,7 @@ INLINE float broadcast_reduce_sum(__m256 x) {
     const __m256 m1 = _mm256_add_ps(m0, perm0);
     const __m256 perm1 = _mm256_permute_ps(m1, 0b10110001);
     const __m256 m2 = _mm256_add_ps(perm1, m1);
-    float ret = m2[0];
-    std::fprintf(stderr, "sum of %g/%g/%g/%g/%g/%g/%g/%g is %g\n", x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], ret);
-    return ret;
+    return m2[0];
 }
 INLINE double broadcast_reduce_sum(__m256d x) {
     __m256d m1 = _mm256_add_pd(x, _mm256_permute2f128_pd(x, x, 1));
@@ -173,132 +196,30 @@ static inline long double g_b(long double b, long double arg) {
 
 template<typename FT>
 inline double calc_card(const FT *start, const FT *end) {
-    bool is_aligned = (reinterpret_cast<uint64_t>(start) %
-#if __AVX512F__
-        64
-#elif __AVX2__
-        32
-#else
-        1
-#endif
-        ) == 0;
-    double sum;
-    const size_t n = end - start;
-    if(is_aligned) sum = blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(const_cast<FT *>(start), n)));
-    else           sum = blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::unaligned, blaze::unpadded>(const_cast<FT *>(start), n)));
-    return n / sum;
+    const std::ptrdiff_t n = end - start;
+    return n /
+        blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(
+                const_cast<FT *>(start), n)));
 }
 
-#if 0
-template<> inline double calc_card(const float *const start, const float *const end) {
-    const std::ptrdiff_t n = end - start;
-    auto blzsum = blaze::sum(blaze::CustomVector<float, blaze::unaligned, blaze::unpadded>(const_cast<float *>(start), n));
-    std::fprintf(stderr, "blzsum: %g\n", blzsum);
-    double sum = 0.;
-    size_t i;
-#if __AVX512F__
-    static constexpr size_t nper = sizeof(__m512i) / sizeof(float);
-    const size_t nsimd = n / nper;
-    const size_t nsimd4 = (nsimd / 4) * 4;
-    for(i = 0; i < nsimd4; i += 4) {
-        __m512 v0 = _mm512_loadu_ps(&start[i * nper]),
-               v1 = _mm512_loadu_ps(&start[(i + 1) * nper])
-               v2 = _mm512_loadu_ps(&start[(i + 2) * nper])
-               v3 = _mm512_loadu_ps(&start[(i + 3) * nper]);
-        sum += _mm512_reduce_add_ps(_mm512_add_ps(_mm512_add_ps(v0, v1), _mm512_add_ps(v2, v3)));
-    }
-    for(i = nsimd4; i < nsimd; ++i) {
-        sum += _mm512_reduce_add_ps(_mm512_loadu_ps(&start[i * nper]));
-    }
-    i = nsimd * nper;
-#elif __AVX2__
-    static constexpr size_t nper = sizeof(__m256i) / sizeof(float);
-    const size_t nsimd = n / nper;
-    const size_t nsimd4 = (nsimd / 4) * 4;
-    i = 0;
-#if 0
-    for(; i < nsimd4; i += 4) {
-        __m256 v0 = _mm256_loadu_ps(&start[i * nper]),
-               v1 = _mm256_loadu_ps(&start[(i + 1) * nper]),
-               v2 = _mm256_loadu_ps(&start[(i + 2) * nper]),
-               v3 = _mm256_loadu_ps(&start[(i + 3) * nper]);
-        sum += broadcast_reduce_sum(_mm256_add_ps(_mm256_add_ps(v0, v1), _mm256_add_ps(v2, v3)));
-    }
-#endif
-    for(; i < nsimd; ++i) {
-        sum += broadcast_reduce_sum(_mm256_loadu_ps(&start[i * nsimd]));
-    }
-    i = nsimd * nper;
-#endif
-    for(;i < n; ++i) {
-        sum += start[i];
-    }
-    std::fprintf(stderr, "blzsum: %g. mysum:%g\n", blzsum, sum);
-    return n / sum;
-}
-template<> inline double calc_card(const double *start, const double *end) {
-    const std::ptrdiff_t n = end - start;
-    auto blzsum = blaze::sum(blaze::CustomVector<double, blaze::unaligned, blaze::unpadded>(const_cast<double *>(start), n));
-    std::fprintf(stderr, "blzsum: %g\n", blzsum);
-    double sum = 0.;
-    size_t i;
-#if __AVX512F__
-    static constexpr size_t nper = sizeof(__m512i) / *start;
-    const size_t nsimd = n / nper;
-    const size_t nsimd4 = (nsimd / 4) * 4;
-    __m512d vsum = _mm512_setzero_pd();
-    for(i = 0; i < nsimd4; i += 4) {
-        vsum = _mm512_add_pd(vsum,
-                _mm512_add_pd(
-                    _mm512_add_pd(_mm512_loadu_pd(&start[i * nper]), _mm512_loadu_pd(&start[(i + 1) * nper])),
-                    _mm512_add_pd(_mm512_loadu_pd(&start[(i + 2) * nper]), _mm512_loadu_pd(&start[(i + 3) * nper]))
-        ));
-    }
-    switch(nsimd - i) {
-        case 3: vsum = _mm512_add_pd(vsum, _mm512_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 2: vsum = _mm512_add_pd(vsum, _mm512_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 1: vsum = _mm512_add_pd(vsum, _mm512_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 0: ;
-    }
-    sum = _mm512_reduce_add_pd(vsum);
-    i = nsimd * nper;
-#elif __AVX2__
-    static constexpr size_t nper = sizeof(__m256i) / sizeof(*start);
-    const size_t nsimd = n / nper;
-    const size_t nsimd4 = (nsimd / 4) * 4;
-    __m256d vsum = _mm256_setzero_pd();
-    for(i = 0; i < nsimd4; i += 4) {
-        vsum = _mm256_add_pd(vsum, _mm256_add_pd(
-                    _mm256_add_pd(_mm256_loadu_pd(&start[i * nper]), _mm256_loadu_pd(&start[(i + 1) * nper])),
-                    _mm256_add_pd(_mm256_loadu_pd(&start[(i + 2) * nper]), _mm256_loadu_pd(&start[(i + 3) * nper]))
-        ));
-    }
-    switch(nsimd - i) {
-        case 3: vsum = _mm256_add_pd(vsum, _mm256_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 2: vsum = _mm256_add_pd(vsum, _mm256_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        case 1: vsum = _mm256_add_pd(vsum, _mm256_loadu_pd(&start[i++ * nsimd])); [[fallthrough]];
-        default: [[fallthrough]];
-        case 0: ;
-    }
-    sum = broadcast_reduce_sum(vsum);
-    i = nsimd * nper;
-#endif
-    for(;i < n; ++i) sum += start[i];
-    std::fprintf(stderr, "mysum: %0.20g. osum: %0.20g\n", sum, blzsum);
-    return n / sum;
-}
-#endif
+template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 
 template<typename FT=double>
 class CSetSketch {
+    // TODO: Add stochastically-averaged case for faster sketching.
+    //      (With the approximate log trick, we're still around only twice the time as HLL)
     static_assert(std::is_floating_point<FT>::value, "Must float");
-    // Set sketch 1
+    // SetSketch 1
     size_t m_; // Number of registers
-    std::unique_ptr<FT[]> data_;
-    std::vector<uint64_t> ids_;
+    std::unique_ptr<FT[], detail::Deleter> data_;
     fy::LazyShuffler ls_;
     mvt_t<FT> mvt_;
+    std::vector<uint64_t> ids_;
+    std::vector<uint32_t> idcounts_;
+    blaze::DynamicVector<FT> beta_;
+    uint64_t total_updates_ = 0;
+    uint64_t inner_loop_updates_= 0;
     static FT *allocate(size_t n) {
         n = (n << 1) - 1;
         FT *ret = nullptr;
@@ -310,35 +231,71 @@ class CSetSketch {
 #else
             16;
 #endif
-#if __cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC)
-        if((ret = static_cast<FT *>(std::aligned_alloc(ALN, n * sizeof(FT)))) == nullptr)
-#else
-        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT)))
-#endif
-            throw std::bad_alloc();
+        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT))) throw std::bad_alloc();
         return ret;
     }
+#if 0
+    // Caching these coefficients doesn't seem to make a big difference.
+    void generate_betas() {
+        beta_.resize(m_);
+        beta_ = blaze::serial(blaze::generate(m_, [m=m_](size_t i) {return 1. / (m - i);}));
+    }
+#endif
     FT getbeta(size_t idx) const {
-        return FT(1.) / (m_ - idx);
+#if 0
+        return beta_[idx];
+#else
+        return FT(1.) / static_cast<FT>(m_ - idx);
+#endif
     }
 public:
     const FT *data() const {return data_.get();}
     FT *data() {return data_.get();}
-    CSetSketch(size_t m, bool track_ids=false): m_(m), ls_(m_), mvt_(m) {
-        FT *p = allocate(m_);
-        data_.reset(p);
-        std::fill(p, p + m_, std::numeric_limits<FT>::max());
-        mvt_.assign(p, m_);
-        if(track_ids) ids_.resize(m_);
+    CSetSketch(size_t m, bool track_ids=false, bool track_counts=false, FT maxv=std::numeric_limits<FT>::max()): m_(m), ls_(m_), mvt_(m_) {
+        data_.reset(allocate(m_));
+        mvt_.assign(data_.get(), m_, maxv);
+        if(track_ids || track_counts) ids_.resize(m_);
+        if(track_counts)         idcounts_.resize(m_);
+        //generate_betas();
     }
-    CSetSketch(const CSetSketch &o): m_(o.m_), ls_(m_), mvt_(m_) {
-        FT *p = allocate(m_);
-        data_.reset(p);
-        mvt_.assign(p, m_);
-        std::copy(o.data_.get(), &o.data_[2 * m_ - 1], p);
+    CSetSketch(const CSetSketch &o): m_(o.m_), data_(allocate(o.m_)), ls_(m_), mvt_(m_, o.mvt_.mv()), ids_(o.ids_), idcounts_(o.idcounts_) {
+        mvt_.assign(data_.get(), m_, o.mvt_.mv());
+        std::copy(o.data_.get(), &o.data_[2 * m_ - 1], data_.get());
+        //generate_betas();
     }
+    template<typename ResT=uint16_t>
+    SetSketch<ResT, FT> to_setsketch(double b, double a, int64_t q=std::numeric_limits<ResT>::max() - 1) const {
+        SetSketch<ResT, FT> ret(m_, b, a, q, ids_.size());
+        const double logbinv = 1. / std::log1p(b - 1.);
+        for(size_t i = 0; i < m_; ++i) {
+            ret.lowkh().update(i, std::max(int64_t(0), std::min(int64_t(q) + 1, static_cast<int64_t>((1. - std::log(data_[i]) * logbinv)))));
+        }
+        return ret;
+    }
+    CSetSketch &operator=(const CSetSketch &o) {
+        if(size() != o.size()) {
+            if(m_ < o.m_) data_.reset(allocate(o.m_));
+            m_ = o.m_;
+            ls_.resize(m_);
+            //generate_betas();
+        }
+        mvt_.assign(data_.get(), m_, o.mvt_.mv());
+        std::copy(o.data(), o.data() + (2 * m_ - 1), data());
+        if(o.ids_.size()) {
+            ids_ = o.ids_;
+            if(o.idcounts_.size()) idcounts_ = o.idcounts_;
+        }
+        total_updates_ = o.total_updates_;
+        inner_loop_updates_ = o.inner_loop_updates_;
+        return *this;
+    }
+    CSetSketch(std::FILE *fp): ls_(1), mvt_(1) {read(fp);}
+    CSetSketch(gzFile fp): ls_(1), mvt_(1) {read(fp);}
     CSetSketch(const std::string &s): ls_(1), mvt_(1) {
         read(s);
+    }
+    CSetSketch<FT> clone_like() const {
+        return CSetSketch(m_, !ids().empty(), !idcounts().empty());
     }
     FT min() const {return *std::min_element(data(), data() + m_);}
     FT max() const {return mvt_.max();}
@@ -347,40 +304,107 @@ public:
     const FT &operator[](size_t i) const {return data_[i];}
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
+    size_t total_updates() const {return total_updates_;}
+    size_t floopupdates = 0;
+    size_t inner_loop_updates() const {return inner_loop_updates_;}
+    long double flog(long double x) const {
+        __uint128_t yi;
+        std::memcpy(&yi, &x, sizeof(x));
+        return yi * 3.7575583950764744255e-20L - 11356.176832703863597L;
+    }
+    double flog(double x) const {
+        uint64_t yi;
+        std::memcpy(&yi, &x, sizeof(yi));
+        return yi * 1.539095918623324e-16 - 709.0895657128241;
+    }
+    float flog(float x) const {
+        uint32_t yi;
+        std::memcpy(&yi, &x, sizeof(yi));
+        return yi * 8.2629582881927490e-8f - 88.02969186f;
+    }
     void update(const uint64_t id) {
+        ++total_updates_;
         uint64_t hid = id;
-        size_t bi = 0;
         uint64_t rv = wy::wyhash64_stateless(&hid);
-        FT ev = 0.;
+
+        FT ev;
+        CONST_IF(sizeof(FT) > 8) {
+            auto lrv = __uint128_t(rv) << 64;
+            const FT bv = -1. / m_;
+            lrv |= wy::wyhash64_stateless(&rv);
+            FT tv = static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L);
+            ev = -bv * std::log(tv);
+            if(ev >= max()) return;
+        } else {
+            auto tv = rv * INVMUL64;
+            const FT bv = -1. / m_;
+            // Filter with fast log first
+#if 1
+            if(bv * flog(tv) * FT(.7) > max()) return;
+#endif
+            ev = bv * std::log(tv);
+            if(ev >= mvt_.max()) return;
+        }
+        LC_ONLY(++floopupdates;)
         ls_.reset();
         ls_.seed(rv);
+        uint64_t bi = 1;
+        uint32_t idx = ls_.step();
         for(;;) {
-            if(sizeof(FT) > 8) {
+            LC_ONLY(++inner_loop_updates_;)
+            if(mvt_.update(idx, ev)) {
+                if(!ids_.empty()) {
+                    ids_.operator[](idx) = id;
+                    if(!idcounts_.empty()) idcounts_.operator[](idx) = 1;
+                }
+            } else if(!idcounts_.empty()) {
+                if(id == ids_.operator[](idx)) ++idcounts_.operator[](idx);
+            }
+            if(bi == m_) return;
+            rv = wy::wyhash64_stateless(&hid);
+            const FT bv = -getbeta(bi++);
+            CONST_IF(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev += -getbeta(bi) * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+                ev = std::fma(bv, std::log((lrv >> 32) * 1.2621774483536188887e-29L), ev);
             } else {
-                ev += -getbeta(bi) * std::log(rv * INVMUL64);
+                FT nv = rv * INVMUL64;
+#if 1
+                if(bv * flog(nv) * FT(.7) + ev >= max()) break;
+#endif
+                ev = std::fma(bv, std::log(nv), ev);
+                if(ev >= max()) break;
             }
-            if(ev >= mvt_.max()) break;
-            auto idx = ls_.step();
-            if(mvt_.update(idx, ev)) {
-                if(!ids_.empty()) ids_[idx] = id;
-            }
-            if(++bi == m_)
-                break;
-            rv = wy::wyhash64_stateless(&hid);
+            idx = ls_.step();
         }
     }
     bool operator==(const CSetSketch<FT> &o) const {
         return same_params(o) && std::equal(data(), data() + m_, o.data());
     }
     bool same_params(const CSetSketch<FT> &o) const {
-        return m_ == o.m_;
+        return m_ == o.m_
+            && (ids().empty() == o.ids().empty())
+            && (idcounts().empty() == o.idcounts().empty());
     }
+    auto cv() {return blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(data(), m_);}
+    auto cv() const {return blaze::CustomVector<const FT, blaze::aligned, blaze::unpadded>(data(), m_);}
     void merge(const CSetSketch<FT> &o) {
         if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
-        std::transform(data(), data() + m_, o.data(), data(), [](auto x, auto y) {return std::min(x, y);});
+        if(ids().empty()) {
+            cv() = blaze::serial(blaze::min(cv(), o.cv()));
+        } else {
+            for(size_t i = 0; i < size(); ++i) {
+                if(!idcounts_.empty() && !ids_.empty() && ids_[i] == o.ids_[i]) {
+                    idcounts_[i] += o.idcounts_[i];
+                } else if(mvt_.update(i, o.data_[i])) {
+                    if(!ids_.empty()) ids_[i] = o.ids_[i];
+                    if(!idcounts_.empty()) idcounts_[i] = o.idcounts_[i];
+                }
+            }
+        }
+        total_updates_ += o.total_updates_;
+        inner_loop_updates_ += o.inner_loop_updates_;
+        total_updates_ += o.total_updates_;
     }
     CSetSketch &operator+=(const CSetSketch<FT> &o) {merge(o); return *this;}
     CSetSketch operator+(const CSetSketch<FT> &o) const {
@@ -396,7 +420,7 @@ public:
             return eq::count_eq((uint32_t *)data(), (uint32_t *)o.data(), m_);
         } else CONST_IF(sizeof(FT) == 8) {
             return eq::count_eq((uint64_t *)data(), (uint64_t *)o.data(), m_);
-        } else CONST_IF(sizeof(FT) = 2) {
+        } else CONST_IF(sizeof(FT) == 2) {
             return eq::count_eq((uint16_t *)data(), (uint16_t *)o.data(), m_);
         }
         auto optr = o.data();
@@ -418,10 +442,11 @@ public:
     }
     void read(gzFile fp) {
         gzread(fp, &m_, sizeof(m_));
-        data_.reset(new FT[2 * m_ - 1]);
-        mvt_.assign(data_.get(), m_);
+        FT mv;
+        gzread(fp, &mv, sizeof(mv));
+        data_.reset(allocate(m_));
+        mvt_.assign(data_.get(), m_, mv);
         gzread(fp, (void *)data_.get(), m_ * sizeof(FT));
-        std::fill(&data_[m_], &data_[2 * m_ - 1], std::numeric_limits<FT>::max());
         for(size_t i = 0;i < m_; ++i) mvt_.update(i, data_[i]);
         ls_.resize(m_);
     }
@@ -437,31 +462,42 @@ public:
     }
     void write(std::FILE *fp) const {
         checkwrite(fp, (const void *)&m_, sizeof(m_));
+        FT m = mvt_.mv();
+        checkwrite(fp, (const void *)&m, sizeof(m));
         checkwrite(fp, (const void *)data_.get(), m_ * sizeof(FT));
     }
     void write(gzFile fp) const {
         checkwrite(fp, (const void *)&m_, sizeof(m_));
+        FT m = mvt_.mv();
+        checkwrite(fp, (const void *)&m, sizeof(m));
         checkwrite(fp, (const void *)data_.get(), m_ * sizeof(FT));
     }
+    void reset() {clear();}
     void clear() {
-        std::fill(data_.get(), &data_[m_ * 2 - 1], std::numeric_limits<FT>::max());
+        mvt_.assign(data_.get(), m_, mvt_.mv());
+        total_updates_ = 0;
+        if(ids_.size()) {
+            std::fill(ids_.begin(), ids_.end(), uint64_t(0));
+            if(idcounts_.size()) std::fill(idcounts_.begin(), idcounts_.end(), uint32_t(0));
+        }
     }
     const std::vector<uint64_t> &ids() const {return ids_;}
+    const std::vector<uint32_t> &idcounts() const {return idcounts_;}
     double cardinality() const {
         return calc_card(data_.get(), &data_[m_]);
     }
-    static std::pair<FT, FT> optimal_parameters(FT maxreg, FT minreg, size_t q) {
-        FT b = std::exp(std::log(minreg / maxreg) / q);
-        return {b, minreg / b};
+    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, size_t q) {
+        long double b = std::exp(std::log((long double)maxreg / (long double)minreg) / (long double)q);
+        return {FT(b), FT((long double)maxreg / b)};
     }
     template<typename ResT=uint16_t>
-    static std::pair<FT, FT> optimal_parameters(FT maxreg, FT minreg) {
-        static constexpr unsigned long long q = sizeof(ResT) = 1 ? 254ull : sizeof(ResT) == 2 ? 65534ull: sizeof(ResT) == 4 ? 4294967294ull: 18446744073709551614ull;
-        return optimal_parameters(maxreg, minreg, q);
+    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg) {
+        if(maxreg < minreg) std::swap(maxreg, minreg);
+        return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
     }
 };
 
-template<typename ResT, typename FT=double>
+template<typename ResT, typename FT>
 class SetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
     static_assert(std::is_integral<ResT>::value, "Must be integral");
@@ -473,7 +509,7 @@ class SetSketch {
     FT logbinv_;
     using QType = std::common_type_t<ResT, int>;
     QType q_;
-    std::unique_ptr<ResT[]> data_;
+    std::unique_ptr<ResT[], detail::Deleter> data_;
     std::vector<uint64_t> ids_; // The IDs representing the sampled items.
                                 // Only used if SetSketch is
     fy::LazyShuffler ls_;
@@ -504,6 +540,8 @@ class SetSketch {
 public:
     const ResT *data() const {return data_.get();}
     ResT *data() {return data_.get();}
+    auto &lowkh() {return lowkh_;}
+    const auto &lowkh() const {return lowkh_;}
     SetSketch(size_t m, FT b, FT a, int q, bool track_ids = false): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_), lowkh_(m) {
         ResT *p = allocate(m_);
         data_.reset(p);
@@ -531,6 +569,8 @@ public:
     ResT &operator[](size_t i) {return data_[i];}
     const ResT &operator[](size_t i) const {return data_[i];}
     int klow() const {return lowkh_.klow();}
+    auto max() const {return lowkh_.max();}
+    auto min() const {return lowkh_.min();}
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     void print() const {
@@ -548,7 +588,7 @@ public:
             if(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev += ba * std::log(static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L));
+                ev += ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L);
             } else {
                 ev += ba * std::log(rv * INVMUL64);
             }
@@ -653,7 +693,7 @@ public:
         gzread(fp, &q_, sizeof(q_));
         ainv_ = 1.L / a_;
         logbinv_ = 1.L / std::log1p(b_ - 1.);
-        data_.reset(new ResT[2 * m_ - 1]);
+        data_.reset(allocate(m_));
         lowkh_.assign(data_.get(), m_, b_);
         gzread(fp, (void *)data_.get(), m_ * sizeof(ResT));
         std::fill(&data_[m_], &data_[2 * m_ - 1], ResT(0));
@@ -728,6 +768,7 @@ struct EShortSetS: public SetSketch<uint16_t, long double> {
     template<typename IT, typename OFT, typename=typename std::enable_if<std::is_integral<IT>::value && std::is_floating_point<OFT>::value>::type>
     EShortSetS(IT nreg, OFT b=DEFAULT_B, OFT a=DEFAULT_A): Super(nreg, b, a, QV) {}
     EShortSetS(size_t nreg): Super(nreg, DEFAULT_B, DEFAULT_A, QV) {}
+    EShortSetS(int nreg): Super(nreg, DEFAULT_B, DEFAULT_A, QV) {}
     template<typename...Args> EShortSetS(Args &&...args): Super(std::forward<Args>(args)...) {}
 };
 struct EByteSetS: public SetSketch<uint8_t, double> {
@@ -739,6 +780,17 @@ struct EByteSetS: public SetSketch<uint8_t, double> {
     template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
 };
 
+
+} // namespace setsketch
+using setsketch::EByteSetS;
+using setsketch::ByteSetS;
+using setsketch::ShortSetS;
+using setsketch::EShortSetS;
+using setsketch::WideShortSetS;
+using setsketch::NibbleSetS;
+using setsketch::SmallNibbleSetS;
+using setsketch::CSetSketch;
+using setsketch::SetSketch;
 
 } // namespace sketch
 
