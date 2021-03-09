@@ -725,8 +725,14 @@ public:
     const std::vector<uint64_t> &ids() const {return ids_;}
 };
 
+
+#ifndef M_E
+#define EULER_E 2.718281828459045
+#else
+#define EULER_E M_E
+#endif
 struct NibbleSetS: public SetSketch<uint8_t> {
-    NibbleSetS(size_t nreg, double b=16., double a=1.): SetSketch<uint8_t>(nreg, b, a, QV) {}
+    NibbleSetS(size_t nreg, double b=EULER_E, double a=5e-4): SetSketch<uint8_t>(nreg, b, a, QV) {}
     static constexpr size_t QV = 14u;
     template<typename Arg> NibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };
