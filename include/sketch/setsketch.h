@@ -13,10 +13,6 @@
 #include "blaze/Math.h"
 #include "sketch/hash.h"
 
-#ifndef NDEBUG
-#include <unordered_set>
-#endif
-
 namespace sketch {
 
 namespace setsketch {
@@ -26,14 +22,10 @@ namespace detail {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
     };
-    union float_int {float f; unsigned int i; float_int(float x): f(x) {}};
-    union double_int {double f; uint64_t i; double_int(double x): f(x) {}};
 }
 
 #define LC_ONLY(...)
 
-using detail::float_int;
-using detail::double_int;
 
 
 #if __cplusplus >= 201703L
@@ -205,7 +197,7 @@ inline double calc_card(const FT *start, const FT *end) {
 template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 
-template<typename FT=double>
+template<typename FT=double, bool FLOGFILTER=false>
 class CSetSketch {
     // TODO: Add stochastically-averaged case for faster sketching.
     //      (With the approximate log trick, we're still around only twice the time as HLL)
@@ -339,11 +331,11 @@ public:
             auto tv = rv * INVMUL64;
             const FT bv = -1. / m_;
             // Filter with fast log first
-#if 1
-            if(bv * flog(tv) * FT(.7) > max()) return;
-#endif
+            CONST_IF(FLOGFILTER) {
+                if(bv * flog(tv) * FT(.7) > max()) return;
+            }
             ev = bv * std::log(tv);
-            if(ev >= mvt_.max()) return;
+            if(ev >= max()) return;
         }
         LC_ONLY(++floopupdates;)
         ls_.reset();
@@ -367,11 +359,12 @@ public:
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
                 ev = std::fma(bv, std::log((lrv >> 32) * 1.2621774483536188887e-29L), ev);
+                if(ev >= max()) break;
             } else {
-                FT nv = rv * INVMUL64;
-#if 1
-                if(bv * flog(nv) * FT(.7) + ev >= max()) break;
-#endif
+                const FT nv = rv * INVMUL64;
+                CONST_IF(FLOGFILTER) {
+                    if(bv * flog(nv) * FT(.7) + ev >= max()) break;
+                }
                 ev = std::fma(bv, std::log(nv), ev);
                 if(ev >= max()) break;
             }
