@@ -197,7 +197,7 @@ inline double calc_card(const FT *start, const FT *end) {
 template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 
-template<typename FT=double, bool FLOGFILTER=false>
+template<typename FT=double, bool FLOGFILTER=true>
 class CSetSketch {
     // TODO: Add stochastically-averaged case for faster sketching.
     //      (With the approximate log trick, we're still around only twice the time as HLL)
