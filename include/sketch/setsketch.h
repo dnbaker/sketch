@@ -342,6 +342,7 @@ public:
         ls_.seed(rv);
         uint64_t bi = 1;
         uint32_t idx = ls_.step();
+        FT mv = max();
         for(;;) {
             LC_ONLY(++inner_loop_updates_;)
             if(mvt_.update(idx, ev)) {
@@ -349,6 +350,7 @@ public:
                     ids_.operator[](idx) = id;
                     if(!idcounts_.empty()) idcounts_.operator[](idx) = 1;
                 }
+                mv = max();
             } else if(!idcounts_.empty()) {
                 if(id == ids_.operator[](idx)) ++idcounts_.operator[](idx);
             }
@@ -359,14 +361,14 @@ public:
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
                 ev = std::fma(bv, std::log((lrv >> 32) * 1.2621774483536188887e-29L), ev);
-                if(ev >= max()) break;
+                if(ev >= mv) break;
             } else {
                 const FT nv = rv * INVMUL64;
                 CONST_IF(FLOGFILTER) {
-                    if(bv * flog(nv) * FT(.7) + ev >= max()) break;
+                    if(bv * flog(nv) * FT(.7) + ev >= mv) break;
                 }
                 ev = std::fma(bv, std::log(nv), ev);
-                if(ev >= max()) break;
+                if(ev >= mv) break;
             }
             idx = ls_.step();
         }
