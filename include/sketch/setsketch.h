@@ -333,7 +333,7 @@ public:
             const FT bv = -1. / m_;
             lrv |= wy::wyhash64_stateless(&rv);
             FT tv = static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L);
-            ev = -bv * std::log(tv);
+            ev = bv * std::log(tv);
             if(ev >= max()) return;
         } else {
             auto tv = rv * INVMUL64;
