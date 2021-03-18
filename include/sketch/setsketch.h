@@ -478,6 +478,32 @@ public:
     }
     const std::vector<uint64_t> &ids() const {return ids_;}
     const std::vector<uint32_t> &idcounts() const {return idcounts_;}
+    double union_size(const CSetSketch<FT> &o) const {
+        using CVT = blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>;
+        return blaze::serial(blaze::sum(blaze::max(
+            CVT(const_cast<FT *>(data_.get()), m_), CVT(const_cast<FT *>(o.data_.get()), m_))));
+    }
+    auto alpha_beta(const CSetSketch<FT> &o) const {
+        auto gtlt = eq::count_gtlt(data(), o.data(), m_);
+        return std::pair<double, double>{double(gtlt.first) / m_, double(gtlt.second) / m_};
+    }
+    static constexpr double __union_card(double alph, double beta, double lhcard, double rhcard) {
+        return std::max((lhcard + rhcard) / (2. - alph - beta), 0.);
+    }
+    double intersection_size(const CSetSketch<FT> &o, double mycard=-1., double ocard=-1.) const {
+        if(mycard < 0) mycard = cardinality();
+        if(ocard < 0) ocard = o.cardinality();
+        auto triple = alpha_beta_mu(o, mycard, ocard);
+        return std::max(1. - (std::get<0>(triple) + std::get<1>(triple)), 0.) * std::get<2>(triple);
+    }
+    std::tuple<double, double, double> alpha_beta_mu(const CSetSketch<FT> &o, double mycard, double ocard) const {
+        const auto ab = alpha_beta(o);
+        if(ab.first + ab.second >= 1.) // They seem to be disjoint sets, use SetSketch (15)
+            return {(mycard) / (mycard + ocard), ocard / (mycard + ocard), mycard + ocard};
+        return {ab.first, ab.second, __union_card(ab.first, ab.second, mycard, ocard)};
+    }
+
+    double cardinality_estimate() const {return cardinality();}
     double cardinality() const {
         return calc_card(data_.get(), &data_[m_]);
     }
@@ -490,7 +516,20 @@ public:
         if(maxreg < minreg) std::swap(maxreg, minreg);
         return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
     }
+    double containment_index(const CSetSketch<FT> &o, double mycard=-1., double ocard=-1) const {
+        if(mycard < 0) mycard = cardinality();
+        if(ocard < 0) ocard = o.cardinality();
+        auto abm = alpha_beta_mu(o, mycard, ocard);
+        auto lho = std::get<0>(abm);
+        auto isf = std::max(1. - (lho + std::get<1>(abm)), 0.);
+        return isf / (lho + isf);
+    }
 };
+
+template<typename FT>
+double intersection_size(const CSetSketch<FT> &lhs, const CSetSketch<FT> &rhs) {
+    return lhs.intersection_size(rhs);
+}
 
 template<typename ResT, typename FT>
 class SetSketch {
@@ -637,6 +676,7 @@ public:
         double num = m_ * (1. - 1. / b_) * logbinv_ * ainv_;
         return num / harmean(&o);
     }
+    double cardinality_estimate() const {return cardinality();}
     double cardinality() const {
         double num = m_ * (1. - 1. / b_) * logbinv_ * ainv_;
         return num / harmean();
