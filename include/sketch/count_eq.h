@@ -404,6 +404,135 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt(const T *SK_RESTRICT lhs,
     }
     return std::make_pair(lhgt, rhgt);
 }
+#if __AVX512F__  || __AVX2__
+template<> inline std::pair<uint64_t, uint64_t> count_gtlt(const double *SK_RESTRICT lhs, const double *SK_RESTRICT rhs, size_t n) {
+    uint64_t lhgt = 0, rhgt = 0;
+#if __AVX512F__
+    const size_t nper = 8;
+    const size_t nsimd = n / nper;
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    for(size_t i = 0; i < nsimd4; i += 4) {
+        auto lh0 = _mm512_loadu_pd(lhs + i * nper), rh0 = _mm512_loadu_pd(rhs + i * nper);
+        auto lh1 = _mm512_loadu_pd(lhs + (i + 1) * nper), rh1 = _mm512_loadu_pd(rhs + (i + 1) * nper);
+        auto lh2 = _mm512_loadu_pd(lhs + (i + 2) * nper), rh2 = _mm512_loadu_pd(rhs + (i + 2) * nper);
+        auto lh3 = _mm512_loadu_pd(lhs + (i + 3) * nper), rh3 = _mm512_loadu_pd(rhs + (i + 3) * nper);
+        auto cmp0 = _mm512_cmp_pd_mask(lh0, rh0, _CMP_GT_OQ);
+        auto cmp1 = _mm512_cmp_pd_mask(lh1, rh1, _CMP_GT_OQ);
+        auto cmp2 = _mm512_cmp_pd_mask(lh2, rh2, _CMP_GT_OQ);
+        auto cmp3 = _mm512_cmp_pd_mask(lh3, rh3, _CMP_GT_OQ);
+        lhgt += popcount((cmp0 << 24) | (cmp1 << 16) | (cmp2 << 8) | cmp3);
+        auto rcmp0 = _mm512_cmp_pd_mask(lh0, rh0, _CMP_GT_OQ);
+        auto rcmp1 = _mm512_cmp_pd_mask(lh1, rh1, _CMP_GT_OQ);
+        auto rcmp2 = _mm512_cmp_pd_mask(lh2, rh2, _CMP_GT_OQ);
+        auto rcmp3 = _mm512_cmp_pd_mask(lh3, rh3, _CMP_GT_OQ);
+        rhgt += popcount((rcmp0 << 24) | (rcmp1 << 16) | (rcmp2 << 8) | rcmp3);
+    }
+    for(size_t i = nsimd4; i < nsimd; ++i) {
+        auto lhv = _mm512_loadu_pd(lhs + i * nper), rhv = _mm512_loadu_pd(rhs + i * nper);
+        lhgt += popcount(_mm512_cmp_pd_mask(lhv, rhv, _CMP_GT_OQ));
+        rhgt += popcount(_mm512_cmp_pd_mask(rhv, lhv, _CMP_GT_OQ));
+    }
+    for(size_t i = nsimd * nper; i < n; ++i) {
+        lhgt += lhs[i] > rhs[i];
+        rhgt += rhs[i] > lhs[i];
+    }
+#elif __AVX2__
+    const size_t nsimd = n / 4;
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    for(size_t i = 0; i < nsimd4; i += 4) {
+        auto lh0 = _mm256_loadu_pd(lhs + i * 4), rh0 = _mm256_loadu_pd(rhs + i * 4);
+        auto lh1 = _mm256_loadu_pd(lhs + (i + 1) * 4), rh1 = _mm256_loadu_pd(rhs + (i + 1) * 4);
+        auto lh2 = _mm256_loadu_pd(lhs + (i + 2) * 4), rh2 = _mm256_loadu_pd(rhs + (i + 2) * 4);
+        auto lh3 = _mm256_loadu_pd(lhs + (i + 3) * 4), rh3 = _mm256_loadu_pd(rhs + (i + 3) * 4);
+        auto cmp0 = _mm256_movemask_pd(_mm256_cmp_pd(lh0, rh0, _CMP_GT_OQ));
+        auto cmp1 = _mm256_movemask_pd(_mm256_cmp_pd(lh1, rh1, _CMP_GT_OQ));
+        auto cmp2 = _mm256_movemask_pd(_mm256_cmp_pd(lh2, rh2, _CMP_GT_OQ));
+        auto cmp3 = _mm256_movemask_pd(_mm256_cmp_pd(lh3, rh3, _CMP_GT_OQ));
+        lhgt += popcount((cmp0 << 12) | (cmp1 << 8) | (cmp2 << 4) | cmp3);
+        auto rcmp0 = _mm256_movemask_pd(_mm256_cmp_pd(lh0, rh0, _CMP_GT_OQ));
+        auto rcmp1 = _mm256_movemask_pd(_mm256_cmp_pd(lh1, rh1, _CMP_GT_OQ));
+        auto rcmp2 = _mm256_movemask_pd(_mm256_cmp_pd(lh2, rh2, _CMP_GT_OQ));
+        auto rcmp3 = _mm256_movemask_pd(_mm256_cmp_pd(lh3, rh3, _CMP_GT_OQ));
+        rhgt += popcount((rcmp0 << 12) | (rcmp1 << 8) | (rcmp2 << 4) | rcmp3);
+    }
+    for(size_t i = nsimd4; i < nsimd; ++i) {
+        auto lhv = _mm256_loadu_pd(lhs + i * 4), rhv = _mm256_loadu_pd(rhs + i * 4);
+        lhgt += popcount(_mm256_movemask_pd(_mm256_cmp_pd(lhv, rhv, _CMP_GT_OQ)));
+        rhgt += popcount(_mm256_movemask_pd(_mm256_cmp_pd(rhv, lhv, _CMP_GT_OQ)));
+    }
+    for(size_t i = nsimd * 4; i < n; ++i) {
+        lhgt += lhs[i] > rhs[i];
+        rhgt += rhs[i] > lhs[i];
+    }
+#endif
+    return std::make_pair(lhgt, rhgt);
+}
+#endif
+#if __AVX512F__  || __AVX2__
+template<> inline std::pair<uint64_t, uint64_t> count_gtlt(const float *SK_RESTRICT lhs, const float *SK_RESTRICT rhs, size_t n) {
+    uint64_t lhgt = 0, rhgt = 0;
+#if __AVX512F__
+    static constexpr size_t nper = 16;
+    const size_t nsimd = n / nper;
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    for(size_t i = 0; i < nsimd4; i += 4) {
+        auto lh0 = _mm512_loadu_ps(lhs + i * nper), rh0 = _mm512_loadu_ps(rhs + i * nper);
+        auto lh1 = _mm512_loadu_ps(lhs + (i + 1) * nper), rh1 = _mm512_loadu_ps(rhs + (i + 1) * nper);
+        auto lh2 = _mm512_loadu_ps(lhs + (i + 2) * nper), rh2 = _mm512_loadu_ps(rhs + (i + 2) * nper);
+        auto lh3 = _mm512_loadu_ps(lhs + (i + 3) * nper), rh3 = _mm512_loadu_ps(rhs + (i + 3) * nper);
+        uint64_t cmp0 = _mm512_cmp_ps_mask(lh0, rh0, _CMP_GT_OQ);
+        uint64_t cmp1 = _mm512_cmp_ps_mask(lh1, rh1, _CMP_GT_OQ);
+        uint64_t cmp2 = _mm512_cmp_ps_mask(lh2, rh2, _CMP_GT_OQ);
+        uint64_t cmp3 = _mm512_cmp_ps_mask(lh3, rh3, _CMP_GT_OQ);
+        lhgt += popcount((cmp0 << 48) | (cmp1 << 32) | (cmp2 << 16) | cmp3);
+        uint64_t rcmp0 = _mm512_cmp_ps_mask(lh0, rh0, _CMP_GT_OQ);
+        uint64_t rcmp1 = _mm512_cmp_ps_mask(lh1, rh1, _CMP_GT_OQ);
+        uint64_t rcmp2 = _mm512_cmp_ps_mask(lh2, rh2, _CMP_GT_OQ);
+        uint64_t rcmp3 = _mm512_cmp_ps_mask(lh3, rh3, _CMP_GT_OQ);
+        rhgt += popcount((rcmp0 << 48) | (rcmp1 << 32) | (rcmp2 << 16) | rcmp3);
+    }
+    for(size_t i = nsimd4; i < nsimd; ++i) {
+        auto lhv = _mm512_loadu_ps(lhs + i * nper), rhv = _mm512_loadu_ps(rhs + i * nper);
+        lhgt += popcount(_mm512_cmp_ps_mask(lhv, rhv, _CMP_GT_OQ));
+        rhgt += popcount(_mm512_cmp_ps_mask(rhv, lhv, _CMP_GT_OQ));
+    }
+    for(size_t i = nsimd * nper; i < n; ++i) {
+        lhgt += lhs[i] > rhs[i];
+        rhgt += rhs[i] > lhs[i];
+    }
+#elif __AVX2__
+    const size_t nsimd = n / 8;
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    for(size_t i = 0; i < nsimd4; i += 4) {
+        auto lh0 = _mm256_loadu_ps(lhs + i * 8), rh0 = _mm256_loadu_ps(rhs + i * 8);
+        auto lh1 = _mm256_loadu_ps(lhs + (i + 1) * 8), rh1 = _mm256_loadu_ps(rhs + (i + 1) * 8);
+        auto lh2 = _mm256_loadu_ps(lhs + (i + 2) * 8), rh2 = _mm256_loadu_ps(rhs + (i + 2) * 8);
+        auto lh3 = _mm256_loadu_ps(lhs + (i + 3) * 8), rh3 = _mm256_loadu_ps(rhs + (i + 3) * 8);
+        auto cmp0 = _mm256_movemask_ps(_mm256_cmp_ps(lh0, rh0, _CMP_GT_OQ));
+        auto cmp1 = _mm256_movemask_ps(_mm256_cmp_ps(lh1, rh1, _CMP_GT_OQ));
+        auto cmp2 = _mm256_movemask_ps(_mm256_cmp_ps(lh2, rh2, _CMP_GT_OQ));
+        auto cmp3 = _mm256_movemask_ps(_mm256_cmp_ps(lh3, rh3, _CMP_GT_OQ));
+        lhgt += popcount((cmp0 << 24) | (cmp1 << 16) | (cmp2 << 8) | cmp3);
+        auto rcmp0 = _mm256_movemask_ps(_mm256_cmp_ps(lh0, rh0, _CMP_GT_OQ));
+        auto rcmp1 = _mm256_movemask_ps(_mm256_cmp_ps(lh1, rh1, _CMP_GT_OQ));
+        auto rcmp2 = _mm256_movemask_ps(_mm256_cmp_ps(lh2, rh2, _CMP_GT_OQ));
+        auto rcmp3 = _mm256_movemask_ps(_mm256_cmp_ps(lh3, rh3, _CMP_GT_OQ));
+        rhgt += popcount((rcmp0 << 24) | (rcmp1 << 16) | (rcmp2 << 8) | rcmp3);
+    }
+    for(size_t i = nsimd4; i < nsimd; ++i) {
+        auto lhv = _mm256_loadu_ps(lhs + i * 4), rhv = _mm256_loadu_ps(rhs + i * 4);
+        lhgt += popcount(_mm256_movemask_ps(_mm256_cmp_ps(lhv, rhv, _CMP_GT_OQ)));
+        rhgt += popcount(_mm256_movemask_ps(_mm256_cmp_ps(rhv, lhv, _CMP_GT_OQ)));
+    }
+    for(size_t i = nsimd * 4; i < n; ++i) {
+        lhgt += lhs[i] > rhs[i];
+        rhgt += rhs[i] > lhs[i];
+    }
+#endif
+    return std::make_pair(lhgt, rhgt);
+}
+#endif
+
 template<> inline std::pair<uint64_t, uint64_t> count_gtlt(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
     return count_gtlt_bytes(lhs, rhs, n);
 }

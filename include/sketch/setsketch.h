@@ -13,10 +13,6 @@
 #include "blaze/Math.h"
 #include "sketch/hash.h"
 
-#ifndef NDEBUG
-#include <unordered_set>
-#endif
-
 namespace sketch {
 
 namespace setsketch {
@@ -26,14 +22,10 @@ namespace detail {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
     };
-    union float_int {float f; unsigned int i; float_int(float x): f(x) {}};
-    union double_int {double f; uint64_t i; double_int(double x): f(x) {}};
 }
 
 #define LC_ONLY(...)
 
-using detail::float_int;
-using detail::double_int;
 
 
 #if __cplusplus >= 201703L
@@ -205,7 +197,7 @@ inline double calc_card(const FT *start, const FT *end) {
 template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 
-template<typename FT=double>
+template<typename FT=double, bool FLOGFILTER=true>
 class CSetSketch {
     // TODO: Add stochastically-averaged case for faster sketching.
     //      (With the approximate log trick, we're still around only twice the time as HLL)
@@ -333,23 +325,24 @@ public:
             const FT bv = -1. / m_;
             lrv |= wy::wyhash64_stateless(&rv);
             FT tv = static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L);
-            ev = -bv * std::log(tv);
+            ev = bv * std::log(tv);
             if(ev >= max()) return;
         } else {
             auto tv = rv * INVMUL64;
             const FT bv = -1. / m_;
             // Filter with fast log first
-#if 1
-            if(bv * flog(tv) * FT(.7) > max()) return;
-#endif
+            CONST_IF(FLOGFILTER) {
+                if(bv * flog(tv) * FT(.7) > max()) return;
+            }
             ev = bv * std::log(tv);
-            if(ev >= mvt_.max()) return;
+            if(ev >= max()) return;
         }
         LC_ONLY(++floopupdates;)
         ls_.reset();
         ls_.seed(rv);
         uint64_t bi = 1;
         uint32_t idx = ls_.step();
+        FT mv = max();
         for(;;) {
             LC_ONLY(++inner_loop_updates_;)
             if(mvt_.update(idx, ev)) {
@@ -357,6 +350,7 @@ public:
                     ids_.operator[](idx) = id;
                     if(!idcounts_.empty()) idcounts_.operator[](idx) = 1;
                 }
+                mv = max();
             } else if(!idcounts_.empty()) {
                 if(id == ids_.operator[](idx)) ++idcounts_.operator[](idx);
             }
@@ -367,13 +361,14 @@ public:
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
                 ev = std::fma(bv, std::log((lrv >> 32) * 1.2621774483536188887e-29L), ev);
+                if(ev >= mv) break;
             } else {
-                FT nv = rv * INVMUL64;
-#if 1
-                if(bv * flog(nv) * FT(.7) + ev >= max()) break;
-#endif
+                const FT nv = rv * INVMUL64;
+                CONST_IF(FLOGFILTER) {
+                    if(bv * flog(nv) * FT(.7) + ev >= mv) break;
+                }
                 ev = std::fma(bv, std::log(nv), ev);
-                if(ev >= max()) break;
+                if(ev >= mv) break;
             }
             idx = ls_.step();
         }
@@ -483,6 +478,32 @@ public:
     }
     const std::vector<uint64_t> &ids() const {return ids_;}
     const std::vector<uint32_t> &idcounts() const {return idcounts_;}
+    double union_size(const CSetSketch<FT> &o) const {
+        using CVT = blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>;
+        return blaze::serial(blaze::sum(blaze::max(
+            CVT(const_cast<FT *>(data_.get()), m_), CVT(const_cast<FT *>(o.data_.get()), m_))));
+    }
+    auto alpha_beta(const CSetSketch<FT> &o) const {
+        auto gtlt = eq::count_gtlt(data(), o.data(), m_);
+        return std::pair<double, double>{double(gtlt.first) / m_, double(gtlt.second) / m_};
+    }
+    static constexpr double __union_card(double alph, double beta, double lhcard, double rhcard) {
+        return std::max((lhcard + rhcard) / (2. - alph - beta), 0.);
+    }
+    double intersection_size(const CSetSketch<FT> &o, double mycard=-1., double ocard=-1.) const {
+        if(mycard < 0) mycard = cardinality();
+        if(ocard < 0) ocard = o.cardinality();
+        auto triple = alpha_beta_mu(o, mycard, ocard);
+        return std::max(1. - (std::get<0>(triple) + std::get<1>(triple)), 0.) * std::get<2>(triple);
+    }
+    std::tuple<double, double, double> alpha_beta_mu(const CSetSketch<FT> &o, double mycard, double ocard) const {
+        const auto ab = alpha_beta(o);
+        if(ab.first + ab.second >= 1.) // They seem to be disjoint sets, use SetSketch (15)
+            return {(mycard) / (mycard + ocard), ocard / (mycard + ocard), mycard + ocard};
+        return {ab.first, ab.second, __union_card(ab.first, ab.second, mycard, ocard)};
+    }
+
+    double cardinality_estimate() const {return cardinality();}
     double cardinality() const {
         return calc_card(data_.get(), &data_[m_]);
     }
@@ -495,7 +516,20 @@ public:
         if(maxreg < minreg) std::swap(maxreg, minreg);
         return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
     }
+    double containment_index(const CSetSketch<FT> &o, double mycard=-1., double ocard=-1) const {
+        if(mycard < 0) mycard = cardinality();
+        if(ocard < 0) ocard = o.cardinality();
+        auto abm = alpha_beta_mu(o, mycard, ocard);
+        auto lho = std::get<0>(abm);
+        auto isf = std::max(1. - (lho + std::get<1>(abm)), 0.);
+        return isf / (lho + isf);
+    }
 };
+
+template<typename FT>
+double intersection_size(const CSetSketch<FT> &lhs, const CSetSketch<FT> &rhs) {
+    return lhs.intersection_size(rhs);
+}
 
 template<typename ResT, typename FT>
 class SetSketch {
@@ -642,6 +676,7 @@ public:
         double num = m_ * (1. - 1. / b_) * logbinv_ * ainv_;
         return num / harmean(&o);
     }
+    double cardinality_estimate() const {return cardinality();}
     double cardinality() const {
         double num = m_ * (1. - 1. / b_) * logbinv_ * ainv_;
         return num / harmean();
@@ -730,8 +765,14 @@ public:
     const std::vector<uint64_t> &ids() const {return ids_;}
 };
 
+
+#ifndef M_E
+#define EULER_E 2.718281828459045
+#else
+#define EULER_E M_E
+#endif
 struct NibbleSetS: public SetSketch<uint8_t> {
-    NibbleSetS(size_t nreg, double b=16., double a=1.): SetSketch<uint8_t>(nreg, b, a, QV) {}
+    NibbleSetS(size_t nreg, double b=EULER_E, double a=5e-4): SetSketch<uint8_t>(nreg, b, a, QV) {}
     static constexpr size_t QV = 14u;
     template<typename Arg> NibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };

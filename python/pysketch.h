@@ -5,9 +5,8 @@
 #include "sketch/bbmh.h"
 #include "sketch/bf.h"
 #include "sketch/hmh.h"
-#include <omp.h>
-#include "aesctr/wy.h"
 #include "sketch/setsketch.h"
+#include <omp.h>
 namespace py = pybind11;
 using namespace sketch;
 using namespace hll;
@@ -26,12 +25,14 @@ static size_t flat2fullsz(size_t n) {
 struct AsymmetricCmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
+        py::handle first_item = l[0];
 #define TRY_APPLY(sketch) \
-        do {try {return apply_sketch<Func, sketch>(l, func);} catch(std::runtime_error &r) {}} while(0)
+        do {if(py::isinstance<sketch>(first_item)) return apply_sketch<Func, sketch>(l, func);} while(0)
         TRY_APPLY(hll_t);
         TRY_APPLY(sketch::HyperMinHash);
         TRY_APPLY(sketch::bf_t);
-            throw std::runtime_error("Unsupported type");
+        TRY_APPLY(sketch::CSetSketch<double>);
+        throw std::runtime_error("Unsupported type");
         HEDLEY_UNREACHABLE();
     }
     template<typename Func, typename Sketch>
@@ -47,7 +48,7 @@ struct AsymmetricCmpFunc {
         py::array_t<float> ret({lsz, lsz});
         float *ptr = static_cast<float *>(ret.request().ptr);
         for(size_t i = 0; i < lsz; ++i) {
-            OMP_PRAGMA("omp parallel for")
+            OMP_PFOR
             for(size_t j = 0; j < lsz; ++j) {
 			    ptr[i * lsz + j] = func(*ptrs[i], *ptrs[j]);
 			    ptr[j * lsz + i] = func(*ptrs[j], *ptrs[i]);
@@ -60,13 +61,16 @@ struct AsymmetricCmpFunc {
 struct CmpFunc {
     template<typename Func>
     static py::array_t<float> apply(py::list l, const Func &func) {
+        py::handle first_item = l[0];
         TRY_APPLY(hll_t);
         TRY_APPLY(mh::BBitMinHasher<uint64_t>);
         TRY_APPLY(sketch::HyperMinHash);
         TRY_APPLY(mh::FinalBBitMinHash);
         TRY_APPLY(bf_t);
+        TRY_APPLY(sketch::CSetSketch<double>);
 #undef TRY_APPLY
         throw std::runtime_error("Unsupported type");
+        HEDLEY_UNREACHABLE();
     }
     template<typename Func, typename SketchType=hll_t>
     static py::array_t<float> apply_sketch(py::list l, const Func &func) {
@@ -81,10 +85,11 @@ struct CmpFunc {
         py::array_t<float> ret(nc2);
         float *ptr = static_cast<float *>(ret.request().ptr);
         for(size_t i = 0; i < lsz; ++i) {
-            OMP_PRAGMA("omp parallel for")
+            const auto lhp = ptrs[i];
+            OMP_PFOR
             for(size_t j = i + 1; j < lsz; ++j) {
                 size_t access_index = ((i * (lsz * 2 - i - 1)) / 2 + j - (i + 1));
-			    ptr[access_index] = func(*ptrs[i], *ptrs[j]);
+			    ptr[access_index] = func(*lhp, *ptrs[j]);
             }
         }
         return ret;
@@ -92,6 +97,10 @@ struct CmpFunc {
 };
 
 struct JIF {
+    template<typename T>
+    auto operator()(const T &x, const T &y) const {
+        return x.jaccard_index(y);
+    }
     template<typename T>
     auto operator()(T &x, T &y) const {
         return x.jaccard_index(y);
@@ -126,6 +135,10 @@ struct SCF {
     }
 };
 struct CSF {
+    template<typename T>
+    auto operator()(const T &x, const T &y) const {
+        return x.containment_index(y);
+    }
     template<typename T>
     auto operator()(T &x, T &y) const {
         return x.containment_index(y);
