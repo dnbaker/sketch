@@ -1,5 +1,9 @@
 #ifndef HLL_H_
 #define HLL_H_
+#ifndef NO_SLEEF
+#define NO_SLEEF
+#endif
+#include "vec/vec.h"
 #include "common.h"
 #include "hash.h"
 #include "hedley.h"
@@ -59,8 +63,8 @@ enum EstimationMethod: uint8_t {
     ERTL_MLE       = 2
 };
 
-using hash::Type;
-using hash::VType;
+using Type = typename vec::SIMDTypes<uint64_t>::Type;
+using VType = typename vec::SIMDTypes<uint64_t>::VType;
 using hash::WangHash;
 using hash::MurFinHash;
 
@@ -526,10 +530,12 @@ inline std::array<uint32_t, 64> sum_counts(const Container &con) {
     return sum_counts(reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
 }
 
+#if 0
 inline std::array<uint32_t, 64> sum_counts(const DefaultCompactVectorType &con) {
     // TODO: add a check to make sure that it's doing it right
     return sum_counts(reinterpret_cast<const SIMDHolder *>(con.get()), reinterpret_cast<const SIMDHolder *>(con.get() + con.bytes()));
 }
+#endif
 
 template<typename T, typename Container>
 inline void inc_counts(T &counts, const Container &con) {
@@ -709,7 +715,6 @@ protected:
     std::vector<uint8_t, common::Allocator<uint8_t>> core_;
     mutable double                          value_;
     uint32_t                                   np_;
-    mutable uint8_t                 is_calculated_;
     EstimationMethod                        estim_;
     JointEstimationMethod                  jestim_;
     HashStruct                                 hf_;
@@ -726,8 +731,7 @@ public:
     }
     void reset() {
         std::fill(core_.begin(), core_.end(), uint64_t(0));
-        value_ = 0;
-        is_calculated_ = false;
+        value_ = -1.;
     }
     uint64_t hash(uint64_t val) const {return hf_(val);}
     uint64_t m() const {return static_cast<uint64_t>(1) << np_;}
@@ -745,7 +749,7 @@ public:
     explicit hllbase_t(size_t np, EstimationMethod estim,
                        JointEstimationMethod jestim,
                        Args &&... args):
-        value_(0.), np_(np), is_calculated_(0),
+        value_(-1.), np_(np),
         estim_(estim), jestim_(jestim)
         , hf_(std::forward<Args>(args)...)
     {
@@ -768,9 +772,8 @@ public:
     void sum() const noexcept {
         const auto counts(detail::sum_counts(core_)); // std::array<uint32_t, 64>
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
-        is_calculated_ = 1;
     }
-    void csum() const noexcept {if(!is_calculated_) sum();}
+    void csum() const noexcept {if(!is_calculated()) sum();}
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const noexcept {
@@ -801,7 +804,7 @@ public:
 
     // Returns error estimate
     double cest_err() const {
-        if(!is_calculated_) throw std::runtime_error("Result must be calculated in order to report.");
+        if(!is_calculated()) throw std::runtime_error("Result must be calculated in order to report.");
         return relative_error() * creport();
     }
     double est_err() const noexcept {
@@ -810,14 +813,14 @@ public:
     // Returns string representation
     std::string to_string() const {
         std::string params(std::string("p:") + std::to_string(np_) + '|' + EST_STRS[estim_] + ";");
-        return (params + (is_calculated_ ? std::to_string(creport()) + ", +- " + std::to_string(cest_err())
+        return (params + (is_calculated() ? std::to_string(creport()) + ", +- " + std::to_string(cest_err())
                                          : desc_string()));
     }
     // Descriptive string.
     std::string desc_string() const {
         char buf[256];
         std::sprintf(buf, "Size: %u. nb: %llu. error: %lf. Is calculated: %s. value: %lf. Estimation method: %s\n",
-                     np_, static_cast<long long unsigned int>(m()), relative_error(), is_calculated_ ? "true": "false", value_, EST_STRS[estim_]);
+                     np_, static_cast<long long unsigned int>(m()), relative_error(), is_calculated() ? "true": "false", value_, EST_STRS[estim_]);
         return buf;
     }
 
@@ -880,7 +883,6 @@ public:
         uint64_t counts[64];
         std::memcpy(counts, acounts, sizeof(counts));
         value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
-        is_calculated_ = 1;
     }
     ssize_t printf(std::FILE *fp) const noexcept {
         ssize_t ret = std::fputc('[', fp) > 0;
@@ -921,19 +923,15 @@ public:
     }
     // Reset.
     void clear() noexcept {
-        if(core_.size() > (1u << 16) || core_.size() < Space::COUNT) {
-            std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
-        } else if(HEDLEY_LIKELY(core_.size() > Space::COUNT)) {
-            for(VType v1 = Space::set1(0), *p1(reinterpret_cast<VType *>(&core_[0])), *p2(reinterpret_cast<VType *>(&core_[core_.size()])); p1 < p2; *p1++ = v1);
-        }
-        value_ = is_calculated_ = 0;
+        std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
+        value_ = -1.;
     }
-    hllbase_t(hllbase_t&&o): value_(0), np_(0), is_calculated_(0), estim_(ERTL_MLE), jestim_(static_cast<JointEstimationMethod>(ERTL_MLE)), hf_(std::move(o.hf_)) {
+    hllbase_t(hllbase_t&&o): value_(-1.), np_(0), estim_(ERTL_MLE), jestim_(static_cast<JointEstimationMethod>(ERTL_MLE)), hf_(std::move(o.hf_)) {
         std::swap_ranges(reinterpret_cast<uint8_t *>(this),
                          reinterpret_cast<uint8_t *>(this) + sizeof(*this),
                          reinterpret_cast<uint8_t *>(std::addressof(o)));
     }
-    hllbase_t(const hllbase_t &other): core_(other.core_), value_(other.value_), np_(other.np_), is_calculated_(other.is_calculated_),
+    hllbase_t(const hllbase_t &other): core_(other.core_), value_(other.value_), np_(other.np_),
         estim_(other.estim_), jestim_(other.jestim_), hf_(other.hf_)
     {
 #if LZ_COUNTER
@@ -947,7 +945,6 @@ public:
         std::memcpy(core_.data(), other.core_.data(), core_.size()); // TODO: consider SIMD copy
         np_ = other.np_;
         value_ = other.value_;
-        is_calculated_ = other.is_calculated_;
         estim_ = other.estim_;
         hf_ = other.hf_;
         return *this;
@@ -1010,10 +1007,9 @@ public:
     }
     void set_jestim(uint16_t val) {set_jestim(static_cast<JointEstimationMethod>(val));}
     void set_estim(uint16_t val)  {estim_  = static_cast<EstimationMethod>(val);}
-    // Getter for is_calculated_
-    bool get_is_ready() const {return is_calculated_;}
-    void not_ready() {is_calculated_ = false;}
-    void set_is_ready() {is_calculated_ = true;}
+    bool get_is_ready() const {return value_ >= 0.;}
+    void not_ready() {value_ = -1.;}
+    void set_is_ready() {}
     bool may_contain(uint64_t hashval) const {
         // This returns false positives, but never a false negative.
         return core_[hashval >> q()] >= clz(hashval << np_) + 1;
@@ -1038,9 +1034,10 @@ public:
         std::swap(core_, tmp);
     }
     void write(FILE *fp) const {write(fileno(fp));}
+    bool is_calculated() const {return value_ >= 0.;}
     void write(gzFile fp) const {
 #define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
-        uint32_t bf[]{is_calculated_, estim_, jestim_, 1};
+        uint32_t bf[]{is_calculated(), estim_, jestim_, 1};
         CW(fp, bf, sizeof(bf));
         CW(fp, &np_, sizeof(np_));
         CW(fp, &value_, sizeof(value_));
@@ -1071,7 +1068,6 @@ public:
         char buf[512];
         uint32_t bf[4];
         CR(fp, bf, sizeof(bf));
-        is_calculated_ = 0;
         estim_  = static_cast<EstimationMethod>(bf[1]);
         jestim_ = static_cast<JointEstimationMethod>(bf[2]);
         CR(fp, &np_, sizeof(np_));
@@ -1089,7 +1085,7 @@ public:
     }
     void read(const std::string &path) {read(path.data());}
     void write(int fileno) const {
-        uint32_t bf[]{is_calculated_, estim_, jestim_, 137};
+        uint32_t bf[]{is_calculated(), estim_, jestim_, 137};
 #define CHWR(fn, obj, sz) \
     do {\
     if(HEDLEY_UNLIKELY(::write(fn, (obj), (sz)) != ssize_t(sz))) \
@@ -1107,7 +1103,6 @@ public:
         uint32_t bf[4];
 #define CHRE(fn, obj, sz) if(HEDLEY_UNLIKELY(::read(fn, (obj), (sz)) != ssize_t(sz))) throw std::runtime_error(std::string("Failed to read from fd in ") + __PRETTY_FUNCTION__)
         CHRE(fileno, bf, sizeof(bf));
-        is_calculated_ = bf[0];
         estim_         = static_cast<EstimationMethod>(bf[1]);
         jestim_        = static_cast<JointEstimationMethod>(bf[2]);
 #if VERBOSE_AF
@@ -1389,6 +1384,7 @@ public:
     // This only works for hlls using 64-bit integers.
     // Looking ahead,consider templating so that the double version might be helpful.
 
+    using Space = vec::SIMDTypes<uint64_t>;
     bool may_contain(uint64_t element) const {
         unsigned k = 0;
         if(size() >= Space::COUNT) {
