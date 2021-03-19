@@ -8,3 +8,6 @@
 [submodule "include/vec/blaze"]
 	path = include/vec/blaze
 	url = https://bitbucket.org/blaze-lib/blaze.git
+[submodule "include/vec/sleef"]
+	path = include/vec/sleef
+	url = https://github.com/shibatch/sleef/
