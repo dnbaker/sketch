@@ -1,5 +1,5 @@
-#include "ccm.h"
-#include "mh.h"
+#include "sketch/ccm.h"
+#include "sketch/mh.h"
 #include <unordered_map>
 #include <getopt.h>
 
