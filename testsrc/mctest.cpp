@@ -1,11 +1,12 @@
 #include "sketch/ccm.h"
-#include "sketch/mh.h"
+//#include "sketch/mh.h"
 #include <unordered_map>
 #include <getopt.h>
 
 
 using namespace sketch::cm;
 using namespace sketch;
+using sketch::hash::WangHash;
 
 int main(int argc, char *argv[]) {
     int nbits = 12, l2sz = 18, nhashes = 3, c;
@@ -26,11 +27,10 @@ int main(int argc, char *argv[]) {
     }
     pccm_t cms(nbits >> 1, l2sz, nhashes);
     ccm_t cmsexact(nbits, l2sz, nhashes), cmsexact2(nbits, l2sz, nhashes);
-    sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, sketch::common::WangHash, false> cmswithnonminmal(nbits, l2sz, nhashes);
-    sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, sketch::common::WangHash, false> cmswithfloats(nbits, l2sz, nhashes);
+    sketch::cm::ccmbase_t<update::Increment, DefaultCompactVectorType, WangHash, false> cmswithnonminmal(nbits, l2sz, nhashes);
+    sketch::cm::ccmbase_t<update::Increment, std::vector<float, Allocator<float>>, WangHash, false> cmswithfloats(nbits, l2sz, nhashes);
     cs_t cmscs(l2sz, nhashes);
     cs4w_t cmscs4w(l2sz, nhashes), cmscs4w2(l2sz, nhashes);
-    sketch::mh::RangeMinHash<uint64_t> rm(1 << l2sz);
     ccmbase_t<update::Increment, DefaultStaticCompactVectorType<4>> static_cm(nbits, l2sz, nhashes);
 #if __cplusplus >= 201703L
     auto [x, y] = cms.est_memory_usage();

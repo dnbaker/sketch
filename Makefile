@@ -12,9 +12,8 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -pedantic -Wunused-variable\
         -Wno-cast-align
 
-FLAGS=-O3 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Ivec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
-     -fno-strict-aliasing \
-      -DXXH_INLINE_ALL
+FLAGS=-O3 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Iinclude/vec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
+     -fno-strict-aliasing
 
 CXXFLAGS=$(FLAGS) -Wreorder  \
 
@@ -107,14 +106,12 @@ test:
 
 PREFIX?=/usr/local
 
-install: $(HEADERS) compact_vector/include/compact_vector.hpp
+install: $(HEADERS)
 	install -d $(DESTDIR)$(PREFIX)/include/sketch/vec && \
-	install -d $(DESTDIR)$(PREFIX)/include/compact_vector/include && \
 	install -d $(DESTDIR)$(PREFIX)/include/aesctr && \
     install -m 644 $(HEADERS) $(DESTDIR)$(PREFIX)/include/sketch && \
-    install -m 644 $(wildcard compact_vector/include/*.hpp) $(DESTDIR)$(PREFIX)/include/compact_vector/include && \
-    install -m 644 $(wildcard aesctr/*.h) $(DESTDIR)$(PREFIX)/include/aesctr && \
-    install -m 644 $(wildcard vec/*.h) $(DESTDIR)$(PREFIX)/include/sketch/vec
+    install -m 644 $(wildcard include/aesctr/*.h) $(DESTDIR)$(PREFIX)/include/aesctr && \
+    install -m 644 $(wildcard include/vec/*.h) $(DESTDIR)$(PREFIX)/include/sketch/vec
 
 #mctest: mctest.cpp ccm.h
 #mctest_d: mctest.cpp ccm.h

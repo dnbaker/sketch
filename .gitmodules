@@ -1,25 +1,10 @@
 [submodule "pybind11"]
 	path = pybind11
 	url = https://github.com/pybind/pybind11
-[submodule "vec"]
-	path = vec
-    branch = master
-	url = https://github.com/dnbaker/vec
-[submodule "libpopcnt"]
-	path = libpopcnt
-    branch = master
-	url = https://github.com/kimwalisch/libpopcnt
-[submodule "compact_vector"]
-	path = compact_vector
-    branch = master
-	url = https://github.com/gmarcais/compact_vector
 [submodule "circularqueue"]
 	path = circularqueue
 	url = https://github.com/dnbaker/circularqueue
     branch = master
-[submodule "flat_hash_map"]
-	path = flat_hash_map
-	url = https://github.com/skarupke/flat_hash_map
-[submodule "xxHash"]
-	path = xxHash
-	url = https://github.com/Cyan4973/xxHash
+[submodule "include/vec/blaze"]
+	path = include/vec/blaze
+	url = https://bitbucket.org/blaze-lib/blaze.git

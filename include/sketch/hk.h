@@ -5,6 +5,7 @@
 #include "aesctr/wy.h"
 #include "tsg.h"
 #include "flat_hash_map/flat_hash_map.hpp"
+#include "hash.h"
 #if SKETCH_THREADSAFE
 #include <mutex>
 #endif

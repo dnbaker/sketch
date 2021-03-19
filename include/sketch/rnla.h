@@ -6,6 +6,7 @@
 #include "median.h"
 #include <queue>
 #include "macros.h"
+#include "hash.h"
 #ifndef NDEBUG
 #  include <iostream>
 #endif
