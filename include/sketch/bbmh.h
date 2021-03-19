@@ -11,6 +11,8 @@
 namespace sketch {
 inline namespace minhash {
 
+using hash::WangHash;
+
 
 namespace detail {
 
@@ -298,11 +300,11 @@ public:
     FinalDivBBitMinHash(SuperMinHash<Policy, RNG, CountType> &&o): FinalDivBBitMinHash(o.finalize()) {}
     template<template<typename> class Policy, typename RNG, typename CountType>
     FinalDivBBitMinHash(const SuperMinHash<Policy, RNG, CountType> &o): FinalDivBBitMinHash(o.finalize()) {}
-    template<typename T, typename Hasher=common::WangHash>
+    template<typename T, typename Hasher=WangHash>
     FinalDivBBitMinHash(DivBBitMinHasher<T, Hasher> &&o): FinalDivBBitMinHash(std::move(o.finalize())) {
         o.free();
     }
-    template<typename T, typename Hasher=common::WangHash>
+    template<typename T, typename Hasher=WangHash>
     FinalDivBBitMinHash(const DivBBitMinHasher<T, Hasher> &o): FinalDivBBitMinHash(std::move(o.finalize())) {}
     double cardinality_estimate() const {return est_cardinality_;}
     ssize_t read(gzFile fp) {
@@ -753,7 +755,7 @@ template<typename CountingType, typename=typename std::enable_if<
 struct FinalCountingBBitMinHash;
 
 
-template<typename T, typename Hasher=common::WangHash>
+template<typename T, typename Hasher=WangHash>
 class DivBBitMinHasher {
     std::vector<T, Allocator<T>> core_;
     uint32_t b_;
@@ -881,7 +883,7 @@ public:
 
 struct phll_t;
 
-template<typename T, typename Hasher=common::WangHash>
+template<typename T, typename Hasher=WangHash>
 class BBitMinHasher {
     std::vector<T, common::Allocator<T>> core_;
     uint32_t b_, p_;
@@ -1241,18 +1243,16 @@ public:
 };
 
 
-template<typename T, typename Hasher=common::WangHash>
+template<typename T, typename Hasher=WangHash>
 void swap(BBitMinHasher<T, Hasher> &a, BBitMinHasher<T, Hasher> &b) {
     a.swap(b);
 }
 
 
-template<typename T, typename CountingType, typename Hasher=common::WangHash>
+template<typename T, typename CountingType, typename Hasher=WangHash>
 class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
     using super = BBitMinHasher<T, Hasher>;
     std::vector<CountingType, Allocator<CountingType>> counters_;
-    // TODO: consider probabilistic counting
-    // TODO: consider compact_vector
     // Not threadsafe currently
     // Consider bitpacking with p_ bits for counting
 public:
@@ -1324,11 +1324,11 @@ public:
     }
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
-    template<typename T, typename Hasher=common::WangHash>
+    template<typename T, typename Hasher=WangHash>
     FinalBBitMinHash(BBitMinHasher<T, Hasher> &&o): FinalBBitMinHash(std::move(o.finalize())) {
         o.free();
     }
-    template<typename T, typename Hasher=common::WangHash>
+    template<typename T, typename Hasher=WangHash>
     FinalBBitMinHash(const BBitMinHasher<T, Hasher> &o): FinalBBitMinHash(std::move(o.finalize())) {}
     double r() const {
         return std::ldexp(est_cardinality_, -int(sizeof(value_type) * CHAR_BIT - p_));
