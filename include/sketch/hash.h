@@ -12,7 +12,7 @@
 #include <vector>
 #include "aesctr/wy.h"
 #include "fixed_vector.h"
-#include "./xxHash/xxh3.h"
+#include "xxHash/xxh3.h"
 #include "macros.h"
 
 namespace sketch {

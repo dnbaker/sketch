@@ -12,6 +12,7 @@
 #include "sketch/macros.h"
 #include "blaze/Math.h"
 #include "sketch/hash.h"
+#include "xxHash/xxh3.h"
 
 namespace sketch {
 
