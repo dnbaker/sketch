@@ -9,10 +9,6 @@
 	path = libpopcnt
     branch = master
 	url = https://github.com/kimwalisch/libpopcnt
-[submodule "aesctr"]
-	path = aesctr
-    branch = master
-	url = https://github.com/dnbaker/aesctr
 [submodule "compact_vector"]
 	path = compact_vector
     branch = master
