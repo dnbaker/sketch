@@ -1,12 +1,13 @@
 #pragma once
 #include <mutex>
 //#include <queue>
-#include "hll.h" // For common.h and clz functions
-#include "fixed_vector.h"
+#include "sketch/hll.h" // For common.h and clz functions
+#include "sketch/fixed_vector.h"
 #include <unordered_map>
-#include "isz.h"
+#include "sketch/isz.h"
 #include <queue>
 #include "flat_hash_map/flat_hash_map.hpp"
+#include "sketch/hash.h"
 
 
 /*
@@ -18,6 +19,8 @@
  */
 
 namespace sketch {
+
+using hash::WangHash;
 inline namespace minhash {
 
 #define SET_SKETCH(x) const auto &sketch() const {return x;} auto &sketch() {return x;}
@@ -46,7 +49,7 @@ public:
 
 
 
-template<typename T, typename Cmp=std::greater<T>, typename Hasher=common::WangHash>
+template<typename T, typename Cmp=std::greater<T>, typename Hasher=WangHash>
 class KMinHash: public AbstractMinHash<T, Cmp> {
     std::vector<uint64_t, common::Allocator<uint64_t>> seeds_;
     std::vector<T, common::Allocator<uint64_t>> hashes_;
@@ -83,7 +86,7 @@ The sketch is the set of minimizers.
 */
 template<typename T,
          typename Cmp=std::greater<T>,
-         typename Hasher=common::WangHash,
+         typename Hasher=WangHash,
          typename Allocator=common::Allocator<T>
         >
 struct RangeMinHash: public AbstractMinHash<T, Cmp> {
@@ -454,7 +457,7 @@ template<typename T, typename CountType> struct FinalCRMinHash; // Forward
 
 template<typename T,
          typename Cmp=std::greater<T>,
-         typename Hasher=common::WangHash,
+         typename Hasher=WangHash,
          typename CountType=uint32_t
         >
 class CountingRangeMinHash: public AbstractMinHash<T, Cmp> {

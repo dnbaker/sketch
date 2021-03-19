@@ -5,14 +5,44 @@
 #include "hash.h"
 #include "update.h"
 #include "median.h"
-#ifndef NO_BLAZE
-#  include "blaze/Math.h"
-#endif
+#include "compact_vector/compact_vector.hpp"
+
 
 namespace sketch {
 
+namespace common { namespace detail {
+
+template<typename T1, unsigned int BITS, typename T2, typename Allocator>
+static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {
+   std::memset(v.get(), 0, v.bytes()); // zero array
+}
+template<typename T1, unsigned int BITS, typename T2, typename Allocator>
+static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {
+   std::memset(v.get(), 0, v.bytes()); // zero array
+}
+
+} }
+
 inline namespace cm {
 using common::detail::tmpbuffer;
+using common::Allocator;
+
+#if NOT_THREADSAFE
+template<size_t NBITS>
+class DefaultStaticCompactVectorType: public ::compact::vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>> {
+public:
+    DefaultStaticCompactVectorType(size_t nb, size_t nelem): ::compact::vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>(nelem) {}
+};
+using DefaultCompactVectorType = ::compact::vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
+#else
+
+using DefaultCompactVectorType = ::compact::ts_vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
+template<size_t NBITS>
+class DefaultStaticCompactVectorType: public ::compact::ts_vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>> {
+public:
+    DefaultStaticCompactVectorType(size_t nb, size_t nelem): ::compact::ts_vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>(nelem) {}
+};
+#endif
 
 namespace detail {
 template<typename T, typename AllocatorType>
@@ -152,7 +182,7 @@ struct IndexedValue {
 
 template<typename UpdateStrategy=update::Increment,
          typename VectorType=DefaultCompactVectorType,
-         typename HashStruct=common::WangHash,
+         typename HashStruct=WangHash,
          bool conservative_update=true>
 class ccmbase_t {
     static_assert(!std::is_same<UpdateStrategy, update::CountSketch>::value || std::is_signed<typename detail::IndexedValue<VectorType>::Type>::value,
@@ -283,6 +313,7 @@ public:
         throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
         return true;
     }
+    using Space = vec::SIMDTypes<uint64_t>;
     uint32_t may_contain(Space::VType val) const {
         throw std::runtime_error("This needs to be rewritten after subhash refactoring.");
         return true;
@@ -376,7 +407,7 @@ public:
     }
 };
 
-template<typename HashStruct=common::WangHash, typename CounterType=int32_t, typename=typename std::enable_if<std::is_signed<CounterType>::value>::type>
+template<typename HashStruct=WangHash, typename CounterType=int32_t, typename=typename std::enable_if<std::is_signed<CounterType>::value>::type>
 class csbase_t {
     /*
      * Commentary: because of chance, one can end up with a negative number as an estimate.
@@ -656,6 +687,7 @@ public:
     INLINE int sign(uint64_t hv) const noexcept {
         return hv & (1ul << np_) ? 1: -1;
     }
+    using Space = vec::SIMDTypes<uint64_t>;
     INLINE void subh(Space::VType hv) noexcept {
         hv.for_each([&](auto x) {for(size_t i = 0; i < nh_; sub(x, i++));});
     }
@@ -727,7 +759,7 @@ public:
 
 
 template<typename VectorType=DefaultCompactVectorType,
-         typename HashStruct=common::WangHash>
+         typename HashStruct=WangHash>
 class cmmbase_t: protected ccmbase_t<update::Increment, VectorType, HashStruct> {
     uint64_t stream_size_;
     using BaseType = ccmbase_t<update::Increment, VectorType, HashStruct>;

@@ -13,6 +13,7 @@
 #include <cmath>
 #include <mutex>
 #include <shared_mutex>
+#include "hash.h"
 
 namespace sketch {
 
@@ -39,10 +40,10 @@ struct CWSamples {
 };
 #endif
 
-template<typename FType=float, typename HashStruct=common::WangHash, size_t decay_interval=0, bool conservative=false>
+template<typename FType=float, typename HashStruct=hash::WangHash, size_t decay_interval=0, bool conservative=false>
 class realccm_t: public cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative> {
     using super = cm::ccmbase_t<update::Increment,std::vector<FType, Allocator<FType>>,HashStruct,conservative>;
-    using FSpace = vec::SIMDTypes<FType>;
+    using FSpace = typename vec::SIMDTypes<FType>;
     using super::seeds_;
     using super::data_;
     using super::nhashes_;
@@ -81,7 +82,7 @@ public:
         auto eptr = reinterpret_cast<typename FSpace::VType *>(this->data_.data() + this->data_.size());
         auto mul = FSpace::set1(scale_div);
         while(eptr > ptr) {
-            *ptr = Space::mullo(ptr->simd_, mul);
+            *ptr = FSpace::mullo(ptr->simd_, mul);
             ++ptr;
         }
         FType *rptr = reinterpret_cast<FType *>(ptr);
@@ -111,17 +112,18 @@ public:
         unsigned nhdone = 0, seedind = 0;
         const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
         const auto nbitsperhash = l2sz_;
+        using Type = vec::SIMDTypes<uint64_t>::Type;
         const Type *sptr = reinterpret_cast<const Type *>(seeds_.data());
-        Space::VType vb = Space::set1(val), tmp;
+        typename FSpace::VType vb = FSpace::set1(val), tmp;
         FType ret;
         CONST_IF(conservative) {
             std::vector<uint64_t> indices, best_indices;
             indices.reserve(nhashes_);
-            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64))
-                Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
+            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(FSpace::COUNT * nperhash64))
+                FSpace::VType(hash(FSpace::xor_fn(vb.simd_, FSpace::load(sptr++)))).for_each([&](uint64_t subval) {
                     for(unsigned k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
                 }),
-                seedind += Space::COUNT;
+                seedind += FSpace::COUNT;
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind]);
                 for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
@@ -147,15 +149,15 @@ public:
             // This could be more valuable on a GPU.
         } else { // not conservative update. This means we support deletions
             ret = std::numeric_limits<decltype(ret)>::max();
-            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(Space::COUNT * nperhash64)) {
-                Space::VType(hash(Space::xor_fn(vb.simd_, Space::load(sptr++)))).for_each([&](uint64_t subval) {
+            while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(FSpace::COUNT * nperhash64)) {
+                FSpace::VType(hash(FSpace::xor_fn(vb.simd_, FSpace::load(sptr++)))).for_each([&](uint64_t subval) {
                     for(unsigned k(0); k < nperhash64;) {
                         auto ref = data_[((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
                         ref += inc;
                         ret = std::min(ret, double(ref));
                     }
                 });
-                seedind += Space::COUNT;
+                seedind += FSpace::COUNT;
             }
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind++]);
@@ -172,6 +174,7 @@ public:
 
 } // namespace cws
 namespace nt {
+using hash::WangHash;
 template<typename Container=std::vector<uint32_t, Allocator<uint32_t>>, typename HashStruct=WangHash, bool filter=true>
 struct Card {
     // If using a different kind of counter than a native integer
@@ -223,7 +226,7 @@ struct Card {
             throw NotImplementedError("Haven't implemented merging of nthashes for any container but aligned std::vectors\n");
         }
         total_added_.store(total_added_.load() + x.total_added_.load());
-        if(core_.size() * sizeof(core_[0]) >= sizeof(Space::VType)) {
+        if(core_.size() * sizeof(core_[0]) >= sizeof(typename vec::SIMDTypes<CounterType>::VType)) {
             using VSpace = vec::SIMDTypes<CounterType>;
             using VType = typename vec::SIMDTypes<CounterType>::VType;
             VType *optr = reinterpret_cast<VType *>(this->core_.data());
@@ -231,7 +234,7 @@ struct Card {
             const VType *const eptr = reinterpret_cast<const VType *>(this->core_.data() + this->core_.size());
             assert(core_.size() % sizeof(VType) / sizeof(core_[0]) == 0);
             FOREVER {
-                Space::store(reinterpret_cast<typename VSpace::Type *>(optr), Space::add(Space::load(reinterpret_cast<const typename VSpace::Type *>(optr)), Space::load(reinterpret_cast<const typename VSpace::Type *>(iptr))));
+                VSpace::store(reinterpret_cast<typename VSpace::Type *>(optr), VSpace::add(VSpace::load(reinterpret_cast<const typename VSpace::Type *>(optr)), VSpace::load(reinterpret_cast<const typename VSpace::Type *>(iptr))));
                 ++iptr;
                 ++optr;
                 if(eptr == optr)
@@ -364,7 +367,7 @@ public:
 };
 
 
-template<typename CoreSketch, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, typename PairHasher=XXH3PairHasher>
+template<typename CoreSketch, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=hash::WangHash, typename PairHasher=XXH3PairHasher>
 struct WeightedSketcher {
     CountingSketchType cst_;
     CoreSketch      sketch_;
@@ -447,7 +450,7 @@ struct WeightedSketcher {
 };
 
 
-template<typename CoreSketch, typename F, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=common::WangHash, typename PairHasher=WangPairHasher>
+template<typename CoreSketch, typename F, typename CountingSketchType=hk::HeavyKeeper<32,32>, typename HashStruct=hash::WangHash, typename PairHasher=WangPairHasher>
 struct FWeightedSketcher: public WeightedSketcher<CoreSketch, CountingSketchType, HashStruct, PairHasher> {
     const F func_;
     template<typename... Args>

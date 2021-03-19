@@ -24,8 +24,6 @@
 #include "macros.h"
 
 #include "kthread.h"
-#include "libpopcnt/libpopcnt.h"
-#include "compact_vector/include/compact_vector.hpp"
 #include "hedley.h"
 
 
@@ -58,7 +56,6 @@
 
 #include "./sseutil.h"
 #include "./div.h"
-#include "./hash.h"
 #include "./policy.h"
 #include "./exception.h"
 #include "./integral.h"
@@ -89,7 +86,6 @@
 
 namespace sketch {
 inline namespace common {
-using namespace hash;
 using namespace integral;
 
 using DefaultRNGType =  wy::WyHash<uint64_t, 2>;
@@ -112,7 +108,6 @@ using std::int32_t;
 using std::int16_t;
 using std::int8_t;
 using std::size_t;
-using Space = vec::SIMDTypes<uint64_t>;
 
 static constexpr auto AllocatorAlignment = sse::Alignment::
 #if HAS_AVX_512
@@ -131,24 +126,11 @@ Normal
 template<typename ValueType>
 using Allocator = sse::AlignedAllocator<ValueType, AllocatorAlignment>;
 #ifdef NOT_THREADSAFE
-using DefaultCompactVectorType = ::compact::vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
 
-template<size_t NBITS>
-class DefaultStaticCompactVectorType: public ::compact::vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>> {
-public:
-    DefaultStaticCompactVectorType(size_t nb, size_t nelem): ::compact::vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>(nelem) {}
-};
 #ifndef SKETCH_THREADSAFE
 #define SKETCH_THREADSAFE 0
 #endif
 #else
-using DefaultCompactVectorType = ::compact::ts_vector<uint64_t, 0, uint64_t, Allocator<uint64_t>>;
-
-template<size_t NBITS>
-class DefaultStaticCompactVectorType: public ::compact::ts_vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>> {
-public:
-    DefaultStaticCompactVectorType(size_t nb, size_t nelem): ::compact::ts_vector<uint64_t, NBITS, uint64_t, Allocator<uint64_t>>(nelem) {}
-};
 #ifndef SKETCH_THREADSAFE
 #define SKETCH_THREADSAFE 1
 #endif
@@ -269,14 +251,6 @@ template<typename T, typename AllocatorType=typename T::allocator>
 static inline void zero_memory(std::vector<T, AllocatorType> &v, size_t newsz) {
     std::memset(v.data(), 0, v.size() * sizeof(v[0]));
     v.resize(newsz);
-}
-template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {
-   std::memset(v.get(), 0, v.bytes()); // zero array
-}
-template<typename T1, unsigned int BITS, typename T2, typename Allocator>
-static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {
-   std::memset(v.get(), 0, v.bytes()); // zero array
 }
 
 template<typename T, size_t BUFFER_SIZE=64>

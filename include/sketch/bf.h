@@ -1,10 +1,18 @@
 #ifndef CRUEL_BLOOM_H__
 #define CRUEL_BLOOM_H__
+#ifndef NO_SLEEF
+#define NO_SLEEF
+#endif
 #include "common.h"
+#include "vec/vec.h"
+#include "hash.h"
 
 
 namespace sketch {
 namespace bf {
+using namespace hash;
+
+using Space = vec::SIMDTypes<uint64_t>;
 
 
 // TODO: add a compact, 6-bit version
@@ -177,8 +185,10 @@ public:
     uint64_t popcnt_manual() const {
         return std::accumulate(core_.cbegin() + 1, core_.cend(), popcount(core_[0]), [](auto a, auto b) {return a + popcount(b);});
     }
+    using VType = vec::SIMDTypes<uint64_t>::VType;
+    using Type = vec::SIMDTypes<uint64_t>::Type;
     uint64_t popcnt() const { // Number of set bits
-        Space::VType tmp;
+        VType tmp;
         const Type *op(reinterpret_cast<const Type *>(data())),
                    *ep(reinterpret_cast<const Type *>(&core_[core_.size()]));
         auto sum = popcnt_fn(*op++);
@@ -191,8 +201,8 @@ public:
             for(auto it(core_.begin()), hit(it + (core_.size() >> 1)), eit = core_.end(); hit != eit; *it++ |= *hit++);
             return;
         }
-        Space::VType *s = reinterpret_cast<Space::VType *>(core_.data()), *hp = reinterpret_cast<Space::VType *>(core_.data() + (core_.size() >> 1));
-        const Space::VType *const end = reinterpret_cast<const Space::VType *>(&core_[core_.size()]);
+        VType *s = reinterpret_cast<VType *>(core_.data()), *hp = reinterpret_cast<VType *>(core_.data() + (core_.size() >> 1));
+        const VType *const end = reinterpret_cast<const VType *>(&core_[core_.size()]);
         while(hp != end) {
             *s = Space::or_fn(s->simd_, hp->simd_);
             ++s, ++hp;// Consider going backwards?
@@ -209,7 +219,7 @@ public:
     unsigned intersection_count(const bfbase_t &other) const {
         PREC_REQ(same_params(other), "Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
-        Space::VType tmp;
+        VType tmp;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         tmp.simd_ = Space::and_fn(Space::load(op++), Space::load(tc++));
         auto sum = popcnt_fn(tmp);
@@ -237,7 +247,7 @@ public:
         PREC_REQ(same_params(other), "Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
-        Space::VType l1 = *op++, l2 = *tc++;
+        VType l1 = *op++, l2 = *tc++;
         Space::Type sumu = popcnt_fn(Space::or_fn(l1.simd_, l2.simd_));
 
 #define PERFORM_ITER \
@@ -263,7 +273,7 @@ public:
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
-        Space::VType l1 = *op++, l2 = *tc++;
+        VType l1 = *op++, l2 = *tc++;
         Space::Type sum1(popcnt_fn(l1.simd_)), sum2 = popcnt_fn(l2.simd_), sumu = popcnt_fn(popcnt_fn(l1.simd_ | l2.simd_));
 #undef PERFORM_ITER
 #define PERFORM_ITER \
@@ -292,7 +302,7 @@ public:
         PREC_REQ(m() == o.m(), "Same size required.");
         auto &oc = o.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
-        Space::VType l1 = *op++, l2 = *tc++;
+        VType l1 = *op++, l2 = *tc++;
         Space::Type sum1, sum2, sumu;
         sum1 = popcnt_fn(l1.simd_);
         sum2 = popcnt_fn(l2.simd_);
@@ -334,7 +344,7 @@ public:
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
-        Space::VType l1 = *op++, l2 = *tc++;
+        VType l1 = *op++, l2 = *tc++;
         Space::Type sum1, sum2, sumu;
         sum1 = popcnt_fn(l1.simd_);
         sum2 = popcnt_fn(l2.simd_);
@@ -369,20 +379,53 @@ public:
     }
 
     INLINE void add(const uint64_t element) {addh(element);}
+#ifdef __AVX512F__
+    static constexpr size_t VSZ = 64;
+#elif __AVX2__
+    static constexpr size_t VSZ = 32;
+#elif __SSE2__
+    static constexpr size_t VSZ = 16;
+#else
+    static constexpr size_t VSZ = 8;
+#endif
     INLINE void addh(const uint64_t element) {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
+        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()];
         const auto shift = p();
-        const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
+#if __AVX512F__
+        const size_t npersimd = 8 * npw;
+        const __m512i *sptr = (const __m512i *)&seeds_[0];
+        for(;nleft > npersimd;nleft -= npersimd) {
+            auto v = _mm512_set1_epi64(element) ^ *sptr++;
+            sub_set1(*(const uint64_t *)&v, npw, shift);
+            sub_set1(((const uint64_t *)&v)[1], npw, shift);
+        }
+        const uint64_t *seedptr = reinterpret_cast<const uint64_t *>(sptr);
+#elif __AVX2__
+        const size_t npersimd = 4 * npw;
+        const __m256i *sptr = (const __m256i *)&seeds_[0];
+        for(;nleft > npersimd;nleft -= npersimd) {
+            auto v = _mm256_set1_epi64x(element) ^ *sptr++;
+            sub_set1(*(const uint64_t *)&v, npw, shift);
+            sub_set1(((const uint64_t *)&v)[1], npw, shift);
+        }
+        const uint64_t *seedptr = reinterpret_cast<const uint64_t *>(sptr);
+#elif __SSE2__
+        const size_t npersimd = 2 * npw;
+        const __m128i *sptr = (const __m128i *)seeds_.data();
         while(nleft > npersimd) {
-            VType v(hf_(Space::set1(element) ^ (*seedptr++).simd_));
-            v.for_each([&](const uint64_t &val) {sub_set1(val, npw, shift);});
+            auto v = _mm_set1_epi64x(element) ^ *sptr++;
+            sub_set1(*(const uint64_t *)&v, npw, shift);
+            sub_set1(((const uint64_t *)&v)[1], npw, shift);
             nleft -= npersimd;
         }
-        const uint64_t *sptr = reinterpret_cast<const uint64_t *>(seedptr);
+        const uint64_t *seedptr = reinterpret_cast<const uint64_t *>(sptr);
+#else
+        const uint64_t *seedptr = seeds_.data();
+#endif
         while(nleft) {
             const auto todo = std::min(npw, nleft);
-            sub_set1(hf_(element ^ *sptr++), todo, shift);
+            sub_set1(hf_(element ^ *seedptr++), todo, shift);
             nleft -= todo;
         }
         //std::fprintf(stderr, "Finishing with element %" PRIu64 ". New popcnt: %u\n", element, popcnt());
@@ -403,30 +446,7 @@ public:
     }
     // Reset.
     void reset() {
-        static constexpr const size_t MEMSET_CUTOFF = 1ull << 16;
-        if(core_.size() >= MEMSET_CUTOFF) {
-            // Typically this can be faster by swapping around virtual memory pages
-            std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
-        } else if(core_.size() * sizeof(core_[0]) >= sizeof(VType)) {
-            const VType v1 = Space::set1(0);
-            VType *p1(reinterpret_cast<VType *>(&core_[0]));
-            const VType *const p2(reinterpret_cast<VType *>(&core_[core_.size()]));
-            static_assert(std::is_pointer<decltype(p1)>::value, "must be a pointer");
-            while(p2 - p1 > 8) {
-                p1[0] = v1;
-                p1[1] = v1;
-                p1[2] = v1;
-                p1[3] = v1;
-                p1[4] = v1;
-                p1[5] = v1;
-                p1[6] = v1;
-                p1[7] = v1;
-                p1 += 8;
-            }
-            while(p1 < p2) *p1++ = v1;
-        } else {
-            std::fill(core_.begin(), core_.end(), static_cast<uint64_t>(0));
-        }
+        std::memset(core_.data(), 0, core_.size() * sizeof(core_[0]));
     }
     void clear() {reset();}
     bfbase_t(bfbase_t&&) = default;

@@ -13,6 +13,7 @@
 #  define NO_BLAZE
 #  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
 #endif
+#include "libpopcnt/libpopcnt.h"
 
 
 #ifndef INLINE
