@@ -13,6 +13,7 @@
 #include "blaze/Math.h"
 #include "sketch/hash.h"
 #include "xxHash/xxh3.h"
+#include "flat_hash_map/flat_hash_map.hpp"
 
 namespace sketch {
 

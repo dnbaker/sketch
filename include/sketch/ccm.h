@@ -10,7 +10,7 @@
 
 namespace sketch {
 
-namespace common { namespace detail {
+inline namespace common { namespace detail {
 
 template<typename T1, unsigned int BITS, typename T2, typename Allocator>
 static inline void zero_memory(compact::vector<T1, BITS, T2, Allocator> &v, size_t newsz=0) {
@@ -26,6 +26,7 @@ static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, s
 inline namespace cm {
 using common::detail::tmpbuffer;
 using common::Allocator;
+using std::int64_t;
 
 #if NOT_THREADSAFE
 template<size_t NBITS>
@@ -237,7 +238,7 @@ public:
     ccmbase_t(const ccmbase_t &o) = default;
     //ccmbase_t(ccmbase_t &&o) = default;
     template<typename... Args>
-    ccmbase_t(int nbits, int l2sz, int nhashes=4, uint64_t seed=0, Args &&... args):
+    ccmbase_t(int nbits, int l2sz, int64_t nhashes=4, uint64_t seed=0, Args &&... args):
             data_(nbits, nhashes << l2sz),
             updater_(seed + l2sz * nbits * nhashes),
             nhashes_(nhashes), l2sz_(l2sz),
@@ -372,7 +373,7 @@ public:
         return hash(x ^ seeds_[index]);
     }
     uint64_t est_count(uint64_t val) const {
-        uint64_t ret = -1ull;
+        uint64_t ret = std::numeric_limits<uint64_t>::max();
         for(unsigned i = 0; i < nhashes_; ++i) {
             auto hv = hash(val, i);
             ret = std::min(ret, uint64_t(data_[(hv & mask_) + subtbl_sz_ * i]));
