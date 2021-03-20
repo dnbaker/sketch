@@ -1,14 +1,11 @@
 #ifndef HYPERBITBIT_H__
 #define HYPERBITBIT_H__
-#include "./common.h"
+#include "sketch/common.h"
+#include "sketch/hash.h"
 
 namespace sketch {
 
 inline namespace hbb {
-
-#ifndef SLOW_WAY
-#define SLOW_WAY 0
-#endif
 
 /**
  *
@@ -58,15 +55,7 @@ struct HyperHyperBitBitSimple {
         add(x);
     }
     void add(uint64_t x) {
-#if SLOW_WAY
-        x = hash::WangHash::hash(x);
-        for(auto &i: data_) {
-            uint64_t v = hash::WangHash::hash(x ^ seeds_[x % data_.size()]);
-            i.addh(v);
-        }
-#else
         data_[x % data_.size()].addh(hash::WangHash()(x ^ seeds_[x % data_.size()]));
-#endif
     }
     double report() {
         double estsum = 0.;
@@ -101,26 +90,6 @@ struct HyperHyperBitBit {
         return add(x);
     }
     void add(uint64_t v) {
-#if SLOW_WAY
-        for(size_t idx = 0; idx < nelem_; ++idx) {
-            auto r = ctz(v);
-            auto &logn = logns_[idx];
-            if(r > logn) {
-                auto bit = uint64_t(1) << ((v>>(r + 1))%64);
-                auto &sketch = s1s_[idx], sketch2 = s2s_[idx];
-                sketch |= bit;
-                if(r > logn + 1) {
-                    sketch2 |= bit;
-                }
-                if(popcount(sketch) > 31) {
-                    sketch = sketch2;
-                    sketch2 = 0;
-                    ++logn;
-                }
-            }
-            wy::wyhash64_stateless(&v);
-        }
-#else
         auto idx = v % nelem_;
         v /= nelem_;
         auto r = ctz(v);
@@ -138,7 +107,6 @@ struct HyperHyperBitBit {
                 ++logn;
             }
         }
-#endif
     }
     double report() const {
         double pcsum = 0;
@@ -150,22 +118,13 @@ struct HyperHyperBitBit {
             ies += 1. / std::pow(2., cinc);
             hes += 1. / cinc;
         }
-#if SLOW_WAY
-        est_sums /= nelem_;
-        ies = nelem_ / ies;
-#else
         ies = nelem_ * nelem_ / ies;
         hes = nelem_ / hes;
-#endif
         std::fprintf(stderr, "est sum: %g. iestsum: %g. hestsum: %g\n", est_sums, ies, std::pow(2., hes));
         std::fprintf(stderr, "pcsum before: %g\n", pcsum);
         pcsum /= nelem_;
         std::fprintf(stderr, "pcsum: %g\n", pcsum);
-#if SLOW_WAY
-        return std::pow(2., pcsum);
-#else
         return ies;
-#endif
     }
 };
 
