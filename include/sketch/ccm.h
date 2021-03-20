@@ -26,6 +26,7 @@ static inline void zero_memory(compact::ts_vector<T1, BITS, T2, Allocator> &v, s
 inline namespace cm {
 using common::detail::tmpbuffer;
 using common::Allocator;
+using std::int64_t;
 
 #if NOT_THREADSAFE
 template<size_t NBITS>
@@ -237,7 +238,7 @@ public:
     ccmbase_t(const ccmbase_t &o) = default;
     //ccmbase_t(ccmbase_t &&o) = default;
     template<typename... Args>
-    ccmbase_t(int nbits, int l2sz, uint64_t nhashes=4, uint64_t seed=0, Args &&... args):
+    ccmbase_t(int nbits, int l2sz, int64_t nhashes=4, uint64_t seed=0, Args &&... args):
             data_(nbits, nhashes << l2sz),
             updater_(seed + l2sz * nbits * nhashes),
             nhashes_(nhashes), l2sz_(l2sz),
