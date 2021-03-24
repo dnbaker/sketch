@@ -112,11 +112,11 @@ public:
     using ThisType = WyRand<T, unroll_count, HashFunc>;
     WyRand(uint64_t seed=0): state_(seed ? seed: uint64_t(1337)) {
         std::memset(unrolled_stuff_, 0, sizeof(unrolled_stuff_));
-        CONST_IF(unroll_count) off() = sizeof(unrolled_stuff_);
+        CONST_IF(unroll_count > 0) off() = sizeof(unrolled_stuff_);
     }
     void seed(uint64_t newseed) {
         state_ = newseed;
-        CONST_IF(unroll_count) {
+        CONST_IF(unroll_count > 0) {
             off() = sizeof(unrolled_stuff_);
         }
     }
@@ -131,7 +131,7 @@ public:
     }
     template<typename OT>
     OT generate() {
-        CONST_IF(unroll_count) {
+        CONST_IF(unroll_count > 0) {
             if(off() + sizeof(OT) > sizeof(unrolled_stuff_)) {
                 for(size_t i = 0; i < UNROLL_COUNT; unrolled_stuff_[i++] = next_value());
                 off() = 0;
