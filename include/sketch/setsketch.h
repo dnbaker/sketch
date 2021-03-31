@@ -239,7 +239,7 @@ public:
         SetSketch<ResT, FT> ret(m_, b, a, q, ids_.size());
         const double logbinv = 1. / std::log1p(b - 1.);
         for(size_t i = 0; i < m_; ++i) {
-            ret.lowkh().update(i, std::max(int64_t(0), std::min(int64_t(q) + 1, static_cast<int64_t>((1. - std::log(data_[i]) * logbinv)))));
+            ret.lowkh().update(i, std::max(int64_t(0), std::min(int64_t(q) + 1, static_cast<int64_t>((1. - std::log(data_[i] / a) * logbinv)))));
         }
         return ret;
     }
@@ -359,7 +359,7 @@ public:
     void merge(const CSetSketch<FT> &o) {
         if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
         if(ids().empty()) {
-            std::transform(data(), data() + m_, o.data(), [](auto x, auto y) {return std::min(x, y);});
+            std::transform(data(), data() + m_, o.data(), data(), [](auto x, auto y) {return std::min(x, y);});
         } else {
             for(size_t i = 0; i < size(); ++i) {
                 if(!idcounts_.empty() && !ids_.empty() && ids_[i] == o.ids_[i]) {
