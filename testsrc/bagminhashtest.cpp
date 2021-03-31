@@ -17,9 +17,6 @@ int main(int argc, char **argv) {
     pmh1_t<> pmh3(m), pmh4(m);
     pmh2_t<> pm21(m), pm22(m), pm23(m), pm24(m);
     pmh2_t<long double> lpm21(m), lpm22(m), lpm23(m), lpm24(m);
-#if ENABLE_SLEEF
-    simdpmh1_t sph(m), sph2(m), sph3(m);
-#endif
     assert(bmh.m() == m);
     assert(bmh2.m() == m);
     assert(std::equal(bmh.hvals_.data(), bmh.hvals_.data() + m, bmh2.hvals_.data()));
@@ -37,7 +34,6 @@ int main(int argc, char **argv) {
     start = std::chrono::high_resolution_clock::now();
     for(size_t i = 0; i < n; ++i) {
         pm21.update(i, 1.);
-        lpm21.update(i, 1.);
         pm22.update(i, 1);
         pm23.update(i, 1);
         pm24.update(i, 1);
