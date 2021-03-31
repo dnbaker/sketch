@@ -297,28 +297,28 @@ public:
         uint64_t rv = wy::wyhash64_stateless(&hid);
 
         FT ev;
+        FT mv = max();
         CONST_IF(sizeof(FT) > 8) {
             auto lrv = __uint128_t(rv) << 64;
             const FT bv = -1. / m_;
             lrv |= wy::wyhash64_stateless(&rv);
             FT tv = static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L);
             ev = bv * std::log(tv);
-            if(ev >= max()) return;
+            if(ev >= mv) return;
         } else {
             auto tv = rv * INVMUL64;
             const FT bv = -1. / m_;
             // Filter with fast log first
             CONST_IF(FLOGFILTER) {
-                if(bv * flog(tv) * FT(.7) > max()) return;
+                if(bv * flog(tv) * FT(.7) > mv) return;
             }
             ev = bv * std::log(tv);
-            if(ev >= max()) return;
+            if(ev >= mv) return;
         }
         ls_.reset();
         ls_.seed(rv);
         uint64_t bi = 1;
         uint32_t idx = ls_.step();
-        FT mv = max();
         for(;;) {
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
