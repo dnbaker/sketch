@@ -10,7 +10,6 @@
 #include "fy.h"
 #include "sketch/count_eq.h"
 #include "sketch/macros.h"
-#include "blaze/Math.h"
 #include "sketch/hash.h"
 #include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
@@ -185,13 +184,6 @@ static inline long double g_b(long double b, long double arg) {
     return (1.L - std::pow(b, -arg)) / (1.L - 1.L / b);
 }
 
-template<typename FT>
-inline double calc_card(const FT *start, const FT *end) {
-    const std::ptrdiff_t n = end - start;
-    return n /
-        blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(
-                const_cast<FT *>(start), n)));
-}
 
 template<typename ResT, typename FT=double> class SetSketch; // Forward
 
@@ -364,12 +356,10 @@ public:
             && (ids().empty() == o.ids().empty())
             && (idcounts().empty() == o.idcounts().empty());
     }
-    auto cv() {return blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(data(), m_);}
-    auto cv() const {return blaze::CustomVector<const FT, blaze::aligned, blaze::unpadded>(data(), m_);}
     void merge(const CSetSketch<FT> &o) {
         if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
         if(ids().empty()) {
-            cv() = blaze::serial(blaze::min(cv(), o.cv()));
+            std::transform(data(), data() + m_, o.data(), [](auto x, auto y) {return std::min(x, y);});
         } else {
             for(size_t i = 0; i < size(); ++i) {
                 if(!idcounts_.empty() && !ids_.empty() && ids_[i] == o.ids_[i]) {
@@ -462,9 +452,13 @@ public:
     const std::vector<uint64_t> &ids() const {return ids_;}
     const std::vector<uint32_t> &idcounts() const {return idcounts_;}
     double union_size(const CSetSketch<FT> &o) const {
-        using CVT = blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>;
-        return blaze::serial(blaze::sum(blaze::max(
-            CVT(const_cast<FT *>(data_.get()), m_), CVT(const_cast<FT *>(o.data_.get()), m_))));
+        double s = 0.;
+#if _OPENMP >= 201307L
+        #pragma omp simd reduction(+:s)
+#endif
+        for(size_t i = 0; i < m_; ++i)
+            s += std::min(data_[i], o.data_[i]);
+        return m_ / s;
     }
     auto alpha_beta(const CSetSketch<FT> &o) const {
         auto gtlt = eq::count_gtlt(data(), o.data(), m_);
@@ -492,7 +486,13 @@ public:
 
     double cardinality_estimate() const {return cardinality();}
     double cardinality() const {
-        return calc_card(data_.get(), &data_[m_]);
+        double s = 0.;
+#if _OPENMP >= 201307L
+        #pragma omp simd reduction(+:s)
+#endif
+        for(size_t i = 0; i < m_; ++i)
+            s += data_[i];
+        return m_ / s;
     }
     static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, size_t q) {
         long double b = std::exp(std::log((long double)maxreg / (long double)minreg) / (long double)q);
