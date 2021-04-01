@@ -11,8 +11,15 @@ Welcome to the documentation for Sketch!
    :caption: Contents::
 
 
-Installation
-===========
+
+Getting Started
+============
+
+Sketch has a range of sketch data structures implemented. All of them are available in C++, but only a subset of functionality has been exposed to Python.
+This documentation is primarily for the Python interface.
+
+Installation (Python)
+---------
 
 One-line installation::
 
@@ -25,6 +32,11 @@ At this point, you will simply import sketch from python::
     h = HLL(10)
     for i in range(10000): h.addh(i)
     print("Estimated cardinality: %f" % h.report())
+
+
+Installation (C++)
+-------------
+You don't. Use sketch as a header-only library, but clone recursively.
 
 
 Features

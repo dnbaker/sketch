@@ -178,7 +178,7 @@ PYBIND11_MODULE(sketch_util, m) {
         return sketch::eq::count_eq(lhs.data(), rhs.data(), lhs.size());\
     }, py::arg("lhs"), py::arg("rhs"))\
     .def("pcount_eq", [](py::array_t<TYPE, py::array::c_style> &lhs, py::array_t<TYPE, py::array::c_style> &rhs, py::int_ nthreads) {\
-        {py::ssize_t nt = nthreads.cast<py::ssize_t>(); OMP_ONLY(if(nt > 1) omp_set_num_threads(nt);)}\
+        {py::ssize_t nt = nthreads.cast<py::ssize_t>(); OMP_ONLY(if(nt >= 1) omp_set_num_threads(nt);)}\
         py::buffer_info lhi = lhs.request(), rhi = rhs.request(), retinf;\
         py::object retarr = py::none();\
         if(lhi.shape.at(1) != rhi.shape.at(1)) throw std::invalid_argument("Mismatched sizes");\
