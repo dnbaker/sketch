@@ -8,8 +8,14 @@ Welcome to the documentation for Sketch!
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: Contents::
 
+
+Installation
+===========
+
+One-line::
+    git clone https://github.com/dnbaker/sketch && cd sketch/python && python3 setup.py build_ext -j4 && python3 setup.py install
 
 Features
 ========
