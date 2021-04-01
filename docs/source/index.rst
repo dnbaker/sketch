@@ -74,10 +74,15 @@ Additional utilities: sketch.util
     * hashes strings
 * hash\_ngrams
     * takes a list of strings, and then computes
+
 usage ::
+
+    def hash\_ngrams(toks, n=3, seed=0):
+
     :param toks: list of strings
     :param n:    n- for n-grams, default = 3
     :param seed: Set seed for hashing; default = 0
+    :returns: np.ndarray, with dtype = np.uint64
 
 Computing optimal a and b
 ------

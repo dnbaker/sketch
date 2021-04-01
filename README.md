@@ -1,6 +1,11 @@
-# sketch [![Build Status](https://travis-ci.com/dnbaker/sketch.svg?branch=master)](https://travis-ci.com/dnbaker/sketch)
+# sketch [![Build Status](https://travis-ci.com/dnbaker/sketch.svg?branch=master)](https://travis-ci.com/dnbaker/sketch) [![Documentation Status](https://readthedocs.org/projects/sketch/badge/?version=latest)](https://sketch.readthedocs.io/en/latest/?badge=latest)
 sketch is a generic, header-only library providing implementations of a variety of sketch data structures for scalable and streaming applications.
 All have been accelerated with SIMD parallelism where possible, most are composable, and many are threadsafe unless `-DNOT_THREADSAFE` is passed as a compilation flag.
+
+
+## Python documentation
+
+Documentation for the Python interface is available [here](https://sketch.readthedocs.io/en/latest/).
 
 ## Contents
 1. HyperLogLog Implementation [hll.h]
