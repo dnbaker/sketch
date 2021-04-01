@@ -14,9 +14,9 @@ Welcome to the documentation for Sketch!
 Installation
 ===========
 
-One-line::
+One-line installation::
 
-    git clone https://github.com/dnbaker/sketch && cd sketch/python && python3 setup.py build_ext -j4 && python3 setup.py install
+    git clone --recursive https://github.com/dnbaker/sketch && cd sketch/python && python3 setup.py build_ext -j4 && python3 setup.py install
 
 At this point, you will simply import sketch from python::
 
@@ -26,8 +26,9 @@ At this point, you will simply import sketch from python::
     for i in range(10000): h.addh(i)
     print("Estimated cardinality: %f" % h.report())
 
+
 Features
-========
+------
 1. Sketch structure bindings:
     1. Bloom Filter
     2. HyperLogLog
