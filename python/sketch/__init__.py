@@ -15,7 +15,8 @@ def optimal_ab(maxv, minv, *, q):
         :param maxv: float value which is the maximum to be quantized
         :param minv: float value which is the minimum to be quantized
         :param q:    float or integral value for the ceiling; required.
-        :return: namedtuple SetSketchParams, consisting of (a, b); access through ssp.a, ssp[0], or tuple access
+        :return: namedtuple SetSketchParams, consisting of (a, b);
+                 access through ssp.a, ssp[0], or tuple access
     '''
 
     if maxv < minv:

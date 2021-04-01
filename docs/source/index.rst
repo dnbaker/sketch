@@ -3,7 +3,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to Sketch's documentation!
+Welcome to the documentation for Sketch!
 ==================================
 
 .. toctree::
@@ -13,11 +13,16 @@ Welcome to Sketch's documentation!
 
 Features
 ========
-1. Bloom Filter
-2. HyperLogLog
-3. SetSketch
-4. Fast Hamming space distance functions
-5. ngram hashing code
+1. Sketch structure bindings:
+    1. Bloom Filter
+    2. HyperLogLog
+    3. B-bit minhash
+    4. Set Sketch
+2. Distance calculation functions
+3. Miscellaneous
+    1. fastmod/fastdiv for integer reductions
+    2. ngram hashing
+    3. fast hamming space distance calculations
 
 
 Modules
@@ -31,8 +36,9 @@ There are separate modules for each sketch structure for which there are binding
 
 For each of these, the module provides construction - either taking parameters or a path to a file.
 Each of these can be written to and read from a file with .write() and a constructor.
+
 They can be compared with each other with member functions, or you can calculate comparison matrices via
-`sketch.util.jaccard\_matrix`, `sketch.util.containment\_matrix`, `sketch.util.union\_size\_matrix`, `sketch.util.intersection_matrix`, all of which are in the util module.
+_sketch.util.jaccard\_matrix_, _sketch.util.containment\_matrix_, _sketch.util.union\_size\_matrix_, _sketch.util.intersection_matrix_, all of which are in the util module.
 
 Additionally, there are utilities for pairwise distance calculation in the `util` module.
 
@@ -44,16 +50,18 @@ Additional utilities: sketch.util
     * Python bindings for fastdiv/fastmod; See https://arxiv.org/abs/1902.01961
     * fastdiv\_ and fastmod\_ are in-place modifications, while the un-suffixed returns a new array
 * count\_eq
-    ** Compute # of equal registers between two 1-d numpy arrays.
+    * Compute # of equal registers between two 1-d numpy arrays.
 * pcount\_eq
-    ** Compute row-pair-wise equal register counts between two 2-d numpy arrays.
+    * Compute row-pair-wise equal register counts between two 2-d numpy arrays.
 * shs\isz
-    ** Computes intersection size between two sorted hash sets.
+    * Computes intersection size between two sorted hash sets.
 * hash
-    ** hashes strings
+    * hashes strings
 
-Python-only Code
-===============
+Computing optimal a and b
+------
+For lossy compression via quantization, _optimal\_ab_ computes the parameter values for best using hash space.
+
 
 .. literalinclude:: ../../python/sketch/__init__.py
    :language: python
@@ -61,7 +69,7 @@ Python-only Code
    :lines: 11-25
 
 Indices and tables
-==================
+------------
 
 * :ref:`genindex`
 * :ref:`modindex`
