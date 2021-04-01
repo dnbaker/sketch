@@ -4,10 +4,10 @@
 #include <cassert>
 #include "aesctr/wy.h"
 #include <queue>
-#include <div.h>
 #include <unordered_map>
 #include "fy.h"
 #include "macros.h"
+#include "div.h"
 
 namespace sketch {
 
@@ -334,7 +334,17 @@ struct bmh_t {
         }
         heap_.clear();
     }
-    template<typename IT=uint64_t>
+    template<typename IT=FT>
+    void write(std::FILE *fp) const {
+        auto sigs = to_sigs<IT>();
+        std::fwrite(sigs.data(), sizeof(IT), sigs.size(), fp);
+    }
+    void write(std::string path) const {
+        std::FILE *fp = std::fopen(path.data(), "wb");
+        write(fp);
+        std::fclose(fp);
+    }
+    template<typename IT=FT>
     std::vector<IT> to_sigs() const {
         std::vector<IT> ret(m());
         if(std::is_integral<IT>::value) {
@@ -396,7 +406,7 @@ struct pmh1_t {
     }
     void add(const IT id, const FT w) {update(id, w);}
     size_t m() const {return res_.size();}
-    template<typename IT=uint64_t>
+    template<typename IT=FT>
     std::vector<IT> to_sigs() const {
         std::vector<IT> ret(m());
         if(std::is_integral<IT>::value) {
@@ -409,7 +419,7 @@ struct pmh1_t {
 };
 
 namespace fastlog {
-    static long double flog(long double x) {
+    static inline long double flog(long double x) {
         __uint128_t yi;
         std::memcpy(&yi, &x, sizeof(x));
         return yi * 3.7575583950764744255e-20L - 11356.176832703863597L;
@@ -484,7 +494,7 @@ struct pmh2_t {
     }
     void add(const IT id, const FT w) {update(id, w);}
     size_t m() const {return res_.size();}
-    template<typename IT=uint64_t>
+    template<typename IT=FT>
     std::vector<IT> to_sigs() const {
         std::vector<IT> ret(m());
         if(std::is_integral<IT>::value) {
@@ -493,6 +503,16 @@ struct pmh2_t {
             std::copy(hvals_.data(), hvals_.data() + m(), ret.begin());
         }
         return ret;
+    }
+    template<typename IT=FT>
+    void write(std::FILE *fp) const {
+        auto sigs = to_sigs<IT>();
+        std::fwrite(sigs.data(), sizeof(IT), sigs.size(), fp);
+    }
+    void write(std::string path) const {
+        std::FILE *fp = std::fopen(path.data(), "wb");
+        write(fp);
+        std::fclose(fp);
     }
 };
 
