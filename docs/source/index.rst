@@ -3,7 +3,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to Sketch's documentation!
+Welcome to the documentation for Sketch!
 ==================================
 
 .. toctree::
@@ -13,11 +13,16 @@ Welcome to Sketch's documentation!
 
 Features
 ========
-1. Bloom Filter
-2. HyperLogLog
-3. SetSketch
-4. Fast Hamming space distance functions
-5. ngram hashing code
+1. Sketch structure bindings:
+    1. Bloom Filter
+    2. HyperLogLog
+    3. B-bit minhash
+    4. Set Sketch
+2. Distance calculation functions
+3. Miscellaneous
+    1. fastmod/fastdiv for integer reductions
+    2. ngram hashing
+    3. fast hamming space distance calculations
 
 
 Modules
