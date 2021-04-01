@@ -44,7 +44,7 @@ For each of these, the module provides construction - either taking parameters o
 Each of these can be written to and read from a file with .write() and a constructor.
 
 They can be compared with each other with member functions, or you can calculate comparison matrices via
-_sketch.util.jaccard\_matrix_, _sketch.util.containment\_matrix_, _sketch.util.union\_size\_matrix_, _sketch.util.intersection_matrix_, all of which are in the util module.
+**sketch.util.jaccard\_matrix**, **sketch.util.containment\_matrix**, **sketch.util.union\_size\_matrix**, **sketch.util.intersection_matrix**, all of which are in the util module.
 
 Additionally, there are utilities for pairwise distance calculation in the `util` module.
 
@@ -63,6 +63,12 @@ Additional utilities: sketch.util
     * Computes intersection size between two sorted hash sets.
 * hash
     * hashes strings
+* hash\_ngrams
+    * takes a list of strings, and then computes
+usage ::
+    :param toks: list of strings
+    :param n:    n- for n-grams, default = 3
+    :param seed: Set seed for hashing; default = 0
 
 Computing optimal a and b
 ------
