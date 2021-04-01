@@ -100,9 +100,9 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "%zu total unique iterations, with %g total, for an average of %0.12g\n", vals.size(), vsum, vsum / vals.size());
     for(size_t i = 0; i < std::min(vals.size(), size_t(10)); ++i) {
         std::fprintf(stderr, "Count %zu (%zu) is the %zuth most common with %g%% of the total (%zu)\n", i, vals[i].first, i + 1,  100. * vals[i].second / vsum, vals[i].second);
- 
+
     }
 #endif
-    
+
     //assert(!std::equal(s1.begin(), s1.end(), s3.begin()));
 }
