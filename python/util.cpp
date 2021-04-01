@@ -171,5 +171,22 @@ PYBIND11_MODULE(sketch_util, m) {
     }, py::arg("x"), py::arg("seed") = 0)
     .def("hash_ngrams", [](py::list x, int n, Py_ssize_t seed) {
         return xxhash_ngrams(x, n, seed);
-    }, py::arg("x"), py::arg("n") = 3, py::arg("seed") = 0);
+    }, py::arg("x"), py::arg("n") = 3, py::arg("seed") = 0)
+#define COUNT_EQ_TYPE(TYPE) \
+    .def("count_eq", [](py::array_t<TYPE, py::array::c_style> &lhs, py::array_t<TYPE, py::array::c_style> &rhs) {\
+        if(lhs.size() != rhs.size()) throw std::invalid_argument("Mismatched sizes");\
+        return sketch::eq::count_eq(lhs.data(), rhs.data(), lhs.size());\
+    }, py::arg("lhs"), py::arg("rhs"))
+    COUNT_EQ_TYPE(uint64_t)
+    COUNT_EQ_TYPE(uint32_t)
+    COUNT_EQ_TYPE(uint16_t)
+    COUNT_EQ_TYPE(uint8_t)
+    COUNT_EQ_TYPE(double)
+    COUNT_EQ_TYPE(float)
+    COUNT_EQ_TYPE(int64_t)
+    COUNT_EQ_TYPE(int32_t)
+    COUNT_EQ_TYPE(int16_t)
+    COUNT_EQ_TYPE(int8_t)
+#undef COUNT_EQ_TYPE
+    ;
 } // pybind11 module

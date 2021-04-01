@@ -473,7 +473,7 @@ public:
         return mycard_;
     }
     double intersection_size(const CSetSketch<FT> &o) const {
-        auto triple = alpha_beta_mu(o, getcard(), o.getcard());
+        auto triple = alpha_beta_mu(o);
         return std::max(1. - (std::get<0>(triple) + std::get<1>(triple)), 0.) * std::get<2>(triple);
     }
     std::tuple<double, double, double> alpha_beta_mu(const CSetSketch<FT> &o) const {
@@ -504,8 +504,7 @@ public:
         return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
     }
     double containment_index(const CSetSketch<FT> &o) const {
-        auto mycard = getcard(), ocard = o.getcard();
-        auto abm = alpha_beta_mu(o, mycard, ocard);
+        auto abm = alpha_beta_mu(o);
         auto lho = std::get<0>(abm);
         auto isf = std::max(1. - (lho + std::get<1>(abm)), 0.);
         return isf / (lho + isf);
