@@ -33,9 +33,9 @@ include_dirs=[
    "../",
    "../libpopcnt",
    "../include",
-   "../vec",
-   "../vec/blaze",
-   "..",
+   "../include/vec",
+   "../include/vec/blaze",
+   "../..",
    "../pybind11/include"
 ]
 
@@ -155,7 +155,7 @@ setup(
     author='Daniel Baker',
     author_email='dnb@cs.jhu.edu',
     url='https://github.com/dnbaker/sketch',
-    description='A python module for constructing and comparing HyperLogLogs',
+    description='A python module for constructing and comparing sketches',
     long_description='',
     ext_modules=ext_modules,
     install_requires=['pybind11>=2.4'],

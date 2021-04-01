@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
     {
         auto lhb =lhn.data(), lhe = lhb + lhn.size();
         std::fprintf(stderr, "Matching registers for Short set: %zu/%zu. Max: %0.10Lg. min: %0.10Lg.\n", mat, lhn.size(), (long double)*std::max_element(lhb, lhe), (long double)*std::min_element(lhb, lhe));
-        auto abmu = lhn.alpha_beta_mu(rhn, lhn.cardinality(), rhn.cardinality());
+        auto abmu = lhn.alpha_beta_mu(rhn);
         auto a = std::get<0>(abmu);
         auto b = std::get<1>(abmu);
         auto mu = std::get<2>(abmu);

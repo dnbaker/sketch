@@ -334,7 +334,7 @@ struct SIMDTypes;
     static constexpr decltype(&OP(and, si##sz, sz)) and_fn = &OP(and, si##sz, sz);\
     decop(set1, epi64x, sz) \
     decop(cmpeq, epi64, sz) \
-    
+
 
 #define declare_int_epi64_512(sz) \
     decop(slli, epi64, sz) \
@@ -484,7 +484,7 @@ struct SIMDTypes;
    dec_sleefop_noprec(trunc, suf, set)
 
 #endif // #ifndef NO_SLEEF
-    
+
 template<typename SType>
 union UType {
     using ValueType = typename SType::ValueType;

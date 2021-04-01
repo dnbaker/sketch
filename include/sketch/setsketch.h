@@ -10,7 +10,6 @@
 #include "fy.h"
 #include "sketch/count_eq.h"
 #include "sketch/macros.h"
-#include "blaze/Math.h"
 #include "sketch/hash.h"
 #include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
@@ -25,9 +24,6 @@ namespace detail {
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
     };
 }
-
-#define LC_ONLY(...)
-
 
 
 #if __cplusplus >= 201703L
@@ -188,13 +184,6 @@ static inline long double g_b(long double b, long double arg) {
     return (1.L - std::pow(b, -arg)) / (1.L - 1.L / b);
 }
 
-template<typename FT>
-inline double calc_card(const FT *start, const FT *end) {
-    const std::ptrdiff_t n = end - start;
-    return n /
-        blaze::serial(blaze::sum(blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(
-                const_cast<FT *>(start), n)));
-}
 
 template<typename ResT, typename FT=double> class SetSketch; // Forward
 
@@ -211,9 +200,8 @@ class CSetSketch {
     mvt_t<FT> mvt_;
     std::vector<uint64_t> ids_;
     std::vector<uint32_t> idcounts_;
-    blaze::DynamicVector<FT> beta_;
     uint64_t total_updates_ = 0;
-    uint64_t inner_loop_updates_= 0;
+    mutable double mycard_ = -1.;
     static FT *allocate(size_t n) {
         n = (n << 1) - 1;
         FT *ret = nullptr;
@@ -228,19 +216,8 @@ class CSetSketch {
         if(posix_memalign((void **)&ret, ALN, n * sizeof(FT))) throw std::bad_alloc();
         return ret;
     }
-#if 0
-    // Caching these coefficients doesn't seem to make a big difference.
-    void generate_betas() {
-        beta_.resize(m_);
-        beta_ = blaze::serial(blaze::generate(m_, [m=m_](size_t i) {return 1. / (m - i);}));
-    }
-#endif
     FT getbeta(size_t idx) const {
-#if 0
-        return beta_[idx];
-#else
         return FT(1.) / static_cast<FT>(m_ - idx);
-#endif
     }
 public:
     const FT *data() const {return data_.get();}
@@ -262,7 +239,7 @@ public:
         SetSketch<ResT, FT> ret(m_, b, a, q, ids_.size());
         const double logbinv = 1. / std::log1p(b - 1.);
         for(size_t i = 0; i < m_; ++i) {
-            ret.lowkh().update(i, std::max(int64_t(0), std::min(int64_t(q) + 1, static_cast<int64_t>((1. - std::log(data_[i]) * logbinv)))));
+            ret.lowkh().update(i, std::max(int64_t(0), std::min(int64_t(q) + 1, static_cast<int64_t>((1. - std::log(data_[i] / a) * logbinv)))));
         }
         return ret;
     }
@@ -280,7 +257,6 @@ public:
             if(o.idcounts_.size()) idcounts_ = o.idcounts_;
         }
         total_updates_ = o.total_updates_;
-        inner_loop_updates_ = o.inner_loop_updates_;
         return *this;
     }
     CSetSketch(std::FILE *fp): ls_(1), mvt_(1) {read(fp);}
@@ -299,8 +275,6 @@ public:
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
-    size_t floopupdates = 0;
-    size_t inner_loop_updates() const {return inner_loop_updates_;}
     long double flog(long double x) const {
         __uint128_t yi;
         std::memcpy(&yi, &x, sizeof(x));
@@ -317,36 +291,35 @@ public:
         return yi * 8.2629582881927490e-8f - 88.02969186f;
     }
     void update(const uint64_t id) {
+        mycard_ = -1.;
         ++total_updates_;
         uint64_t hid = id;
         uint64_t rv = wy::wyhash64_stateless(&hid);
 
         FT ev;
+        FT mv = max();
         CONST_IF(sizeof(FT) > 8) {
             auto lrv = __uint128_t(rv) << 64;
             const FT bv = -1. / m_;
             lrv |= wy::wyhash64_stateless(&rv);
             FT tv = static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L);
             ev = bv * std::log(tv);
-            if(ev >= max()) return;
+            if(ev >= mv) return;
         } else {
             auto tv = rv * INVMUL64;
             const FT bv = -1. / m_;
             // Filter with fast log first
             CONST_IF(FLOGFILTER) {
-                if(bv * flog(tv) * FT(.7) > max()) return;
+                if(bv * flog(tv) * FT(.7) > mv) return;
             }
             ev = bv * std::log(tv);
-            if(ev >= max()) return;
+            if(ev >= mv) return;
         }
-        LC_ONLY(++floopupdates;)
         ls_.reset();
         ls_.seed(rv);
         uint64_t bi = 1;
         uint32_t idx = ls_.step();
-        FT mv = max();
         for(;;) {
-            LC_ONLY(++inner_loop_updates_;)
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
                     ids_.operator[](idx) = id;
@@ -383,12 +356,10 @@ public:
             && (ids().empty() == o.ids().empty())
             && (idcounts().empty() == o.idcounts().empty());
     }
-    auto cv() {return blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>(data(), m_);}
-    auto cv() const {return blaze::CustomVector<const FT, blaze::aligned, blaze::unpadded>(data(), m_);}
     void merge(const CSetSketch<FT> &o) {
         if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
         if(ids().empty()) {
-            cv() = blaze::serial(blaze::min(cv(), o.cv()));
+            std::transform(data(), data() + m_, o.data(), data(), [](auto x, auto y) {return std::min(x, y);});
         } else {
             for(size_t i = 0; i < size(); ++i) {
                 if(!idcounts_.empty() && !ids_.empty() && ids_[i] == o.ids_[i]) {
@@ -400,8 +371,7 @@ public:
             }
         }
         total_updates_ += o.total_updates_;
-        inner_loop_updates_ += o.inner_loop_updates_;
-        total_updates_ += o.total_updates_;
+        mycard_ = -1.;
     }
     CSetSketch &operator+=(const CSetSketch<FT> &o) {merge(o); return *this;}
     CSetSketch operator+(const CSetSketch<FT> &o) const {
@@ -477,13 +447,18 @@ public:
             std::fill(ids_.begin(), ids_.end(), uint64_t(0));
             if(idcounts_.size()) std::fill(idcounts_.begin(), idcounts_.end(), uint32_t(0));
         }
+        mycard_ = -1.;
     }
     const std::vector<uint64_t> &ids() const {return ids_;}
     const std::vector<uint32_t> &idcounts() const {return idcounts_;}
     double union_size(const CSetSketch<FT> &o) const {
-        using CVT = blaze::CustomVector<FT, blaze::aligned, blaze::unpadded>;
-        return blaze::serial(blaze::sum(blaze::max(
-            CVT(const_cast<FT *>(data_.get()), m_), CVT(const_cast<FT *>(o.data_.get()), m_))));
+        double s = 0.;
+#if _OPENMP >= 201307L
+        #pragma omp simd reduction(+:s)
+#endif
+        for(size_t i = 0; i < m_; ++i)
+            s += std::min(data_[i], o.data_[i]);
+        return m_ / s;
     }
     auto alpha_beta(const CSetSketch<FT> &o) const {
         auto gtlt = eq::count_gtlt(data(), o.data(), m_);
@@ -492,14 +467,18 @@ public:
     static constexpr double __union_card(double alph, double beta, double lhcard, double rhcard) {
         return std::max((lhcard + rhcard) / (2. - alph - beta), 0.);
     }
-    double intersection_size(const CSetSketch<FT> &o, double mycard=-1., double ocard=-1.) const {
-        if(mycard < 0) mycard = cardinality();
-        if(ocard < 0) ocard = o.cardinality();
-        auto triple = alpha_beta_mu(o, mycard, ocard);
+    double getcard() const {
+        if(mycard_ < 0.)
+            mycard_ = cardinality();
+        return mycard_;
+    }
+    double intersection_size(const CSetSketch<FT> &o) const {
+        auto triple = alpha_beta_mu(o);
         return std::max(1. - (std::get<0>(triple) + std::get<1>(triple)), 0.) * std::get<2>(triple);
     }
-    std::tuple<double, double, double> alpha_beta_mu(const CSetSketch<FT> &o, double mycard, double ocard) const {
+    std::tuple<double, double, double> alpha_beta_mu(const CSetSketch<FT> &o) const {
         const auto ab = alpha_beta(o);
+        auto mycard = getcard(), ocard = o.getcard();
         if(ab.first + ab.second >= 1.) // They seem to be disjoint sets, use SetSketch (15)
             return {(mycard) / (mycard + ocard), ocard / (mycard + ocard), mycard + ocard};
         return {ab.first, ab.second, __union_card(ab.first, ab.second, mycard, ocard)};
@@ -507,7 +486,13 @@ public:
 
     double cardinality_estimate() const {return cardinality();}
     double cardinality() const {
-        return calc_card(data_.get(), &data_[m_]);
+        double s = 0.;
+#if _OPENMP >= 201307L
+        #pragma omp simd reduction(+:s)
+#endif
+        for(size_t i = 0; i < m_; ++i)
+            s += data_[i];
+        return m_ / s;
     }
     static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, size_t q) {
         long double b = std::exp(std::log((long double)maxreg / (long double)minreg) / (long double)q);
@@ -518,10 +503,8 @@ public:
         if(maxreg < minreg) std::swap(maxreg, minreg);
         return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
     }
-    double containment_index(const CSetSketch<FT> &o, double mycard=-1., double ocard=-1) const {
-        if(mycard < 0) mycard = cardinality();
-        if(ocard < 0) ocard = o.cardinality();
-        auto abm = alpha_beta_mu(o, mycard, ocard);
+    double containment_index(const CSetSketch<FT> &o) const {
+        auto abm = alpha_beta_mu(o);
         auto lho = std::get<0>(abm);
         auto isf = std::max(1. - (lho + std::get<1>(abm)), 0.);
         return isf / (lho + isf);
@@ -551,6 +534,7 @@ class SetSketch {
     fy::LazyShuffler ls_;
     minvt_t<ResT> lowkh_;
     std::vector<FT> lbetas_; // Cache Beta values * 1. / a
+    mutable double mycard_ = -1.;
     static ResT *allocate(size_t n) {
         n = (n << 1) - 1;
         ResT *ret = nullptr;
@@ -613,6 +597,7 @@ public:
         std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
     }
     void update(const uint64_t id) {
+        mycard_ = -1.;
         uint64_t hid = id;
         size_t bi = 0;
         uint64_t rv = wy::wyhash64_stateless(&hid);
@@ -686,6 +671,7 @@ public:
     void merge(const SetSketch<ResT, FT> &o) {
         if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
         std::transform(data(), data() + m_, o.data(), data(), [](auto x, auto y) {return std::max(x, y);});
+        mycard_ = -1.;
     }
     SetSketch &operator+=(const SetSketch<ResT, FT> &o) {merge(o); return *this;}
     SetSketch operator+(const SetSketch<ResT, FT> &o) const {
@@ -705,7 +691,13 @@ public:
     static constexpr double __union_card(double alph, double beta, double lhcard, double rhcard) {
         return std::max((lhcard + rhcard) / (2. - alph - beta), 0.);
     }
-    std::tuple<double, double, double> alpha_beta_mu(const SetSketch<ResT, FT> &o, double mycard, double ocard) const {
+    double getcard() const {
+        if(mycard_ < 0.)
+            mycard_ = cardinality();
+        return mycard_;
+    }
+    std::tuple<double, double, double> alpha_beta_mu(const SetSketch<ResT, FT> &o) const {
+        double mycard = getcard(), ocard = o.getcard();
         const auto ab = alpha_beta(o);
         if(ab.first + ab.second >= 1.) // They seem to be disjoint sets, use SetSketch (15)
             return {(mycard) / (mycard + ocard), ocard / (mycard + ocard), mycard + ocard};
@@ -763,6 +755,7 @@ public:
     }
     void clear() {
         std::fill(data_.get(), &data_[m_ * 2 - 1], ResT(0));
+        mycard_ = -1.;
     }
     const std::vector<uint64_t> &ids() const {return ids_;}
 };

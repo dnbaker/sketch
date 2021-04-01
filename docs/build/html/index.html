@@ -1,0 +1,204 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Welcome to Sketch’s documentation! &#8212; Sketch 0.14.2 documentation</title>
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <div class="section" id="welcome-to-sketch-s-documentation">
+<h1>Welcome to Sketch’s documentation!<a class="headerlink" href="#welcome-to-sketch-s-documentation" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+</div>
+</div>
+<div class="section" id="features">
+<h1>Features<a class="headerlink" href="#features" title="Permalink to this headline">¶</a></h1>
+<ol class="arabic simple">
+<li><p>Bloom Filter</p></li>
+<li><p>HyperLogLog</p></li>
+<li><p>SetSketch</p></li>
+<li><p>Fast Hamming space distance functions</p></li>
+<li><p>ngram hashing code</p></li>
+</ol>
+</div>
+<div class="section" id="modules">
+<h1>Modules<a class="headerlink" href="#modules" title="Permalink to this headline">¶</a></h1>
+<dl class="simple">
+<dt>There are separate modules for each sketch structure for which there are bindings.</dt><dd><ul class="simple">
+<li><p>sketch.hll, providing HyperLogLog and comparison, and serialization functions</p></li>
+<li><p>sketch.bf, providing Bloom Filters and comparison, and serialization functions</p></li>
+<li><p>sketch.bbmh, providing b-bit minhash implementation + comparison, and serialization functions</p></li>
+<li><p>sketch.setsketch, providing set sketch + comparison, and serialization functions</p></li>
+</ul>
+</dd>
+</dl>
+<p>For each of these, the module provides construction - either taking parameters or a path to a file.
+Each of these can be written to and read from a file with .write() and a constructor.
+They can be compared with each other with member functions, or you can calculate comparison matrices via
+<cite>sketch.util.jaccard_matrix</cite>, <cite>sketch.util.containment_matrix</cite>, <cite>sketch.util.union_size_matrix</cite>, <cite>sketch.util.intersection_matrix</cite>, all of which are in the util module.</p>
+<p>Additionally, there are utilities for pairwise distance calculation in the <cite>util</cite> module.</p>
+</div>
+<div class="section" id="additional-utilities-sketch-util">
+<h1>Additional utilities: sketch.util<a class="headerlink" href="#additional-utilities-sketch-util" title="Permalink to this headline">¶</a></h1>
+<ul class="simple">
+<li><dl class="simple">
+<dt>fastdiv/fastmod:</dt><dd><ul>
+<li><p>Python bindings for fastdiv/fastmod; See <a class="reference external" href="https://arxiv.org/abs/1902.01961">https://arxiv.org/abs/1902.01961</a></p></li>
+<li><p>fastdiv_ and fastmod_ are in-place modifications, while the un-suffixed returns a new array</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>count_eq</dt><dd><p>** Compute # of equal registers between two 1-d numpy arrays.</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>pcount_eq</dt><dd><p>** Compute row-pair-wise equal register counts between two 2-d numpy arrays.</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>shsisz</dt><dd><p>** Computes intersection size between two sorted hash sets.</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>hash</dt><dd><p>** hashes strings</p>
+</dd>
+</dl>
+</li>
+</ul>
+</div>
+<div class="section" id="python-only-code">
+<h1>Python-only Code<a class="headerlink" href="#python-only-code" title="Permalink to this headline">¶</a></h1>
+<div class="highlight-python notranslate"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre> 1
+ 2
+ 3
+ 4
+ 5
+ 6
+ 7
+ 8
+ 9
+10
+11
+12
+13
+14
+15</pre></div></td><td class="code"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">optimal_ab</span><span class="p">(</span><span class="n">maxv</span><span class="p">,</span> <span class="n">minv</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">q</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Calculate a and b for maxv and minv, such that the maxv is mapped to</span>
+<span class="sd">        0 and minv&#39;s value is mapped to q.</span>
+<span class="sd">        :param maxv: float value which is the maximum to be quantized</span>
+<span class="sd">        :param minv: float value which is the minimum to be quantized</span>
+<span class="sd">        :param q:    float or integral value for the ceiling; required.</span>
+<span class="sd">        :return: namedtuple SetSketchParams, consisting of (a, b); access through ssp.a, ssp[0], or tuple access</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+
+    <span class="k">if</span> <span class="n">maxv</span> <span class="o">&lt;</span> <span class="n">minv</span><span class="p">:</span>
+        <span class="n">minv</span><span class="p">,</span> <span class="n">maxv</span> <span class="o">=</span> <span class="n">maxv</span><span class="p">,</span> <span class="n">minv</span>
+    <span class="kn">from</span> <span class="nn">numpy</span> <span class="kn">import</span> <span class="n">exp</span> <span class="k">as</span> <span class="n">nexp</span><span class="p">,</span> <span class="n">log</span> <span class="k">as</span> <span class="n">nlog</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">nexp</span><span class="p">(</span><span class="n">nlog</span><span class="p">(</span><span class="n">maxv</span> <span class="o">/</span> <span class="n">minv</span><span class="p">)</span> <span class="o">/</span> <span class="n">q</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">SetSketchParams</span><span class="p">(</span><span class="n">b</span><span class="o">=</span><span class="n">b</span><span class="p">,</span> <span class="n">a</span><span class="o">=</span><span class="n">maxv</span> <span class="o">/</span> <span class="n">b</span><span class="p">)</span>
+</pre></div>
+</td></tr></table></div>
+</div>
+<div class="section" id="indices-and-tables">
+<h1>Indices and tables<a class="headerlink" href="#indices-and-tables" title="Permalink to this headline">¶</a></h1>
+<ul class="simple">
+<li><p><a class="reference internal" href="genindex.html"><span class="std std-ref">Index</span></a></p></li>
+<li><p><a class="reference internal" href="py-modindex.html"><span class="std std-ref">Module Index</span></a></p></li>
+<li><p><a class="reference internal" href="search.html"><span class="std std-ref">Search Page</span></a></p></li>
+</ul>
+</div>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="#">Sketch</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2017-2021, Daniel Baker.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 3.5.3</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/index.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
