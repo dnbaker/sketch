@@ -177,7 +177,7 @@ PYBIND11_MODULE(sketch_util, m) {
         if(lhs.size() != rhs.size()) throw std::invalid_argument("Mismatched sizes");\
         return sketch::eq::count_eq(lhs.data(), rhs.data(), lhs.size());\
     }, py::arg("lhs"), py::arg("rhs"))\
-    .def("pcount_eq", [](py::array_t<TYPE, py::array::c_style> &lhs, py::array_t<TYPE, py::array::c_style> &rhs, py::int_ nthreads) {\
+    .def("ccount_eq", [](py::array_t<TYPE, py::array::c_style> &lhs, py::array_t<TYPE, py::array::c_style> &rhs, py::int_ nthreads) {\
         {py::ssize_t nt = nthreads.cast<py::ssize_t>(); OMP_ONLY(if(nt >= 1) omp_set_num_threads(nt);)}\
         py::buffer_info lhi = lhs.request(), rhi = rhs.request(), retinf;\
         py::object retarr = py::none();\
@@ -208,7 +208,43 @@ PYBIND11_MODULE(sketch_util, m) {
             }\
         }\
         return retarr;\
-    }, py::arg("lhs"), py::arg("rhs"), py::arg("nthreads") = -1)
+    }, py::arg("lhs"), py::arg("rhs"), py::arg("nthreads") = -1)\
+    .def("pcount_eq", [](py::array_t<TYPE, py::array::c_style> &lhs, py::int_ nthreads) {\
+        {py::ssize_t nt = nthreads.cast<py::ssize_t>(); OMP_ONLY(if(nt >= 1) omp_set_num_threads(nt);)}\
+        py::buffer_info lhi = lhs.request(), retinf;\
+        py::object retarr = py::none();\
+        if(lhi.ndim != 2) throw std::invalid_argument("Wrong dimensions: require 2-d array.");\
+        const auto ndim = lhi.shape.at(1);\
+        const auto nelem = lhi.shape.at(0);\
+        const auto nret = (nelem * (nelem - 1)) >> 1;\
+        auto getind = [nelem](size_t x, size_t y) {return (x * (nelem * 2 - x - 1)) / 2 + y - (x + 1);};\
+        if(ndim < 256)\
+            retarr = py::array_t<uint8_t>(std::vector<py::ssize_t>{nret}), retinf = retarr.cast<py::array_t<uint8_t>>().request();\
+        else if(ndim < 65536) \
+            retarr = py::array_t<uint16_t>(std::vector<py::ssize_t>{nret}), retinf = retarr.cast<py::array_t<uint16_t>>().request();\
+        else if(ndim < (1LL << 32))\
+            retarr = py::array_t<uint32_t>(std::vector<py::ssize_t>{nret}), retinf = retarr.cast<py::array_t<uint32_t>>().request();\
+        else\
+            retarr = py::array_t<uint64_t>(std::vector<py::ssize_t>{nret}), retinf = retarr.cast<py::array_t<uint64_t>>().request();\
+        OMP_PRAGMA("omp parallel for schedule(dynamic)")\
+        for(py::ssize_t i = 0; i < lhi.shape[0]; ++i) {\
+            const auto lhp = (TYPE *)lhi.ptr + i * lhi.shape[1];\
+            for(py::ssize_t j = i + 1; j < lhi.shape[0]; ++j) {\
+                auto neq = sketch::eq::count_eq(lhp, (TYPE *)lhi.ptr + j * lhi.shape[1], lhi.shape[1]);\
+                const auto ind = getind(i, j);\
+                if(retinf.itemsize == 1) {\
+                    ((uint8_t *)retinf.ptr)[ind] = neq;\
+                } else if(retinf.itemsize == 2) {\
+                    ((uint16_t *)retinf.ptr)[ind] = neq;\
+                } else if(retinf.itemsize == 4) {\
+                    ((uint32_t *)retinf.ptr)[ind] = neq;\
+                } else {\
+                    ((uint64_t *)retinf.ptr)[ind] = neq;\
+                }\
+            }\
+        }\
+        return retarr;\
+    }, py::arg("lhs"), py::arg("nthreads") = -1)
     COUNT_EQ_TYPE(uint64_t)
     COUNT_EQ_TYPE(uint32_t)
     COUNT_EQ_TYPE(uint16_t)
