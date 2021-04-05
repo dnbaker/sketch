@@ -816,7 +816,7 @@ struct EByteSetS: public SetSketch<uint8_t, double> {
     template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
 };
 
-template<typename FT=double, typename KeyT=uint64_t, typename IdT=uint32_t>
+template<typename KeyT=uint64_t, typename IdT=uint32_t>
 struct SetSketchIndex {
     /*
      * Maintains an LSH index over a set of sketches
@@ -830,8 +830,28 @@ private:
     std::vector<uint64_t> regs_per_reg_;
     size_t total_ids_ = 0;
 public:
+    using key_type = KeyT;
+    using id_type = IdT;
     size_t m() const {return m_;}
     size_t size() const {return total_ids_;}
+    template<typename IT, typename Alloc, typename OIT, typename OAlloc>
+    SetSketchIndex(size_t m, const std::vector<IT, Alloc> &nperhashes, const std::vector<OIT, OAlloc> &nperrows): m_(m) {
+        if(nperhashes.size() != nperrows.size()) throw std::invalid_argument("SetSketchIndex requires nperrows and nperhashes have the same size");
+        for(size_t i = 0, e = nperhashes.size(); i < e; ++i) {
+            const IT v = nperhashes[i];
+            const OIT v2 = nperrows[i];
+            regs_per_reg_.push_back(v);
+            packed_maps_.emplace_back(std::min(v2, OIT(m_ / v)));
+        }
+    }
+    template<typename IT, typename Alloc>
+    SetSketchIndex(size_t m, const std::vector<IT, Alloc> &nperhashes): m_(m) {
+        for(const auto v: nperhashes) {
+            if(v > m) throw std::invalid_argument("Cannot create LSH keys with v > m");
+            regs_per_reg_.push_back(v);
+            packed_maps_.emplace_back(HashV(m_ / v));
+        }
+    }
     SetSketchIndex(size_t m, bool densified=false): m_(m) {
         uint64_t rpr = 1;
         const size_t nrpr = densified ? m: size_t(ilog2(sketch::integral::roundup(m)));
@@ -865,7 +885,8 @@ public:
     }
     template<typename Sketch>
     std::pair<std::vector<IdT>, std::vector<uint32_t>>
-    query_candidates(const Sketch &item, size_t maxcand) const {
+    query_candidates(const Sketch &item, size_t maxcand, size_t starting_idx = size_t(-1)) const {
+        if(starting_idx == size_t(-1)) starting_idx = regs_per_reg_.size();
         /*
          *  Returns ids matching input minhash sketches, in order from most specific/least sensitive
          *  to least specific/most sensitive
@@ -875,7 +896,7 @@ public:
         ska::flat_hash_set<IdT> rset; rset.reserve(maxcand);
         std::vector<IdT> passing_ids;
         std::vector<uint32_t> items_per_row;
-        for(std::ptrdiff_t i = regs_per_reg_.size();--i >= 0;) {
+        for(std::ptrdiff_t i = starting_idx;--i >= 0;) {
             auto &m = packed_maps_[i];
             const size_t nelem = regs_per_reg_[i];
             const size_t nsubs = m.size();
