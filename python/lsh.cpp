@@ -8,10 +8,10 @@ class name: public SetSketchIndex<T1, T2> {\
     public:\
     template<typename...Args>\
     name(Args &&...args): SetSketchIndex<T1, T2>(std::forward<Args>(args)...) {}\
-    name(size_t m, const py::array_t<uint64_t, py::array::forcecast> lhs):\
-        SetSketchIndex<T1, T2>(m, std::vector<uint64_t>((const uint64_t *)lhs.data(), lhs.data() + lhs.size())) {}\
-    name(size_t m, const py::array_t<uint64_t, py::array::forcecast> lhs, const py::array_t<uint64_t, py::array::forcecast> rhs):\
-        SetSketchIndex<T1, T2>(m, std::vector<uint64_t>((const uint64_t *)lhs.data(), lhs.data() + lhs.size()), std::vector<uint64_t>((const uint64_t *)rhs.data(), rhs.data() + rhs.size())) {}\
+    name(size_t m, const py::array_t<int64_t, py::array::forcecast> lhs):\
+        SetSketchIndex<T1, T2>(m, std::vector<int64_t>((const int64_t *)lhs.data(), lhs.data() + lhs.size())) {}\
+    name(size_t m, const py::array_t<int64_t, py::array::forcecast> lhs, const py::array_t<int64_t, py::array::forcecast> rhs):\
+        SetSketchIndex<T1, T2>(m, std::vector<int64_t>((const int64_t *)lhs.data(), lhs.data() + lhs.size()), std::vector<int64_t>((const int64_t *)rhs.data(), rhs.data() + rhs.size())) {}\
 };
 DEC_SSI(SSI_6464, uint64_t, uint64_t);
 DEC_SSI(SSI_3264, uint32_t, uint64_t);
@@ -55,8 +55,8 @@ template<typename SSI>
 void declare_lsh_table(py::class_<SSI> &cls) {
     cls.def(py::init<size_t, bool>(), py::arg("m"), py::arg("densify") = false)
     .def(py::init<size_t>(), py::arg("m"))
-    .def(py::init<size_t, py::array_t<uint64_t, py::array::forcecast>>(), py::arg("m"), py::arg("persig"))
-    .def(py::init<size_t, py::array_t<uint64_t, py::array::forcecast>, py::array_t<uint64_t, py::array::forcecast>>(), py::arg("m"), py::arg("persig"), py::arg("persigsize"))
+    .def(py::init<size_t, py::array_t<int64_t, py::array::forcecast>>(), py::arg("m"), py::arg("persig"))
+    .def(py::init<size_t, py::array_t<int64_t, py::array::forcecast>, py::array_t<int64_t, py::array::forcecast>>(), py::arg("m"), py::arg("persig"), py::arg("persigsize"))
     .def("m", &SSI::m)
     .def("size", &SSI::size)
     .def("add", [](SSI &index, py::object item) {

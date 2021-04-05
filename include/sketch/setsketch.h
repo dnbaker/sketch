@@ -834,13 +834,15 @@ public:
     using id_type = IdT;
     size_t m() const {return m_;}
     size_t size() const {return total_ids_;}
+    size_t ntables() const {return packed_maps_.size();}
     template<typename IT, typename Alloc, typename OIT, typename OAlloc>
     SetSketchIndex(size_t m, const std::vector<IT, Alloc> &nperhashes, const std::vector<OIT, OAlloc> &nperrows): m_(m) {
         if(nperhashes.size() != nperrows.size()) throw std::invalid_argument("SetSketchIndex requires nperrows and nperhashes have the same size");
         for(size_t i = 0, e = nperhashes.size(); i < e; ++i) {
             const IT v = nperhashes[i];
-            const OIT v2 = nperrows[i];
             regs_per_reg_.push_back(v);
+            OIT v2 = nperrows[i];
+            if(v2 < 0) v2 = std::numeric_limits<OIT>::max();
             packed_maps_.emplace_back(std::min(v2, OIT(m_ / v)));
         }
     }
