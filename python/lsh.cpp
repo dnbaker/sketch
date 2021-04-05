@@ -126,3 +126,8 @@ void init_lsh_table(py::module &m) {
     declare_lsh_table(l64_64); declare_lsh_table(l32_64); declare_lsh_table(l16_64);
     declare_lsh_table(l64_32); declare_lsh_table(l32_32); declare_lsh_table(l16_32);
 }
+
+PYBIND11_MODULE(sketch_lsh, m) {
+    m.doc() = "Python bindings LSH-table building. Supports keys of 16, 32, or 64 bits and values of 32 or 64 bits for index hits.";
+    init_lsh_table(m);
+}
