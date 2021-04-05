@@ -113,7 +113,7 @@ void declare_lsh_table(py::class_<SSI> &cls) {
         std::copy(ret.first.data(), ret.first.data() + ret.first.size(), ids.mutable_data());
         std::copy(ret.second.data(), ret.second.data() + ret.second.size(), items_per_row.mutable_data());
         return py::dict("ids"_a = ids, "per_row"_a = items_per_row);
-    }, py::arg("item"), py::arg("maxcand") = 50, py::arg("start") = 0);
+    }, py::arg("item"), py::arg("maxcand") = 50, py::arg("start") = py::ssize_t(-1));
 }
 
 void init_lsh_table(py::module &m) {
