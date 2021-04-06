@@ -79,8 +79,10 @@ Additional utilities: sketch.util
     * fastdiv\_ and fastmod\_ are in-place modifications, while the un-suffixed returns a new array
 * count\_eq
     * Compute # of equal registers between two 1-d numpy arrays.
-* pcount\_eq
+* ccount\_eq
     * Compute row-pair-wise equal register counts between two 2-d numpy arrays.
+* pcount\_eq
+    * Compute row-wise upper triangular distance matrix for equal register counts for 1 2-d numpy array.
 * shs\isz
     * Computes intersection size between two sorted hash sets.
 * hash
