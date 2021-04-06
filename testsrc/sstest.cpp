@@ -70,7 +70,15 @@ int main(int argc, char **argv) {
         auto b = std::get<1>(abmu);
         auto mu = std::get<2>(abmu);
         auto isz = std::max(0., mu * (1. - a - b));
-        std::fprintf(stderr, "Alpha: %g. beta: %g. mu: %g. isz: %g. JI: %g\n", a, b, mu, isz, isz / mu);
+        std::fprintf(stderr, "Alpha: %g. beta: %g. mu: %g. isz: %g. JI: %0.10g\n", a, b, mu, isz, isz / mu);
+        auto t = std::chrono::high_resolution_clock::now();
+        double mleji = lhn.jaccard_index(rhn);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        std::fprintf(stderr, "Jaccard via MLE: %0.10g in %gns\n", mleji, std::chrono::duration<double, std::nano>(t2 - t).count());
+        t = std::chrono::high_resolution_clock::now();
+        mleji = lhn.jaccard_index_by_card(rhn);
+        t2 = std::chrono::high_resolution_clock::now();
+        std::fprintf(stderr, "Jaccard via MLE card: %0.10g in %gns\n", mleji, std::chrono::duration<double, std::nano>(t2 - t).count());
     }
     std::fprintf(stderr, "CSetSketch min: %0.20Lg, max: %0.20Lg\n", (long double)css.min(), (long double)css.max());
     std::fprintf(stderr, "Registers for nibbles: Max: %u. min: %u.\n", *std::max_element(shl.data(), shl.data() + m), *std::min_element(shl.data(), shl.data() + m));
