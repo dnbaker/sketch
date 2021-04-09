@@ -79,6 +79,10 @@ int main(int argc, char **argv) {
         mleji = lhn.jaccard_index_by_card(rhn);
         t2 = std::chrono::high_resolution_clock::now();
         std::fprintf(stderr, "Jaccard via MLE card: %0.10g in %gns\n", mleji, std::chrono::duration<double, std::nano>(t2 - t).count());
+        t = std::chrono::high_resolution_clock::now();
+        mleji = lhn.jaccard_by_ix(rhn);
+        t2 = std::chrono::high_resolution_clock::now();
+        std::fprintf(stderr, "Jaccard via inclusion-exclusion: %0.10g in %gns\n", mleji, std::chrono::duration<double, std::nano>(t2 - t).count());
     }
     std::fprintf(stderr, "CSetSketch min: %0.20Lg, max: %0.20Lg\n", (long double)css.min(), (long double)css.max());
     std::fprintf(stderr, "Registers for nibbles: Max: %u. min: %u.\n", *std::max_element(shl.data(), shl.data() + m), *std::min_element(shl.data(), shl.data() + m));
