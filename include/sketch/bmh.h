@@ -143,7 +143,7 @@ public:
         return wd::cvt(widxmin() + 1) <= weight_;
     }
     bool fully_relevant() const {
-        return wd::cvt(widxmax()) <= weight_;
+        maxq_ <= weight_;
     }
     bool can_split() const {
         return widxmax() > widxmin() + 1;
@@ -225,7 +225,7 @@ struct bmh_t {
         ++total_updates_;
         PoissonP p(id, w);
         p.step(div_);
-        if(p.fully_relevant()) hvals_.update(p.idx_, p.x_);
+        if(p.maxq_ <= p.weight_) hvals_.update(p.idx_, p.x_);
         auto &tmp = heap_.getc();
         const size_t offset = tmp.size();
         //size_t mainiternum = 0, subin  =0;

@@ -23,6 +23,83 @@ namespace detail {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
     };
+template <class F, class T>
+std::tuple<T, T, uint64_t> brent_find_minima(const F &f, T min, T max, int bits=std::numeric_limits<T>::digits, uint64_t max_iter=std::numeric_limits<uint64_t>::max()) noexcept
+{
+   T x, w, v, u, delta, delta2, fu, fv, fw, fx, mid, fract1, fract2;
+   const T tolerance = static_cast<T>(std::ldexp(1.0, 1-bits));
+   static constexpr T golden = 0.3819660;  // golden ratio, don't need too much precision here!
+   x = w = v = max;
+   fw = fv = fx = f(x);
+   delta2 = delta = 0;
+   uint64_t count = max_iter;
+   do {
+      mid = (min + max) / 2;
+      fract1 = tolerance * std::abs(x) + tolerance / 4; fract2 = 2 * fract1;
+      if(std::abs(x - mid) <= (fract2 - (max - min) / 2)) break;
+      if(std::abs(delta2) > fract1) {
+         T r = (x - w) * (fx - fv);
+         T q = (x - v) * (fx - fw);
+         T p = (x - v) * q - (x - w) * r;
+         q = 2 * (q - r);
+         if(q > 0) p = -p;
+         else      q = -q;
+         T td = delta2;
+         delta2 = delta;
+         if((std::abs(p) >= std::abs(q * td / 2)) || (p <= q * (min - x)) || (p >= q * (max - x)))
+         {
+            delta2 = (x >= mid) ? min - x : max - x;
+            delta = golden * delta2;
+         } else {
+            delta = p / q; u = x + delta;
+            if(((u - min) < fract2) || ((max- u) < fract2))
+               delta = (mid - x) < 0 ? (T)-std::abs(fract1) : (T)std::abs(fract1);
+         }
+      } else {
+         delta2 = (x >= mid) ? min - x : max - x;
+         delta = golden * delta2;
+      }
+      u = (std::abs(delta) >= fract1) ? T(x + delta) : (delta > 0 ? T(x + std::abs(fract1)) : T(x - std::abs(fract1)));
+      fu = f(u);
+      if(fu <= fx) {
+         if(u >= x) min = x; else max = x;
+         v = w;w = x; x = u; fv = fw; fw = fx; fx = fu;
+      } else {
+         // Oh dear, point u is worse than what we have already,
+         // even so it *must* be better than one of our endpoints:
+         if(u < x) min = u;
+         else      max = u;
+         if((fu <= fw) || (w == x))
+            v = w, w = u, fv = fw, fw = fu;
+         else if((fu <= fv) || (v == x) || (v == w))
+            v = u, fv = fu;
+      }
+   } while(--count);
+   return std::make_tuple(x, fx, max_iter - count);
+}
+
+}
+
+template<typename FT>
+static inline FT jmle_simple(const uint64_t lhgt, const uint64_t rhgt, const size_t m, const FT lhest, const FT rhest, FT base) {
+    if(!lhest && !rhest) return FT(0.);
+    const uint64_t neq = m - (lhgt + rhgt);
+    const FT sumest = lhest + rhest;
+    const long double bi = 1.L / base;
+    const long double lbase = std::log(static_cast<long double>(base)), lbi = 1. / lbase;
+    //const long double lbdb = base - 1. ? std::log1p(base - 1.L) / (base - 1.L): 1.L;
+    const FT z = (1.L - bi) / (sumest);
+    auto func = [neq,lhgt,rhgt,lbi,z,rhest,lhest](auto jaccard) {
+        FT lhs = neq || lhgt ? FT(lbi * std::log1p((rhest * jaccard - lhest) * z)): FT(0);
+        FT rhs = neq || rhgt ? FT(lbi * std::log1p((lhest * jaccard - rhest) * z)): FT(0);
+        FT ret = 0;
+        if(neq)  ret += neq * std::log1p(lhs + rhs);
+        if(lhgt) ret += lhgt * std::log(-lhs);
+        if(rhgt) ret += rhgt * std::log(-rhs);
+        if(std::isnan(ret)) return std::numeric_limits<FT>::max();
+        return -ret;
+    };
+    return std::get<0>(detail::brent_find_minima(func, FT(0), std::min(lhest, rhest) / std::max(lhest, rhest), 24));
 }
 
 
@@ -696,12 +773,32 @@ public:
             mycard_ = cardinality();
         return mycard_;
     }
-    std::tuple<double, double, double> alpha_beta_mu(const SetSketch<ResT, FT> &o) const {
+    double jaccard_index(const SetSketch<ResT, FT> &o) const {
+        if(!same_params(o))
+            throw std::invalid_argument("Parameters must match for comparison");
+        auto gtlt = eq::count_gtlt(data(), o.data(), m_);
+        return jmle_simple<double>(gtlt.first, gtlt.second, m_, getcard(), o.getcard(), b_);
+    }
+    std::tuple<double, double, double> jointmle(const SetSketch<ResT, FT> &o) const {
+        auto ji = jaccard_index(o);
+        const auto y = 1. / (1. + ji);
         double mycard = getcard(), ocard = o.getcard();
-        const auto ab = alpha_beta(o);
-        if(ab.first + ab.second >= 1.) // They seem to be disjoint sets, use SetSketch (15)
+        return {std::max(0., mycard - ocard * ji) * y,
+                std::max(0., ocard - mycard * ji) * y, 
+                (mycard + ocard) * ji * y};
+    };
+    double jaccard_index_by_card(const SetSketch<ResT, FT> &o) const {
+        auto tup = jointmle(o);
+        return std::get<2>(tup) / (std::get<0>(tup) + std::get<1>(tup) + std::get<2>(tup));
+    }
+    std::tuple<double, double, double> alpha_beta_mu(const SetSketch<ResT, FT> &o) const {
+        auto gtlt = eq::count_gtlt(data(), o.data(), m_);
+        double alpha = g_b(b_, double(gtlt.first) / m_);
+        double beta = g_b(b_, double(gtlt.second) / m_);
+        double mycard = getcard(), ocard = o.getcard();
+        if(alpha + beta >= 1.) // They seem to be disjoint sets, use SetSketch (15)
             return {(mycard) / (mycard + ocard), ocard / (mycard + ocard), mycard + ocard};
-        return {ab.first, ab.second, __union_card(ab.first, ab.second, mycard, ocard)};
+        return {alpha, beta, __union_card(alpha, beta, mycard, ocard)};
     }
     void write(std::string s) const {
         gzFile fp = gzopen(s.data(), "w");
