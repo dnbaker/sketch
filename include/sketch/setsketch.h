@@ -736,6 +736,11 @@ public:
         }
         return ret;
     }
+    double jaccard_by_ix(const SetSketch<ResT, FT> &o) const {
+        auto us = union_size(o);
+        auto mycard = getcard(), ocard = o.getcard();
+        return (mycard + ocard - us) / us;
+    }
     double union_size(const SetSketch<ResT, FT> &o) const {
         double num = m_ * (1. - 1. / b_) * logbinv_ * ainv_;
         return num / harmean(&o);

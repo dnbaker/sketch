@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
     NibbleSetS shl(m<<1), shr(m<<1);
     NibbleSet8 nshl(m<<1), nshr(m<<1);
     ShortSetS lhn(m, sb, sa), rhn(m, sb, sa);
+    ShortSetS lhn(m, sb, sa), rhn(m, sb, sa);
     hll_t h(ilog2(roundup(m)));
     auto t = std::chrono::high_resolution_clock::now();
     for(size_t i = 0; i < n; ++i) {
@@ -79,6 +80,10 @@ int main(int argc, char **argv) {
         mleji = lhn.jaccard_index_by_card(rhn);
         t2 = std::chrono::high_resolution_clock::now();
         std::fprintf(stderr, "Jaccard via MLE card: %0.10g in %gns\n", mleji, std::chrono::duration<double, std::nano>(t2 - t).count());
+        t = std::chrono::high_resolution_clock::now();
+        mleji = lhn.jaccard_by_ix(rhn);
+        t2 = std::chrono::high_resolution_clock::now();
+        std::fprintf(stderr, "Jaccard via inclusion-exclusion: %0.10g in %gns\n", mleji, std::chrono::duration<double, std::nano>(t2 - t).count());
     }
     std::fprintf(stderr, "CSetSketch min: %0.20Lg, max: %0.20Lg\n", (long double)css.min(), (long double)css.max());
     std::fprintf(stderr, "Registers for nibbles: Max: %u. min: %u.\n", *std::max_element(shl.data(), shl.data() + m), *std::min_element(shl.data(), shl.data() + m));
