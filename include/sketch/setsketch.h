@@ -23,6 +23,83 @@ namespace detail {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
     };
+template <class F, class T>
+std::tuple<T, T, uint64_t> brent_find_minima(const F &f, T min, T max, int bits=std::numeric_limits<T>::digits, uint64_t max_iter=std::numeric_limits<uint64_t>::max()) noexcept
+{
+   T x, w, v, u, delta, delta2, fu, fv, fw, fx, mid, fract1, fract2;
+   const T tolerance = static_cast<T>(std::ldexp(1.0, 1-bits));
+   static constexpr T golden = 0.3819660;  // golden ratio, don't need too much precision here!
+   x = w = v = max;
+   fw = fv = fx = f(x);
+   delta2 = delta = 0;
+   uint64_t count = max_iter;
+   do {
+      mid = (min + max) / 2;
+      fract1 = tolerance * std::abs(x) + tolerance / 4; fract2 = 2 * fract1;
+      if(std::abs(x - mid) <= (fract2 - (max - min) / 2)) break;
+      if(std::abs(delta2) > fract1) {
+         T r = (x - w) * (fx - fv);
+         T q = (x - v) * (fx - fw);
+         T p = (x - v) * q - (x - w) * r;
+         q = 2 * (q - r);
+         if(q > 0) p = -p;
+         else      q = -q;
+         T td = delta2;
+         delta2 = delta;
+         if((std::abs(p) >= std::abs(q * td / 2)) || (p <= q * (min - x)) || (p >= q * (max - x)))
+         {
+            delta2 = (x >= mid) ? min - x : max - x;
+            delta = golden * delta2;
+         } else {
+            delta = p / q; u = x + delta;
+            if(((u - min) < fract2) || ((max- u) < fract2))
+               delta = (mid - x) < 0 ? (T)-std::abs(fract1) : (T)std::abs(fract1);
+         }
+      } else {
+         delta2 = (x >= mid) ? min - x : max - x;
+         delta = golden * delta2;
+      }
+      u = (std::abs(delta) >= fract1) ? T(x + delta) : (delta > 0 ? T(x + std::abs(fract1)) : T(x - std::abs(fract1)));
+      fu = f(u);
+      if(fu <= fx) {
+         if(u >= x) min = x; else max = x;
+         v = w;w = x; x = u; fv = fw; fw = fx; fx = fu;
+      } else {
+         // Oh dear, point u is worse than what we have already,
+         // even so it *must* be better than one of our endpoints:
+         if(u < x) min = u;
+         else      max = u;
+         if((fu <= fw) || (w == x))
+            v = w, w = u, fv = fw, fw = fu;
+         else if((fu <= fv) || (v == x) || (v == w))
+            v = u, fv = fu;
+      }
+   } while(--count);
+   return std::make_tuple(x, fx, max_iter - count);
+}
+
+}
+
+template<typename FT>
+static inline FT jmle_simple(const uint64_t lhgt, const uint64_t rhgt, const size_t m, const FT lhest, const FT rhest, FT base) {
+    if(!lhest && !rhest) return FT(0.);
+    const uint64_t neq = m - (lhgt + rhgt);
+    const FT sumest = lhest + rhest;
+    const long double bi = 1.L / base;
+    const long double lbase = std::log(static_cast<long double>(base)), lbi = 1. / lbase;
+    //const long double lbdb = base - 1. ? std::log1p(base - 1.L) / (base - 1.L): 1.L;
+    const FT z = (1.L - bi) / (sumest);
+    auto func = [neq,lhgt,rhgt,lbi,z,rhest,lhest](auto jaccard) {
+        FT lhs = neq || lhgt ? FT(lbi * std::log1p((rhest * jaccard - lhest) * z)): FT(0);
+        FT rhs = neq || rhgt ? FT(lbi * std::log1p((lhest * jaccard - rhest) * z)): FT(0);
+        FT ret = 0;
+        if(neq)  ret += neq * std::log1p(lhs + rhs);
+        if(lhgt) ret += lhgt * std::log(-lhs);
+        if(rhgt) ret += rhgt * std::log(-rhs);
+        if(std::isnan(ret)) return std::numeric_limits<FT>::max();
+        return -ret;
+    };
+    return std::get<0>(detail::brent_find_minima(func, FT(0), std::min(lhest, rhest) / std::max(lhest, rhest), 24));
 }
 
 
@@ -696,12 +773,32 @@ public:
             mycard_ = cardinality();
         return mycard_;
     }
-    std::tuple<double, double, double> alpha_beta_mu(const SetSketch<ResT, FT> &o) const {
+    double jaccard_index(const SetSketch<ResT, FT> &o) const {
+        if(!same_params(o))
+            throw std::invalid_argument("Parameters must match for comparison");
+        auto gtlt = eq::count_gtlt(data(), o.data(), m_);
+        return jmle_simple<double>(gtlt.first, gtlt.second, m_, getcard(), o.getcard(), b_);
+    }
+    std::tuple<double, double, double> jointmle(const SetSketch<ResT, FT> &o) const {
+        auto ji = jaccard_index(o);
+        const auto y = 1. / (1. + ji);
         double mycard = getcard(), ocard = o.getcard();
-        const auto ab = alpha_beta(o);
-        if(ab.first + ab.second >= 1.) // They seem to be disjoint sets, use SetSketch (15)
+        return {std::max(0., mycard - ocard * ji) * y,
+                std::max(0., ocard - mycard * ji) * y, 
+                (mycard + ocard) * ji * y};
+    };
+    double jaccard_index_by_card(const SetSketch<ResT, FT> &o) const {
+        auto tup = jointmle(o);
+        return std::get<2>(tup) / (std::get<0>(tup) + std::get<1>(tup) + std::get<2>(tup));
+    }
+    std::tuple<double, double, double> alpha_beta_mu(const SetSketch<ResT, FT> &o) const {
+        auto gtlt = eq::count_gtlt(data(), o.data(), m_);
+        double alpha = g_b(b_, double(gtlt.first) / m_);
+        double beta = g_b(b_, double(gtlt.second) / m_);
+        double mycard = getcard(), ocard = o.getcard();
+        if(alpha + beta >= 1.) // They seem to be disjoint sets, use SetSketch (15)
             return {(mycard) / (mycard + ocard), ocard / (mycard + ocard), mycard + ocard};
-        return {ab.first, ab.second, __union_card(ab.first, ab.second, mycard, ocard)};
+        return {alpha, beta, __union_card(alpha, beta, mycard, ocard)};
     }
     void write(std::string s) const {
         gzFile fp = gzopen(s.data(), "w");
@@ -816,7 +913,7 @@ struct EByteSetS: public SetSketch<uint8_t, double> {
     template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
 };
 
-template<typename FT=double, typename KeyT=uint64_t, typename IdT=uint32_t>
+template<typename KeyT=uint64_t, typename IdT=uint32_t>
 struct SetSketchIndex {
     /*
      * Maintains an LSH index over a set of sketches
@@ -830,8 +927,30 @@ private:
     std::vector<uint64_t> regs_per_reg_;
     size_t total_ids_ = 0;
 public:
+    using key_type = KeyT;
+    using id_type = IdT;
     size_t m() const {return m_;}
     size_t size() const {return total_ids_;}
+    size_t ntables() const {return packed_maps_.size();}
+    template<typename IT, typename Alloc, typename OIT, typename OAlloc>
+    SetSketchIndex(size_t m, const std::vector<IT, Alloc> &nperhashes, const std::vector<OIT, OAlloc> &nperrows): m_(m) {
+        if(nperhashes.size() != nperrows.size()) throw std::invalid_argument("SetSketchIndex requires nperrows and nperhashes have the same size");
+        for(size_t i = 0, e = nperhashes.size(); i < e; ++i) {
+            const IT v = nperhashes[i];
+            regs_per_reg_.push_back(v);
+            OIT v2 = nperrows[i];
+            if(v2 < 0) v2 = std::numeric_limits<OIT>::max();
+            packed_maps_.emplace_back(std::min(v2, OIT(m_ / v)));
+        }
+    }
+    template<typename IT, typename Alloc>
+    SetSketchIndex(size_t m, const std::vector<IT, Alloc> &nperhashes): m_(m) {
+        for(const auto v: nperhashes) {
+            if(v > m) throw std::invalid_argument("Cannot create LSH keys with v > m");
+            regs_per_reg_.push_back(v);
+            packed_maps_.emplace_back(HashV(m_ / v));
+        }
+    }
     SetSketchIndex(size_t m, bool densified=false): m_(m) {
         uint64_t rpr = 1;
         const size_t nrpr = densified ? m: size_t(ilog2(sketch::integral::roundup(m)));
@@ -865,7 +984,8 @@ public:
     }
     template<typename Sketch>
     std::pair<std::vector<IdT>, std::vector<uint32_t>>
-    query_candidates(const Sketch &item, size_t maxcand) const {
+    query_candidates(const Sketch &item, size_t maxcand, size_t starting_idx = size_t(-1)) const {
+        if(starting_idx == size_t(-1)) starting_idx = regs_per_reg_.size();
         /*
          *  Returns ids matching input minhash sketches, in order from most specific/least sensitive
          *  to least specific/most sensitive
@@ -875,7 +995,7 @@ public:
         ska::flat_hash_set<IdT> rset; rset.reserve(maxcand);
         std::vector<IdT> passing_ids;
         std::vector<uint32_t> items_per_row;
-        for(std::ptrdiff_t i = regs_per_reg_.size();--i >= 0;) {
+        for(std::ptrdiff_t i = starting_idx;--i >= 0;) {
             auto &m = packed_maps_[i];
             const size_t nelem = regs_per_reg_[i];
             const size_t nsubs = m.size();

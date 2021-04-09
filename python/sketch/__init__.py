@@ -4,6 +4,7 @@ import sketch_util as util
 import sketch_bf as bf
 import sketch_hmh as hmh
 import sketch_ss as setsketch
+import sketch_lsh as lsh
 from collections import namedtuple
 
 SetSketchParams = namedtuple("SetSketchParams", 'a, b')

@@ -143,7 +143,7 @@ public:
         return wd::cvt(widxmin() + 1) <= weight_;
     }
     bool fully_relevant() const {
-        return wd::cvt(widxmax()) <= weight_;
+        maxq_ <= weight_;
     }
     bool can_split() const {
         return widxmax() > widxmin() + 1;
@@ -210,19 +210,22 @@ struct bmh_t {
             assert(this->size() == 0);
         }
     };
+    uint64_t total_updates_ = 0;
     pq_t heap_;
     mvt_t<FT> hvals_;
     schism::Schismatic<IT> div_;
     auto m() const {return hvals_.getm();}
 
+    uint64_t total_updates() const {return total_updates_;}
     bmh_t(size_t m): hvals_(m), div_(m) {
         heap_.getc().reserve(m);
     }
     void update_2(IT id, FT w) {
         if(w <= 0.) return;
+        ++total_updates_;
         PoissonP p(id, w);
         p.step(div_);
-        if(p.fully_relevant()) hvals_.update(p.idx_, p.x_);
+        if(p.maxq_ <= p.weight_) hvals_.update(p.idx_, p.x_);
         auto &tmp = heap_.getc();
         const size_t offset = tmp.size();
         //size_t mainiternum = 0, subin  =0;
@@ -301,6 +304,7 @@ struct bmh_t {
     }
     void update_1(IT id, FT w) {
         if(w <= 0.) return;
+        ++total_updates_;
         PoissonP p(id, w);
         p.step(div_);
         if(p.fully_relevant()) hvals_.update(p.idx_, p.x_);
@@ -387,10 +391,13 @@ struct pmh1_t {
     schism::Schismatic<IT> div_;
     std::vector<IT> res_;
     pmh1_t(size_t m): hvals_(m), div_(m), res_(m) {}
+    uint64_t total_updates_ = 0;
 
+    uint64_t total_updates() const {return total_updates_;}
     void finalize() const {}
     void update(const IT id, const FT w) {
         if(w <= 0.) return;
+        ++total_updates_;
         const FT wi = 1. / w;
         uint64_t hi = id;
         uint64_t xi = wy::wyhash64_stateless(&hi);
@@ -441,6 +448,7 @@ struct pmh2_t {
     using wd = wd_t<FT>;
     using IT = typename wd::IntType;
 
+    uint64_t total_updates_ = 0;
     mvt_t<FT> hvals_;
     schism::Schismatic<IdxT> div_;
     std::vector<IT> res_;
@@ -454,9 +462,11 @@ struct pmh2_t {
         const double rs = m;
         return rs / (rs - idx + 1.);
     }
+    uint64_t total_updates() const {return total_updates_;}
     FT getbeta(size_t idx) const {return beta(idx, ls_.size());}
     void update(const IT id, const FT w) {
         if(w <= 0.) return;
+        ++total_updates_;
         uint64_t hi = id;
         const FT wi = 1. / w;
         size_t i = 0;
