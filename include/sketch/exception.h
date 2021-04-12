@@ -29,7 +29,7 @@ public:
 };
 
 
-static int precondition_require(bool condition, std::string s, int ec=0) {
+static inline int precondition_require(bool condition, std::string s, int ec=0) {
     if(!condition) {
         if(ec) throw UnsatisfiedPreconditionError(s + " Error code: " + std::to_string(ec));
         else throw UnsatisfiedPreconditionError(s);
@@ -44,7 +44,7 @@ public:
     UnsatisfiedPostconditionError(): std::runtime_error("Unsatisfied precondition.") {}
 };
 
-static int postcondition_require(bool condition, std::string s, int ec=0) {
+static inline int postcondition_require(bool condition, std::string s, int ec=0) {
     if(!condition) {
         if(ec) throw UnsatisfiedPostconditionError(s + " Error code: " + std::to_string(ec));
         else throw UnsatisfiedPostconditionError(s);
