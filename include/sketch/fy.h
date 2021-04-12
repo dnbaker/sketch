@@ -43,7 +43,7 @@ public:
         const IT k  = vj  == c_ ? gj: j;
         gj = getv(i_) == c_ ? gi: i_;
         vj = c_;
-        ++i_;
+        if(++i_ == divs_.size()) i_ = 0;
         return k;
     }
     bool has_next() {return i_ < sz_;}
