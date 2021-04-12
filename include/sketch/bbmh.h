@@ -1508,7 +1508,6 @@ public:
     }
     double frac_equal(const FinalBBitMinHash &o) const {
         auto num = equal_bblocks(o);
-        std::fprintf(stderr, "numeq: %zu. total blocks: %zu\n", size_t(num), core_.size() * (64 / b_));
         return std::ldexp(num, -int(p_));
     }
     uint64_t nmin() const {
@@ -1589,9 +1588,6 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
         cest = detail::harmonic_cardinality_estimate_impl(tmp);
         std::replace(tmp.begin(), tmp.end(), std::numeric_limits<T>::max() >> p_, detail::default_val<T>());
         int ret = detail::densifybin(tmp);
-        if(ret < 0) {
-            std::fprintf(stderr, "Could not densify empty sketch; setting all minimizers to empty value. It will compare completely equal to all empty sketches and full dissimilar to all others.\n");
-        }
         ptr = &tmp;
     }
     const auto &core_ref = *ptr;
@@ -1671,7 +1667,6 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
     using FinalType = typename FinalDivBBitMinHash::value_type;
     assert(ret.core_.size() % b == 0 || !(b & (b - 1)));
     assert(core_ref.size() % 64 == 0 || !(b & (b - 1)));
-    //std::fprintf(stderr, "core size: %zu being collapsed into b (%d)-bit samples in core of size %zu\n", core_ref.size(), int(b), ret.core_.size());
     // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b == 64) {
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
@@ -1687,7 +1682,6 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
         const auto l2szfloor = ilog2(core_ref.size());
         const auto pow2 = 1ull << l2szfloor;
         if(l2szfloor < 6) {
-            std::fprintf(stderr, "l2sz: %u\n", l2szfloor);
             throw std::runtime_error("FinalDivBBitMinHash currently requires at least 64 minimizers.");
         }
         switch(l2szfloor) {
@@ -1717,8 +1711,6 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
             for(size_t ind = pow2 / (sizeof(type) * CHAR_BIT);ind < core_ref.size() / (sizeof(type) * CHAR_BIT);++ind) {\
                 auto main_ptr = ret.core_.data() + ind * sizeof(type) / sizeof(FinalType) * b;\
                 auto core_ptr = core_ref.data() + ind * sizeof(type) * CHAR_BIT;\
-                /* std::fprintf(stderr, "main ptr is %zd away from the end of the main thing\n", (ret.core_.data() + ret.core_.size()) - main_ptr); */\
-                /* std::fprintf(stderr, "core ptr is %zd away from the end of the core thing\n", (core_ref.data() + core_ref.size()) - core_ptr); */\
                 for(auto _b = 0u; _b < b; ++_b) {\
                     auto ptr = main_ptr + (_b * sizeof(type)/sizeof(FinalType));\
                     for(size_t i = 0u; i < sizeof(type) * CHAR_BIT; ++i) {\
@@ -1735,10 +1727,8 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
             LEFTOVERS(__m128i)
 #endif
             while(ind < core_ref.size()) {
-                //std::fprintf(stderr, "Rem: %zd. Mod of rem: %zd\n", core_ref.size() - ind, (core_ref.size() - ind) % 64);
                 auto core_ptr = core_ref.data() + ind;
                 auto ref_ptr  = ret.core_.data() + (ind / (sizeof(FinalType) * CHAR_BIT) * b);
-                //std::fprintf(stderr, "ret vore Rem: %zd. Mod of rem: %zd\n", &*ret.core_.end() - ref_ptr, (&*ret.core_.end() - ref_ptr) % 64);
                 for(size_t _b = 0; _b < b; ++_b)
                     for(size_t i = 0; i < 64u; ++i)
                         setnthbit(ref_ptr, i, getnthbit(core_ptr, _b));
