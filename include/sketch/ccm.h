@@ -677,6 +677,18 @@ public:
             ref -= sign(hv);
         return ref * sign(hv);
     }
+    CounterType update(uint64_t val, const double increment=1.) {
+        std::vector<CounterType> counts(nh_);
+        auto cptr = counts.data();
+        for(unsigned added = 0; added < nh_; ++added) {
+            auto hv = hf_(val, added);
+            auto &ref = at_pos(hv, added);
+            auto shv = sign(hv);
+            ref += increment * shv;
+            cptr[added] = shv * ref;
+        }
+        return median(cptr, nh_);
+    }
     INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
         assert(index(hv, subidx) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
         return core_[index(hv, subidx)];
@@ -684,6 +696,23 @@ public:
     INLINE auto at_pos(uint64_t hv, unsigned subidx) const noexcept {
         assert((hv & mask_) + (subidx << np_) < core_.size());
         return core_[index(hv, subidx)];
+    }
+    double dot_product(const cs4wbase_t &o) const {
+        auto myp = data(), op = o.data();
+        common::detail::tmpbuffer<CounterType> mem(nh_);
+        auto memp = mem.get();
+        const size_t tsz = (1ull << np_);
+        double ret = 0.;
+        for(unsigned i = 0u; i < nh_; ++i) {
+            auto lmyp = myp + tsz, lop = op + tsz;
+#if _OPENMP > 201307L
+        #pragma omp simd
+#endif
+            for(size_t j = 0; j < tsz; ++j)
+                ret += lmyp[i] * lop[i];
+            memp[i] = ret;
+        }
+        return median(memp, nh_);
     }
     INLINE int sign(uint64_t hv) const noexcept {
         return hv & (1ul << np_) ? 1: -1;
@@ -756,6 +785,35 @@ public:
         }
         return ret;
     }
+    void read(std::FILE *fp) {
+        std::fread(&np_, sizeof(np_), 1, fp);
+        std::fread(&nh_, sizeof(nh_), 1, fp);
+        std::fread(&seedseed_, sizeof(seedseed_), 1, fp);
+        core_.resize(size_t(nh_) << np_);
+        std::fread(data(), sizeof(CounterType), core_.size(), fp);
+        mask_ = (1ull << np_) - 1;
+    }
+    void write(std::FILE *fp) const {
+        std::fwrite(&np_, sizeof(np_), 1, fp);
+        std::fwrite(&nh_, sizeof(nh_), 1, fp);
+        std::fwrite(&seedseed_, sizeof(seedseed_), 1, fp);
+        std::fwrite(data(), sizeof(CounterType), core_.size(), fp);
+    }
+    void read(std::string p) const {
+        std::FILE *ofp = std::fopen(p.data(), "rb");
+        if(!ofp)
+            throw std::invalid_argument("File not found");
+        read(ofp);
+        std::fclose(ofp);
+    }
+    void write(std::string p) const {
+        std::FILE *ofp = std::fopen(p.data(), "wb");
+        if(!ofp)
+            throw std::invalid_argument("File not found");
+        write(ofp);
+        std::fclose(ofp);
+    }
+
 };
 
 
