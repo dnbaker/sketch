@@ -791,7 +791,7 @@ public:
         std::fread(&seedseed_, sizeof(seedseed_), 1, fp);
         core_.resize(size_t(nh_) << np_);
         std::fread(data(), sizeof(CounterType), core_.size(), fp);
-
+        mask_ = (1ull << np_) - 1;
     }
     void write(std::FILE *fp) const {
         std::fwrite(&np_, sizeof(np_), 1, fp);
