@@ -8,6 +8,18 @@ using std::uint64_t;
 using std::uint32_t;
 
 namespace lsh {
+static inline constexpr uint64_t _wymum(uint64_t x, uint64_t y) {
+    __uint128_t l = x;
+    l *= y;
+    return l ^ (l >> 64);
+}
+
+// call wyhash64_seed before calling wyhash64
+static inline constexpr uint64_t wyhash64_stateless(uint64_t *seed) {
+  *seed += UINT64_C(0x60bee2bee120fc15);
+  return _wymum(*seed ^ 0xe7037ed1a0b428dbull, *seed);
+}
+
 
 
 template<typename KeyT=uint64_t, typename IdT=uint32_t>
@@ -36,8 +48,9 @@ public:
             const IT v = nperhashes[i];
             regs_per_reg_.push_back(v);
             OIT v2 = nperrows[i];
-            if(v2 < 0) v2 = std::numeric_limits<OIT>::max();
-            packed_maps_.emplace_back(std::min(v2, OIT(m_ / v)));
+            OIT v1 = m_ / v;
+            if(v2 <= 0) v2 = v1;
+            packed_maps_.emplace_back(v2);
         }
     }
     template<typename IT, typename Alloc>
@@ -68,16 +81,29 @@ public:
         if(item.size() != m_) throw std::invalid_argument(std::string("Item has wrong size: ") + std::to_string(item.size()) + ", expected" + std::to_string(m_));
         const auto my_id = total_ids_++;
         const size_t n_subtable_lists = regs_per_reg_.size();
-        using ResT = typename std::decay_t<decltype(item[0])>;
         for(size_t i = 0; i < n_subtable_lists; ++i) {
             auto &subtab = packed_maps_[i];
             const size_t nsubs = subtab.size();
-            const size_t nelem = regs_per_reg_[i];
             for(size_t j = 0; j < nsubs; ++j) {
-                KeyT myhash = XXH3_64bits(&item[nelem * j], nelem * sizeof(ResT));
+                KeyT myhash = hash_index(item, i, j);
                 subtab[j][myhash].push_back(my_id);
             }
         }
+    }
+    template<typename Sketch>
+    KeyT hash_index(const Sketch &item, size_t i, size_t j) const {
+        const size_t nreg = regs_per_reg_.at(i);
+        static constexpr size_t ITEMSIZE = sizeof(std::decay_t<decltype(item[0])>);
+        if(nreg >= 4 && (j + 1) * nreg <= m_)
+            return XXH3_64bits(&item[nreg * j], nreg * ITEMSIZE);
+        uint64_t seed = (i << 32) | j;
+        XXH64_state_t state;
+        XXH64_reset(&state, seed);
+        const schism::Schismatic<uint32_t> div(m_);
+        for(size_t ri = 0; ri < nreg; ++ri) {
+            XXH64_update(&state, &item[div.mod(wyhash64_stateless(&seed))], ITEMSIZE);
+        }
+        return XXH64_digest(&state);
     }
     template<typename Sketch>
     std::pair<std::vector<IdT>, std::vector<uint32_t>>
@@ -88,18 +114,16 @@ public:
          *  to least specific/most sensitive
          *  Can be then used, along with sketches, to select nearest neighbors
          *  */
-        using ResT = typename std::decay_t<decltype(item[0])>;
         ska::flat_hash_map<IdT, uint32_t> rset;
-        rset.reserve(maxcand);
         std::vector<IdT> passing_ids;
         std::vector<uint32_t> items_per_row;
+        rset.reserve(maxcand); passing_ids.reserve(maxcand); items_per_row.reserve(starting_idx);
         for(std::ptrdiff_t i = starting_idx;--i >= 0;) {
             auto &m = packed_maps_[i];
-            const size_t nelem = regs_per_reg_[i];
             const size_t nsubs = m.size();
             const size_t items_before = passing_ids.size();
             for(size_t j = 0; j < nsubs; ++j) {
-                KeyT myhash = XXH3_64bits(&item[nelem * j], nelem * sizeof(ResT));
+                KeyT myhash = hash_index(item, i, j);
                 auto it = m[j].find(myhash);
                 if(it == m[j].end()) continue;
                 for(const auto id: it->second) {
@@ -112,7 +136,6 @@ public:
             }
             items_per_row.push_back(passing_ids.size() - items_before);
             if(rset.size() >= maxcand) {
-                std::fprintf(stderr, "Candidate set of size %zu, > maxc %zu\n", rset.size(), maxcand);
                 break;
             }
         }
