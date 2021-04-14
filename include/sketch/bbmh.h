@@ -1295,7 +1295,7 @@ public:
     uint32_t b_, p_;
     std::vector<value_type, Allocator<value_type>> core_;
     FinalBBitMinHash(unsigned p, unsigned b, double est): est_cardinality_(est), b_(b), p_(p),
-        core_((value_type(b) << p) >> 6)
+        core_(((value_type(b) << p) + 63u) >> 6)
     {
 #if VERBOSE_AF
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, p, core_.size(), core_.size() * 64);
@@ -1322,6 +1322,8 @@ public:
     size_t nblocks() const {
         return size_t(1) << p_;
     }
+    std::pair<value_type *, size_t> view() {return {core_.data(), core_.size()};}
+    std::pair<const value_type *, size_t> view() const {return {core_.data(), core_.size()};}
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
     template<typename T, typename Hasher=WangHash>
@@ -1587,7 +1589,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
         tmp = core_;
         cest = detail::harmonic_cardinality_estimate_impl(tmp);
         std::replace(tmp.begin(), tmp.end(), std::numeric_limits<T>::max() >> p_, detail::default_val<T>());
-        int ret = detail::densifybin(tmp);
+        detail::densifybin(tmp);
         ptr = &tmp;
     }
     const auto &core_ref = *ptr;
@@ -1596,26 +1598,16 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
     using detail::setnthbit;
     FinalBBitMinHash ret(p_, b, cest);
     using FinalType = typename FinalBBitMinHash::value_type;
-#if !NDEBUG
-#define CASE_6_TEST\
-                for(size_t i = 0; i < core_ref.size(); ++i) {\
-                    for(size_t _b = 0; _b < b; ++_b) {\
-                        assert(getnthbit(ret.core_.data() + _b, i) == getnthbit(core_ref[i], _b));\
-                    }\
-                }
-#else
-#define CASE_6_TEST
-#endif
-    if(b_ == 64) {
-        // We've already failed for the case of b_ + p_ being greater than the width of T
+    if(b == 64) {
+        // We've already failed for the case of b + p_ being greater than the width of T
         std::copy(core_ref.begin(), core_ref.end(), (uint64_t *)ret.core_.data());
-    } else if(b_ == 32) {
+    } else if(b == 32) {
         std::copy(core_ref.begin(), core_ref.end(), (uint32_t *)ret.core_.data());
-    } else if(b_ == 16) {
+    } else if(b == 16) {
         std::copy(core_ref.begin(), core_ref.end(), (uint16_t *)ret.core_.data());
-    } else if(b_ == 8) {
+    } else if(b == 8) {
         std::copy(core_ref.begin(), core_ref.end(), (uint8_t *)ret.core_.data());
-    } else if(b_ == 4) {
+    } else if(b == 4) {
         auto rp = (uint8_t *)ret.core_.data();
         const size_t end = core_ref.size() >> 1;
         for(size_t i = 0; i < end; ++i) {
@@ -1632,7 +1624,6 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
                 for(size_t i = 0; i < (sizeof(uint64_t) * CHAR_BIT); ++i)
                     setnthbit(ptr, i, getnthbit(core_ref[i], _b));
             }
-            CASE_6_TEST
             break;
         SET_CASE(7, __m128i, p_);
 #if __AVX2__
@@ -1667,17 +1658,8 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
     using FinalType = typename FinalDivBBitMinHash::value_type;
     assert(ret.core_.size() % b == 0 || !(b & (b - 1)));
     assert(core_ref.size() % 64 == 0 || !(b & (b - 1)));
-    // TODO: consider supporting non-power of 2 numbers of minimizers by subsetting to the first k <= (1<<p) minimizers.
     if(b == 64) {
         std::memcpy(ret.core_.data(), core_ref.data(), sizeof(core_ref[0]) * core_ref.size());
-#if 0
-    } else if(b == 32) {
-        std::copy(core_ref.begin(), core_ref.end(), (uint32_t *)ret.core_.data());
-    } else if(b == 16) {
-        std::copy(core_ref.begin(), core_ref.end(), (uint16_t *)ret.core_.data());
-    } else if(b == 8) {
-        std::copy(core_ref.begin(), core_ref.end(), (uint8_t *)ret.core_.data());
-#endif
     } else {
         const auto l2szfloor = ilog2(core_ref.size());
         const auto pow2 = 1ull << l2szfloor;
@@ -1689,7 +1671,6 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
                 for(size_t _b = 0; _b < b; ++_b)
                     for(size_t i = 0; i < 64u; ++i)
                         ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
-                CASE_6_TEST
             break;
         SET_CASE(7, __m128i, l2szfloor);
 #if __AVX2__

@@ -21,6 +21,8 @@ PYBIND11_MODULE(sketch_bf, m) {
         .def("jaccard_index", [](bf_t &h1, bf_t &h2) {return jaccard_index(h1, h2);})
         .def("union", [](const bf_t &h1, const bf_t &h2) {return h1 + h2;})
         .def("union_size", [](const bf_t &h1, const bf_t &h2) {return h1.union_size(h2);})
+        .def_property_readonly("nhashes", [](const bf_t &h1) {return h1.nhashes();})
+        .def_property_readonly("tablesize", [](const bf_t &h1) {return 1ull << h1.p();})
         .def("__ior__", [](bf_t &lh, const bf_t &rh) {
             lh |= rh;
             return lh;
@@ -41,6 +43,10 @@ PYBIND11_MODULE(sketch_bf, m) {
             return h != h2;
         }).def("write", [](const sketch::bf_t &h, std::string path) {
             h.write(path);
+        }).def("to_numpy", [](const sketch::bf_t &h) {
+            py::array_t<uint64_t> ret(py::ssize_t(h.core().size()));
+            std::copy(h.core().data(), h.core().data() + h.core().size(), (uint64_t *)ret.request().ptr);
+            return py::make_tuple(ret, py::int_(h.m()), py::int_(h.nhashes()));
         });
     m.def("jaccard_index", [](bf_t &h1, bf_t &h2) {
             return jaccard_index(h1, h2);
