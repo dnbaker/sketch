@@ -1,6 +1,12 @@
 #include <cstdint>
+#include <map>
+#include <vector>
 #include <cstdio>
+#include <iostream>
+#include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
+#include "sketch/div.h"
+#include "sketch/integral.h"
 
 
 namespace sketch {
@@ -94,7 +100,7 @@ public:
     KeyT hash_index(const Sketch &item, size_t i, size_t j) const {
         const size_t nreg = regs_per_reg_.at(i);
         static constexpr size_t ITEMSIZE = sizeof(std::decay_t<decltype(item[0])>);
-        if(nreg >= 4 && (j + 1) * nreg <= m_)
+        if(nreg * packed_maps_[i].size() == m_)
             return XXH3_64bits(&item[nreg * j], nreg * ITEMSIZE);
         uint64_t seed = (i << 32) | j;
         XXH64_state_t state;
@@ -143,7 +149,133 @@ public:
     }
 };
 
+
 #if 0
+template<typename RegT, typename ValT=uint32_t>
+struct BurstPrefixTrie {
+    using Str = std::basic_string<RegT>;
+    using reg_t = RegT;
+    using creg_t = const RegT;
+    struct Node;
+    using CMap = std::map<Str, Node, std::less<>>;
+    struct Node {
+        CMap children_;
+        std::vector<ValT> values_;
+        Node() {}
+        Node(ValT &&val): values_{{std::move(val)}} {}
+        Node(const ValT &val): values_{val} {std::fprintf(stderr, "Copied\n");}
+        bool is_leaf() const {return children_.empty();}
+    };
+    Node tree_;
+    size_t sz_ = 0;
+    BurstPrefixTrie() {
+    };
+    size_t size() const {return sz_;}
+    static constexpr size_t nmatch(creg_t *lhs, creg_t *rhs, const size_t n) {
+        for(size_t i = 0; i < n; ++i) if(lhs[i] != rhs[i]) return i;
+        return n;
+    }
+    Node *tree() {return &tree_;}
+    const Node *tree() const {return &tree_;}
+    bool contained(Str s) const {
+        const Node *ptr = tree();
+        size_t nm = 0;
+        for(size_t i = 1; i <= s.size(); ++i) {
+            std::fprintf(stderr, "s: %s. i: %zu\n", s.data(), i);
+            if(ptr->children_.find(s) != ptr->children_.end()) return true;
+            auto su = s.substr(0, i);
+            auto it = ptr->children_.lower_bound(su);
+            if(it != ptr->children_.end() && su == it->first) {
+                if(i == s.size()) return true;
+                ptr = &it->second;
+                i = 1;
+                s = s.substr(su.size());
+            } else if(it != ptr->children_.end()) {
+                nm = i - 1;
+                break;
+            }
+        }
+        return false;
+    }
+    Node *insert(creg_t *keystart, creg_t *keystop, ValT &&val) {
+        Node *ptr = tree();
+        for(;;) {
+            Str s(keystart, keystop);
+            size_t nm = 0;
+            if(s.empty()) {
+                ptr->values_.push_back(std::move(val));
+                ++sz_;
+                return ptr;
+            }
+            typename CMap::iterator it;
+            for(size_t i = 1; i < s.size(); ++i) {
+                auto su = s.substr(0, i);
+                it = ptr->children_.lower_bound(su);
+                if(it == ptr->children_.end() || (su.size() <= it->first.size() && !std::equal(su.begin(), su.end(), it->first.begin())))
+                    break;
+                std::cerr << "lb for " << su << " is " << it->first << '\n';
+                ++nm;
+            }
+            if(nm == 0) {
+                if(s.empty()) {
+                    std::fprintf(stderr, "Inserting empty string:\n");
+                    ptr->values_.push_back(std::move(val));
+                    ++sz_;
+                    return ptr;
+                }
+                if(sizeof(RegT) == 1)
+                    std::fprintf(stderr, "Inserting new string key with %zu match: %s\n", nm, s.data());
+                else {
+                    for(const auto i: s) std::fprintf(stderr, "%llu,", i);
+                    std::fprintf(stderr, "Inserted string key:\n");
+                }
+                auto pit = ptr->children_.emplace(s, Node(val));
+                ++sz_;
+                std::fprintf(stderr, "emplaced string node %s: %zu\n", s.data(), sz_);
+                return &pit.first->second;
+            }
+            if(nm == it->first.size()) {
+                std::fprintf(stderr, "Matched full node, now moving own\n");
+                ptr = &it->second;
+                keystart += nm;
+                continue;
+            }
+            std::fprintf(stderr, "matched prefix %s. Now splitting the node with existing matches\n", Str(s.data(), s.data() + nm).data());
+            Node tmpnode = std::move(it->second);
+            Node middle_node;
+            std::pair<Str, Node> pair = std::move(*it);
+            pair.first = Str(keystart, keystart + nm);
+            auto nit = it, startit = nit;
+            for(;nit != ptr->children_.end() && nmatch(pair.first.data(), nit->first.data(), std::min(nit->first.size(), nm)) == nm; ++nit) {
+                auto &pair = *nit;
+                std::fprintf(stderr, "Pair nm = %zu, %s/%zu with %zu values and %zu in dictionary\n", nm, pair.first.data(), pair.first.size(), pair.second.values_.size(), pair.second.children_.size());
+                Str middlestr(pair.first.begin() + nm, pair.first.end());
+                std::fprintf(stderr, "New middle node string: %s\n", middlestr.data());
+                middle_node.children_.emplace(middlestr, pair.second);
+            }
+            ptr->children_.erase(startit, nit);
+            pair.second = std::move(middle_node);
+            ptr->children_.insert(pair);
+            ptr = &pair.second;
+            keystart += nm;
+        }
+    }
+    void insert(const Str &s, ValT &&val) {insert(s.data(), s.data() + s.size(), std::move(val));}
+    void print_all(const Node *ptr = nullptr, Str pref=Str()) const {
+        if(ptr == nullptr) ptr = &tree_;
+        auto eit = ptr->children_.find(Str());
+        if(!ptr->values_.empty()) {
+            for(const auto v: ptr->values_) {
+                std::cerr << pref << ":" <<  v << '\n';
+            }
+        }
+        for(const auto &pair: ptr->children_) {
+            Str localstr(pref + pair.first);
+            print_all(&pair.second, localstr);
+        }
+    }
+};
+
 template<typename RegT>
 struct LSHForest {
     const size_t k_, l_;

@@ -885,15 +885,15 @@ struct ByteSetS: public SetSketch<uint8_t, long double> {
     template<typename Arg> ByteSetS(const Arg &arg): Super(arg) {}
 };
 struct ShortSetS: public SetSketch<uint16_t, long double> {
-    static constexpr long double DEFAULT_B = 1.001;
-    static constexpr long double DEFAULT_A = .25;
+    static constexpr long double DEFAULT_B = 1.0005;
+    static constexpr long double DEFAULT_A = .06;
     static constexpr size_t QV = 65534u;
     ShortSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): SetSketch<uint16_t, long double>(nreg, b, a, QV) {}
     template<typename Arg> ShortSetS(const Arg &arg): SetSketch<uint16_t, long double>(arg) {}
 };
 struct WideShortSetS: public SetSketch<uint16_t, long double> {
-    static constexpr long double DEFAULT_B = 1.0006;
-    static constexpr long double DEFAULT_A = .001;
+    static constexpr long double DEFAULT_B = 1.0004;
+    static constexpr long double DEFAULT_A = .06;
     static constexpr size_t QV = 65534u;
     WideShortSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): SetSketch<uint16_t, long double>(nreg, b, a, QV) {}
     template<typename...Args> WideShortSetS(Args &&...args): SetSketch<uint16_t, long double>(std::forward<Args>(args)...) {}
@@ -901,7 +901,7 @@ struct WideShortSetS: public SetSketch<uint16_t, long double> {
 struct EShortSetS: public SetSketch<uint16_t, long double> {
     using Super = SetSketch<uint16_t, long double>;
     static constexpr long double DEFAULT_B = 1.0006;
-    static constexpr long double DEFAULT_A = .001;
+    static constexpr long double DEFAULT_A = .06;
     static constexpr size_t QV = 65534u;
     template<typename IT, typename OFT, typename=typename std::enable_if<std::is_integral<IT>::value && std::is_floating_point<OFT>::value>::type>
     EShortSetS(IT nreg, OFT b=DEFAULT_B, OFT a=DEFAULT_A): Super(nreg, b, a, QV) {}
