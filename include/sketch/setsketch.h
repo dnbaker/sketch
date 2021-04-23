@@ -381,7 +381,7 @@ public:
             lrv |= wy::wyhash64_stateless(&rv);
             FT tv = static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L);
             ev = bv * std::log(tv);
-            if(ev >= mv) return;
+            if(ev > mv) return;
         } else {
             auto tv = rv * INVMUL64;
             const FT bv = -1. / m_;
@@ -390,7 +390,7 @@ public:
                 if(bv * flog(tv) * FT(.7) > mv) return;
             }
             ev = bv * std::log(tv);
-            if(ev >= mv) return;
+            if(ev > mv) return;
         }
         ls_.reset();
         ls_.seed(rv);
@@ -413,14 +413,14 @@ public:
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
                 ev = std::fma(bv, std::log((lrv >> 32) * 1.2621774483536188887e-29L), ev);
-                if(ev >= mv) break;
+                if(ev > mv) break;
             } else {
                 const FT nv = rv * INVMUL64;
                 CONST_IF(FLOGFILTER) {
                     if(bv * flog(nv) * FT(.7) + ev >= mv) break;
                 }
                 ev = std::fma(bv, std::log(nv), ev);
-                if(ev >= mv) break;
+                if(ev > mv) break;
             }
             idx = ls_.step();
         }
