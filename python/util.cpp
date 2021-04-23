@@ -184,14 +184,15 @@ PYBIND11_MODULE(sketch_util, m) {
         if(lhi.shape.at(1) != rhi.shape.at(1)) throw std::invalid_argument("Mismatched sizes");\
         if(lhi.ndim != 2 || rhi.ndim != 2) throw std::invalid_argument("Wrong dimensions: require 2-d arrays in both cases.");\
         const auto ndim = lhi.shape.at(1);\
+        const std::vector<py::ssize_t> shape{{lhi.shape[0], rhi.shape[0]}};\
         if(ndim < 256)\
-            retarr = py::array_t<uint8_t>(std::vector<py::ssize_t>{lhi.shape[0], rhi.shape[0]}), retinf = retarr.cast<py::array_t<uint8_t>>().request();\
+            retarr = py::array_t<uint8_t>(shape), retinf = retarr.cast<py::array_t<uint8_t>>().request();\
         else if(ndim < 65536) \
-            retarr = py::array_t<uint16_t>(std::vector<py::ssize_t>{lhi.shape[0], rhi.shape[0]}), retinf = retarr.cast<py::array_t<uint16_t>>().request();\
+            retarr = py::array_t<uint16_t>(shape), retinf = retarr.cast<py::array_t<uint16_t>>().request();\
         else if(ndim < (1LL << 32))\
-            retarr = py::array_t<uint32_t>(std::vector<py::ssize_t>{lhi.shape[0], rhi.shape[0]}), retinf = retarr.cast<py::array_t<uint32_t>>().request();\
+            retarr = py::array_t<uint32_t>(shape), retinf = retarr.cast<py::array_t<uint32_t>>().request();\
         else\
-            retarr = py::array_t<uint64_t>(std::vector<py::ssize_t>{lhi.shape[0], rhi.shape[0]}), retinf = retarr.cast<py::array_t<uint64_t>>().request();\
+            retarr = py::array_t<uint64_t>(shape), retinf = retarr.cast<py::array_t<uint64_t>>().request();\
         OMP_PFOR\
         for(py::ssize_t i = 0; i < lhi.shape[0]; ++i) {\
             for(py::ssize_t j = 0; j < rhi.shape[0]; ++j) {\
@@ -218,14 +219,15 @@ PYBIND11_MODULE(sketch_util, m) {
         const auto nelem = lhi.shape.at(0);\
         const auto nret = (nelem * (nelem - 1)) >> 1;\
         auto getind = [nelem](size_t x, size_t y) {return (x * (nelem * 2 - x - 1)) / 2 + y - (x + 1);};\
+        const std::vector<py::ssize_t> retshape{{nret}};\
         if(ndim < 256)\
-            retarr = py::array_t<uint8_t>(std::vector<py::ssize_t>{nret}), retinf = retarr.cast<py::array_t<uint8_t>>().request();\
+            retarr = py::array_t<uint8_t>(retshape), retinf = retarr.cast<py::array_t<uint8_t>>().request();\
         else if(ndim < 65536) \
-            retarr = py::array_t<uint16_t>(std::vector<py::ssize_t>{nret}), retinf = retarr.cast<py::array_t<uint16_t>>().request();\
+            retarr = py::array_t<uint16_t>(retshape), retinf = retarr.cast<py::array_t<uint16_t>>().request();\
         else if(ndim < (1LL << 32))\
-            retarr = py::array_t<uint32_t>(std::vector<py::ssize_t>{nret}), retinf = retarr.cast<py::array_t<uint32_t>>().request();\
+            retarr = py::array_t<uint32_t>(retshape), retinf = retarr.cast<py::array_t<uint32_t>>().request();\
         else\
-            retarr = py::array_t<uint64_t>(std::vector<py::ssize_t>{nret}), retinf = retarr.cast<py::array_t<uint64_t>>().request();\
+            retarr = py::array_t<uint64_t>(retshape), retinf = retarr.cast<py::array_t<uint64_t>>().request();\
         OMP_PRAGMA("omp parallel for schedule(dynamic)")\
         for(py::ssize_t i = 0; i < lhi.shape[0]; ++i) {\
             const auto lhp = (TYPE *)lhi.ptr + i * lhi.shape[1];\
