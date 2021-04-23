@@ -152,4 +152,6 @@ public:
 
 } // lsh
 
+using lsh::SetSketchIndex;
+
 } // namespace sketch
