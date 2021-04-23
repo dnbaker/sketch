@@ -641,7 +641,7 @@ public:
             if(m_ < o.m_) data_.reset(allocate(o.m_));
             m_ = o.m_;
         }
-        std::copy(o.data(), &o.data[m_], data());
+        std::copy(o.data(), &o.data()[m_], data());
         if(o.ids_.size()) {
             ids_ = o.ids_;
             if(o.idcounts_.size()) idcounts_ = o.idcounts_;
