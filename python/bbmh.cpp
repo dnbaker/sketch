@@ -29,7 +29,15 @@ PYBIND11_MODULE(sketch_bbmh, m) {
             return h == h2;
         }).def("__neq__", [](const sketch::mh::FinalBBitMinHash &h, const sketch::mh::FinalBBitMinHash &h2) {
             return h != h2;
-        });
+        }).def_property_readonly("size", [](const sketch::mh::FinalBBitMinHash &h) {return h.nblocks();})
+        .def("b", [](const sketch::mh::FinalBBitMinHash &h) {return h.b_;})
+        .def("to_numpy", [](const sketch::mh::FinalBBitMinHash &h) {
+            auto pair = h.view();
+            py::array_t<uint64_t> ret(py::ssize_t(pair.second));
+            auto inf = ret.request();
+            std::copy(h.core_.begin(), h.core_.end(), (uint64_t *)ret.request().ptr);
+            return py::make_tuple(ret, py::int_(h.nblocks()), py::int_(h.b_));
+        }, "Convert data to numpy; returns a tuple of (data, nregisters, b)");
 
     py::class_<mh::BBitMinHasher<uint64_t>> (m, "BBitMinHasher")
         .def(py::init<size_t, unsigned>())

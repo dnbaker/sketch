@@ -4,13 +4,14 @@
 #include <chrono>
 
 using namespace sketch;
+using namespace sketch::setsketch;
 struct NibbleSet8: public SetSketch<uint8_t> {
     NibbleSet8(int nreg): SetSketch<uint8_t>(nreg, 8., 1., 14) {}
 };
 
 
-template<typename FT>
-double card(const CSetSketch<FT> &o) {
+template<typename CS>
+double card(const CS &o) {
     long double ret = 0.;
     auto p = o.data();
     for(size_t i = 0; i < o.size(); ++i) {
@@ -19,6 +20,11 @@ double card(const CSetSketch<FT> &o) {
     return o.size() / ret;
 }
 
+#ifdef USE_OPH
+using SType = OPCSetSketch<double>;
+#else
+using SType = CSetSketch<double>;
+#endif
 int main(int argc, char **argv) {
     const size_t n = argc <= 1 ? 1000: std::atoi(argv[1]);
     const size_t m = argc <= 2 ? 25: std::atoi(argv[2]);
@@ -26,7 +32,7 @@ int main(int argc, char **argv) {
     const double sa = argc <= 4 ? 30: std::atof(argv[4]);
     double hlv, bc, nc, sc, n8c;
     ByteSetS lhb(m), rhb(m);
-    CSetSketch<long double> css(m), css2(m), css3(m);
+    SType css(m), css2(m), css3(m);
     //ByteSetS lhb(m, sb, sa), rhb(m, sb, sa);
     NibbleSetS shl(m<<1), shr(m<<1);
     NibbleSet8 nshl(m<<1), nshr(m<<1);

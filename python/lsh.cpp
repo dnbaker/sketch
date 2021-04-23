@@ -1,6 +1,7 @@
 #include "python/pysketch.h"
+#include "sketch/ssi.h"
 
-using sketch::setsketch::SetSketchIndex;
+using sketch::lsh::SetSketchIndex;
 using namespace pybind11::literals;
 
 #define DEC_SSI(name, T1, T2) \
