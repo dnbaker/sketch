@@ -19,6 +19,13 @@ namespace sketch {
 namespace setsketch {
 
 namespace detail {
+    template<typename T>
+    INLINE void kahan_update(T &sum, T &carry, T increment) {
+        increment -= carry;
+        T tmp = sum + increment;
+        carry = (tmp - sum) - increment;
+        sum = tmp;
+    }
     struct Deleter {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
@@ -265,8 +272,10 @@ static inline long double g_b(long double b, long double arg) {
 template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 
-template<typename FT=double, bool FLOGFILTER=true>
+template<typename FT=double, bool FLOGFILTER=true, bool KAHAN_SUM = (sizeof(FT) < 8)>
 class CSetSketch {
+    // This uses Kahan summation for floating-point values by default
+    // std::fma is expected to be accurate enough for doubles/long doubles.
     static_assert(std::is_floating_point<FT>::value, "Must float");
     // SetSketch 1
     size_t m_; // Number of registers
@@ -366,6 +375,7 @@ public:
         return yi * 8.2629582881927490e-8f - 88.02969186f;
     }
     void update(const uint64_t id) {
+        FT kahan_carry = 0;
         mycard_ = -1.;
         ++total_updates_;
         uint64_t hid = id;
@@ -410,14 +420,23 @@ public:
             CONST_IF(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev = std::fma(bv, std::log((lrv >> 32) * 1.2621774483536188887e-29L), ev);
+                const long double increment = std::log((lrv >> 32) * 1.2621774483536188887e-29L);
+                CONST_IF(KAHAN_SUM) {
+                    detail::kahan_update(ev, kahan_carry, static_cast<FT>(increment * bv));
+                } else {
+                    ev = std::fma(bv, increment, ev);
+                }
                 if(ev > mv) break;
             } else {
                 const FT nv = rv * INVMUL64;
                 CONST_IF(FLOGFILTER) {
-                    if(bv * flog(nv) * FT(.7) + ev >= mv) break;
+                    if(bv * flog(nv) * FT(.7) + ev > mv) break;
                 }
-                ev = std::fma(bv, std::log(nv), ev);
+                CONST_IF(KAHAN_SUM) {
+                    detail::kahan_update(ev, kahan_carry, bv * std::log(nv));
+                } else {
+                    ev = std::fma(bv, std::log(nv), ev);
+                }
                 if(ev > mv) break;
             }
             idx = ls_.step();
