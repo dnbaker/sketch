@@ -20,11 +20,11 @@ namespace setsketch {
 
 namespace detail {
     template<typename T>
-    INLINE void kahan_update(T &sum, T &carry, T increment) {
+    INLINE T kahan_update(T &sum, T &carry, T increment) {
         increment -= carry;
         T tmp = sum + increment;
         carry = (tmp - sum) - increment;
-        sum = tmp;
+        return sum = tmp;
     }
     struct Deleter {
         template<typename T>
@@ -272,7 +272,7 @@ static inline long double g_b(long double b, long double arg) {
 template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 
-template<typename FT=double, bool FLOGFILTER=true, bool KAHAN_SUM = (sizeof(FT) < 8)>
+template<typename FT=double, bool FLOGFILTER=true>
 class CSetSketch {
     // This uses Kahan summation for floating-point values by default
     // std::fma is expected to be accurate enough for doubles/long doubles.
@@ -400,11 +400,12 @@ public:
             ev = bv * std::log(tv);
             if(ev > mv) return;
         }
+        //std::fprintf(stderr, "For past first: ev: %g. mv: %g\n", ev, mv);
         ls_.reset();
         ls_.seed(rv);
         uint64_t bi = 1;
         uint32_t idx = ls_.step();
-        for(;;) {
+        for(;;idx = ls_.step()) {
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
                     ids_.operator[](idx) = id;
@@ -421,25 +422,18 @@ public:
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
                 const long double increment = std::log((lrv >> 32) * 1.2621774483536188887e-29L);
-                CONST_IF(KAHAN_SUM) {
-                    detail::kahan_update(ev, kahan_carry, static_cast<FT>(increment * bv));
-                } else {
-                    ev = std::fma(bv, increment, ev);
-                }
-                if(ev > mv) break;
+                if((ev = std::fma(bv, increment, ev)) > mv) break;
             } else {
                 const FT nv = rv * INVMUL64;
                 CONST_IF(FLOGFILTER) {
-                    if(bv * flog(nv) * FT(.7) + ev > mv) break;
+                    if(bv * flog(nv) * FT(.7) + ev > mv) {
+                        assert(std::fma(bv, std::log(nv), ev) > mv);
+                        break;
+                    }
                 }
-                CONST_IF(KAHAN_SUM) {
-                    detail::kahan_update(ev, kahan_carry, bv * std::log(nv));
-                } else {
-                    ev = std::fma(bv, std::log(nv), ev);
-                }
-                if(ev > mv) break;
+                if((ev = detail::kahan_update(ev, kahan_carry, bv * std::log(nv))) > mv)
+                    break;
             }
-            idx = ls_.step();
         }
     }
     bool operator==(const CSetSketch<FT> &o) const {
@@ -607,7 +601,6 @@ public:
 template<typename FT=double, bool FLOGFILTER=true>
 class OPCSetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
-    // SetSketch 1
     size_t m_; // Number of registers
     std::unique_ptr<FT[], detail::Deleter> data_;
     schism::Schismatic<uint32_t> div_;

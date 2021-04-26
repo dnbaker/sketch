@@ -12,6 +12,16 @@
 
 namespace sketch {
 
+namespace kahan_detail {
+    template<typename T>
+    INLINE T kahan_update(T &sum, T &carry, T increment) {
+        increment -= carry;
+        T tmp = sum + increment;
+        carry = (tmp - sum) - increment;
+        return sum = tmp;
+    }
+}
+
 
 namespace wmh {
 
@@ -117,7 +127,7 @@ struct poisson_process_t {
     static_assert(std::is_arithmetic<FT>::value, "Must be arithmetic");
     static_assert(std::is_integral<IT>::value, "Must be intgral");
     // Algorithm 4
-    FT x_, weight_, minp_, maxq_;
+    FT x_, weight_, minp_, maxq_, sum_carry_;
     IT idx_ = std::numeric_limits<IT>::max();
     uint64_t wyv_; // RNG state
     using wd = wd_t<FT>;
@@ -131,7 +141,7 @@ public:
     poisson_process_t& operator=(const poisson_process_t &) = default;
     poisson_process_t(const poisson_process_t &o) = default;
     poisson_process_t(poisson_process_t &&o) = default;
-    poisson_process_t(IT id, FT w): x_(0.), weight_(w), minp_(0.), maxq_(std::numeric_limits<FT>::max()), wyv_(id) {
+    poisson_process_t(IT id, FT w): x_(0.), weight_(w), minp_(0.), maxq_(std::numeric_limits<FT>::max()), sum_carry_(0.), wyv_(id) {
 
     }
     IT widxmax() const {
@@ -158,13 +168,16 @@ public:
         // Top 52-bits as U01 for exponential with weight of q - p,
         // bottom logm bits for index
         uint64_t xi = wy::wyhash64_stateless(&wyv_);
-        x_ += -std::log((xi >> 12) * 2.220446049250313e-16) / (maxq_ - minp_);
-        //assert(fastmod.mod(static_cast<IT>(xi)) == (static_cast<IT>(xi) % fastmod.d()) || !std::fprintf(stderr, "lhs: %zu. rhs: %zu. xi: %u. d(): %u\n", size_t(fastmod.mod(static_cast<IT>(xi))), size_t(static_cast<IT>(xi) % fastmod.d()), static_cast<IT>(xi), int(fastmod.d())));
+        //std::fprintf(stderr, "Carry before: %g\n", sum_carry_);
+        x_ += -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_);
+        //kahan_detail::kahan_update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
+        //std::fprintf(stderr, "Carry after: %g\n", sum_carry_);
         idx_ = fastmod.mod(xi);
     }
     void step(size_t m) {
         uint64_t xi = wy::wyhash64_stateless(&wyv_);
-        x_ += -std::log((xi >> 12) * 2.220446049250313e-16) / (maxq_ - minp_);
+        x_ += -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_);
+        //kahan_detail::kahan_update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
         idx_ = xi % m;
     }
     poisson_process_t split() {
@@ -398,6 +411,7 @@ struct pmh1_t {
     void finalize() const {}
     void update(const IT id, const FT w) {
         if(w <= 0.) return;
+        FT carry = 0.;
         ++total_updates_;
         const FT wi = 1. / w;
         uint64_t hi = id;
@@ -409,7 +423,7 @@ struct pmh1_t {
                 if(hv >= hvals_.max()) break;
             }
             xi = wy::wyhash64_stateless(&hi);
-            hv += -std::log(xi * 5.421010862427522e-20) * wi;
+            kahan_detail::kahan_update(hv, carry, -std::log(xi * FT(5.421010862427522e-20)) * wi);
         }
     }
     void add(const IT id, const FT w) {update(id, w);}
@@ -466,6 +480,7 @@ struct pmh2_t {
     uint64_t total_updates() const {return total_updates_;}
     FT getbeta(size_t idx) const {return beta(idx, ls_.size());}
     void update(const IT id, const FT w) {
+        FT carry = 0.;
         if(w <= 0.) return;
         ++total_updates_;
         uint64_t hi = id;
@@ -496,9 +511,9 @@ struct pmh2_t {
                 const FT wbv = bv * wi; // weight inverse * beta
                 const FT frv = wy::wyhash64_stateless(&hi) * 5.421010862427522e-20;
                 if(hv + fastlog::flog(frv) * 0.7 * wbv > maxv) return;
-                hv += -std::log(frv) * wbv;
+                kahan_detail::kahan_update(hv, carry, -std::log(frv) * wbv);
             } else {
-                hv += -std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wi * getbeta(i);
+                kahan_detail::kahan_update(hv, carry, static_cast<FT>(-std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wi * getbeta(i)));
             }
             ++i;
         } while(hv < maxv);
@@ -559,6 +574,7 @@ private:
     }
 
     void update(const uint64_t item, const uint64_t item_index) {
+        FT carry = 0.;
         uint64_t rng = item;
         uint64_t hv = wy::wyhash64_stateless(&rng);
         auto it = counter.find(hv);
@@ -573,12 +589,11 @@ private:
         uint32_t n = 0;
         for(;f < mvt.max();) {
             uint32_t idx = ls_.step();
-            if(sub_update(idx, f, item_index)) {
-                if(f >= mvt.max()) break;
-            }
+            if(sub_update(idx, f, item_index) && f >= mvt.max()) break;
             if(++n == m_) break;
-            f += std::log((wy::wyhash64_stateless(&rng) >> 12) * 2.220446049250313e-16)
+            const FT inc = std::log((wy::wyhash64_stateless(&rng) >> 12) * 2.220446049250313e-16)
                  * (m_ / (m_ - n));
+            kahan_detail::kahan_update(f, carry, inc);
             // Sample from exponential distribution, then divide by number
         }
     }
