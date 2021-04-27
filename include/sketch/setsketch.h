@@ -970,22 +970,22 @@ public:
         std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
     }
     void update(const uint64_t id) {
+        using GenFT = std::conditional_t<(sizeof(FT) <= 8), double, long double>;
+        GenFT carry = 0.;
         mycard_ = -1.;
         uint64_t hid = id;
         size_t bi = 0;
         uint64_t rv = wy::wyhash64_stateless(&hid);
-        double ev = 0.;
+        GenFT ev = 0.;
         ls_.reset();
         ls_.seed(rv);
         for(;;) {
-            const auto ba = lbetas_[bi];
-            if(sizeof(FT) > 8) {
+            const GenFT ba = lbetas_[bi];
+            if(sizeof(GenFT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev += ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L);
-            } else {
-                ev += ba * std::log(rv * INVMUL64);
-            }
+                detail::kahan_update(ev, carry, GenFT(ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L)));
+            } else detail::kahan_update(ev, carry, ba * std::log(rv * INVMUL64));
             if(ev > lowkh_.explim()) return;
             const QType k = std::max(0, std::min(q_ + 1, static_cast<QType>((1. - std::log(ev) * logbinv_))));
             if(k <= klow()) return;
@@ -1016,21 +1016,22 @@ public:
                 it->second[i] = std::pow(static_cast<long double>(b_), -static_cast<ptrdiff_t>(i));
             }
         }
-        std::vector<uint32_t> counts(q_ + 2);
-        if(ptr) {
-            for(size_t i = 0; i < m_; ++i) {
-                ++counts[std::max(data_[i], ptr->data()[i])];
-            }
+        if(q_ <= 256) {
+            std::vector<uint32_t> counts(q_ + 2);
+            if(ptr) {
+                for(size_t i = 0; i < m_; ++i)
+                    ++counts[std::max(data_[i], ptr->data()[i])];
+            } else for(size_t i = 0; i < m_; ++counts[data_[i++]]);
+            return std::inner_product(&counts[lowkh_.klow()], &counts[q_ + 2], &it->second[lowkh_.klow()], 0.L);
         } else {
-            for(size_t i = 0; i < m_; ++i) {
-                ++counts[data_[i]];
-            }
+            ska::flat_hash_map<ResT, uint32_t> counts; counts.reserve(q_ + 2);
+            if(ptr) {
+                for(size_t i = 0; i < m_; ++i)
+                    ++counts[std::max(data_[i], ptr->data()[i])];
+            } else for(size_t i = 0; i < m_; ++counts[data_[i++]]);
+            auto &ptable = it->second;
+            return std::accumulate(counts.begin(), counts.end(), 0.L, [&ptable](long double s, std::pair<ResT, uint32_t> reg) {return s + reg.second * ptable[reg.first];});
         }
-        long double ret = 0.;
-        for(ptrdiff_t i = lowkh_.klow(); i <= q_ + 1; ++i) {
-            ret += counts[i] * it->second[i];
-        }
-        return ret;
     }
     double jaccard_by_ix(const SetSketch<ResT, FT> &o) const {
         auto us = union_size(o);
