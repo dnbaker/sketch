@@ -3,6 +3,7 @@
 #ifndef NO_SLEEF
 #define NO_SLEEF
 #endif
+#include "integral.h"
 #include "vec/vec.h"
 #include "common.h"
 #include "hash.h"
