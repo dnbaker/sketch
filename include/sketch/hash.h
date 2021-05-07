@@ -379,7 +379,7 @@ struct HasherSet {
     uint64_t operator()(uint64_t v, unsigned ind) const {
         return hashers_[ind](v);
     }
-    uint64_t operator()(uint64_t v) const {throw std::runtime_error("Should not be called.");}
+    uint64_t operator()(uint64_t) const {throw std::runtime_error("Should not be called.");}
 };
 template<typename Hasher=WangHash>
 struct XORSeedHasherSet {
@@ -450,7 +450,7 @@ struct HasherSet {
 #endif
 
 struct MurFinHash {
-    template<typename...Args> MurFinHash(Args &&...args) {}
+    template<typename...Args> MurFinHash(Args &&...) {}
     static constexpr uint64_t C1 = 0xff51afd7ed558ccduLL, C2 = 0xc4ceb9fe1a85ec53uLL;
     INLINE uint64_t operator()(uint64_t key) const {
         key ^= key >> 33;
@@ -586,7 +586,7 @@ struct InvRShiftXor;
 template<size_t n>
 struct InvRShiftXor {
     template<typename...Args>
-    InvRShiftXor(Args &&...args) {}
+    InvRShiftXor(Args &&...) {}
     static constexpr size_t enditer = 64 / n;
     uint64_t constexpr operator()(uint64_t v) const {
         uint64_t ret = v ^ v >> n;
@@ -601,7 +601,7 @@ struct InvRShiftXor {
 template<size_t n>
 struct RShiftXor {
     template<typename...Args>
-    RShiftXor(Args &&...args) {}
+    RShiftXor(Args &&...) {}
     uint64_t constexpr operator()(uint64_t v) const {return v ^ (v >> n);}
 #ifdef __SSE2__
     __m128i operator()(__m128i v) const {
@@ -628,7 +628,7 @@ template<size_t n> using InvShiftXor = InvRShiftXor<n>;
 template<uint64_t XORVALUE=UINT64_C(0xe37e28c4271b5a2d)>
 struct XORConstantHasher {
     template<typename...Args>
-    XORConstantHasher(Args &&...args) {}
+    XORConstantHasher(Args &&...) {}
     uint64_t operator()(uint64_t h) const {
         return h ^ XORVALUE;
     }
@@ -642,7 +642,7 @@ struct InvLShiftXor;
 template<size_t n>
 struct LShiftXor {
     template<typename...Args>
-    LShiftXor(Args &&...args) {}
+    LShiftXor(Args...) {}
     uint64_t constexpr operator()(uint64_t v) const {return v ^ (v << n);}
     uint64_t constexpr inverse(uint64_t v) const {return InverseOperation()(v);}
     using InverseOperation = InvLShiftXor<n>;
@@ -650,7 +650,7 @@ struct LShiftXor {
 template<size_t n>
 struct InvLShiftXor {
     template<typename...Args>
-    InvLShiftXor(Args &&...args) {}
+    InvLShiftXor(Args &&...) {}
     static constexpr size_t enditer = 64 / n;
     uint64_t constexpr operator()(uint64_t v) const {
         uint64_t ret = v ^ v << n;
@@ -666,7 +666,7 @@ struct InvLShiftXor {
 template<size_t n, bool left>
 struct Rot {
     template<typename...Args>
-    Rot(Args &&...args) {}
+    Rot(Args &&...) {}
     template<typename T>
     INLINE T constexpr operator()(T val) const {
         static_assert(n < sizeof(T) * CHAR_BIT, "Can't shift more than the width of the type.");
@@ -678,7 +678,7 @@ struct Rot {
         return InverseOperation()(val);
     }
     template<typename T, typename T2>
-    INLINE T constexpr operator()(T val, const T2 &oval) const { // DO nothing
+    INLINE T constexpr operator()(T val, const T2 &) const {
         return this->operator()(val);
     }
     using InverseOperation = Rot<n, !left>;
@@ -687,7 +687,7 @@ template<size_t n> using RotL = Rot<n, true>;
 template<size_t n> using RotR = Rot<n, false>;
 struct BitFlip {
     template<typename...Args>
-    BitFlip(Args &&...args) {}
+    BitFlip(Args &&...) {}
     template<typename T>
     INLINE T constexpr operator()(T val) const {
         return ~val;
@@ -697,7 +697,7 @@ struct BitFlip {
         return InverseOperation()(val);
     }
     template<typename T, typename T2>
-    INLINE T constexpr operator()(T val, const T2 &oval) const { // DO nothing
+    INLINE T constexpr operator()(T val, const T2 &) const {
         return this->operator()(val);
     }
     using InverseOperation = BitFlip;

@@ -240,8 +240,8 @@ void default_sort(T *__restrict__ x, T *__restrict__ y, Cmp cmp=Cmp()) {
 
 
 struct DoNothing {
-    template<typename... Args>void operator()(const Args &&...  args)const{}
-    template<typename T>void operator()(const T &x)const{}
+    template<typename... Args>void operator()(const Args &&...)const{}
+    template<typename T>void operator()(const T &)const{}
 };
 
 namespace detail {

@@ -545,7 +545,7 @@ inline void inc_counts(T &counts, const Container &con) {
 }
 
 template<typename CoreType>
-void parsum_helper(void *data_, long index, int tid) {
+void parsum_helper(void *data_, long index, int) {
     parsum_data_t<CoreType> &data(*reinterpret_cast<parsum_data_t<CoreType> *>(data_));
     uint64_t local_counts[64]{0};
     SIMDHolder tmp;
