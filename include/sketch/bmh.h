@@ -101,18 +101,12 @@ struct wd_t {
 
     union ITFTU {
         IT i_; FT f_;
-        ITFTU(): i_(0) {}
+        constexpr ITFTU(): i_(0) {}
+        constexpr ITFTU(FT x): f_(x) {}
+        constexpr ITFTU(IT i): i_(i) {}
     };
-    static constexpr IT ft2it(FT val=std::numeric_limits<FT>::max()) {
-        ITFTU tmp;
-        tmp.f_ = val;
-        return tmp.i_;
-    }
-    static constexpr FT it2ft(IT val) {
-        ITFTU tmp;
-        tmp.i_ = val;
-        return tmp.f_;
-    }
+    static constexpr IT ft2it(FT val=std::numeric_limits<FT>::max()) {return ITFTU(val).i_;}
+    static constexpr FT it2ft(IT val) {return ITFTU(val).f_;}
     template<typename OIT, typename=std::enable_if_t<std::is_integral<OIT>::value>>
     static constexpr FT cvt(OIT val) {return it2ft(val);}
     template<typename OFT, typename=std::enable_if_t<std::is_floating_point<OFT>::value>>
@@ -228,6 +222,8 @@ struct bmh_t {
     pq_t heap_;
     mvt_t<FT> hvals_;
     schism::Schismatic<IT> div_;
+    FT *data() {return hvals_.data();}
+    const FT *data() const {return hvals_.data();}
     auto m() const {return hvals_.getm();}
 
     uint64_t total_updates() const {return total_updates_;}
@@ -374,8 +370,10 @@ struct bmh_t {
     }
 };
 template<typename FT>
-struct BagMinHash1: bmh_t<FT> {
+struct BagMinHash1: public bmh_t<FT> {
     template<typename...Args> BagMinHash1(Args &&...args): bmh_t<FT>(std::forward<Args>(args)...) {}
+    FT *data() {return this->hvals_.data();}
+    const FT *data() const {return this->hvals_.data();}
     template<typename IT>
     void add(IT id, FT w) {
         this->update_1(id, w);
@@ -384,12 +382,14 @@ struct BagMinHash1: bmh_t<FT> {
     void finalize() {}
 };
 template<typename FT>
-struct BagMinHash2: bmh_t<FT> {
+struct BagMinHash2: public bmh_t<FT> {
     using S = bmh_t<FT>;
+    FT *data() {return this->hvals_.data();}
+    const FT *data() const {return this->hvals_.data();}
     BagMinHash2(size_t m): S(m) {}
     template<typename IT>
     void add(IT id, FT w) {
-        S::update_2(id, w);
+        this->update_2(id, w);
     }
     template<typename IT> void update(IT id, FT w) {add(id, w);}
     void finalize() {S::finalize_2();}
@@ -477,6 +477,8 @@ struct pmh2_t {
         const double rs = m;
         return rs / (rs - idx + 1.);
     }
+    FT *data() {return hvals_.data();}
+    const FT *data() const {return hvals_.data();}
     uint64_t total_updates() const {return total_updates_;}
     FT getbeta(size_t idx) const {return beta(idx, ls_.size());}
     void update(const IT id, const FT w) {
@@ -507,11 +509,8 @@ struct pmh2_t {
                 if(hv >= maxv) return;
             }
             CONST_IF(sizeof(FT) <= 8) {
-                auto bv = getbeta(i);
-                const FT wbv = bv * wi; // weight inverse * beta
                 const FT frv = wy::wyhash64_stateless(&hi) * 5.421010862427522e-20;
-                if(hv + fastlog::flog(frv) * 0.7 * wbv > maxv) return;
-                kahan_detail::kahan_update(hv, carry, -std::log(frv) * wbv);
+                kahan_detail::kahan_update(hv, carry, -std::log(frv) * (getbeta(i) * wi));
             } else {
                 kahan_detail::kahan_update(hv, carry, static_cast<FT>(-std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wi * getbeta(i)));
             }

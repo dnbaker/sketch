@@ -124,7 +124,7 @@ class mvt_t {
     FT *data_ = nullptr;
     size_t m_;
 public:
-    mvt_t(size_t m, FT mv = std::numeric_limits<FT>::max()): mv_(m), m_(m) {}
+    mvt_t(size_t m, FT mv = std::numeric_limits<FT>::max()): mv_(mv), m_(m) {}
 
     FT mv() const {return mv_;}
     FT *data() {return data_;}
