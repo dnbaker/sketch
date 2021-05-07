@@ -97,7 +97,7 @@ using DefIT = std::conditional_t<sizeof(FT) == 4, uint32_t,
 template<typename FT>
 struct wd_t {
     using IT = DefIT<FT>;
-    static_assert(std::is_integral<IT>::value || std::is_same<IT, __uint128_t>::value, "Sanity check");
+    static_assert(std::is_integral<IT>::value || sizeof(FT) > 8, "Sanity check");
 
     union ITFTU {
         IT i_; FT f_;
@@ -107,7 +107,7 @@ struct wd_t {
     };
     static constexpr IT ft2it(FT val=std::numeric_limits<FT>::max()) {return ITFTU(val).i_;}
     static constexpr FT it2ft(IT val) {return ITFTU(val).f_;}
-    template<typename OIT, typename=std::enable_if_t<std::is_integral<OIT>::value>>
+    template<typename OIT, typename=std::enable_if_t<std::is_integral<OIT>::value || std::is_same_v<__uint128_t, OIT>>>
     static constexpr FT cvt(OIT val) {return it2ft(val);}
     template<typename OFT, typename=std::enable_if_t<std::is_floating_point<OFT>::value>>
     static constexpr IT cvt(OFT val) {return ft2it(val);}
@@ -119,7 +119,7 @@ struct wd_t {
 template<typename FT, typename IT=DefIT<FT>>
 struct poisson_process_t {
     static_assert(std::is_arithmetic<FT>::value, "Must be arithmetic");
-    static_assert(std::is_integral<IT>::value, "Must be intgral");
+    //static_assert(std::is_integral<IT>::value, "Must be intgral");
     // Algorithm 4
     FT x_, weight_, minp_, maxq_, sum_carry_;
     IT idx_ = std::numeric_limits<IT>::max();
@@ -221,7 +221,7 @@ struct bmh_t {
     uint64_t total_updates_ = 0;
     pq_t heap_;
     mvt_t<FT> hvals_;
-    schism::Schismatic<IT> div_;
+    schism::Schismatic<std::conditional_t<(sizeof(FT) <= 8), IT, uint64_t>> div_;
     FT *data() {return hvals_.data();}
     const FT *data() const {return hvals_.data();}
     auto m() const {return hvals_.getm();}
