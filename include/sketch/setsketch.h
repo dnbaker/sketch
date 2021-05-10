@@ -11,6 +11,7 @@
 #include "sketch/count_eq.h"
 #include "sketch/macros.h"
 #include "sketch/hash.h"
+#include "sketch/flog.h"
 #include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
 
@@ -359,22 +360,8 @@ public:
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
-    long double flog(long double x) const {
-        __uint128_t yi;
-        std::memcpy(&yi, &x, sizeof(x));
-        return yi * 3.7575583950764744255e-20L - 11356.176832703863597L;
-    }
-    double flog(double x) const {
-        uint64_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 1.539095918623324e-16 - 709.0895657128241;
-    }
-    float flog(float x) const {
-        uint32_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 8.2629582881927490e-8f - 88.02969186f;
-    }
     void update(const uint64_t id) {
+        using fastlog::flog;
         FT kahan_carry = 0;
         mycard_ = -1.;
         ++total_updates_;
@@ -677,21 +664,6 @@ public:
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
-    long double flog(long double x) const {
-        __uint128_t yi;
-        std::memcpy(&yi, &x, sizeof(x));
-        return yi * 3.7575583950764744255e-20L - 11356.176832703863597L;
-    }
-    double flog(double x) const {
-        uint64_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 1.539095918623324e-16 - 709.0895657128241;
-    }
-    float flog(float x) const {
-        uint32_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 8.2629582881927490e-8f - 88.02969186f;
-    }
     bool update(const uint64_t id) {
         mycard_ = -1.;
         ++total_updates_;

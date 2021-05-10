@@ -2,11 +2,12 @@
 #define SKETCH_BAGMINHASH_H__
 #include <stdexcept>
 #include <cassert>
-#include "aesctr/wy.h"
 #include <queue>
-#include "fy.h"
-#include "macros.h"
-#include "div.h"
+#include "sketch/macros.h"
+#include "sketch/fy.h"
+#include "aesctr/wy.h"
+#include "sketch/div.h"
+#include "sketch/flog.h"
 #include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
 
@@ -107,7 +108,7 @@ struct wd_t {
     };
     static constexpr IT ft2it(FT val=std::numeric_limits<FT>::max()) {return ITFTU(val).i_;}
     static constexpr FT it2ft(IT val) {return ITFTU(val).f_;}
-    template<typename OIT, typename=std::enable_if_t<std::is_integral<OIT>::value || std::is_same_v<__uint128_t, OIT>>>
+    template<typename OIT, typename=std::enable_if_t<std::is_integral<OIT>::value || std::is_same<__uint128_t, OIT>::value>>
     static constexpr FT cvt(OIT val) {return it2ft(val);}
     template<typename OFT, typename=std::enable_if_t<std::is_floating_point<OFT>::value>>
     static constexpr IT cvt(OFT val) {return ft2it(val);}
@@ -440,23 +441,6 @@ struct pmh1_t {
     }
 };
 
-namespace fastlog {
-    static inline long double flog(long double x) {
-        __uint128_t yi;
-        std::memcpy(&yi, &x, sizeof(x));
-        return yi * 3.7575583950764744255e-20L - 11356.176832703863597L;
-    }
-    static inline double flog(double x) {
-        uint64_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 1.539095918623324e-16 - 709.0895657128241;
-    }
-    static inline float flog(float x) {
-        uint32_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 8.2629582881927490e-8f - 88.02969186f;
-    }
-}
 
 template<typename FT=double, typename IdxT=uint32_t>
 struct pmh2_t {
@@ -482,18 +466,19 @@ struct pmh2_t {
     uint64_t total_updates() const {return total_updates_;}
     FT getbeta(size_t idx) const {return beta(idx, ls_.size());}
     void update(const IT id, const FT w) {
+        using fastlog::flog;
         FT carry = 0.;
         if(w <= 0.) return;
         ++total_updates_;
         uint64_t hi = id;
-        const FT wi = 1. / w;
+        const FT wi = 1. / w, m_double = ls_.size();
         size_t i = 0;
         uint64_t rv = wy::wyhash64_stateless(&hi);
         auto maxv = hvals_.max();
         FT hv;
         CONST_IF(sizeof(FT) <= 8) {
             FT frv = rv * 5.421010862427522e-20;
-            if(fastlog::flog(frv) * wi * FT(0.7) > maxv) return;
+            if(flog(frv) * wi * FT(0.7) > maxv) return;
             hv = -std::log(frv) * wi;
         } else {
             hv = -std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wi;
@@ -508,13 +493,15 @@ struct pmh2_t {
                 res_[idx] = id;
                 if(hv >= maxv) return;
             }
+            // Beta = m_double / (m_double - i + 1)
+            // const auto wb = getbeta(i++) * wi;
+            const FT wb = m_double / (m_double - i++ + 1.);
             CONST_IF(sizeof(FT) <= 8) {
                 const FT frv = wy::wyhash64_stateless(&hi) * 5.421010862427522e-20;
-                kahan_detail::kahan_update(hv, carry, -std::log(frv) * (getbeta(i) * wi));
+                kahan_detail::kahan_update(hv, carry, -std::log(frv) * wb);
             } else {
-                kahan_detail::kahan_update(hv, carry, static_cast<FT>(-std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wi * getbeta(i)));
+                kahan_detail::kahan_update(hv, carry, static_cast<FT>(-std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wb));
             }
-            ++i;
         } while(hv < maxv);
     }
     void add(const IT id, const FT w) {update(id, w);}
@@ -609,6 +596,10 @@ public:
         for(size_t i = 0; i < n; ++i)
             update(ptr[i], i);
         return finalize(ptr);
+    }
+    template<typename T, typename Alloc>
+    std::vector<uint64_t> hash(const std::vector<T, Alloc> &ptr) {
+        return hash(ptr.data(), ptr.size());
     }
 
     size_t m() const {return m_;}
