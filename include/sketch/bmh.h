@@ -369,6 +369,11 @@ struct bmh_t {
         }
         return ret;
     }
+    void reset() {
+        hvals_.reset();
+        heap_.clear();
+        total_updates_ = 0;
+    }
 };
 template<typename FT>
 struct BagMinHash1: public bmh_t<FT> {
@@ -454,6 +459,11 @@ struct pmh2_t {
     fy::LazyShuffler ls_;
     pmh2_t(size_t m): hvals_(m), div_(m), res_(m), ls_(m) {
         if(m > std::numeric_limits<IdxT>::max()) throw std::invalid_argument("pmh2 requires a larger integer type to sketch.");
+    }
+    void reset() {
+        hvals_.reset();
+        std::fill(res_.begin(), res_.end(), IT(0));
+        total_updates_ = 0;
     }
 
     void finalize() const {}

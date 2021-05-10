@@ -584,6 +584,22 @@ public:
         auto isf = std::max(1. - (lho + std::get<1>(abm)), 0.);
         return isf / (lho + isf);
     }
+    template<typename IT=FT>
+    std::vector<IT> to_sigs() const {
+        std::vector<IT> ret(m_);
+        if(std::is_integral<IT>::value) {
+            using TmpT = std::conditional_t<(sizeof(IT) <= 8), uint64_t, __uint128_t>;
+            std::transform(data_.get(), data_.get() + m_, ret.begin(), [](auto x) {
+                TmpT t = 0;std::memcpy(&t, &x, sizeof(x));
+                uint64_t ret = wy::wyhash64_stateless((uint64_t *)&t);
+                if(sizeof(TmpT) >= 16) ret ^= wy::wyhash64_stateless((uint64_t *)&t + 1);
+                return ret;
+            });
+        } else {
+            std::copy(data_.get(), data_.get() + m_, ret.begin());
+        }
+        return ret;
+    }
 };
 template<typename FT=double, bool FLOGFILTER=true>
 class OPCSetSketch {
@@ -623,7 +639,7 @@ public:
         //generate_betas();
     }
     OPCSetSketch(const OPCSetSketch &o): m_(o.m_), data_(allocate(o.m_)), div_(m_), ids_(o.ids_), idcounts_(o.idcounts_) {
-        std::copy(o.data_[0], &o.data_[m_], data_.get());
+        std::copy(&o.data_[0], &o.data_[m_], data_.get());
         //generate_betas();
     }
     template<typename ResT=uint16_t>
@@ -847,6 +863,22 @@ public:
         auto lho = std::get<0>(abm);
         auto isf = std::max(1. - (lho + std::get<1>(abm)), 0.);
         return isf / (lho + isf);
+    }
+    template<typename IT=FT>
+    std::vector<IT> to_sigs() const {
+        std::vector<IT> ret(m_);
+        if(std::is_integral<IT>::value) {
+            using TmpT = std::conditional_t<(sizeof(IT) <= 8), uint64_t, __uint128_t>;
+            std::transform(data_.get(), data_.get() + m_, ret.begin(), [](auto x) {
+                TmpT t = 0;std::memcpy(&t, &x, sizeof(x));
+                uint64_t ret = wy::wyhash64_stateless((uint64_t *)&t);
+                if(sizeof(TmpT) >= 16) ret ^= wy::wyhash64_stateless((uint64_t *)&t + 1);
+                return ret;
+            });
+        } else {
+            std::copy(data_.get(), data_.get() + m_, ret.begin());
+        }
+        return ret;
     }
 };
 
