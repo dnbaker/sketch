@@ -456,13 +456,16 @@ struct pmh2_t {
     mvt_t<FT> hvals_;
     schism::Schismatic<IdxT> div_;
     std::vector<IT> res_;
+    std::vector<uint32_t> rcounts_;
     fy::LazyShuffler ls_;
-    pmh2_t(size_t m): hvals_(m), div_(m), res_(m), ls_(m) {
+    pmh2_t(size_t m, bool track_counts=true): hvals_(m), div_(m), res_(m), ls_(m) {
         if(m > std::numeric_limits<IdxT>::max()) throw std::invalid_argument("pmh2 requires a larger integer type to sketch.");
+        if(track_counts) rcounts_.resize(m);
     }
     void reset() {
         hvals_.reset();
         std::fill(res_.begin(), res_.end(), IT(0));
+        std::fill(rcounts_.begin(), rcounts_.end(), IT(0));
         total_updates_ = 0;
     }
 
@@ -498,7 +501,10 @@ struct pmh2_t {
         ls_.seed(rv);
         do {
             auto idx = ls_.step();
-            if(hvals_.update(idx, hv)) {
+            if(!rcounts_.empty()) {
+                if(id == res_[idx]) ++rcounts_[idx];
+            }
+            else if(hvals_.update(idx, hv)) {
                 maxv = hvals_.max();
                 res_[idx] = id;
                 if(hv >= maxv) return;
@@ -514,8 +520,22 @@ struct pmh2_t {
             }
         } while(hv < maxv);
     }
+    pmh2_t &operator+=(const pmh2_t &o) {
+        if(size() != o.size()) throw std::invalid_argument("Mismatched sizes");
+        if(!rcounts_.empty() != o.rcounts_.empty()) throw std::invalid_argument("Mismatched counting");
+        const bool use_counts = !rcounts_.empty();
+        for(size_t i = 0; i < m(); ++i) {
+            if(hvals_[i] == o.hvals_[i]) {
+                if(use_counts) rcounts_[i] += o.rcounts_[i];
+            } else if(hvals_.update(i, o.hvals_[i])) {
+                if(use_counts) rcounts_[i] = o.rcounts_[i];
+            }
+        }
+        return *this;
+    }
     void add(const IT id, const FT w) {update(id, w);}
     size_t m() const {return res_.size();}
+    size_t size() const {return m();}
     template<typename IT=FT>
     std::vector<IT> to_sigs() const {
         std::vector<IT> ret(m());

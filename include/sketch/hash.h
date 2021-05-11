@@ -722,14 +722,14 @@ struct InvH {
         hv = iop(hv, inverse_);
         return hv;
     }
+    INLINE uint64_t operator()(uint64_t h) const {
+        h = op(h, seed_);
+        return h;
+    }
 #ifdef _VEC_H__
     INLINE VType inverse(VType hv) const {
         hv = iop(hv.simd_, Space::set1(inverse_));
         return hv;
-    }
-    INLINE uint64_t operator()(uint64_t h) const {
-        h = op(h, seed_);
-        return h;
     }
     INLINE VType operator()(VType h) const {
         const VType s = Space::set1(seed_);
