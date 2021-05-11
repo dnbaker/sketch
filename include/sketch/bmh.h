@@ -501,9 +501,7 @@ struct pmh2_t {
         ls_.seed(rv);
         do {
             auto idx = ls_.step();
-            if(!rcounts_.empty()) {
-                if(id == res_[idx]) ++rcounts_[idx];
-            }
+            if(!rcounts_.empty() && id == res_[idx]) ++rcounts_[idx];
             else if(hvals_.update(idx, hv)) {
                 maxv = hvals_.max();
                 res_[idx] = id;
