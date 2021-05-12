@@ -476,16 +476,18 @@ struct pmh2_t {
     mvt_t<FT> hvals_;
     schism::Schismatic<IdxT> div_;
     std::vector<IT> res_;
-    std::vector<FT> rcounts_;
+    std::vector<FT> resweights_;
     fy::LazyShuffler ls_;
     pmh2_t(size_t m, bool track_counts=true): hvals_(m), div_(m), res_(m), ls_(m) {
         if(m > std::numeric_limits<IdxT>::max()) throw std::invalid_argument("pmh2 requires a larger integer type to sketch.");
-        if(track_counts) rcounts_.resize(m);
+        if(track_counts) resweights_.resize(m);
     }
+    std::vector<FT> &idcounts() {return resweights_;}
+    const std::vector<FT> &idcounts() const {return resweights_;}
     void reset() {
         hvals_.reset();
         std::fill(res_.begin(), res_.end(), IT(0));
-        std::fill(rcounts_.begin(), rcounts_.end(), FT(0));
+        std::fill(resweights_.begin(), resweights_.end(), FT(0));
         total_updates_ = 0;
     }
 
@@ -524,7 +526,7 @@ struct pmh2_t {
             if(hvals_.update(idx, hv)) {
                 maxv = hvals_.max();
                 res_[idx] = id;
-                rcounts_[idx] = w;
+                resweights_[idx] = w;
                 if(hv >= maxv) return;
             }
             // Beta = m_double / (m_double - i + 1)
@@ -540,13 +542,13 @@ struct pmh2_t {
     }
     pmh2_t &operator+=(const pmh2_t &o) {
         if(size() != o.size()) throw std::invalid_argument("Mismatched sizes");
-        if(!rcounts_.empty() != o.rcounts_.empty()) throw std::invalid_argument("Mismatched counting");
-        const bool use_counts = !rcounts_.empty();
+        if(!resweights_.empty() != o.resweights_.empty()) throw std::invalid_argument("Mismatched counting");
+        const bool use_counts = !resweights_.empty();
         for(size_t i = 0; i < m(); ++i) {
             if(hvals_[i] == o.hvals_[i]) {
-                if(use_counts) rcounts_[i] += o.rcounts_[i];
+                if(use_counts) resweights_[i] += o.resweights_[i];
             } else if(hvals_.update(i, o.hvals_[i])) {
-                if(use_counts) rcounts_[i] = o.rcounts_[i];
+                if(use_counts) resweights_[i] = o.resweights_[i];
             }
         }
         return *this;
