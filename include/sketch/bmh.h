@@ -69,9 +69,10 @@ struct mvt_t {
         std::fill(data_.begin(), data_.end(), std::numeric_limits<FT>::max());
     }
 
-    bool update(size_t index, FT x) {
+    int update(size_t index, FT x) {
         const auto sz = data_.size();
         const auto mv = getm();
+        if(x == data_[index]) return -1;
         if(x < data_[index]) {
             do {
                 data_[index] = x;
@@ -81,9 +82,9 @@ struct mvt_t {
                 size_t rhi = lhi + 1;
                 x = std::max(data_[lhi], data_[rhi]);
             } while(x < data_[index]);
-            return true;
+            return 1;
         }
-        return false;
+        return 0;
     }
 };
 
@@ -125,6 +126,7 @@ struct poisson_process_t {
     FT x_, weight_, minp_, maxq_, sum_carry_;
     IT idx_ = std::numeric_limits<IT>::max();
     uint64_t wyv_; // RNG state
+    uint64_t id_;
     using wd = wd_t<FT>;
 public:
     poisson_process_t(FT x, FT w, FT p, FT q, uint64_t seed):
@@ -136,7 +138,7 @@ public:
     poisson_process_t& operator=(const poisson_process_t &) = default;
     poisson_process_t(const poisson_process_t &o) = default;
     poisson_process_t(poisson_process_t &&o) = default;
-    poisson_process_t(IT id, FT w): x_(0.), weight_(w), minp_(0.), maxq_(std::numeric_limits<FT>::max()), sum_carry_(0.), wyv_(id) {
+    poisson_process_t(IT id, FT w): x_(0.), weight_(w), minp_(0.), maxq_(std::numeric_limits<FT>::max()), sum_carry_(0.), wyv_(id), id_(id) {
 
     }
     IT widxmax() const {
@@ -222,45 +224,63 @@ struct bmh_t {
     uint64_t total_updates_ = 0;
     pq_t heap_;
     mvt_t<FT> hvals_;
+    using IDType = uint64_t;
+    std::vector<IDType> track_ids_;
+    std::vector<FT> idcounts_;
     schism::Schismatic<std::conditional_t<(sizeof(FT) <= 8), IT, uint64_t>> div_;
     FT *data() {return hvals_.data();}
     const FT *data() const {return hvals_.data();}
     auto m() const {return hvals_.getm();}
+    size_t size() const {return m();}
 
     uint64_t total_updates() const {return total_updates_;}
-    bmh_t(size_t m): hvals_(m), div_(m) {
+    std::vector<FT> &idcounts() {return idcounts_;}
+    const std::vector<FT> &idcounts() const {return idcounts_;}
+    bmh_t(size_t m, bool track_ids = false, bool track_idcounts = false): hvals_(m), div_(m) {
         heap_.getc().reserve(m);
+        if(!track_ids && track_idcounts) {
+            std::fprintf(stderr, "track idcounts implies track ids\n");
+            track_ids = true;
+        }
+        if(track_ids)
+            track_ids_.resize(m);
+        if(track_idcounts)
+            idcounts_.resize(m);
     }
-    void update_2(IT id, FT w) {
+    void hv_update(const PoissonP &pt) {
+        int hvrc = hvals_.update(pt.idx_, pt.x_);
+        if(hvrc == 0) return;
+        if(track_ids_.size()) {
+            track_ids_[pt.idx_] = pt.id_;
+            if(idcounts_.size())
+                idcounts_[pt.idx_] = pt.weight_;
+        }
+    }
+    void update_2(IDType id, FT w) {
         if(w <= 0.) return;
         ++total_updates_;
         PoissonP p(id, w);
         p.step(div_);
-        if(p.maxq_ <= p.weight_) hvals_.update(p.idx_, p.x_);
+        if(p.maxq_ <= p.weight_)
+            hv_update(p);
         auto &tmp = heap_.getc();
         const size_t offset = tmp.size();
-        //size_t mainiternum = 0, subin  =0;
         while(p.x_ < hvals_.max()) {
-            //++mainiternum;
-            //std::fprintf(stderr, "x: %g. max: %g\n", p.x_, hvals_.max());
             while(p.can_split() && p.partially_relevant()) {
-                //std::fprintf(stderr, "min %g max %g, splitting!\n", p.minp_, p.maxq_);
                 auto pp = p.split();
-                if(p.fully_relevant())
-                    hvals_.update(p.idx_, p.x_);
+                if(p.fully_relevant()) hv_update(p);
                 if(pp.partially_relevant()) {
                     pp.step(div_);
-                    if(pp.fully_relevant()) hvals_.update(pp.idx_, pp.x_);
+                    if(pp.fully_relevant()) hv_update(pp);
                     if(pp.partially_relevant()) {
                         tmp.emplace_back(std::move(pp));
                         std::push_heap(tmp.begin() + offset, tmp.end());
                     }
                 }
-                //std::fprintf(stderr, "Finishing subloop at %zu/%zu\n", mainiternum, subin);
             }
             if(p.fully_relevant()) {
                 p.step(div_);
-                hvals_.update(p.idx_, p.x_);
+                hv_update(p);
                 if(p.x_ <= hvals_.max()) {
                     tmp.emplace_back(std::move(p));
                     std::push_heap(tmp.begin() + offset, tmp.end());
@@ -293,10 +313,10 @@ struct bmh_t {
             if(p.x_ > hvals_.max()) break;
             while(p.can_split() && p.partially_relevant()) {
                 auto pp = p.split();
-                if(p.fully_relevant()) hvals_.update(p.idx_, p.x_);
+                if(p.fully_relevant()) hv_update(p);
                 if(pp.partially_relevant()) {
                     pp.step(div_);
-                    if(pp.fully_relevant()) hvals_.update(pp.idx_, pp.x_);
+                    if(pp.fully_relevant()) hv_update(pp);
                     if(pp.x_ <= hvals_.max()) {
                         tmp.emplace_back(std::move(pp));
                         std::push_heap(tmp.begin(), tmp.end());
@@ -305,7 +325,7 @@ struct bmh_t {
             }
             if(p.fully_relevant()) {
                 p.step(div_);
-                hvals_.update(p.idx_, p.x_);
+                hv_update(p);
                 if(p.x_ <= hvals_.max()) {
                     tmp.emplace_back(std::move(p));
                     std::push_heap(tmp.begin(), tmp.end());
@@ -313,12 +333,12 @@ struct bmh_t {
             }
         }
     }
-    void update_1(IT id, FT w) {
+    void update_1(IDType id, FT w) {
         if(w <= 0.) return;
         ++total_updates_;
         PoissonP p(id, w);
         p.step(div_);
-        if(p.fully_relevant()) hvals_.update(p.idx_, p.x_);
+        if(p.fully_relevant()) hv_update(p);
         //size_t mainiternum = 0, subin  =0;
         //std::fprintf(stderr, "Updating key %zu and w %g\n", size_t(id), double(w));
         //std::fprintf(stderr, "Current max: %g\n", hvals_.max());
@@ -329,17 +349,17 @@ struct bmh_t {
                 VERBOSE_ONLY(std::fprintf(stderr, "min %0.20g max %0.20g, splitting!\n", p.minp_, p.maxq_);)
                 auto pp = p.split();
                 if(p.fully_relevant())
-                    hvals_.update(p.idx_, p.x_);
+                    hv_update(p);
                 if(pp.partially_relevant()) {
                     pp.step(div_);
-                    if(pp.fully_relevant()) hvals_.update(pp.idx_, pp.x_);
+                    if(pp.fully_relevant()) hv_update(pp);
                     if(pp.partially_relevant()) heap_.push(std::move(pp));
                 }
                 //std::fprintf(stderr, "Finishing subloop at %zu/%zu\n", mainiternum, subin);
             }
             if(p.fully_relevant()) {
                 p.step(div_);
-                hvals_.update(p.idx_, p.x_);
+                hv_update(p);
                 if(p.x_ <= hvals_.max()) heap_.push(std::move(p));
             }
             if(heap_.empty()) break;
@@ -456,7 +476,7 @@ struct pmh2_t {
     mvt_t<FT> hvals_;
     schism::Schismatic<IdxT> div_;
     std::vector<IT> res_;
-    std::vector<uint32_t> rcounts_;
+    std::vector<FT> rcounts_;
     fy::LazyShuffler ls_;
     pmh2_t(size_t m, bool track_counts=true): hvals_(m), div_(m), res_(m), ls_(m) {
         if(m > std::numeric_limits<IdxT>::max()) throw std::invalid_argument("pmh2 requires a larger integer type to sketch.");
@@ -465,7 +485,7 @@ struct pmh2_t {
     void reset() {
         hvals_.reset();
         std::fill(res_.begin(), res_.end(), IT(0));
-        std::fill(rcounts_.begin(), rcounts_.end(), IT(0));
+        std::fill(rcounts_.begin(), rcounts_.end(), FT(0));
         total_updates_ = 0;
     }
 
@@ -501,10 +521,10 @@ struct pmh2_t {
         ls_.seed(rv);
         do {
             auto idx = ls_.step();
-            if(!rcounts_.empty() && id == res_[idx]) ++rcounts_[idx];
-            else if(hvals_.update(idx, hv)) {
+            if(hvals_.update(idx, hv)) {
                 maxv = hvals_.max();
                 res_[idx] = id;
+                rcounts_[idx] = w;
                 if(hv >= maxv) return;
             }
             // Beta = m_double / (m_double - i + 1)
@@ -564,7 +584,7 @@ using wmh::BagMinHash1;
 using wmh::BagMinHash2;
 
 namespace omh {
-template<typename FT=double> 
+template<typename FT=double>
 struct OMHasher {
 private:
     size_t m_, l_;
@@ -573,7 +593,7 @@ private:
     wmh::mvt_t<FT>             mvt;
     ska::flat_hash_map<uint64_t, uint32_t> counter;
     fy::LazyShuffler ls_;
-    
+
     bool sub_update(const uint64_t pos, const FT value, const uint64_t element_idx) {
         if(value >= vals[l_ * (pos + 1) - 1]) return false;
         auto start = l_ * pos, stop = start + l_ - 1;
@@ -614,7 +634,7 @@ private:
 public:
     OMHasher(size_t m, size_t l)
         : m_(m), l_(l), indices(m_ * l_), vals(m_ * l_), mvt(m), ls_(m)
-    {   
+    {
         reset();
     }
 
@@ -651,7 +671,7 @@ public:
         std::fill(indices.begin(), indices.end(), uint64_t(-1));
         mvt.reset();
         counter.clear();
-    }   
+    }
 
 };
 

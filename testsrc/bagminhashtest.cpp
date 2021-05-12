@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     }
     size_t n = argc < 2 ? 1000: std::atoi(argv[1]);
     size_t m = argc < 3 ? 100: std::atoi(argv[2]);
-    bmh_t<> bmh(m), bmh2(m), bmh3(m), bmh4(m), bmh7(m);
+    bmh_t<> bmh(m, true, true), bmh2(m, true, true), bmh3(m, true, true), bmh4(m, true, true), bmh7(m, true, true);
     pmh1_t<> pmh1(m), pmh2(m);
     pmh1_t<> pmh3(m), pmh4(m);
     pmh2_t<> pm21(m), pm22(m), pm23(m), pm24(m);
@@ -22,12 +22,15 @@ int main(int argc, char **argv) {
     assert(std::equal(bmh.hvals_.data(), bmh.hvals_.data() + m, bmh2.hvals_.data()));
     auto start = std::chrono::high_resolution_clock::now();
     for(size_t i = 0; i < n; ++i) {
-        if(i % 16 == 0) bmh7.update_1(i, 1);
-        bmh.update_1(i, 1);
-        bmh2.update_1(i, 1);
-        bmh3.update_1(i, 1);
-        bmh4.update_2(i, 1);
+        if(i % 16 == 0) bmh7.update_1(i, 1.767);
+        bmh.update_1(i, 1.767);
+        bmh2.update_1(i, 1.767);
+        bmh3.update_1(i, 1.767);
+        bmh4.update_2(i, 1.767);
         //if(i % 100 == 0) std::fprintf(stderr, "Processed %zu/%zu\r\n", i, n);
+    }
+    for(size_t i = 0; i < bmh.size(); ++i) {
+        assert(bmh.idcounts_[i] == 1.767);
     }
     auto stop = std::chrono::high_resolution_clock::now();
     std::fprintf(stderr, "Updates for 5 BMH: %gs\n", static_cast<double>((stop - start).count() / 1000) * .001);
