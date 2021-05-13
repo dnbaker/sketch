@@ -236,6 +236,8 @@ struct bmh_t {
     uint64_t total_updates() const {return total_updates_;}
     std::vector<FT> &idcounts() {return idcounts_;}
     const std::vector<FT> &idcounts() const {return idcounts_;}
+    std::vector<IDType> &ids() {return track_ids_;}
+    const std::vector<IDType> &ids() const {return track_ids_;}
     bmh_t(size_t m, bool track_ids = false, bool track_idcounts = false): hvals_(m), div_(m) {
         heap_.getc().reserve(m);
         if(!track_ids && track_idcounts) {
@@ -412,7 +414,7 @@ struct BagMinHash2: public bmh_t<FT> {
     using S = bmh_t<FT>;
     FT *data() {return this->hvals_.data();}
     const FT *data() const {return this->hvals_.data();}
-    BagMinHash2(size_t m): S(m) {}
+    BagMinHash2(size_t m, bool track_ids=false, bool track_counts=false): S(m, track_ids, track_counts) {}
     template<typename IT>
     void add(IT id, FT w) {
         this->update_2(id, w);
@@ -475,7 +477,8 @@ struct pmh2_t {
     uint64_t total_updates_ = 0;
     mvt_t<FT> hvals_;
     schism::Schismatic<IdxT> div_;
-    std::vector<IT> res_;
+    using IDType = uint64_t;
+    std::vector<IDType> res_;
     std::vector<FT> resweights_;
     fy::LazyShuffler ls_;
     pmh2_t(size_t m, bool track_counts=true): hvals_(m), div_(m), res_(m), ls_(m) {
@@ -490,6 +493,8 @@ struct pmh2_t {
         std::fill(resweights_.begin(), resweights_.end(), FT(0));
         total_updates_ = 0;
     }
+    const std::vector<IDType> &ids() const {return res_;}
+    std::vector<IDType> &ids() {return res_;}
 
     void finalize() const {}
     static constexpr FT beta(size_t idx, size_t m) {
@@ -500,7 +505,7 @@ struct pmh2_t {
     const FT *data() const {return hvals_.data();}
     uint64_t total_updates() const {return total_updates_;}
     FT getbeta(size_t idx) const {return beta(idx, ls_.size());}
-    void update(const IT id, const FT w) {
+    void update(const uint64_t id, const FT w) {
         using fastlog::flog;
         FT carry = 0.;
         if(w <= 0.) return;

@@ -360,6 +360,9 @@ public:
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
+    template<typename OFT, typename=typename std::enable_if<std::is_arithmetic<OFT>::value>::type>
+    void update(const uint64_t id, OFT) {update(id);}
+    // If a weight is passed, ignore it
     void update(const uint64_t id) {
         using fastlog::flog;
         FT kahan_carry = 0;
@@ -601,7 +604,7 @@ public:
         return ret;
     }
 };
-template<typename FT=double, bool FLOGFILTER=true>
+template<typename FT=double>
 class OPCSetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
     size_t m_; // Number of registers
@@ -680,6 +683,9 @@ public:
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
+    template<typename OFT, typename=typename std::enable_if<std::is_arithmetic<OFT>::value>::type>
+    void update(const uint64_t id, OFT) {update(id);}
+    // If a weight is passed, ignore it
     bool update(const uint64_t id) {
         mycard_ = -1.;
         ++total_updates_;
