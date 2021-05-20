@@ -92,7 +92,7 @@ void declare_lsh_table(py::class_<SSI> &cls) {
     }, py::arg("item"))
     .def("query", [](SSI &index, py::array arr, py::ssize_t maxcand, py::ssize_t startidx) {
         auto inf = arr.request();
-        std::pair<std::vector<typename SSI::id_type>, std::vector<uint32_t>> ret;
+        std::tuple<std::vector<typename SSI::id_type>, std::vector<uint32_t>, std::vector<uint32_t>> ret;
         if(inf.format.size() > 1) throw std::invalid_argument(std::string("Required: simple dtype of one character length. Found: ") + inf.format);
         if(inf.ndim > 2) throw std::invalid_argument("too many (> 2) dimensions");
         else if(inf.ndim == 2) {
@@ -109,11 +109,17 @@ void declare_lsh_table(py::class_<SSI> &cls) {
                 default: throw std::invalid_argument(std::string("Unexpected dtype: ") + inf.format);
             }
         }
-        py::array_t<typename SSI::id_type> ids(ret.first.size());
-        py::array_t<uint32_t> items_per_row(ret.second.size());
-        std::copy(ret.first.data(), ret.first.data() + ret.first.size(), ids.mutable_data());
-        std::copy(ret.second.data(), ret.second.data() + ret.second.size(), items_per_row.mutable_data());
-        return py::dict("ids"_a = ids, "per_row"_a = items_per_row);
+        auto &idref = std::get<0>(ret);
+        auto &countsref = std::get<1>(ret);
+        auto &iprref = std::get<2>(ret);
+        const size_t nids = idref.size(), nipr = iprref.size();
+        py::array_t<typename SSI::id_type> ids(nids);
+        py::array_t<uint32_t> items_per_row(nipr);
+        py::array_t<uint32_t> counts(nids);
+        std::copy(idref.data(), idref.data() + idref.size(), ids.mutable_data());
+        std::copy(countsref.data(), countsref.data() + countsref.size(), counts.mutable_data());
+        std::copy(iprref.data(), iprref.data() + iprref.size(), items_per_row.mutable_data());
+        return py::dict("ids"_a = ids, "per_row"_a = items_per_row, "counts"_a = counts);
     }, py::arg("item"), py::arg("maxcand") = 50, py::arg("start") = py::ssize_t(-1));
 }
 

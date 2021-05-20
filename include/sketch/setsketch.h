@@ -11,6 +11,7 @@
 #include "sketch/count_eq.h"
 #include "sketch/macros.h"
 #include "sketch/hash.h"
+#include "sketch/flog.h"
 #include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
 
@@ -19,6 +20,13 @@ namespace sketch {
 namespace setsketch {
 
 namespace detail {
+    template<typename T>
+    INLINE T kahan_update(T &sum, T &carry, T increment) {
+        increment -= carry;
+        T tmp = sum + increment;
+        carry = (tmp - sum) - increment;
+        return sum = tmp;
+    }
     struct Deleter {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
@@ -87,7 +95,6 @@ static inline FT jmle_simple(const uint64_t lhgt, const uint64_t rhgt, const siz
     const FT sumest = lhest + rhest;
     const long double bi = 1.L / base;
     const long double lbase = std::log(static_cast<long double>(base)), lbi = 1. / lbase;
-    //const long double lbdb = base - 1. ? std::log1p(base - 1.L) / (base - 1.L): 1.L;
     const FT z = (1.L - bi) / (sumest);
     auto func = [neq,lhgt,rhgt,lbi,z,rhest,lhest](auto jaccard) {
         FT lhs = neq || lhgt ? FT(lbi * std::log1p((rhest * jaccard - lhest) * z)): FT(0);
@@ -117,12 +124,11 @@ class mvt_t {
     FT *data_ = nullptr;
     size_t m_;
 public:
-    mvt_t(size_t m, FT mv = std::numeric_limits<FT>::max()): mv_(m), m_(m) {}
+    mvt_t(size_t m, FT mv = std::numeric_limits<FT>::max()): mv_(mv), m_(m) {}
 
     FT mv() const {return mv_;}
     FT *data() {return data_;}
     const FT *data() const {return data_;}
-    // Check size and max
     size_t getm() const {return m_;}
     size_t nelem() const {return 2 * m_ - 1;}
     FT operator[](size_t i) const {return data_[i];}
@@ -169,7 +175,6 @@ struct minvt_t {
     double explim() const {return explim_;}
     ResT *data() {return data_;}
     const ResT *data() const {return data_;}
-    // Check size and max
     size_t getm() const {return m_;}
     ResT operator[](size_t i) const {return data_[i];}
     void assign(ResT *vals, size_t nvals, double b) {
@@ -267,6 +272,8 @@ template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 template<typename FT=double, bool FLOGFILTER=true>
 class CSetSketch {
+    // This uses Kahan summation for floating-point values by default
+    // std::fma is expected to be accurate enough for long doubles.
     static_assert(std::is_floating_point<FT>::value, "Must float");
     // SetSketch 1
     size_t m_; // Number of registers
@@ -350,22 +357,12 @@ public:
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
-    long double flog(long double x) const {
-        __uint128_t yi;
-        std::memcpy(&yi, &x, sizeof(x));
-        return yi * 3.7575583950764744255e-20L - 11356.176832703863597L;
-    }
-    double flog(double x) const {
-        uint64_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 1.539095918623324e-16 - 709.0895657128241;
-    }
-    float flog(float x) const {
-        uint32_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 8.2629582881927490e-8f - 88.02969186f;
-    }
+    template<typename OFT, typename=typename std::enable_if<std::is_arithmetic<OFT>::value>::type>
+    void update(const uint64_t id, OFT) {update(id);}
+    // If a weight is passed, ignore it
     void update(const uint64_t id) {
+        using fastlog::flog;
+        FT kahan_carry = 0;
         mycard_ = -1.;
         ++total_updates_;
         uint64_t hid = id;
@@ -394,7 +391,7 @@ public:
         ls_.seed(rv);
         uint64_t bi = 1;
         uint32_t idx = ls_.step();
-        for(;;) {
+        for(;;idx = ls_.step()) {
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
                     ids_.operator[](idx) = id;
@@ -402,7 +399,8 @@ public:
                 }
                 mv = max();
             } else if(!idcounts_.empty()) {
-                if(id == ids_.operator[](idx)) ++idcounts_.operator[](idx);
+                if(id == ids_.operator[](idx))
+                    ++idcounts_.operator[](idx);
             }
             if(bi == m_) return;
             rv = wy::wyhash64_stateless(&hid);
@@ -410,17 +408,19 @@ public:
             CONST_IF(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev = std::fma(bv, std::log((lrv >> 32) * 1.2621774483536188887e-29L), ev);
-                if(ev > mv) break;
+                const long double increment = std::log((lrv >> 32) * 1.2621774483536188887e-29L);
+                if((ev = std::fma(bv, increment, ev)) > mv) break;
             } else {
                 const FT nv = rv * INVMUL64;
                 CONST_IF(FLOGFILTER) {
-                    if(bv * flog(nv) * FT(.7) + ev >= mv) break;
+                    if(bv * flog(nv) * FT(.7) + ev > mv) {
+                        assert(std::fma(bv, std::log(nv), ev) > mv);
+                        break;
+                    }
                 }
-                ev = std::fma(bv, std::log(nv), ev);
-                if(ev > mv) break;
+                if((ev = detail::kahan_update(ev, kahan_carry, bv * std::log(nv))) > mv)
+                    break;
             }
-            idx = ls_.step();
         }
     }
     bool operator==(const CSetSketch<FT> &o) const {
@@ -584,11 +584,26 @@ public:
         auto isf = std::max(1. - (lho + std::get<1>(abm)), 0.);
         return isf / (lho + isf);
     }
+    template<typename IT=FT>
+    std::vector<IT> to_sigs() const {
+        std::vector<IT> ret(m_);
+        if(std::is_integral<IT>::value) {
+            using TmpT = std::conditional_t<(sizeof(IT) <= 8), uint64_t, __uint128_t>;
+            std::transform(data_.get(), data_.get() + m_, ret.begin(), [](auto x) {
+                TmpT t = 0;std::memcpy(&t, &x, sizeof(x));
+                uint64_t ret = wy::wyhash64_stateless((uint64_t *)&t);
+                if(sizeof(TmpT) >= 16) ret ^= wy::wyhash64_stateless((uint64_t *)&t + 1);
+                return ret;
+            });
+        } else {
+            std::copy(data_.get(), data_.get() + m_, ret.begin());
+        }
+        return ret;
+    }
 };
-template<typename FT=double, bool FLOGFILTER=true>
+template<typename FT=double>
 class OPCSetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
-    // SetSketch 1
     size_t m_; // Number of registers
     std::unique_ptr<FT[], detail::Deleter> data_;
     schism::Schismatic<uint32_t> div_;
@@ -621,11 +636,9 @@ public:
             track_ids = true;
         }
         if(track_counts) idcounts_.resize(m_);
-        //generate_betas();
     }
     OPCSetSketch(const OPCSetSketch &o): m_(o.m_), data_(allocate(o.m_)), div_(m_), ids_(o.ids_), idcounts_(o.idcounts_) {
-        std::copy(o.data_[0], &o.data_[m_], data_.get());
-        //generate_betas();
+        std::copy(&o.data_[0], &o.data_[m_], data_.get());
     }
     template<typename ResT=uint16_t>
     SetSketch<ResT, FT> to_setsketch(double b, double a, int64_t q=std::numeric_limits<ResT>::max() - 1) const {
@@ -665,21 +678,9 @@ public:
     void addh(uint64_t id) {update(id);}
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
-    long double flog(long double x) const {
-        __uint128_t yi;
-        std::memcpy(&yi, &x, sizeof(x));
-        return yi * 3.7575583950764744255e-20L - 11356.176832703863597L;
-    }
-    double flog(double x) const {
-        uint64_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 1.539095918623324e-16 - 709.0895657128241;
-    }
-    float flog(float x) const {
-        uint32_t yi;
-        std::memcpy(&yi, &x, sizeof(yi));
-        return yi * 8.2629582881927490e-8f - 88.02969186f;
-    }
+    template<typename OFT, typename=typename std::enable_if<std::is_arithmetic<OFT>::value>::type>
+    void update(const uint64_t id, OFT) {update(id);}
+    // If a weight is passed, ignore it
     bool update(const uint64_t id) {
         mycard_ = -1.;
         ++total_updates_;
@@ -864,6 +865,22 @@ public:
         auto isf = std::max(1. - (lho + std::get<1>(abm)), 0.);
         return isf / (lho + isf);
     }
+    template<typename IT=FT>
+    std::vector<IT> to_sigs() const {
+        std::vector<IT> ret(m_);
+        if(std::is_integral<IT>::value) {
+            using TmpT = std::conditional_t<(sizeof(IT) <= 8), uint64_t, __uint128_t>;
+            std::transform(data_.get(), data_.get() + m_, ret.begin(), [](auto x) {
+                TmpT t = 0;std::memcpy(&t, &x, sizeof(x));
+                uint64_t ret = wy::wyhash64_stateless((uint64_t *)&t);
+                if(sizeof(TmpT) >= 16) ret ^= wy::wyhash64_stateless((uint64_t *)&t + 1);
+                return ret;
+            });
+        } else {
+            std::copy(data_.get(), data_.get() + m_, ret.begin());
+        }
+        return ret;
+    }
 };
 
 
@@ -958,22 +975,22 @@ public:
         std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
     }
     void update(const uint64_t id) {
+        using GenFT = std::conditional_t<(sizeof(FT) <= 8), double, long double>;
+        GenFT carry = 0.;
         mycard_ = -1.;
         uint64_t hid = id;
         size_t bi = 0;
         uint64_t rv = wy::wyhash64_stateless(&hid);
-        double ev = 0.;
+        GenFT ev = 0.;
         ls_.reset();
         ls_.seed(rv);
         for(;;) {
-            const auto ba = lbetas_[bi];
-            if(sizeof(FT) > 8) {
+            const GenFT ba = lbetas_[bi];
+            if(sizeof(GenFT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                ev += ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L);
-            } else {
-                ev += ba * std::log(rv * INVMUL64);
-            }
+                detail::kahan_update(ev, carry, GenFT(ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L)));
+            } else detail::kahan_update(ev, carry, ba * std::log(rv * INVMUL64));
             if(ev > lowkh_.explim()) return;
             const QType k = std::max(0, std::min(q_ + 1, static_cast<QType>((1. - std::log(ev) * logbinv_))));
             if(k <= klow()) return;
@@ -1004,21 +1021,22 @@ public:
                 it->second[i] = std::pow(static_cast<long double>(b_), -static_cast<ptrdiff_t>(i));
             }
         }
-        std::vector<uint32_t> counts(q_ + 2);
-        if(ptr) {
-            for(size_t i = 0; i < m_; ++i) {
-                ++counts[std::max(data_[i], ptr->data()[i])];
-            }
+        if(q_ <= 256) {
+            std::vector<uint32_t> counts(q_ + 2);
+            if(ptr) {
+                for(size_t i = 0; i < m_; ++i)
+                    ++counts[std::max(data_[i], ptr->data()[i])];
+            } else for(size_t i = 0; i < m_; ++counts[data_[i++]]);
+            return std::inner_product(&counts[lowkh_.klow()], &counts[q_ + 2], &it->second[lowkh_.klow()], 0.L);
         } else {
-            for(size_t i = 0; i < m_; ++i) {
-                ++counts[data_[i]];
-            }
+            ska::flat_hash_map<ResT, uint32_t> counts; counts.reserve(q_ + 2);
+            if(ptr) {
+                for(size_t i = 0; i < m_; ++i)
+                    ++counts[std::max(data_[i], ptr->data()[i])];
+            } else for(size_t i = 0; i < m_; ++counts[data_[i++]]);
+            auto &ptable = it->second;
+            return std::accumulate(counts.begin(), counts.end(), 0.L, [&ptable](long double s, std::pair<ResT, uint32_t> reg) {return s + reg.second * ptable[reg.first];});
         }
-        long double ret = 0.;
-        for(ptrdiff_t i = lowkh_.klow(); i <= q_ + 1; ++i) {
-            ret += counts[i] * it->second[i];
-        }
-        return ret;
     }
     double jaccard_by_ix(const SetSketch<ResT, FT> &o) const {
         auto us = union_size(o);

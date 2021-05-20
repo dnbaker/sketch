@@ -1,5 +1,4 @@
 #include "setsketch.h"
-#include "blaze/Math.h"
 #include "hll.h"
 #include <chrono>
 
@@ -26,6 +25,10 @@ using SType = OPCSetSketch<double>;
 using SType = CSetSketch<double>;
 #endif
 int main(int argc, char **argv) {
+    if(std::find_if(argv, argv + argc, [](auto x) {return !(std::strcmp(x, "-h") && std::strcmp(x, "--help"));}) != argv + argc) {
+        std::fprintf(stderr, "Usage: ./sstest [n=1000] [m=25] [shortb=1.001] [shorta=30]\n");
+        std::exit(1);
+    }
     const size_t n = argc <= 1 ? 1000: std::atoi(argv[1]);
     const size_t m = argc <= 2 ? 25: std::atoi(argv[2]);
     double sb = argc <= 3 ? 1.001: std::atof(argv[3]);

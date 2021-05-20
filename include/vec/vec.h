@@ -574,8 +574,8 @@ union UType {
     };
     template<size_t done>
     struct const_unroller<0, done> {
-        template<typename Functor> constexpr void for_each(const Functor &func) {}
-        const_unroller(const UType &ref) {}
+        template<typename Functor> constexpr void for_each(const Functor &) {}
+        const_unroller(const UType &) {}
     };
     template<typename Functor>
     constexpr void for_each(const Functor &func) {

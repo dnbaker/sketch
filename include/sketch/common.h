@@ -47,7 +47,7 @@
 #define sk__xstr__(x) sk__str__(x)
 #define SKETCH_SHIFT 8
 #define SKETCH_MAJOR 0
-#define SKETCH_MINOR 15
+#define SKETCH_MINOR 16
 #define SKETCH_REVISION 0
 #define SKETCH_VERSION_INTEGER ((((SKETCH_MAJOR << SKETCH_SHIFT) | SKETCH_MINOR) << SKETCH_SHIFT) | SKETCH_REVISION)
 #define SKETCH_VERSION SKETCH_MAJOR.SKETCH_MINOR##SKETCH_REVISION
@@ -240,8 +240,8 @@ void default_sort(T *__restrict__ x, T *__restrict__ y, Cmp cmp=Cmp()) {
 
 
 struct DoNothing {
-    template<typename... Args>void operator()(const Args &&...  args)const{}
-    template<typename T>void operator()(const T &x)const{}
+    template<typename... Args>void operator()(const Args &&...)const{}
+    template<typename T>void operator()(const T &)const{}
 };
 
 namespace detail {
