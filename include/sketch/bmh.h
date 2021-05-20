@@ -129,8 +129,8 @@ struct poisson_process_t {
     uint64_t id_;
     using wd = wd_t<FT>;
 public:
-    poisson_process_t(FT x, FT w, FT p, FT q, uint64_t seed, IT id):
-        x_(x), weight_(w), minp_(p), maxq_(q), wyv_(seed), id_(id)
+    poisson_process_t(FT x, FT w, FT p, FT q, uint64_t seed, IT id, FT sum_carry):
+        x_(x), weight_(w), minp_(p), maxq_(q), wyv_(seed), id_(id), sum_carry_(sum_carry)
     {
         assert(minp_ < maxq_);
     }
@@ -164,16 +164,12 @@ public:
         // Top 52-bits as U01 for exponential with weight of q - p,
         // bottom logm bits for index
         uint64_t xi = wy::wyhash64_stateless(&wyv_);
-        //std::fprintf(stderr, "Carry before: %g\n", sum_carry_);
-        x_ += -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_);
-        //kahan_detail::kahan_update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
-        //std::fprintf(stderr, "Carry after: %g\n", sum_carry_);
+        kahan_detail::kahan_update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
         idx_ = fastmod.mod(xi);
     }
     void step(size_t m) {
         uint64_t xi = wy::wyhash64_stateless(&wyv_);
-        x_ += -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_);
-        //kahan_detail::kahan_update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
+        kahan_detail::kahan_update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
         idx_ = xi % m;
     }
     poisson_process_t split() {
@@ -187,12 +183,11 @@ public:
         const bool goleft = rv < p;
         auto oldmaxq = maxq_;
         auto oldminp = minp_;
-        poisson_process_t ret(x_, weight_, goleft ? midval: oldminp, goleft ? oldmaxq: midval, xval, id_);
-        if(goleft) {
+        poisson_process_t ret(x_, weight_, goleft ? midval: oldminp, goleft ? oldmaxq: midval, xval, id_, sum_carry_);
+        if(goleft)
             maxq_ = midval;
-        } else {
+        else
             minp_ = midval;
-        }
         nsteps_ = -1;
         return ret;
     }
@@ -522,9 +517,7 @@ struct pmh2_t {
             hv = -std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wi;
         }
         if(hv >= maxv) return;
-        ls_.reset();
-        ls_.seed(rv);
-        do {
+        for(ls_.reset(), ls_.seed(rv);hv < maxv;) {
             auto idx = ls_.step();
             if(hvals_.update(idx, hv)) {
                 maxv = hvals_.max();
@@ -541,7 +534,7 @@ struct pmh2_t {
             } else {
                 kahan_detail::kahan_update(hv, carry, static_cast<FT>(-std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wb));
             }
-        } while(hv < maxv);
+        }
     }
     pmh2_t &operator+=(const pmh2_t &o) {
         if(size() != o.size()) throw std::invalid_argument("Mismatched sizes");
