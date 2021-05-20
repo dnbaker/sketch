@@ -95,7 +95,6 @@ static inline FT jmle_simple(const uint64_t lhgt, const uint64_t rhgt, const siz
     const FT sumest = lhest + rhest;
     const long double bi = 1.L / base;
     const long double lbase = std::log(static_cast<long double>(base)), lbi = 1. / lbase;
-    //const long double lbdb = base - 1. ? std::log1p(base - 1.L) / (base - 1.L): 1.L;
     const FT z = (1.L - bi) / (sumest);
     auto func = [neq,lhgt,rhgt,lbi,z,rhest,lhest](auto jaccard) {
         FT lhs = neq || lhgt ? FT(lbi * std::log1p((rhest * jaccard - lhest) * z)): FT(0);
@@ -130,7 +129,6 @@ public:
     FT mv() const {return mv_;}
     FT *data() {return data_;}
     const FT *data() const {return data_;}
-    // Check size and max
     size_t getm() const {return m_;}
     size_t nelem() const {return 2 * m_ - 1;}
     FT operator[](size_t i) const {return data_[i];}
@@ -177,7 +175,6 @@ struct minvt_t {
     double explim() const {return explim_;}
     ResT *data() {return data_;}
     const ResT *data() const {return data_;}
-    // Check size and max
     size_t getm() const {return m_;}
     ResT operator[](size_t i) const {return data_[i];}
     void assign(ResT *vals, size_t nvals, double b) {
@@ -276,7 +273,7 @@ template<typename ResT, typename FT=double> class SetSketch; // Forward
 template<typename FT=double, bool FLOGFILTER=true>
 class CSetSketch {
     // This uses Kahan summation for floating-point values by default
-    // std::fma is expected to be accurate enough for doubles/long doubles.
+    // std::fma is expected to be accurate enough for long doubles.
     static_assert(std::is_floating_point<FT>::value, "Must float");
     // SetSketch 1
     size_t m_; // Number of registers
@@ -390,7 +387,6 @@ public:
             ev = bv * std::log(tv);
             if(ev > mv) return;
         }
-        //std::fprintf(stderr, "For past first: ev: %g. mv: %g\n", ev, mv);
         ls_.reset();
         ls_.seed(rv);
         uint64_t bi = 1;
@@ -403,7 +399,8 @@ public:
                 }
                 mv = max();
             } else if(!idcounts_.empty()) {
-                if(id == ids_.operator[](idx)) ++idcounts_.operator[](idx);
+                if(id == ids_.operator[](idx))
+                    ++idcounts_.operator[](idx);
             }
             if(bi == m_) return;
             rv = wy::wyhash64_stateless(&hid);
@@ -639,11 +636,9 @@ public:
             track_ids = true;
         }
         if(track_counts) idcounts_.resize(m_);
-        //generate_betas();
     }
     OPCSetSketch(const OPCSetSketch &o): m_(o.m_), data_(allocate(o.m_)), div_(m_), ids_(o.ids_), idcounts_(o.idcounts_) {
         std::copy(&o.data_[0], &o.data_[m_], data_.get());
-        //generate_betas();
     }
     template<typename ResT=uint16_t>
     SetSketch<ResT, FT> to_setsketch(double b, double a, int64_t q=std::numeric_limits<ResT>::max() - 1) const {

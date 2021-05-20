@@ -129,8 +129,8 @@ struct poisson_process_t {
     uint64_t id_;
     using wd = wd_t<FT>;
 public:
-    poisson_process_t(FT x, FT w, FT p, FT q, uint64_t seed):
-        x_(x), weight_(w), minp_(p), maxq_(q), wyv_(seed)
+    poisson_process_t(FT x, FT w, FT p, FT q, uint64_t seed, IT id):
+        x_(x), weight_(w), minp_(p), maxq_(q), wyv_(seed), id_(id)
     {
         assert(minp_ < maxq_);
     }
@@ -139,7 +139,6 @@ public:
     poisson_process_t(const poisson_process_t &o) = default;
     poisson_process_t(poisson_process_t &&o) = default;
     poisson_process_t(IT id, FT w): x_(0.), weight_(w), minp_(0.), maxq_(std::numeric_limits<FT>::max()), sum_carry_(0.), wyv_(id), id_(id) {
-
     }
     IT widxmax() const {
         return wd::cvt(maxq_);
@@ -178,16 +177,17 @@ public:
         idx_ = xi % m;
     }
     poisson_process_t split() {
-        uint64_t midpoint = (uint64_t(widxmin()) + widxmax()) / 2;
-        double midval = wd::cvt(midpoint);
+        using MT = std::conditional_t<(sizeof(IT) < 8), uint64_t, IT>;
+        MT midpoint = (widxmin() + widxmax()) / 2;
+        FT midval = wd::cvt(midpoint);
         uint64_t xval = wd::cvt(x_) ^ wy::wyhash64_stateless(&midpoint);
-        const double p = (midval - minp_) / (maxq_ - minp_);
-        const double rv = (wy::wyhash64_stateless(&xval) * 5.421010862427522e-20);
+        const FT p = (midval - minp_) / (maxq_ - minp_);
+        const FT rv = (wy::wyhash64_stateless(&xval) * 5.421010862427522e-20);
         //auto mynsteps = static_cast<size_t>(-1);
         const bool goleft = rv < p;
         auto oldmaxq = maxq_;
         auto oldminp = minp_;
-        poisson_process_t ret(x_, weight_, goleft ? midval: oldminp, goleft ? oldmaxq: midval, xval);
+        poisson_process_t ret(x_, weight_, goleft ? midval: oldminp, goleft ? oldmaxq: midval, xval, id_);
         if(goleft) {
             maxq_ = midval;
         } else {
@@ -250,11 +250,9 @@ struct bmh_t {
             idcounts_.resize(m);
     }
     void hv_update(const PoissonP &pt) {
-        int hvrc = hvals_.update(pt.idx_, pt.x_);
-        if(hvrc == 0) return;
-        if(track_ids_.size()) {
+        if(hvals_.update(pt.idx_, pt.x_) && !track_ids_.empty()) {
             track_ids_[pt.idx_] = pt.id_;
-            if(idcounts_.size())
+            if(!idcounts_.empty())
                 idcounts_[pt.idx_] = pt.weight_;
         }
     }
