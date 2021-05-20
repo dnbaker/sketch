@@ -130,7 +130,7 @@ struct poisson_process_t {
     using wd = wd_t<FT>;
 public:
     poisson_process_t(FT x, FT w, FT p, FT q, uint64_t seed, IT id, FT sum_carry):
-        x_(x), weight_(w), minp_(p), maxq_(q), wyv_(seed), id_(id), sum_carry_(sum_carry)
+        x_(x), weight_(w), minp_(p), maxq_(q), sum_carry_(sum_carry), wyv_(seed), id_(id)
     {
         assert(minp_ < maxq_);
     }
@@ -176,7 +176,12 @@ public:
         using MT = std::conditional_t<(sizeof(IT) < 8), uint64_t, IT>;
         MT midpoint = (widxmin() + widxmax()) / 2;
         FT midval = wd::cvt(midpoint);
-        uint64_t xval = wd::cvt(x_) ^ wy::wyhash64_stateless(&midpoint);
+        uint64_t rval = wy::wyhash64_stateless((uint64_t *)&midpoint);
+        if(sizeof(midpoint) > 8) {
+            rval ^= wy::wyhash64_stateless((uint64_t *)&midpoint + 1);
+            rval += wy::wyhash64_stateless((uint64_t *)&midpoint);
+        }
+        uint64_t xval = wd::cvt(x_) ^ rval;
         const FT p = (midval - minp_) / (maxq_ - minp_);
         const FT rv = (wy::wyhash64_stateless(&xval) * 5.421010862427522e-20);
         //auto mynsteps = static_cast<size_t>(-1);
