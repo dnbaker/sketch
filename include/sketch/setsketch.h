@@ -564,12 +564,12 @@ public:
         return m_ / s;
     }
     static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, size_t q) {
+        if(maxreg < minreg) std::swap(maxreg, minreg);
         long double b = std::exp(std::log((long double)maxreg / (long double)minreg) / (long double)q);
         return {FT(b), FT((long double)maxreg / b)};
     }
     template<typename ResT=uint16_t>
     static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg) {
-        if(maxreg < minreg) std::swap(maxreg, minreg);
         return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
     }
     double containment_index(const CSetSketch<FT> &o) const {

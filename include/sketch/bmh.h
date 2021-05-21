@@ -212,6 +212,7 @@ struct bmh_t {
             assert(this->size() == 0);
         }
     };
+    double total_weight() const {return total_weight_;}
     uint64_t total_updates_ = 0;
     double total_weight_ = 0., total_weight_carry_ = 0.;
     pq_t heap_;
@@ -422,6 +423,7 @@ struct pmh1_t {
     using IT = typename wd::IntType;
 
     double total_weight_ = 0., total_weight_carry_ = 0.;
+    double total_weight() const {return total_weight_;}
     mvt_t<FT> hvals_;
     schism::Schismatic<IT> div_;
     std::vector<IT> res_;
@@ -476,6 +478,7 @@ struct pmh2_t {
     std::vector<IDType> res_;
     std::vector<FT> resweights_;
     fy::LazyShuffler ls_;
+    double total_weight() const {return total_weight_;}
     pmh2_t(size_t m, bool track_counts=true): hvals_(m), div_(m), res_(m), ls_(m) {
         if(m > std::numeric_limits<IdxT>::max()) throw std::invalid_argument("pmh2 requires a larger integer type to sketch.");
         if(track_counts) resweights_.resize(m);
