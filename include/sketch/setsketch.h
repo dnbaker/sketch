@@ -12,6 +12,7 @@
 #include "sketch/macros.h"
 #include "sketch/hash.h"
 #include "sketch/flog.h"
+#include "sketch/kahan.h"
 #include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
 
@@ -20,13 +21,6 @@ namespace sketch {
 namespace setsketch {
 
 namespace detail {
-    template<typename T>
-    INLINE T kahan_update(T &sum, T &carry, T increment) {
-        increment -= carry;
-        T tmp = sum + increment;
-        carry = (tmp - sum) - increment;
-        return sum = tmp;
-    }
     struct Deleter {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
@@ -418,7 +412,7 @@ public:
                         break;
                     }
                 }
-                if((ev = detail::kahan_update(ev, kahan_carry, bv * std::log(nv))) > mv)
+                if(kahan::update(ev, kahan_carry, bv * std::log(nv)) > mv)
                     break;
             }
         }
@@ -989,8 +983,8 @@ public:
             if(sizeof(GenFT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                detail::kahan_update(ev, carry, GenFT(ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L)));
-            } else detail::kahan_update(ev, carry, ba * std::log(rv * INVMUL64));
+                kahan::update(ev, carry, GenFT(ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L)));
+            } else kahan::update(ev, carry, ba * std::log(rv * INVMUL64));
             if(ev > lowkh_.explim()) return;
             const QType k = std::max(0, std::min(q_ + 1, static_cast<QType>((1. - std::log(ev) * logbinv_))));
             if(k <= klow()) return;

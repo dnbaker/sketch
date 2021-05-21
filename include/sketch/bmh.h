@@ -8,20 +8,11 @@
 #include "aesctr/wy.h"
 #include "sketch/div.h"
 #include "sketch/flog.h"
+#include "sketch/kahan.h"
 #include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
 
 namespace sketch {
-
-namespace kahan_detail {
-    template<typename T>
-    INLINE T kahan_update(T &sum, T &carry, T increment) {
-        increment -= carry;
-        T tmp = sum + increment;
-        carry = (tmp - sum) - increment;
-        return sum = tmp;
-    }
-}
 
 
 namespace wmh {
@@ -164,12 +155,12 @@ public:
         // Top 52-bits as U01 for exponential with weight of q - p,
         // bottom logm bits for index
         uint64_t xi = wy::wyhash64_stateless(&wyv_);
-        kahan_detail::kahan_update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
+        kahan::update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
         idx_ = fastmod.mod(xi);
     }
     void step(size_t m) {
         uint64_t xi = wy::wyhash64_stateless(&wyv_);
-        kahan_detail::kahan_update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
+        kahan::update(x_, sum_carry_, -std::log((xi >> 12) * FT(2.220446049250313e-16)) / (maxq_ - minp_));
         idx_ = xi % m;
     }
     poisson_process_t split() {
@@ -222,6 +213,7 @@ struct bmh_t {
         }
     };
     uint64_t total_updates_ = 0;
+    double total_weight_ = 0., total_weight_carry_ = 0.;
     pq_t heap_;
     mvt_t<FT> hvals_;
     using IDType = uint64_t;
@@ -259,6 +251,7 @@ struct bmh_t {
     void update_2(IDType id, FT w) {
         if(w <= 0.) return;
         ++total_updates_;
+        kahan::update(total_weight_, total_weight_carry_, w);
         PoissonP p(id, w);
         p.step(div_);
         if(p.maxq_ <= p.weight_)
@@ -336,6 +329,7 @@ struct bmh_t {
     void update_1(IDType id, FT w) {
         if(w <= 0.) return;
         ++total_updates_;
+        kahan::update(total_weight_, total_weight_carry_, w);
         PoissonP p(id, w);
         p.step(div_);
         if(p.fully_relevant()) hv_update(p);
@@ -427,6 +421,7 @@ struct pmh1_t {
     using wd = wd_t<FT>;
     using IT = typename wd::IntType;
 
+    double total_weight_ = 0., total_weight_carry_ = 0.;
     mvt_t<FT> hvals_;
     schism::Schismatic<IT> div_;
     std::vector<IT> res_;
@@ -437,6 +432,7 @@ struct pmh1_t {
     void finalize() const {}
     void update(const IT id, const FT w) {
         if(w <= 0.) return;
+        kahan::update(total_weight_, total_weight_carry_, w);
         FT carry = 0.;
         ++total_updates_;
         const FT wi = 1. / w;
@@ -449,7 +445,7 @@ struct pmh1_t {
                 if(hv >= hvals_.max()) break;
             }
             xi = wy::wyhash64_stateless(&hi);
-            kahan_detail::kahan_update(hv, carry, -std::log(xi * FT(5.421010862427522e-20)) * wi);
+            kahan::update(hv, carry, -std::log(xi * FT(5.421010862427522e-20)) * wi);
         }
     }
     void add(const IT id, const FT w) {update(id, w);}
@@ -473,6 +469,7 @@ struct pmh2_t {
     using IT = typename wd::IntType;
 
     uint64_t total_updates_ = 0;
+    double total_weight_ = 0., total_weight_carry_ = 0.;
     mvt_t<FT> hvals_;
     schism::Schismatic<IdxT> div_;
     using IDType = uint64_t;
@@ -505,8 +502,9 @@ struct pmh2_t {
     FT getbeta(size_t idx) const {return beta(idx, ls_.size());}
     void update(const uint64_t id, const FT w) {
         using fastlog::flog;
-        FT carry = 0.;
         if(w <= 0.) return;
+        kahan::update(total_weight_, total_weight_carry_, w);
+        FT carry = 0.;
         ++total_updates_;
         uint64_t hi = id;
         const FT wi = 1. / w, m_double = ls_.size();
@@ -535,9 +533,9 @@ struct pmh2_t {
             const FT wb = m_double / (m_double - i++ + 1.);
             CONST_IF(sizeof(FT) <= 8) {
                 const FT frv = wy::wyhash64_stateless(&hi) * 5.421010862427522e-20;
-                kahan_detail::kahan_update(hv, carry, -std::log(frv) * wb);
+                kahan::update(hv, carry, -std::log(frv) * wb);
             } else {
-                kahan_detail::kahan_update(hv, carry, static_cast<FT>(-std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wb));
+                kahan::update(hv, carry, static_cast<FT>(-std::log(((__uint128_t(rv) << 64) | hi) * 2.9387358770557187699e-39L) * wb));
             }
         }
     }
@@ -545,6 +543,8 @@ struct pmh2_t {
         if(size() != o.size()) throw std::invalid_argument("Mismatched sizes");
         if(!resweights_.empty() != o.resweights_.empty()) throw std::invalid_argument("Mismatched counting");
         const bool use_counts = !resweights_.empty();
+        total_weight_ += o.total_weight_;
+        total_weight_carry_ += o.total_weight_carry_;
         for(size_t i = 0; i < m(); ++i) {
             if(hvals_[i] == o.hvals_[i]) {
                 if(use_counts) resweights_[i] += o.resweights_[i];
@@ -630,7 +630,7 @@ private:
             if(++n == m_) break;
             const FT inc = std::log((wy::wyhash64_stateless(&rng) >> 12) * 2.220446049250313e-16)
                  * (m_ / (m_ - n));
-            kahan_detail::kahan_update(f, carry, inc);
+            kahan::update(f, carry, inc);
             // Sample from exponential distribution, then divide by number
         }
     }
