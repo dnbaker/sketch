@@ -472,7 +472,7 @@ public:
         constexpr int tpb = 256;
         int nblocks = (nelem_ * numrows_ * entrysize_ + tpb - 1) / tpb;
         // This means one per 256 bytes.
-        // TODO: 
+        // TODO:
         std::thread copy_and_flush;
         cudaError_t ce;
         for(size_t tranche = 0, ntranches = (nelem_ - 1 + numrows_) / numrows_; tranche < ntranches; ++tranche) {

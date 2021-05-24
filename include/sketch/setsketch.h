@@ -1085,7 +1085,7 @@ public:
         const auto y = 1. / (1. + ji);
         double mycard = getcard(), ocard = o.getcard();
         return {std::max(0., mycard - ocard * ji) * y,
-                std::max(0., ocard - mycard * ji) * y, 
+                std::max(0., ocard - mycard * ji) * y,
                 (mycard + ocard) * ji * y};
     };
     double jaccard_index_by_card(const SetSketch<ResT, FT> &o) const {
