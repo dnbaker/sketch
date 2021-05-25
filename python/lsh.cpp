@@ -28,6 +28,10 @@ struct minispan {
     size_t n_;
     minispan(T *ptr, size_t n): ptr_(ptr), n_(n) {}
     minispan(const T *ptr, size_t n): ptr_(const_cast<T *>(ptr)), n_(n) {}
+    T *begin() {return ptr_;}
+    const T *begin() const {return ptr_;}
+    T *end() {return ptr_ + n_;}
+    const T *end() const {return ptr_ + n_;}
     size_t size() const {return n_;}
     T *data() {return ptr_;}
     const T *data() const {return ptr_;}
