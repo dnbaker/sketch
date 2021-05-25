@@ -402,8 +402,8 @@ public:
             CONST_IF(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                const long double increment = std::log((lrv >> 32) * 1.2621774483536188887e-29L);
-                if((ev = std::fma(bv, increment, ev)) > mv) break;
+                const long double increment = bv * std::log((lrv >> 32) * 1.2621774483536188887e-29L);
+                if(kahan::update(ev, kahan_carry, increment) > mv) break;
             } else {
                 const FT nv = rv * INVMUL64;
                 CONST_IF(FLOGFILTER) {
