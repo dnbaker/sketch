@@ -99,6 +99,7 @@ public:
         if(item.size() < m_) throw std::invalid_argument(std::string("Item has wrong size: ") + std::to_string(item.size()) + ", expected" + std::to_string(m_));
         if(starting_idx == size_t(-1) || starting_idx > regs_per_reg_.size()) starting_idx = regs_per_reg_.size();
         const size_t my_id = std::atomic_fetch_add(&total_ids_, size_t(1));
+        //std::fprintf(stderr, "Inserting id = %zu\n", my_id);
         const size_t n_subtable_lists = regs_per_reg_.size();
         ska::flat_hash_map<IdT, uint32_t> rset;
         std::vector<IdT> passing_ids;
@@ -106,30 +107,45 @@ public:
         rset.reserve(maxcand); passing_ids.reserve(maxcand); items_per_row.reserve(starting_idx);
         for(size_t i = 0; i < n_subtable_lists; ++i) {
             auto &subtab = packed_maps_[i];
-            const size_t nsubs = packed_maps_[i].size();
+            const size_t nsubs = subtab.size();
             for(size_t j = 0; j < nsubs; ++j) {
+                assert(j < subtab.size());
                 auto &table = subtab[j];
                 KeyT myhash = hash_index(item, i, j);
                 auto it = table.find(myhash);
-                if(it == table.end()) table.emplace(myhash, std::vector<IdT>{static_cast<IdT>(my_id)});
-                else {
+                if(it == table.end()) {
+                    table.emplace(myhash, std::vector<IdT>{static_cast<IdT>(my_id)});
+                    //std::fprintf(stderr, "my hash %zu has a new key %zu\n", size_t(myhash), my_id);
+                } else {
+                    //std::fprintf(stderr, "my key %zu has %zu neighbors:", my_id, it->second.size());
                     for(const auto id: it->second) {
+                        //std::fprintf(stderr, "%u now in use\t", id);
+                        assert(id < total_ids_);
                         auto rit2 = rset.find(id);
                         if(rit2 == rset.end()) {
+                            //std::fprintf(stderr, "ID %u is present now with new weight of 1\n");
                             rset.emplace(id, 1);
                             passing_ids.push_back(id);
-                        } else ++rit2->second;
+                        } else {
+                            assert(std::find(passing_ids.begin(), passing_ids.end(), id) != passing_ids.end());
+                            ++rit2->second;
+                            //std::fprintf(stderr, "ID %u has new count of %u\n", id, rit2->second);
+                        }
                     }
                     it->second.emplace_back(my_id);
                 }
             }
         }
-        std::vector<uint32_t> passing_counts(passing_ids.size());
-        std::transform(passing_ids.begin(), passing_ids.end(), passing_counts.begin(), [&rset](auto x) {return rset[x];});
+        std::vector<uint32_t> passing_counts;
+        if(passing_ids.size()) {
+            passing_counts.resize(passing_ids.size());
+            std::transform(passing_ids.begin(), passing_ids.end(), passing_counts.begin(), [&rset](auto x) {return rset[x];});
+        }
         return std::make_tuple(passing_ids, passing_counts, items_per_row);
     }
     template<typename Sketch>
     std::tuple<std::vector<IdT>, std::vector<uint32_t>, std::vector<uint32_t>> update_query_bottomk(const Sketch &item, size_t maxtoquery=-1) {
+        std::fprintf(stderr, "Warning: bottom-k update-query is untested\n");
         std::map<IdT, uint32_t> matches;
         auto &map = packed_maps_.front().front();
         const size_t my_id = std::atomic_fetch_add(&total_ids_, size_t(1));
@@ -180,6 +196,7 @@ public:
             const size_t nsubs = subtab.size();
             for(size_t j = 0; j < nsubs; ++j) {
                 KeyT myhash = hash_index(item, i, j);
+                assert(j < subtab.size());
                 subtab[j][myhash].push_back(my_id);
             }
         }
