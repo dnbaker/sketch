@@ -384,8 +384,9 @@ public:
         ls_.reset();
         ls_.seed(rv);
         uint64_t bi = 1;
-        uint32_t idx = ls_.step();
-        for(;;idx = ls_.step()) {
+        uint32_t idx;
+        for(;;) {
+            idx = ls_.step();
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
                     ids_.operator[](idx) = id;
@@ -402,7 +403,7 @@ public:
             CONST_IF(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                const long double increment = bv * std::log((lrv >> 32) * 1.2621774483536188887e-29L);
+                const FT increment = bv * std::log((lrv >> 32) * 1.2621774483536188887e-29L);
                 if(kahan::update(ev, kahan_carry, increment) > mv) break;
             } else {
                 const FT nv = rv * INVMUL64;
@@ -676,11 +677,14 @@ public:
     void update(const uint64_t id, OFT) {update(id);}
     // If a weight is passed, ignore it
     bool update(const uint64_t id) {
+        using fastlog::flog;
         mycard_ = -1.;
         ++total_updates_;
         uint64_t hid = id;
         uint64_t rv = wy::wyhash64_stateless(&hid);
 
+        auto idx = div_.mod(rv);
+        auto &reg = data_[idx];
         FT ev;
         CONST_IF(sizeof(FT) > 8) {
             auto lrv = __uint128_t(rv) << 64;
@@ -692,17 +696,17 @@ public:
             auto tv = rv * INVMUL64;
             const FT bv = -1. / m_;
             // Filter with fast log first
+            if(.7 * flog(tv) * bv > reg) return false;
             ev = bv * std::log(tv);
         }
-        auto idx = div_.mod(rv);
-        if(data_[idx] > ev) {
-            data_[idx] = ev;
+        if(reg > ev) {
+            reg = ev;
             if(!ids_.empty()) {
                 ids_[idx] = id;
                 if(!idcounts_.empty()) idcounts_[idx] = 1;
             }
             return true;
-        } else if(data_[idx] == ev && !ids_.empty() && ids_[idx] == id && !idcounts_.empty()) ++idcounts_[idx];
+        } else if(reg == ev && !ids_.empty() && ids_[idx] == id && !idcounts_.empty()) ++idcounts_[idx];
         return false;
     }
     bool operator==(const OPCSetSketch<FT> &o) const {
