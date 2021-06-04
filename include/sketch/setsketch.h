@@ -608,15 +608,7 @@ class OPCSetSketch {
     mutable double mycard_ = -1.;
     static FT *allocate(size_t n) {
         FT *ret = nullptr;
-        static constexpr size_t ALN =
-#if __AVX512F__
-            64;
-#elif __AVX2__
-            32;
-#else
-            16;
-#endif
-        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT))) throw std::bad_alloc();
+        if(posix_memalign((void **)&ret, 64, n * sizeof(FT))) throw std::bad_alloc();
         return ret;
     }
 public:
@@ -674,14 +666,12 @@ public:
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
     template<typename OFT, typename=typename std::enable_if<std::is_arithmetic<OFT>::value>::type>
-    void update(const uint64_t id, OFT) {update(id);}
+    INLINE void update(const uint64_t id, OFT) {update(id);}
     // If a weight is passed, ignore it
-    bool update(const uint64_t id) {
+    INLINE bool update(const uint64_t id) {
         using fastlog::flog;
-        mycard_ = -1.;
         ++total_updates_;
-        uint64_t hid = id;
-        uint64_t rv = wy::wyhash64_stateless(&hid);
+        uint64_t hid = id, rv = wy::wyhash64_stateless(&hid);
 
         auto idx = div_.mod(rv);
         auto &reg = data_[idx];
@@ -696,7 +686,7 @@ public:
             auto tv = rv * INVMUL64;
             const FT bv = -1. / m_;
             // Filter with fast log first
-            if(.7 * flog(tv) * bv > reg) return false;
+            //if(.7 * flog(tv) * bv > reg) return false;
             ev = bv * std::log(tv);
         }
         if(reg > ev) {
