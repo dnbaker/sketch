@@ -750,19 +750,12 @@ template<typename InvH1, typename InvH2>
 struct FusedReversible {
     InvH1 op1;
     InvH2 op2;
-    FusedReversible(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL):
-        op1(seed1), op2(seed2) {}
+    FusedReversible(uint64_t seed1=0, uint64_t seed2=1):
+        op1(mthash(seed1) | 1), op2(mthash(seed2) | 1) {}
     template<typename T>
-    INLINE T operator()(T h) const {
-        h = op1(h);
-        h = op2(h);
-        return h;
-    }
+    INLINE T operator()(T h) const {return op2(op1(h));}
     template<typename T>
-    INLINE T inverse(T hv) const {
-        hv = op1.inverse(op2.inverse(hv));
-        return hv;
-    }
+    INLINE T inverse(T hv) const {return op2.inverse(op1.inverse(hv));}
 };
 template<typename InvH1, typename InvH2, typename InvH3>
 struct FusedReversible3 {
@@ -770,16 +763,13 @@ struct FusedReversible3 {
     InvH2 op2;
     InvH3 op3;
     FusedReversible3(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL):
-        op1(mthash(seed1) | 1), op2(mthash(seed2) | 1), op3(mthash(seed1 ^ seed2 + seed1) | 1)
+        op1(mthash(seed1) | 1), op2(mthash(seed2) | 1), op3(mthash((seed1 ^ seed2) + seed1) | 1)
     {}
     template<typename T>
-    INLINE T operator()(T h) const {
-        return op3(op2(op1(h)));
-    }
+    INLINE T operator()(T h) const {return op3(op2(op1(h)));}
     template<typename T>
     INLINE T inverse(T hv) const {
-        hv = op1.inverse(op2.inverse(op3.inverse(hv)));
-        return hv;
+        return op1.inverse(op2.inverse(op3.inverse(hv)));
     }
 };
 
