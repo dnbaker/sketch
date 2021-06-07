@@ -770,7 +770,7 @@ struct FusedReversible3 {
     InvH2 op2;
     InvH3 op3;
     FusedReversible3(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL):
-        op1(mthash(seed1) | 1), op2(mthash(seed2) | 1), op3(mthash(seed1 ^ seed2 + seed1) | 1)
+        op1(mthash(seed1) | 1), op2(mthash(seed2) | 1), op3(mthash((seed1 ^ seed2) + seed1) | 1)
     {}
     template<typename T>
     INLINE T operator()(T h) const {
