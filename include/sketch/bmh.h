@@ -643,6 +643,8 @@ public:
     {
         reset();
     }
+    template<typename...ARG>
+    decltype(auto) operator()(ARG &&...args) {return hash(std::forward<ARG>(args)...);}
 
     template<typename T>
     std::vector<uint64_t> hash(const T *ptr, size_t n) {
@@ -651,6 +653,8 @@ public:
             update(ptr[i], i);
         return finalize(ptr);
     }
+    template<typename T, typename Traits, typename Alloc>
+    std::vector<uint64_t> hash(const std::basic_string<T, Traits, Alloc> &o) {return hash(o.data(), o.size());}
     template<typename T, typename Alloc>
     std::vector<uint64_t> hash(const std::vector<T, Alloc> &ptr) {
         return hash(ptr.data(), ptr.size());
@@ -660,15 +664,20 @@ public:
     size_t l() const {return l_;}
 
     template<typename T>
-    std::vector<uint64_t> finalize(const T *data) {
+    std::vector<uint64_t> finalize(const T *data) const {
         std::vector<uint64_t> ret(m_);
-        std::vector<T> tmpdata(l_);
+        T *p = new T[l_];
+        XXH3_state_t state;
         for(size_t i = 0; i < m_; ++i) {
-            auto ptr = &indices[l_ * i];
-            std::sort(ptr, ptr + l_);
-            std::transform(ptr, ptr + l_, tmpdata.data(), [data](auto x) {return data[x];});
-            ret[i] = XXH3_64bits(tmpdata.data(), l_ * sizeof(T));
+            auto indptr = &indices[l_ * i];
+            std::copy(indptr, indptr + l_, p);
+            std::sort(p, p + l_);
+            XXH3_64bits_reset(&state);
+            for(size_t j = 0; j < l_; ++j)
+                XXH3_64bits_update(&state, data + p[j], sizeof(T));
+            ret[i] = XXH3_64bits_digest(&state);
         }
+        delete p;
         return ret;
     }
 
