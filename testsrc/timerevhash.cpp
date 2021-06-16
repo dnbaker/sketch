@@ -51,14 +51,18 @@ int main() {
     XorMultiply gen5(seed1, hash(seed1));
     hash::KWiseIndependentPolynomialHash<4> fivewise_gamgee;
     MurFinHash mfh;
-    std::array<size_t, 8> arr{0};
+    hash::FusedReversible3<hash::XorMultiply, RotL33, MultiplyAddXoRot<31>> fr8(seed1, hash(seed1));
+    std::array<size_t, 9> arr{0};
+    static constexpr size_t nreps = 5;
     auto start = std::chrono::high_resolution_clock::now();
     uint64_t accum = 0;
     uint64_t nelem = 100000000;
     std::vector<uint64_t> vals(nelem);
-    for(uint64_t i = 0; i < nelem; ++i) {
-        assert(irving_inv_hash(hash(uint64_t(i))) == i);
-        doNotOptimizeAway(irving_inv_hash(hash(uint64_t(i))));
+    for(size_t  j = 0; j < nreps; ++j) {
+        for(uint64_t i = 0; i < nelem; ++i) {
+            assert(irving_inv_hash(hash(uint64_t(i))) == i);
+            doNotOptimizeAway(irving_inv_hash(hash(uint64_t(i))));
+        }
     }
     auto end = std::chrono::high_resolution_clock::now();
     arr[0] = size_t(std::chrono::nanoseconds(end - start).count());
@@ -70,12 +74,13 @@ int main() {
     }\
     start = std::chrono::high_resolution_clock::now(); \
     accum = 0;\
+    for(size_t j = 0; j < nreps; ++j){\
     for(uint64_t i = 0; i < nelem; ++i) {\
        doNotOptimizeAway(hasher(vals[i]));\
-    }\
+    }}\
     end = std::chrono::high_resolution_clock::now();\
     arr[ind] = size_t(std::chrono::nanoseconds(end - start).count());\
-    std::fprintf(stderr, "for %s diff: %zu. accum %zu\n", namer, size_t(std::chrono::nanoseconds(end - start).count()), size_t(accum));
+    std::fprintf(stderr, "fdir: for %s diff: %zu. accum %zu\n", namer, size_t(std::chrono::nanoseconds(end - start).count()), size_t(accum));
 
     DO_THING(gen1, "multiplyaddxorot33", 1)
     DO_THING(gen2, "mulyaddor", 2)
@@ -84,6 +89,33 @@ int main() {
     DO_THING(fivewise_gamgee, "fivewise", 5)
     DO_THING(gen5, "mul-bf-rrot31", 6)
     DO_THING(mfh, "murfinhash", 7)
+    DO_THING(fr8, "fr8", 8)
+    for(size_t i = 1; i < arr.size(); ++i)
+        std::fprintf(stderr, "%zu is %lf as fast as WangHash\n", i, double(arr[0]) / arr[i]);
+#undef DO_THING
+#define DO_THING(hasher, namer, ind) \
+    for(uint64_t i = 0; i < nelem; ++i) {\
+       if(ind !=5) assert(hasher.inverse(hasher(vals[i])) == vals[i]);\
+    }\
+    start = std::chrono::high_resolution_clock::now(); \
+    for(size_t j = 0; j < nreps; ++j){\
+        accum = 0;\
+        for(uint64_t i = 0; i < nelem; ++i) {\
+           doNotOptimizeAway(hasher.inverse(hasher(vals[i])));\
+        }\
+    }\
+    end = std::chrono::high_resolution_clock::now();\
+    arr[ind] = size_t(std::chrono::nanoseconds(end - start).count());\
+    std::fprintf(stderr, "bidir: for %s diff: %zu. accum %zu\n", namer, size_t(std::chrono::nanoseconds(end - start).count()), size_t(accum));
+
+    DO_THING(gen1, "multiplyaddxorot33", 1)
+    DO_THING(gen2, "mulyaddor", 2)
+    DO_THING(gen3, "xormult", 3)
+    DO_THING(gen4, "rotxorrot", 4)
+    DO_THING(fivewise_gamgee, "fivewise", 5)
+    DO_THING(gen5, "mul-bf-rrot31", 6)
+    DO_THING(mfh, "murfinhash", 7)
+    DO_THING(fr8, "fr8", 8)
     for(size_t i = 1; i < arr.size(); ++i)
         std::fprintf(stderr, "%zu is %lf as fast as WangHash\n", i, double(arr[0]) / arr[i]);
 }

@@ -12,6 +12,7 @@
 #include "sketch/macros.h"
 #include "sketch/hash.h"
 #include "sketch/flog.h"
+#include "sketch/kahan.h"
 #include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
 
@@ -20,13 +21,6 @@ namespace sketch {
 namespace setsketch {
 
 namespace detail {
-    template<typename T>
-    INLINE T kahan_update(T &sum, T &carry, T increment) {
-        increment -= carry;
-        T tmp = sum + increment;
-        carry = (tmp - sum) - increment;
-        return sum = tmp;
-    }
     struct Deleter {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
@@ -390,8 +384,9 @@ public:
         ls_.reset();
         ls_.seed(rv);
         uint64_t bi = 1;
-        uint32_t idx = ls_.step();
-        for(;;idx = ls_.step()) {
+        uint32_t idx;
+        for(;;) {
+            idx = ls_.step();
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
                     ids_.operator[](idx) = id;
@@ -408,8 +403,8 @@ public:
             CONST_IF(sizeof(FT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                const long double increment = std::log((lrv >> 32) * 1.2621774483536188887e-29L);
-                if((ev = std::fma(bv, increment, ev)) > mv) break;
+                const FT increment = bv * std::log((lrv >> 32) * 1.2621774483536188887e-29L);
+                if(kahan::update(ev, kahan_carry, increment) > mv) break;
             } else {
                 const FT nv = rv * INVMUL64;
                 CONST_IF(FLOGFILTER) {
@@ -418,7 +413,7 @@ public:
                         break;
                     }
                 }
-                if((ev = detail::kahan_update(ev, kahan_carry, bv * std::log(nv))) > mv)
+                if(kahan::update(ev, kahan_carry, bv * std::log(nv)) > mv)
                     break;
             }
         }
@@ -570,12 +565,12 @@ public:
         return m_ / s;
     }
     static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, size_t q) {
+        if(maxreg < minreg) std::swap(maxreg, minreg);
         long double b = std::exp(std::log((long double)maxreg / (long double)minreg) / (long double)q);
         return {FT(b), FT((long double)maxreg / b)};
     }
     template<typename ResT=uint16_t>
     static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg) {
-        if(maxreg < minreg) std::swap(maxreg, minreg);
         return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
     }
     double containment_index(const CSetSketch<FT> &o) const {
@@ -613,15 +608,7 @@ class OPCSetSketch {
     mutable double mycard_ = -1.;
     static FT *allocate(size_t n) {
         FT *ret = nullptr;
-        static constexpr size_t ALN =
-#if __AVX512F__
-            64;
-#elif __AVX2__
-            32;
-#else
-            16;
-#endif
-        if(posix_memalign((void **)&ret, ALN, n * sizeof(FT))) throw std::bad_alloc();
+        if(posix_memalign((void **)&ret, 64, n * sizeof(FT))) throw std::bad_alloc();
         return ret;
     }
 public:
@@ -679,14 +666,15 @@ public:
     void add(uint64_t id) {update(id);}
     size_t total_updates() const {return total_updates_;}
     template<typename OFT, typename=typename std::enable_if<std::is_arithmetic<OFT>::value>::type>
-    void update(const uint64_t id, OFT) {update(id);}
+    INLINE void update(const uint64_t id, OFT) {update(id);}
     // If a weight is passed, ignore it
-    bool update(const uint64_t id) {
-        mycard_ = -1.;
+    INLINE bool update(const uint64_t id) {
+        using fastlog::flog;
         ++total_updates_;
-        uint64_t hid = id;
-        uint64_t rv = wy::wyhash64_stateless(&hid);
+        uint64_t hid = id, rv = wy::wyhash64_stateless(&hid);
 
+        auto idx = div_.mod(rv);
+        auto &reg = data_[idx];
         FT ev;
         CONST_IF(sizeof(FT) > 8) {
             auto lrv = __uint128_t(rv) << 64;
@@ -698,17 +686,17 @@ public:
             auto tv = rv * INVMUL64;
             const FT bv = -1. / m_;
             // Filter with fast log first
+            //if(.7 * flog(tv) * bv > reg) return false;
             ev = bv * std::log(tv);
         }
-        auto idx = div_.mod(rv);
-        if(data_[idx] > ev) {
-            data_[idx] = ev;
+        if(reg > ev) {
+            reg = ev;
             if(!ids_.empty()) {
                 ids_[idx] = id;
                 if(!idcounts_.empty()) idcounts_[idx] = 1;
             }
             return true;
-        } else if(data_[idx] == ev && !ids_.empty() && ids_[idx] == id && !idcounts_.empty()) ++idcounts_[idx];
+        } else if(reg == ev && !ids_.empty() && ids_[idx] == id && !idcounts_.empty()) ++idcounts_[idx];
         return false;
     }
     bool operator==(const OPCSetSketch<FT> &o) const {
@@ -989,8 +977,8 @@ public:
             if(sizeof(GenFT) > 8) {
                 auto lrv = __uint128_t(rv) << 64;
                 lrv |= wy::wyhash64_stateless(&rv);
-                detail::kahan_update(ev, carry, GenFT(ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L)));
-            } else detail::kahan_update(ev, carry, ba * std::log(rv * INVMUL64));
+                kahan::update(ev, carry, GenFT(ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L)));
+            } else kahan::update(ev, carry, ba * std::log(rv * INVMUL64));
             if(ev > lowkh_.explim()) return;
             const QType k = std::max(0, std::min(q_ + 1, static_cast<QType>((1. - std::log(ev) * logbinv_))));
             if(k <= klow()) return;
@@ -1091,7 +1079,7 @@ public:
         const auto y = 1. / (1. + ji);
         double mycard = getcard(), ocard = o.getcard();
         return {std::max(0., mycard - ocard * ji) * y,
-                std::max(0., ocard - mycard * ji) * y, 
+                std::max(0., ocard - mycard * ji) * y,
                 (mycard + ocard) * ji * y};
     };
     double jaccard_index_by_card(const SetSketch<ResT, FT> &o) const {
