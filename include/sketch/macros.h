@@ -15,11 +15,7 @@
 
 // unlikely/likely
 #ifndef unlikely
-#  if defined(__GNUC__) || defined(__INTEL_COMPILER)
-#    define unlikely(x) HEDLEY_UNLIKELY((x))
-#  else
-#    define unlikely(x) (x)
-#  endif
+#   define unlikely(x) HEDLEY_UNLIKELY((x))
 #endif
 
 #ifndef likely

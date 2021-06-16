@@ -2,27 +2,25 @@
 #define __SSE_UTIL_H__
 #include <cstdlib>
 #include <cstdint>
+#include <stdexcept>
 #include <cstddef>
 #include <cassert>
 #include <utility>
-#include <stdexcept>
+#include <new>
+#include "hedley.h"
 
 namespace sse {
 
 #ifndef unlikely
 #  if __GNUC__  || __clang__ || defined(BUILTIN_EXPECT_AVAILABLE)
-#    define unlikely(x) HEDLEY_LIKELY((x) != 0, 0)
+#    define unlikely(x) HEDLEY_UNLIKELY(x)
 #  else
 #    define unlikely(x) (x)
 #  endif
 #endif
 
 #ifndef likely
-#  if __GNUC__  || __clang__ || defined(BUILTIN_EXPECT_AVAILABLE)
-#    define likely(x) HEDLEY_LIKELY((x) != 0, 1)
-#  else
-#    define likely(x) (x)
-#  endif
+#define likely(x) HEDLEY_LIKELY(x)
 #endif
 
 // From http://stackoverflow.com/questions/12942548/making-stdvector-allocate-aligned-memory
@@ -107,7 +105,7 @@ public:
     pointer allocate(size_type n, typename AlignedAllocator<void, Align>::const_pointer = 0)
     {
         pointer ret(reinterpret_cast<pointer>(detail::allocate_aligned_memory(static_cast<size_type>(Align) , n * sizeof(T))));
-        if(unlikely(!ret)) throw std::bad_alloc();
+        if(unlikely(ret == nullptr)) throw std::bad_alloc();
         return ret;
     }
 

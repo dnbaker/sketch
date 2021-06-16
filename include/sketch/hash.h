@@ -26,6 +26,10 @@ using Type  = typename vec::SIMDTypes<uint64_t>::Type;
 using VType = typename vec::SIMDTypes<uint64_t>::VType;
 using Space = vec::SIMDTypes<uint64_t>;
 #endif
+static inline uint64_t mthash(uint64_t x) {
+    std::mt19937_64 mt(x);
+    return mt();
+}
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
 // This is our core 64-bit hash.
@@ -746,35 +750,26 @@ template<typename InvH1, typename InvH2>
 struct FusedReversible {
     InvH1 op1;
     InvH2 op2;
-    FusedReversible(uint64_t seed1=137, uint64_t seed2=0xe37e28c4271b5a1duLL):
-        op1(seed1), op2(seed2) {}
+    FusedReversible(uint64_t seed1=0, uint64_t seed2=1):
+        op1(mthash(seed1) | 1), op2(mthash(seed2) | 1) {}
     template<typename T>
-    INLINE T operator()(T h) const {
-        h = op1(h);
-        h = op2(h);
-        return h;
-    }
+    INLINE T operator()(T h) const {return op2(op1(h));}
     template<typename T>
-    INLINE T inverse(T hv) const {
-        hv = op1.inverse(op2.inverse(hv));
-        return hv;
-    }
+    INLINE T inverse(T hv) const {return op2.inverse(op1.inverse(hv));}
 };
 template<typename InvH1, typename InvH2, typename InvH3>
 struct FusedReversible3 {
     InvH1 op1;
     InvH2 op2;
     InvH3 op3;
-    FusedReversible3(uint64_t seed1=137, uint64_t seed2=0xe37e28c4271b5a1duLL):
-        op1(seed1), op2(seed2), op3((seed1 * seed2 + seed2) | 1) {}
+    FusedReversible3(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL):
+        op1(mthash(seed1) | 1), op2(mthash(seed2) | 1), op3(mthash((seed1 ^ seed2) + seed1) | 1)
+    {}
     template<typename T>
-    INLINE T operator()(T h) const {
-        return op3(op2(op1(h)));
-    }
+    INLINE T operator()(T h) const {return op3(op2(op1(h)));}
     template<typename T>
     INLINE T inverse(T hv) const {
-        hv = op1.inverse(op2.inverse(op3.inverse(hv)));
-        return hv;
+        return op1.inverse(op2.inverse(op3.inverse(hv)));
     }
 };
 
@@ -785,17 +780,17 @@ using InvAdd = InvH<op::plus<uint64_t>>;
 template<size_t n>
 using RotN = InvH<RotL<n>, RotR<n>>;
 struct XorMultiply: public FusedReversible<InvXor, InvMul > {
-    XorMultiply(uint64_t seed1=137, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1, seed2) {}
+    XorMultiply(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1, seed2) {}
 };
 struct MultiplyAdd: public FusedReversible<InvMul, InvAdd> {
-    MultiplyAdd(uint64_t seed1=137, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvMul, InvAdd>(seed1, seed2) {}
+    MultiplyAdd(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvMul, InvAdd>(seed1, seed2) {}
 };
 struct MultiplyAddXor: public FusedReversible3<InvMul,InvAdd,InvXor> {
-    MultiplyAddXor(uint64_t seed1=137, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvAdd,InvXor>(seed1, seed2) {}
+    MultiplyAddXor(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvAdd,InvXor>(seed1, seed2) {}
 };
 template<size_t shift>
 struct MultiplyAddXoRot: public FusedReversible3<InvMul,InvXor,RotN<shift>> {
-    MultiplyAddXoRot(uint64_t seed1=1337, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvXor, RotN<shift>>(seed1, seed2) {}
+    MultiplyAddXoRot(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvXor, RotN<shift>>(mthash(seed1) | 1, mthash(seed2) | 1) {}
 };
 
 template<typename HashType>
