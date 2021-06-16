@@ -595,8 +595,8 @@ struct OMHasher {
 private:
     size_t m_, l_;
     std::vector<uint64_t> indices;
-    std::vector<FT>      vals;
-    wmh::mvt_t<FT>             mvt;
+    std::vector<FT>          vals;
+    wmh::mvt_t<FT>            mvt;
     ska::flat_hash_map<uint64_t, uint32_t> counter;
     fy::LazyShuffler ls_;
 
@@ -666,7 +666,8 @@ public:
     template<typename T>
     std::vector<uint64_t> finalize(const T *data) const {
         std::vector<uint64_t> ret(m_);
-        T *p = new T[l_];
+        std::unique_ptr<T[]> up(new T[l_]);
+        auto p = up.get();
         XXH3_state_t state;
         for(size_t i = 0; i < m_; ++i) {
             auto indptr = &indices[l_ * i];
@@ -677,7 +678,6 @@ public:
                 XXH3_64bits_update(&state, data + p[j], sizeof(T));
             ret[i] = XXH3_64bits_digest(&state);
         }
-        delete p;
         return ret;
     }
 
