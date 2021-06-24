@@ -780,7 +780,7 @@ using InvAdd = InvH<op::plus<uint64_t>>;
 template<size_t n>
 using RotN = InvH<RotL<n>, RotR<n>>;
 struct XorMultiply: public FusedReversible<InvXor, InvMul > {
-    XorMultiply(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1, seed2) {}
+    XorMultiply(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1 | 1, seed2 | 1) {}
 };
 struct MultiplyAdd: public FusedReversible<InvMul, InvAdd> {
     MultiplyAdd(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvMul, InvAdd>(seed1, seed2) {}

@@ -43,7 +43,7 @@ INLINE uint64_t irving_inv_hash(uint64_t key) {
 
 int main() {
     WangHash hash;
-    uint64_t seed1 = hash(uint64_t(1337));
+    uint64_t seed1 = hash(uint64_t(1337)) + 17;
     hash::MultiplyAddXoRot<33> gen1(seed1, hash(seed1));
     hash::MultiplyAddXor gen2(seed1);
     hash::XorMultiply gen3(seed1, hash(seed1));
@@ -84,12 +84,12 @@ int main() {
 
     DO_THING(gen1, "multiplyaddxorot33", 1)
     DO_THING(gen2, "mulyaddor", 2)
-    DO_THING(gen3, "xormult", 3)
     DO_THING(gen4, "rotxorrot", 4)
     DO_THING(fivewise_gamgee, "fivewise", 5)
     DO_THING(gen5, "mul-bf-rrot31", 6)
     DO_THING(mfh, "murfinhash", 7)
     DO_THING(fr8, "fr8", 8)
+    DO_THING(gen3, "xormult", 3)
     for(size_t i = 1; i < arr.size(); ++i)
         std::fprintf(stderr, "%zu is %lf as fast as WangHash\n", i, double(arr[0]) / arr[i]);
 #undef DO_THING
