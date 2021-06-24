@@ -41,14 +41,16 @@ INLINE uint64_t irving_inv_hash(uint64_t key) {
   return key;
 }
 
-int main() {
+int main(int argc, char **argv) {
+    uint64_t nelem = 100000000;
+    if(argc > 1) nelem = std::strtoull(argv[1], 0, 10);
     WangHash hash;
     uint64_t seed1 = hash(uint64_t(1337)) + 17;
     hash::MultiplyAddXoRot<33> gen1(seed1, hash(seed1));
     hash::MultiplyAddXor gen2(seed1);
     hash::XorMultiply gen3(seed1, hash(seed1));
     hash::FusedReversible3<InvMul, RotL33, MultiplyAddXoRot<16>> gen4(seed1, hash(seed1));
-    XorMultiply gen5(seed1, hash(seed1));
+    XorMultiply gen5((hash(seed1) ^ seed1) | 1, hash(seed1) | 1);
     hash::KWiseIndependentPolynomialHash<4> fivewise_gamgee;
     MurFinHash mfh;
     hash::FusedReversible3<hash::XorMultiply, RotL33, MultiplyAddXoRot<31>> fr8(seed1, hash(seed1));
@@ -56,7 +58,6 @@ int main() {
     static constexpr size_t nreps = 5;
     auto start = std::chrono::high_resolution_clock::now();
     uint64_t accum = 0;
-    uint64_t nelem = 100000000;
     std::vector<uint64_t> vals(nelem);
     for(size_t  j = 0; j < nreps; ++j) {
         for(uint64_t i = 0; i < nelem; ++i) {
@@ -84,12 +85,12 @@ int main() {
 
     DO_THING(gen1, "multiplyaddxorot33", 1)
     DO_THING(gen2, "mulyaddor", 2)
+    DO_THING(gen3, "xormult", 3)
     DO_THING(gen4, "rotxorrot", 4)
     DO_THING(fivewise_gamgee, "fivewise", 5)
-    DO_THING(gen5, "mul-bf-rrot31", 6)
     DO_THING(mfh, "murfinhash", 7)
     DO_THING(fr8, "fr8", 8)
-    DO_THING(gen3, "xormult", 3)
+    DO_THING(gen5, "mul-bf-rrot31", 6)
     for(size_t i = 1; i < arr.size(); ++i)
         std::fprintf(stderr, "%zu is %lf as fast as WangHash\n", i, double(arr[0]) / arr[i]);
 #undef DO_THING

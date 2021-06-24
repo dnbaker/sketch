@@ -755,7 +755,7 @@ struct FusedReversible {
     template<typename T>
     INLINE T operator()(T h) const {return op2(op1(h));}
     template<typename T>
-    INLINE T inverse(T hv) const {return op2.inverse(op1.inverse(hv));}
+    INLINE T inverse(T hv) const {return op1.inverse(op2.inverse(hv));}
 };
 template<typename InvH1, typename InvH2, typename InvH3>
 struct FusedReversible3 {
@@ -783,10 +783,10 @@ struct XorMultiply: public FusedReversible<InvXor, InvMul > {
     XorMultiply(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1 | 1, seed2 | 1) {}
 };
 struct MultiplyAdd: public FusedReversible<InvMul, InvAdd> {
-    MultiplyAdd(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvMul, InvAdd>(seed1, seed2) {}
+    MultiplyAdd(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvMul, InvAdd>(seed1 | 1, seed2 | 1) {}
 };
 struct MultiplyAddXor: public FusedReversible3<InvMul,InvAdd,InvXor> {
-    MultiplyAddXor(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvAdd,InvXor>(seed1, seed2) {}
+    MultiplyAddXor(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvAdd,InvXor>(seed1 | 1, seed2 | 1) {}
 };
 template<size_t shift>
 struct MultiplyAddXoRot: public FusedReversible3<InvMul,InvXor,RotN<shift>> {
