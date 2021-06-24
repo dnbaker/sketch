@@ -54,7 +54,9 @@ int main(int argc, char **argv) {
     hash::KWiseIndependentPolynomialHash<4> fivewise_gamgee;
     MurFinHash mfh;
     hash::FusedReversible3<hash::XorMultiply, RotL33, MultiplyAddXoRot<31>> fr8(seed1, hash(seed1));
-    std::array<size_t, 9> arr{0};
+    //CEIFused3<CEIXOR<0x533f8c2151b20f97>, CEIMul<0x9a98567ed20c127d>, CEIXOR<0x691a9d706391077a>> cehasher;
+    CEHasher cehasher;
+    std::array<size_t, 10> arr{0};
     static constexpr size_t nreps = 5;
     auto start = std::chrono::high_resolution_clock::now();
     uint64_t accum = 0;
@@ -91,6 +93,7 @@ int main(int argc, char **argv) {
     DO_THING(mfh, "murfinhash", 7)
     DO_THING(fr8, "fr8", 8)
     DO_THING(gen5, "mul-bf-rrot31", 6)
+    DO_THING(cehasher, "contexpr_rev_hash", 9)
     for(size_t i = 1; i < arr.size(); ++i)
         std::fprintf(stderr, "%zu is %lf as fast as WangHash\n", i, double(arr[0]) / arr[i]);
 #undef DO_THING
@@ -117,6 +120,7 @@ int main(int argc, char **argv) {
     DO_THING(gen5, "mul-bf-rrot31", 6)
     DO_THING(mfh, "murfinhash", 7)
     DO_THING(fr8, "fr8", 8)
+    DO_THING(cehasher, "contexpr_rev_hash", 9)
     for(size_t i = 1; i < arr.size(); ++i)
         std::fprintf(stderr, "%zu is %lf as fast as WangHash\n", i, double(arr[0]) / arr[i]);
 }
