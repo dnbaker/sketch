@@ -800,21 +800,8 @@ struct CEIMul {
     }
 };
 
-#if 0
-template<typename... Types> struct CEIFused;
-
-template<typename Type>
-struct CEIFused<Type> {
-    template<typename...Args>
-    CEIFused(Args &&...) {}
-    Type op;
-    template<typename T>
-    INLINE T operator()(T h) const {return op(h);}
-    template<typename T>
-    INLINE T inverse(T hv) const {return op.inverse(hv);}
-};
 template<typename Type, typename...Types>
-struct CEIFused: public<CEIFused<Types...>> {
+struct CEIFused: public CEIFused<Types...> {
     using CEIFused<Types...>::inverse;
     using CEIFused<Types...>::operator();
     Type op;
@@ -829,17 +816,18 @@ struct CEIFused: public<CEIFused<Types...>> {
         return op.inverse(CEIFused<Types...>::inverse(hv));
     }
 };
-#endif
-template<typename T1, typename T2, typename T3>
-struct CEIFused3 {
+template<typename Type>
+struct CEIFused<Type> {
     template<typename...Args>
-    CEIFused3(Args &&...) {}
-    T1 op1; T2 op2; T3 op3;
+    CEIFused(Args &&...) {}
+    Type op;
     template<typename T>
-    INLINE T operator()(T h) const {return op3(op2(op1(h)));}
+    INLINE T operator()(T h) const {return op(h);}
     template<typename T>
-    INLINE T inverse(T hv) const {return op1.inverse(op2.inverse(op3.inverse(hv)));}
+    INLINE T inverse(T hv) const {return op.inverse(hv);}
 };
+template<typename T1, typename T2, typename T3>
+struct CEIFused3: public CEIFused<T1, T2, T3> {};
 
 
 struct CEHasher: public CEIFused3<CEIXOR<0x533f8c2151b20f97>, CEIMul<0x9a98567ed20c127d>, CEIXOR<0x691a9d706391077a>> {
