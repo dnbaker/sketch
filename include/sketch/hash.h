@@ -549,6 +549,14 @@ static constexpr uint32_t findInverse32(uint32_t x) {
   return y;
 }
 static inline constexpr uint64_t f64(uint64_t x, uint64_t y) { return y * (2 - y * x); }
+static inline constexpr uint64_t findMultInverse64CE(uint64_t x) {
+  uint64_t y = (3 * x) ^ 2;
+  y = f64(x, y);
+  y = f64(x, y);
+  y = f64(x, y);
+  y = f64(x, y);
+  return y;
+}
 static inline uint64_t findMultInverse64(uint64_t x) {
   assert(x & 1 || !std::fprintf(stderr, "Can't get multiplicative inverse of an even number."));
   uint64_t y = (3 * x) ^ 2;
@@ -743,6 +751,89 @@ struct InvH {
 #endif
 };
 
+template<uint64_t base_seed>
+struct CEIXOR {
+    static constexpr uint64_t seed_ = base_seed;
+    static constexpr uint64_t inverse_ = seed_;
+    static constexpr uint64_t seed2_ = WangHash::hash(base_seed);
+    static constexpr uint64_t inverse2_ = seed2_;
+    template<typename...Args>
+    CEIXOR(Args &&...) {}
+
+    // To ensure that it is actually reversible.
+    INLINE uint64_t inverse(uint64_t hv) const {
+        return hv * inverse_;
+    }
+    INLINE uint64_t operator()(uint64_t h) const {
+        return h * seed_;
+    }
+    INLINE __uint128_t inverse(__uint128_t hv) const {
+        return (uint64_t(hv) * inverse_) | (((hv >> 64) * inverse2_) << 64);
+    }
+    INLINE __uint128_t operator()(__uint128_t h) const {
+        return (uint64_t(h) * seed_) | (((h >> 64) * seed2_) << 64);
+    }
+};
+
+
+template<uint64_t base_seed>
+struct CEIMul {
+    static constexpr uint64_t seed_ = base_seed | 1;
+    static constexpr uint64_t inverse_ = multinv::findMultInverse64CE(seed_); // Note: inverse_ is only used for op::multiplies
+    static constexpr uint64_t seed2_ = WangHash::hash(base_seed) | 1;
+    static constexpr uint64_t inverse2_ = multinv::findMultInverse64CE(seed_);
+    template<typename...Args>
+    CEIMul(Args &&...) {}
+
+    // To ensure that it is actually reversible.
+    INLINE uint64_t inverse(uint64_t hv) const {
+        return hv * inverse_;
+    }
+    INLINE uint64_t operator()(uint64_t h) const {
+        return h * seed_;
+    }
+    INLINE __uint128_t inverse(__uint128_t hv) const {
+        return (uint64_t(hv) * inverse_) | (((hv >> 64) * inverse2_) << 64);
+    }
+    INLINE __uint128_t operator()(__uint128_t h) const {
+        return (uint64_t(h) * seed_) | (((h >> 64) * seed2_) << 64);
+    }
+};
+
+template<typename Type, typename...Types>
+struct CEIFused: public CEIFused<Types...> {
+    using CEIFused<Types...>::inverse;
+    using CEIFused<Types...>::operator();
+    Type op;
+    template<typename...Args>
+    CEIFused(Args &&...) {}
+    template<typename T>
+    INLINE T operator()(T h) const {
+        return CEIFused<Types...>::operator()(op(h));
+    }
+    template<typename T>
+    INLINE T inverse(T hv) const {
+        return op.inverse(CEIFused<Types...>::inverse(hv));
+    }
+};
+template<typename Type>
+struct CEIFused<Type> {
+    template<typename...Args>
+    CEIFused(Args &&...) {}
+    Type op;
+    template<typename T>
+    INLINE T operator()(T h) const {return op(h);}
+    template<typename T>
+    INLINE T inverse(T hv) const {return op.inverse(hv);}
+};
+template<typename T1, typename T2, typename T3>
+struct CEIFused3: public CEIFused<T1, T2, T3> {};
+
+
+struct CEHasher: public CEIFused3<CEIXOR<0x533f8c2151b20f97>, CEIMul<0x9a98567ed20c127d>, CEIXOR<0x691a9d706391077a>> {
+template<typename...Args> CEHasher(Args &&...) {}
+};
+
 // Reversible, runtime-configurable hashes
 
 
@@ -755,7 +846,7 @@ struct FusedReversible {
     template<typename T>
     INLINE T operator()(T h) const {return op2(op1(h));}
     template<typename T>
-    INLINE T inverse(T hv) const {return op2.inverse(op1.inverse(hv));}
+    INLINE T inverse(T hv) const {return op1.inverse(op2.inverse(hv));}
 };
 template<typename InvH1, typename InvH2, typename InvH3>
 struct FusedReversible3 {
@@ -780,13 +871,13 @@ using InvAdd = InvH<op::plus<uint64_t>>;
 template<size_t n>
 using RotN = InvH<RotL<n>, RotR<n>>;
 struct XorMultiply: public FusedReversible<InvXor, InvMul > {
-    XorMultiply(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1, seed2) {}
+    XorMultiply(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvXor, InvMul >(seed1 | 1, seed2 | 1) {}
 };
 struct MultiplyAdd: public FusedReversible<InvMul, InvAdd> {
-    MultiplyAdd(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvMul, InvAdd>(seed1, seed2) {}
+    MultiplyAdd(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvMul, InvAdd>(seed1 | 1, seed2 | 1) {}
 };
 struct MultiplyAddXor: public FusedReversible3<InvMul,InvAdd,InvXor> {
-    MultiplyAddXor(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvAdd,InvXor>(seed1, seed2) {}
+    MultiplyAddXor(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvAdd,InvXor>(seed1 | 1, seed2 | 1) {}
 };
 template<size_t shift>
 struct MultiplyAddXoRot: public FusedReversible3<InvMul,InvXor,RotN<shift>> {
