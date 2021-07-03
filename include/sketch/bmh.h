@@ -674,8 +674,9 @@ public:
             std::copy(indptr, indptr + l_, p);
             std::sort(p, p + l_);
             XXH3_64bits_reset(&state);
-            for(size_t j = 0; j < l_; ++j)
+            for(size_t j = 0; j < l_; ++j) {
                 XXH3_64bits_update(&state, data + p[j], sizeof(T));
+            }
             ret[i] = XXH3_64bits_digest(&state);
         }
         return ret;
@@ -683,7 +684,7 @@ public:
 
     void reset() {
         std::fill(vals.begin(), vals.end(), std::numeric_limits<FT>::max());
-        std::fill(indices.begin(), indices.end(), uint64_t(-1));
+        std::fill(indices.begin(), indices.end(), 0ull);
         mvt.reset();
         counter.clear();
     }
