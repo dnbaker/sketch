@@ -601,8 +601,8 @@ private:
     fy::LazyShuffler ls_;
 
     bool sub_update(const uint64_t pos, const FT value, const uint64_t element_idx) {
-        if(value >= vals[l_ * (pos + 1) - 1]) return false;
         auto start = l_ * pos, stop = start + l_ - 1;
+        if(value >= vals[stop]) return false;
         uint64_t ix;
         for(ix = stop;ix > start && value < vals[ix - 1]; --ix) {
             vals[ix] = vals[ix - 1];
@@ -684,7 +684,7 @@ public:
 
     void reset() {
         std::fill(vals.begin(), vals.end(), std::numeric_limits<FT>::max());
-        std::fill(indices.begin(), indices.end(), 0ull);
+        std::fill(indices.begin(), indices.end(), std::numeric_limits<FT>::max());
         mvt.reset();
         counter.clear();
     }

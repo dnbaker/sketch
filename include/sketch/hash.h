@@ -754,6 +754,7 @@ struct InvH {
 template<uint64_t base_seed>
 struct CEIXOR {
     static constexpr uint64_t seed_ = base_seed;
+    static constexpr uint32_t seed32_ = uint32_t(base_seed);
     static constexpr uint64_t inverse_ = seed_;
     static constexpr uint64_t seed2_ = WangHash::hash(base_seed);
     static constexpr uint64_t inverse2_ = seed2_;
@@ -762,16 +763,22 @@ struct CEIXOR {
 
     // To ensure that it is actually reversible.
     INLINE uint64_t inverse(uint64_t hv) const {
-        return hv * inverse_;
+        return hv ^ seed_;
     }
     INLINE uint64_t operator()(uint64_t h) const {
-        return h * seed_;
+        return h ^ seed_;
+    }
+    INLINE uint32_t inverse(uint32_t hv) const {
+        return hv ^ seed32_;
+    }
+    INLINE uint32_t operator()(uint32_t h) const {
+        return h ^ seed32_;
     }
     INLINE __uint128_t inverse(__uint128_t hv) const {
-        return (uint64_t(hv) * inverse_) | (((hv >> 64) * inverse2_) << 64);
+        return (uint64_t(hv) ^ inverse_) | (((hv >> 64) ^ inverse2_) << 64);
     }
     INLINE __uint128_t operator()(__uint128_t h) const {
-        return (uint64_t(h) * seed_) | (((h >> 64) * seed2_) << 64);
+        return (uint64_t(h) ^ seed_) | (((h >> 64) ^ seed2_) << 64);
     }
 };
 
@@ -779,24 +786,32 @@ struct CEIXOR {
 template<uint64_t base_seed>
 struct CEIMul {
     static constexpr uint64_t seed_ = base_seed | 1;
+    static constexpr uint32_t seed32_ = uint32_t(base_seed | 1);
     static constexpr uint64_t inverse_ = multinv::findMultInverse64CE(seed_); // Note: inverse_ is only used for op::multiplies
+    static constexpr uint64_t inverse32_ = multinv::findInverse32(seed_); // Note: inverse_ is only used for op::multiplies
     static constexpr uint64_t seed2_ = WangHash::hash(base_seed) | 1;
     static constexpr uint64_t inverse2_ = multinv::findMultInverse64CE(seed_);
     template<typename...Args>
     CEIMul(Args &&...) {}
 
     // To ensure that it is actually reversible.
-    INLINE uint64_t inverse(uint64_t hv) const {
-        return hv * inverse_;
-    }
     INLINE uint64_t operator()(uint64_t h) const {
         return h * seed_;
     }
-    INLINE __uint128_t inverse(__uint128_t hv) const {
-        return (uint64_t(hv) * inverse_) | (((hv >> 64) * inverse2_) << 64);
+    INLINE uint32_t operator()(uint32_t h) const {
+        return h * seed32_;
     }
     INLINE __uint128_t operator()(__uint128_t h) const {
         return (uint64_t(h) * seed_) | (((h >> 64) * seed2_) << 64);
+    }
+    INLINE uint64_t inverse(uint64_t hv) const {
+        return hv * inverse_;
+    }
+    INLINE uint32_t inverse(uint32_t hv) const {
+        return hv * inverse32_;
+    }
+    INLINE __uint128_t inverse(__uint128_t hv) const {
+        return (uint64_t(hv) * inverse_) | (((hv >> 64) * inverse2_) << 64);
     }
 };
 
