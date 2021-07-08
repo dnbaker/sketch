@@ -388,6 +388,7 @@ struct bmh_t {
         hvals_.reset();
         heap_.clear();
         total_updates_ = 0;
+        total_weight_carry_ = total_weight_ = 0.;
     }
 };
 template<typename FT>
@@ -432,6 +433,11 @@ struct pmh1_t {
 
     uint64_t total_updates() const {return total_updates_;}
     void finalize() const {}
+    void reset() {
+        hvals_.reset();
+        std::fill(res_.begin(), res_.end(), IT(0));
+        total_weight_ = total_weight_carry_ = 0.;
+    }
     void update(const IT id, const FT w) {
         if(w <= 0.) return;
         kahan::update(total_weight_, total_weight_carry_, w);
@@ -490,6 +496,7 @@ struct pmh2_t {
         std::fill(res_.begin(), res_.end(), IT(0));
         std::fill(resweights_.begin(), resweights_.end(), FT(0));
         total_updates_ = 0;
+        total_weight_carry_ = total_weight_ = 0.;
     }
     const std::vector<IDType> &ids() const {return res_;}
     std::vector<IDType> &ids() {return res_;}
@@ -601,8 +608,8 @@ private:
     fy::LazyShuffler ls_;
 
     bool sub_update(const uint64_t pos, const FT value, const uint64_t element_idx) {
-        if(value >= vals[l_ * (pos + 1) - 1]) return false;
         auto start = l_ * pos, stop = start + l_ - 1;
+        if(value >= vals[stop]) return false;
         uint64_t ix;
         for(ix = stop;ix > start && value < vals[ix - 1]; --ix) {
             vals[ix] = vals[ix - 1];
@@ -674,8 +681,9 @@ public:
             std::copy(indptr, indptr + l_, p);
             std::sort(p, p + l_);
             XXH3_64bits_reset(&state);
-            for(size_t j = 0; j < l_; ++j)
+            for(size_t j = 0; j < l_; ++j) {
                 XXH3_64bits_update(&state, data + p[j], sizeof(T));
+            }
             ret[i] = XXH3_64bits_digest(&state);
         }
         return ret;
@@ -683,7 +691,7 @@ public:
 
     void reset() {
         std::fill(vals.begin(), vals.end(), std::numeric_limits<FT>::max());
-        std::fill(indices.begin(), indices.end(), uint64_t(-1));
+        std::fill(indices.begin(), indices.end(), std::numeric_limits<FT>::max());
         mvt.reset();
         counter.clear();
     }
