@@ -388,6 +388,7 @@ struct bmh_t {
         hvals_.reset();
         heap_.clear();
         total_updates_ = 0;
+        total_weight_carry_ = total_weight_ = 0.;
     }
 };
 template<typename FT>
@@ -432,6 +433,11 @@ struct pmh1_t {
 
     uint64_t total_updates() const {return total_updates_;}
     void finalize() const {}
+    void reset() {
+        hvals_.reset();
+        std::fill(res_.begin(), res_.end(), IT(0));
+        total_weight_ = total_weight_carry_ = 0.;
+    }
     void update(const IT id, const FT w) {
         if(w <= 0.) return;
         kahan::update(total_weight_, total_weight_carry_, w);
@@ -490,6 +496,7 @@ struct pmh2_t {
         std::fill(res_.begin(), res_.end(), IT(0));
         std::fill(resweights_.begin(), resweights_.end(), FT(0));
         total_updates_ = 0;
+        total_weight_carry_ = total_weight_ = 0.;
     }
     const std::vector<IDType> &ids() const {return res_;}
     std::vector<IDType> &ids() {return res_;}
