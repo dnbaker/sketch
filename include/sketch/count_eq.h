@@ -703,10 +703,10 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_nibbles(const uint8_t *SK
         auto rhv = _mm256_loadu_si256((__m256i *)rhs + i);
         auto lhl = lhv & lomask, rhl = rhv & lomask,
              lhh = lhv & himask, rhh = rhv & himask;
-        lhgt += popcount((uint64_t(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(lhl, rhl))) << 32)
-                    | _mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(lhh, rhh)));
-        rhgt += popcount((uint64_t(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(rhl, lhl))) << 32)
-                    | _mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(rhh, lhh)));
+        lhgt += popcount(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(lhl, rhl)))
+             + popcount(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(lhh, rhh)));
+        rhgt += popcount(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(rhl, lhl)))
+             + popcount(_mm256_movemask_epi8(_mm256_cmpgt_epi8_unsigned(rhh, lhh)));
     }
     for(size_t i = nsimd * nper; i < n; ++i) {
         lhgt += (lhs[i] & 0xFu)  > (rhs[i] & 0xFu);
@@ -727,6 +727,9 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_nibbles(const uint8_t *SK
         lhgt += (rhs[nelem >> 1] & 0xFu) > (lhs[nelem >> 1] & 0xFu);
     }
     return std::make_pair(lhgt, rhgt);
+}
+static inline std::pair<uint64_t, uint64_t> count_gtlt_nibbles(const char *SK_RESTRICT lhs, const char *SK_RESTRICT rhs, size_t nelem) {
+    return count_gtlt_nibbles((const uint8_t *SK_RESTRICT)lhs, (const uint8_t *SK_RESTRICT)rhs, nelem);
 }
 
 static inline std::pair<uint64_t, uint64_t> count_gtlt_shorts(const uint16_t *const SK_RESTRICT lhs, const uint16_t *const SK_RESTRICT rhs, size_t n) {

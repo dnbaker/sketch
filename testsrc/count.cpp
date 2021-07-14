@@ -49,9 +49,24 @@ int do_main() {
     }
     std::fprintf(stderr, "%gms per %zu nibbles, %zu (%%%g) match\n", tt, rhs.size() * NPER * 2, nm2, double(nm2) / n / NPER / 2 * 100.);
     std::fprintf(stderr, "%gms per %zu bytes, %zu (%%%g) match\n", t2, rhs.size() * NPER, nmb, double(nmb) / n / NPER * 100.);
-    return nm != 99;
+    if(nm != 99) {
+        std::fprintf(stderr, "FAILURE!!!\n");
+        return 1;
+    }
+    return 0;
 }
 
 int main() {
-    return do_main<uint16_t>() || do_main<uint32_t>() || do_main<uint64_t>() || do_main<uint8_t>();
+    int rc = do_main<uint16_t>() | do_main<uint32_t>() | do_main<uint64_t>() | do_main<uint8_t>();
+    std::vector<char> lhs(1000), rhs(1000);
+    for(size_t i = 0; i < 1000; ++i) {
+        lhs[i] = 3 | (5 << 4); rhs[i] = 5 | (3 << 4);
+        if((i & 7) == 7) {
+            lhs[i] = 3 | (4 << 4); rhs[i] = 4 | (4 << 4);
+        }
+    }
+    auto res = sketch::eq::count_gtlt_nibbles(lhs.data(), rhs.data(), 2000);
+    std::fprintf(stderr, "Match: %zd/%zd/%zd\n", res.first, res.second, 2000 - (res.first + res.second));
+    assert(res.first + res.second <= 2000u);
+    return rc;
 }
