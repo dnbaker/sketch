@@ -572,7 +572,7 @@ public:
     template<typename ResT=uint16_t>
     static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, long double q=std::numeric_limits<ResT>::max()) {
         if(maxreg < minreg) std::swap(maxreg, minreg);
-        return optimal_parameters(maxreg, minreg, q);
+        return detail::optimal_parameters(maxreg, minreg, q);
     }
     double containment_index(const CSetSketch<FT> &o) const {
         auto abm = alpha_beta_mu(o);
@@ -842,7 +842,7 @@ public:
     template<typename ResT=uint16_t>
     static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, FT mx=std::numeric_limits<ResT>::max()) {
         if(maxreg < minreg) std::swap(maxreg, minreg);
-        return optimal_parameters(maxreg, minreg, mx);
+        return detail::optimal_parameters(maxreg, minreg, mx);
     }
     double containment_index(const OPCSetSketch<FT> &o) const {
         auto abm = alpha_beta_mu(o);
