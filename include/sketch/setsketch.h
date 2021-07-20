@@ -80,6 +80,11 @@ std::tuple<T, T, uint64_t> brent_find_minima(const F &f, T min, T max, int bits=
    return std::make_tuple(x, fx, max_iter - count);
 }
 
+static INLINE std::pair<long double, long double> optimal_parameters(long double maxreg, long double minreg, long double q) {
+    long double b = std::exp(std::log((long double)maxreg / (long double)minreg) / (long double)q);
+    return {b, (long double)maxreg / b};
+}
+
 }
 
 template<typename FT>
@@ -564,14 +569,10 @@ public:
             s += data_[i];
         return m_ / s;
     }
-    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, size_t q) {
-        if(maxreg < minreg) std::swap(maxreg, minreg);
-        long double b = std::exp(std::log((long double)maxreg / (long double)minreg) / (long double)q);
-        return {FT(b), FT((long double)maxreg / b)};
-    }
     template<typename ResT=uint16_t>
-    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg) {
-        return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
+    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, long double q=std::numeric_limits<ResT>::max()) {
+        if(maxreg < minreg) std::swap(maxreg, minreg);
+        return detail::optimal_parameters(maxreg, minreg, q);
     }
     double containment_index(const CSetSketch<FT> &o) const {
         auto abm = alpha_beta_mu(o);
@@ -838,14 +839,10 @@ public:
             s += data_[i];
         return m_ / s;
     }
-    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, size_t q) {
-        long double b = std::exp(std::log((long double)maxreg / (long double)minreg) / (long double)q);
-        return {FT(b), FT((long double)maxreg / b)};
-    }
     template<typename ResT=uint16_t>
-    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg) {
+    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, FT mx=std::numeric_limits<ResT>::max()) {
         if(maxreg < minreg) std::swap(maxreg, minreg);
-        return optimal_parameters(maxreg, minreg, std::numeric_limits<ResT>::max());
+        return detail::optimal_parameters(maxreg, minreg, mx);
     }
     double containment_index(const OPCSetSketch<FT> &o) const {
         auto abm = alpha_beta_mu(o);

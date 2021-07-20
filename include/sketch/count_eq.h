@@ -884,10 +884,14 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_words(const uint32_t *con
 #endif
     return std::make_pair(lhgt, rhgt);
 }
+union uf {
+    unsigned u;
+    float f;
+    constexpr uf(unsigned v): u(v) {}
+};
 static constexpr float from_unsigned(unsigned x) {
-    float ret = 0.;
-    std::memcpy(&ret, &x, sizeof(ret));
-    return ret;
+    uf tmp(x);
+    return tmp.f;
 }
 static inline std::pair<uint64_t, uint64_t> count_gtlt_words_aligned(const uint32_t *const SK_RESTRICT lhs, const uint32_t *const SK_RESTRICT rhs, size_t n) {
     std::pair<uint64_t, uint64_t> ret{0, 0};
