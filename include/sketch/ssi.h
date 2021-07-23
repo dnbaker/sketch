@@ -231,24 +231,38 @@ public:
         std::vector<IdT> passing_ids;
         std::vector<uint32_t> items_per_row;
         rset.reserve(maxcand); passing_ids.reserve(maxcand); items_per_row.reserve(starting_idx);
-        for(std::ptrdiff_t i = starting_idx;--i >= 0;) {
-            auto &m = packed_maps_[i];
-            const size_t nsubs = m.size();
-            const size_t items_before = passing_ids.size();
-            for(size_t j = 0; j < nsubs; ++j) {
-                KeyT myhash = hash_index(item, i, j);
-                auto it = m[j].find(myhash);
-                if(it == m[j].end()) continue;
-                for(const auto id: it->second) {
-                    auto rit2 = rset.find(id);
-                    if(rit2 == rset.end()) {
-                        rset.emplace(id, 1);
-                        passing_ids.push_back(id);
-                    } else ++rit2->second;
-                }
+        auto update_key = [&](auto id) {
+            auto rit2 = rset.find(id);
+            if(rit2 == rset.end()) {
+                rset.emplace(id, 1);
+                passing_ids.push_back(id);
+            } else {
+                ++rit2->second;
             }
-            items_per_row.push_back(passing_ids.size() - items_before);
-            if(rset.size() >= maxcand) break;
+        };
+        if(is_bottomk_only_) {
+            auto &m = packed_maps_.front().front();
+            for(size_t j = 0; j < item.size() && rset.size() < maxcand; ++j) {
+                if(auto it = m.find(item[j]); it != m.end())
+                    for(const auto id: it->second)
+                        update_key(id);
+            }
+        } else {
+            for(std::ptrdiff_t i = starting_idx;--i >= 0 && rset.size() < maxcand;) {
+                //std::fprintf(stderr, "Getting maps at %zu\n", i);
+                auto &m = packed_maps_[i];
+                const size_t nsubs = m.size();
+                const size_t items_before = passing_ids.size();
+                for(size_t j = 0; j < nsubs; ++j) {
+                    //std::fprintf(stderr, "%zu/%zu\n", j, nsubs);
+                    KeyT myhash = hash_index(item, i, j);
+                    auto it = m[j].find(myhash);
+                    if(it == m[j].end()) continue;
+                    for(const auto id: it->second)
+                        update_key(id);
+                }
+                items_per_row.push_back(passing_ids.size() - items_before);
+            }
         }
         std::vector<uint32_t> passing_counts(passing_ids.size());
         std::transform(passing_ids.begin(), passing_ids.end(), passing_counts.begin(), [&rset](auto x) {return rset[x];});
