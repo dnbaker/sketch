@@ -681,8 +681,8 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_nibbles(const uint8_t *SK
         auto rhv = _mm512_loadu_si512((__m512i *)rhs + i);
         auto lhlo = lhv & lomask, lhhi = lhv & himask;
         auto rhlo = rhv & lomask, rhhi = rhv & himask;
-        lhgt += popcount(_mm512_cmpgt_epu8_mask(lhlo, rhlo)) + popcount(mm512_cmpgt_epu8_mask(lhhi, rhhi));
-        rhgt += popcount( _mm512_cmpgt_epu8_mask(rhlo, lhlo)) + popcount(_mm512_cmpgt_epu8_mask(rhlo, lhlo));
+        lhgt += popcount(_mm512_cmpgt_epu8_mask(lhlo, rhlo)) + popcount(_mm512_cmpgt_epu8_mask(lhhi, rhhi));
+        rhgt += popcount(_mm512_cmpgt_epu8_mask(rhlo, lhlo)) + popcount(_mm512_cmpgt_epu8_mask(rhlo, lhlo));
     }
     for(size_t i = nsimd * nper; i < n; ++i) {
         const auto lhl = lhs[i] & 0xFu, rhl = rhs[i] & 0xFu,
