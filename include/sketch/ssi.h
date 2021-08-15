@@ -10,6 +10,7 @@
 #include "flat_hash_map/flat_hash_map.hpp"
 #include "sketch/div.h"
 #include "sketch/integral.h"
+#include <mutex>
 
 
 namespace sketch {
@@ -43,6 +44,7 @@ private:
     std::vector<HashV> packed_maps_;
     std::vector<uint64_t> regs_per_reg_;
     std::atomic<size_t> total_ids_;
+    std::vector<std::vector<std::mutex>> mutexes_;
     bool is_bottomk_only_ = false;
 public:
     using key_type = KeyT;
@@ -60,12 +62,16 @@ public:
             OIT v1 = m_ / v;
             if(v2 <= 0) v2 = v1;
             packed_maps_.emplace_back(v2);
+            mutexes_.emplace_back(v2);
         }
         total_ids_.store(0);
     }
+    SetSketchIndex(const SetSketchIndex &o) = delete;
+    SetSketchIndex(SetSketchIndex &&o) = default;
     SetSketchIndex(): SetSketchIndex(1, std::vector<IdT>{1}) {
         packed_maps_.resize(1);
         packed_maps_.front().resize(1);
+        mutexes_.emplace_back(1);
         regs_per_reg_ = {1};
         is_bottomk_only_ = true;
     }
@@ -75,6 +81,7 @@ public:
         for(const auto v: nperhashes) {
             regs_per_reg_.push_back(v);
             packed_maps_.emplace_back(HashV(m_ / v));
+            mutexes_.emplace_back(std::vector<std::mutex>(m_ / v));
         }
     }
     SetSketchIndex(size_t m, bool densified=false): m_(m) {
@@ -86,6 +93,7 @@ public:
         for(;rpr <= m_;) {
             regs_per_reg_.push_back(rpr);
             packed_maps_.emplace_back(HashV(m_ / rpr));
+            mutexes_.emplace_back(HashV(m_ / rpr));
             if(densified) {
                 ++rpr;
             } else {
@@ -107,11 +115,13 @@ public:
         rset.reserve(maxcand); passing_ids.reserve(maxcand); items_per_row.reserve(starting_idx);
         for(size_t i = 0; i < n_subtable_lists; ++i) {
             auto &subtab = packed_maps_[i];
+            auto &submut = mutexes_[i];
             const size_t nsubs = subtab.size();
             for(size_t j = 0; j < nsubs; ++j) {
                 assert(j < subtab.size());
                 auto &table = subtab[j];
                 KeyT myhash = hash_index(item, i, j);
+                std::lock_guard<std::mutex> lock(submut[j]);
                 auto it = table.find(myhash);
                 if(it == table.end()) {
                     table.emplace(myhash, std::vector<IdT>{static_cast<IdT>(my_id)});
@@ -175,6 +185,7 @@ public:
     template<typename Sketch>
     void insert_bottomk(const Sketch &item, size_t my_id) {
         auto &map = packed_maps_.front().front();
+        std::lock_guard<std::mutex> lock(mutexes_.front().front());
         for(const auto v: item) {
             auto it = map.find(v);
             if(it == map.end()) {
@@ -191,12 +202,16 @@ public:
             return;
         }
         const size_t n_subtable_lists = regs_per_reg_.size();
+        //std::fprintf(stderr, "Starting update\n");
         for(size_t i = 0; i < n_subtable_lists; ++i) {
+            //std::fprintf(stderr, "Accessing subtable %zu/%zu. mutexes size: %zu\n", i, n_subtable_lists, mutexes_.size());
             auto &subtab = packed_maps_[i];
+            auto &muts = mutexes_.at(i);
             const size_t nsubs = subtab.size();
             for(size_t j = 0; j < nsubs; ++j) {
                 KeyT myhash = hash_index(item, i, j);
                 assert(j < subtab.size());
+                std::lock_guard<std::mutex> lock(muts.at(j));
                 subtab[j][myhash].push_back(my_id);
             }
         }
