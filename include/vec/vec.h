@@ -1,10 +1,11 @@
 #ifndef _VEC_H__
 #define _VEC_H__
 #define NOSVML
-#ifndef NO_SLEEF
-#  include "./sleef/include/sleefdft.h"
-#  include "sleef.h"
-#endif // #ifndef NO_SLEEF
+#if __has_include("sleef.h")
+#    include "sleef.h"
+#else
+#    define NO_SLEEF
+#endif
 #include "x86intrin.h"
 #include <cmath>
 #include <iterator>

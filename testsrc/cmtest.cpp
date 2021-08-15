@@ -12,13 +12,13 @@ int main() {
     mh::CountingRangeMinHash<uint64_t, std::greater<uint64_t>, std::hash<uint64_t>, double> cm(16), cm2(16);
     for(size_t i = 64; i; cm.addh(i--));
     for(size_t i = 96; i > 8; cm2.addh(i--));
-    for(const auto v: cm) std::fprintf(stderr, "v: %" PRIu64 "\n", v.first);
-    for(const auto v: cm2) std::fprintf(stderr, "v2: %" PRIu64 "\n", v.first);
+    for(const auto &v: cm) std::fprintf(stderr, "v: %" PRIu64 "\n", v.first);
+    for(const auto &v: cm2) std::fprintf(stderr, "v2: %" PRIu64 "\n", v.first);
     auto cmf2 = cm2.cfinalize();
     auto cmf = cm.cfinalize();
     std::vector<uint64_t> lhv, rhv;
-    for(const auto v: cm) lhv.push_back(v.first);
-    for(const auto v: cm2) rhv.push_back(v.first);
+    for(const auto &v: cm) lhv.push_back(v.first);
+    for(const auto &v: cm2) rhv.push_back(v.first);
     sort::default_sort(lhv);
     sort::default_sort(rhv);
     Counter c;

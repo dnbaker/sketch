@@ -8,6 +8,7 @@
 #include <queue>
 #include "flat_hash_map/flat_hash_map.hpp"
 #include "sketch/hash.h"
+#include "vec/vec.h"
 
 
 /*
@@ -19,6 +20,8 @@
  */
 
 namespace sketch {
+
+using Space = vec::SIMDTypes<uint64_t>;
 
 using hash::WangHash;
 inline namespace minhash {

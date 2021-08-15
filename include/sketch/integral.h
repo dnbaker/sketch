@@ -309,14 +309,8 @@ INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) noexcept {
 }
 #endif
 
-
-template<typename T> INLINE auto popcnt_fn(T val) noexcept {
-    unsigned ret = popcount(vatpos(val, 0));
-    for(unsigned i = 1; i < sizeof(val) / sizeof(uint64_t); ret += popcount(vatpos(val, i++)));
-    return ret;
-}
 #ifdef __AVX512F__
-template<> INLINE auto popcnt_fn<__m512i> (__m512i val) noexcept {
+INLINE __m512i popcnt_fn(__m512i val) noexcept {
 #if __AVX512VPOPCNTDQ__ && __AVX512VL__
     return ::_mm512_popcnt_epi64(val);
 #else
@@ -326,7 +320,7 @@ template<> INLINE auto popcnt_fn<__m512i> (__m512i val) noexcept {
 #endif
 
 #ifdef __AVX__
-template<> INLINE auto popcnt_fn<__m256i> (__m256i val) noexcept {
+INLINE __m256i popcnt_fn(__m256i val) noexcept {
 #if __AVX512VPOPCNTDQ__ && __AVX512VL__
     return ::_mm256_popcnt_epi64(val);
 #else
@@ -336,7 +330,7 @@ template<> INLINE auto popcnt_fn<__m256i> (__m256i val) noexcept {
 #endif
 
 #ifdef __SSE2__
-template<> INLINE auto popcnt_fn(__m128i val) noexcept {
+INLINE __m128i popcnt_fn(__m128i val) noexcept {
     return _mm_set_epi64x(popcount(_mm_cvtsi128_si64(val)), popcount(_mm_cvtsi128_si64(_mm_unpackhi_epi64(val, val))));
 }
 #endif
