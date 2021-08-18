@@ -66,7 +66,7 @@ int main() {
         }
     }
     auto res = sketch::eq::count_gtlt_nibbles(lhs.data(), rhs.data(), 2000);
-    std::fprintf(stderr, "Match: %zd/%zd/%zd\n", res.first, res.second, 2000 - (res.first + res.second));
+    std::fprintf(stderr, "Match: %zu/%zu/%zu\n", size_t(res.first), size_t(res.second), size_t(2000 - (res.first + res.second)));
     assert(res.first + res.second <= 2000u);
     return rc;
 }

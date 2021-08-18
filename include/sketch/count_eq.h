@@ -902,7 +902,6 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_words_aligned(const uint3
 #endif
     uint64_t lhgt = 0, rhgt = 0;
 #if __AVX512F__
-#pragma message("Using avx512")
     const size_t nper = sizeof(__m512) / sizeof(uint16_t);
     const size_t nsimd = n / nper;
     const size_t nsimd4 = (nsimd / 4) * 4;
