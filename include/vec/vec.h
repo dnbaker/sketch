@@ -260,7 +260,6 @@ struct SIMDTypes;
     decop(add, epi8, sz) \
     decop(sub, epi8, sz) \
     decop(min, epu8, sz) \
-    decop(max, epu8, sz) \
     static constexpr decltype(&OP(xor, si##sz, sz)) xor_fn = &OP(xor, si##sz, sz);\
     static constexpr decltype(&OP(or, si##sz, sz))  or_fn = &OP(or, si##sz, sz);\
     static constexpr decltype(&OP(and, si##sz, sz)) and_fn = &OP(and, si##sz, sz);\
@@ -298,7 +297,6 @@ struct SIMDTypes;
     decop(srli, epi16, sz) \
     decop(add, epi16, sz) \
     decop(min, epu16, sz) \
-    decop(max, epu16, sz) \
     decop(sub, epi16, sz) \
     decop(mullo, epi16, sz) \
     static constexpr decltype(&OP(xor, si##sz, sz)) xor_fn = &OP(xor, si##sz, sz);\
@@ -655,6 +653,14 @@ struct SIMDTypes<uint16_t> {
 #if HAS_AVX_512
     using Type = __m512i;
     declare_all_int512_16(epi16, 512)
+#ifndef __AVX512BW__
+static INLINE __m512i _mm512_max_epu16_nobw(__m512i lhs, __m512i rhs) {
+    __m512i upper_mask = _mm512_set_epi16(0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu);
+    __m512i lower_mask = _mm512_set_epi16(0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0); 
+    return _mm512_max_epu32(lhs & upper_mask, rhs & upper_mask) | _mm512_max_epu32(lhs & lower_mask, rhs & lower_mask);
+}
+    static INLINE __m512i max(__m512i l, __m512i r) {return _mm512_max_epu16_nobw(l, r);}
+#endif
 #elif __AVX2__
     using Type = __m256i;
     declare_all_int_16(epi16, 256)
@@ -686,6 +692,17 @@ struct SIMDTypes<uint8_t> {
     static INLINE auto slli(__m512i a, int imm8) {
         return _mm512_and_si512(_mm512_set1_epi8(0xFF << imm8), _mm512_slli_epi32(a, imm8));
     }
+#ifdef __AVX512BW__
+#else
+static INLINE __m512i _mm512_max_epu8_nobw(__m512i lhs, __m512i rhs) {
+    __m512i mask1 = _mm512_set_epi8(255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0);
+    __m512i mask2 = _mm512_set_epi8(0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0);
+    __m512i mask3 = _mm512_set_epi8(0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0);
+    __m512i mask4 = _mm512_set_epi8(0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255,0,0,0,255);
+    return _mm512_max_epu32(lhs & mask1, rhs & mask1) | _mm512_max_epu32(lhs & mask2, rhs & mask2) | _mm512_max_epu32(lhs & mask3, rhs & mask3) | _mm512_max_epu32(lhs & mask4, rhs & mask4);
+}
+    static INLINE auto max(__m512i lhs, __m512i rhs) {return _mm512_max_epu8_nobw(lhs, rhs);}
+#endif
 #elif __AVX2__
     using Type = __m256i;
     declare_all_int_8(epi8, 256)
