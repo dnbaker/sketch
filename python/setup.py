@@ -34,7 +34,7 @@ include_dirs=[
    "../libpopcnt",
    "../include",
    "../include/vec",
-   "../include/vec/blaze",
+   "../include/blaze",
    "../..",
    "../pybind11/include"
 ]
