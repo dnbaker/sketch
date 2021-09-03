@@ -681,7 +681,7 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_nibbles(const uint8_t *SK
         auto rhv = _mm512_loadu_si512((__m512i *)rhs + i);
         auto lhlo = lhv & lomask, lhhi = lhv & himask;
         auto rhlo = rhv & lomask, rhhi = rhv & himask;
-        lhgt += popcount(_mm512_cmpgt_epu8_mask(lhlo, rhlo)) + popcount(mm512_cmpgt_epu8_mask(lhhi, rhhi));
+        lhgt += popcount(_mm512_cmpgt_epu8_mask(lhlo, rhlo)) + popcount(_mm512_cmpgt_epu8_mask(lhhi, rhhi));
         rhgt += popcount( _mm512_cmpgt_epu8_mask(rhlo, lhlo)) + popcount(_mm512_cmpgt_epu8_mask(rhlo, lhlo));
     }
     for(size_t i = nsimd * nper; i < n; ++i) {
@@ -902,7 +902,6 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_words_aligned(const uint3
 #endif
     uint64_t lhgt = 0, rhgt = 0;
 #if __AVX512F__
-#pragma message("Using avx512")
     const size_t nper = sizeof(__m512) / sizeof(uint16_t);
     const size_t nsimd = n / nper;
     const size_t nsimd4 = (nsimd / 4) * 4;

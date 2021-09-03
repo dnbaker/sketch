@@ -12,7 +12,7 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -pedantic -Wunused-variable\
         -Wno-cast-align
 
-FLAGS=-O3 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Iinclude/vec/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
+FLAGS=-O3 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Iinclude/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing
 
 CXXFLAGS=$(FLAGS) -Wreorder  \

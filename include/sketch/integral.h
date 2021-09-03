@@ -8,12 +8,6 @@
 #include <limits>
 #include <cinttypes>
 #include "libpopcnt/libpopcnt.h"
-#ifndef _VEC_H__
-#  define NO_SLEEF
-#  define NO_BLAZE
-#  include "./vec/vec.h" // Import vec.h, but disable blaze and sleef.
-#endif
-#include "libpopcnt/libpopcnt.h"
 
 
 #ifndef INLINE
@@ -315,31 +309,37 @@ INLINE uint64_t sum_of_u64s<__m512i>(const __m512i val) noexcept {
 }
 #endif
 
-
-template<typename T> INLINE auto popcnt_fn(T val) noexcept;
-template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::Type val) noexcept {
-
-#if HAS_AVX_512
-#  if __AVX512VPOPCNTDQ__
+#ifdef __AVX512F__
+INLINE __m512i popcnt_fn(__m512i val) noexcept {
+#if __AVX512VPOPCNTDQ__ && __AVX512VL__
     return ::_mm512_popcnt_epi64(val);
-#  else
-    return popcnt512(val);
-#  endif
-#elif __AVX2__
-// This is supposed to be the fastest option according to the README at https://github.com/kimwalisch/libpopcnt
-    return popcnt256(val);
-#elif __SSE2__
-    return _mm_set_epi64x(popcount(_mm_cvtsi128_si64(val)), popcount(_mm_cvtsi128_si64(_mm_unpackhi_epi64(val, val))));
 #else
-    unsigned ret = popcount(vatpos(val, 0));
-    for(unsigned i = 1; i < sizeof(val) / sizeof(uint64_t); ret += popcount(vatpos(val, i++)));
-    return ret;
+    return popcnt512(val);
 #endif
 }
+#endif
 
+#ifdef __AVX__
+INLINE __m256i popcnt_fn(__m256i val) noexcept {
+#if __AVX512VPOPCNTDQ__ && __AVX512VL__
+    return ::_mm256_popcnt_epi64(val);
+#else
+    return popcnt256(val);
+#endif
+}
+#endif
+
+#ifdef __SSE2__
+INLINE __m128i popcnt_fn(__m128i val) noexcept {
+    return _mm_set_epi64x(popcount(_mm_cvtsi128_si64(val)), popcount(_mm_cvtsi128_si64(_mm_unpackhi_epi64(val, val))));
+}
+#endif
+
+#ifdef _VEC_H__
 template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::VType val) noexcept {
     return popcnt_fn(val.simd_);
 }
+#endif
 template<typename T, typename T2>
 INLINE auto roundupdiv(T x, T2 div) noexcept {
     return ((x + div - 1) / div) * div;

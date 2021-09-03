@@ -6,6 +6,7 @@
 #include "update.h"
 #include "median.h"
 #include "compact_vector/compact_vector.hpp"
+#include "vec/vec.h"
 
 
 namespace sketch {
