@@ -41,6 +41,7 @@ private:
     size_t m_;
     using HashMap = ska::flat_hash_map<KeyT, std::vector<IdT>>;
     using HashV = std::vector<HashMap>;
+    using MutexV = std::vector<std::mutex>;
     std::vector<HashV> packed_maps_;
     std::vector<uint64_t> regs_per_reg_;
     std::atomic<size_t> total_ids_;
@@ -93,7 +94,7 @@ public:
         for(;rpr <= m_;) {
             regs_per_reg_.push_back(rpr);
             packed_maps_.emplace_back(HashV(m_ / rpr));
-            mutexes_.emplace_back(HashV(m_ / rpr));
+            mutexes_.emplace_back(MutexV(m_ / rpr));
             if(densified) {
                 ++rpr;
             } else {
