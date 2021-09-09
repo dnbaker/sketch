@@ -296,7 +296,6 @@ struct SIMDTypes;
     decop(slli, epi16, sz) \
     decop(srli, epi16, sz) \
     decop(add, epi16, sz) \
-    decop(min, epu16, sz) \
     decop(sub, epi16, sz) \
     decop(mullo, epi16, sz) \
     static constexpr decltype(&OP(xor, si##sz, sz)) xor_fn = &OP(xor, si##sz, sz);\
@@ -654,12 +653,27 @@ struct SIMDTypes<uint16_t> {
     using Type = __m512i;
     declare_all_int512_16(epi16, 512)
 #ifndef __AVX512BW__
-static INLINE __m512i _mm512_max_epu16_nobw(__m512i lhs, __m512i rhs) {
-    __m512i upper_mask = _mm512_set_epi16(0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu);
-    __m512i lower_mask = _mm512_set_epi16(0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0); 
-    return _mm512_max_epu32(lhs & upper_mask, rhs & upper_mask) | _mm512_max_epu32(lhs & lower_mask, rhs & lower_mask);
-}
+// Max
+    static INLINE __m512i _mm512_max_epu16_nobw(__m512i lhs, __m512i rhs) {
+        const __m512i upper_mask = _mm512_set_epi16(0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu);
+        const __m512i lower_mask = _mm512_set_epi16(0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0); 
+        return _mm512_max_epu32(lhs & upper_mask, rhs & upper_mask) | _mm512_max_epu32(lhs & lower_mask, rhs & lower_mask);
+    }
     static INLINE __m512i max(__m512i l, __m512i r) {return _mm512_max_epu16_nobw(l, r);}
+// Min
+    static INLINE __m512i _mm512_min_epu16_nobw(__m512i lhs, __m512i rhs) {
+        const __m512i upper_mask = _mm512_set_epi16(0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu);
+        const __m512i lower_mask = _mm512_set_epi16(0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0); 
+        return _mm512_min_epu32(lhs & upper_mask, rhs & upper_mask) | _mm512_min_epu32(lhs & lower_mask, rhs & lower_mask);
+    }
+    static INLINE __m512i min(__m512i l, __m512i r) {return _mm512_min_epu16_nobw(l, r);}
+#else
+    static INLINE __m512i min(__m512i lhs, __m512i rhs) {
+        return _mm512_min_epu16(lhs, rhs);
+    }
+    static INLINE __m512i max(__m512i lhs, __m512i rhs) {
+        return _mm512_max_epu16(lhs, rhs);
+    }
 #endif
 #elif __AVX2__
     using Type = __m256i;
@@ -680,8 +694,7 @@ static INLINE __m512i _mm512_max_epu16_nobw(__m512i lhs, __m512i rhs) {
     using VType = UType<SIMDTypes<ValueType>>;
 };
 template<> struct SIMDTypes<int16_t>: public SIMDTypes<uint16_t> {};
-template<>
-struct SIMDTypes<uint8_t> {
+template<> struct SIMDTypes<uint8_t> {
     using ValueType = uint8_t;
 #if HAS_AVX_512
     using Type = __m512i;
