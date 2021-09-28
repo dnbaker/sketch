@@ -14,6 +14,16 @@
 
 namespace sketch {
 
+namespace kahan_detail {
+    template<typename T>
+    INLINE T kahan_update(T &sum, T &carry, T increment) {
+        increment -= carry;
+        T tmp = sum + increment;
+        carry = (tmp - sum) - increment;
+        return sum = tmp;
+    }
+}
+
 
 namespace wmh {
 
