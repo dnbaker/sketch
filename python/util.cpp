@@ -211,7 +211,8 @@ PYBIND11_MODULE(sketch_util, m) {
         return retarr;\
     }, py::arg("lhs"), py::arg("rhs"), py::arg("nthreads") = -1)\
     .def("pcount_eq", [](py::array_t<TYPE, py::array::c_style> &lhs, py::int_ nthreads) {\
-        {py::ssize_t nt = nthreads.cast<py::ssize_t>(); OMP_ONLY(if(nt >= 1) omp_set_num_threads(nt);)}\
+        py::ssize_t nt = nthreads.cast<py::ssize_t>();\
+        if(nt < 1) nt = 1;\
         py::buffer_info lhi = lhs.request(), retinf;\
         py::object retarr = py::none();\
         if(lhi.ndim != 2) throw std::invalid_argument("Wrong dimensions: require 2-d array.");\
@@ -228,7 +229,7 @@ PYBIND11_MODULE(sketch_util, m) {
             retarr = py::array_t<uint32_t>(retshape), retinf = retarr.cast<py::array_t<uint32_t>>().request();\
         else\
             retarr = py::array_t<uint64_t>(retshape), retinf = retarr.cast<py::array_t<uint64_t>>().request();\
-        OMP_PRAGMA("omp parallel for schedule(dynamic)")\
+        OMP_PRAGMA("omp parallel for schedule(dynamic) num_threads(nt)")\
         for(py::ssize_t i = 0; i < lhi.shape[0]; ++i) {\
             const auto lhp = (TYPE *)lhi.ptr + i * lhi.shape[1];\
             for(py::ssize_t j = i + 1; j < lhi.shape[0]; ++j) {\
