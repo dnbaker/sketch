@@ -21,6 +21,13 @@ namespace sketch {
 namespace setsketch {
 
 namespace detail {
+    template<typename T>
+    INLINE T kahan_update(T &sum, T &carry, T increment) {
+        increment -= carry;
+        T tmp = sum + increment;
+        carry = (tmp - sum) - increment;
+        return sum = tmp;
+    }
     struct Deleter {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
@@ -386,6 +393,7 @@ public:
             ev = bv * std::log(tv);
             if(ev > mv) return;
         }
+        //std::fprintf(stderr, "For past first: ev: %g. mv: %g\n", ev, mv);
         ls_.reset();
         ls_.seed(rv);
         uint64_t bi = 1;
