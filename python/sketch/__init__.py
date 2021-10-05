@@ -7,6 +7,8 @@ import sketch_ss as setsketch
 import sketch_lsh as lsh
 from collections import namedtuple
 
+from sketch_util import *
+
 SetSketchParams = namedtuple("SetSketchParams", 'a, b')
 
 def optimal_ab(maxv, minv, *, q):
