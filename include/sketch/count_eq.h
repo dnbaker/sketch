@@ -610,11 +610,6 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_bytes(const uint8_t *SK_R
 }
 
 static inline std::pair<uint64_t, uint64_t> count_gtlt_bytes_aligned(const uint8_t *SK_RESTRICT lhs, const uint8_t *SK_RESTRICT rhs, size_t n) {
-#if __AVX512F__
-    if(reinterpret_cast<uint64_t>(lhs) % 64 == 0 && reinterpret_cast<uint64_t>(rhs) % 64 == 0) return count_gtlt_bytes_aligned(lhs, rhs, n);
-#elif __AVX2__
-    if(reinterpret_cast<uint64_t>(lhs) % 32 == 0 && reinterpret_cast<uint64_t>(rhs) % 32 == 0) return count_gtlt_bytes_aligned(lhs, rhs, n);
-#endif
     uint64_t lhgt = 0, rhgt = 0;
 #if __AVX512BW__
     const size_t nper = sizeof(__m512);
@@ -901,11 +896,6 @@ static constexpr float from_unsigned(unsigned x) {
 }
 static inline std::pair<uint64_t, uint64_t> count_gtlt_words_aligned(const uint32_t *const SK_RESTRICT lhs, const uint32_t *const SK_RESTRICT rhs, size_t n) {
     std::pair<uint64_t, uint64_t> ret{0, 0};
-#if __AVX512F__
-    if(reinterpret_cast<uint64_t>(lhs) % 64 == 0 && reinterpret_cast<uint64_t>(rhs) % 64 == 0) return count_gtlt_words_aligned(lhs, rhs, n);
-#elif __AVX2__
-    if(reinterpret_cast<uint64_t>(lhs) % 32 == 0 && reinterpret_cast<uint64_t>(rhs) % 32 == 0) return count_gtlt_words_aligned(lhs, rhs, n);
-#endif
     uint64_t lhgt = 0, rhgt = 0;
 #if __AVX512F__
     const size_t nper = sizeof(__m512) / sizeof(uint16_t);
