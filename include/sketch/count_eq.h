@@ -548,15 +548,21 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_bytes(const uint8_t *SK_R
 #if __AVX512BW__
     const size_t nper = sizeof(__m512);
     const size_t nsimd = n / nper;
-    for(size_t i = 0; i < nsimd; ++i) {
-        auto lhv = _mm512_loadu_si512((__m512i *)lhs + i);
-        auto rhv = _mm512_loadu_si512((__m512i *)rhs + i);
-        uint64_t v0 = _mm512_cmpgt_epu8_mask(lhv, rhv);
-        uint64_t v1 = _mm512_cmpgt_epu8_mask(rhv, lhv);
-        lhgt += popcount(v0);
-        rhgt += popcount(v1);
+    const size_t nsimd4 = (nsimd / 4) * 4;
+    size_t i = 0;
+    for(; i < nsimd4; i += 4) {
+        const auto lhv = _mm512_loadu_si512((__m512i *)lhs + i), lh1 = _mm512_loadu_si512((__m512i *)lhs + i + 1), lh2 = _mm512_loadu_si512((__m512i *)lhs + i + 2), lh3 = _mm512_loadu_si512((__m512i *)lhs + i + 3);
+        const auto rhv = _mm512_loadu_si512((__m512i *)rhs + i), rh1 = _mm512_loadu_si512((__m512i *)rhs + i + 1), rh2 = _mm512_loadu_si512((__m512i *)rhs + i + 2), rh3 = _mm512_loadu_si512((__m512i *)rhs + i + 3);
+        lhgt += popcount(_mm512_cmpgt_epu8_mask(lhv, rhv)) + popcount(_mm512_cmpgt_epu8_mask(lh1, rh1)) + popcount(_mm512_cmpgt_epu8_mask(lh2, rh2)) + popcount(_mm512_cmpgt_epu8_mask(lh3, rh3));
+        rhgt += popcount(_mm512_cmpgt_epu8_mask(rhv, lhv)) + popcount(_mm512_cmpgt_epu8_mask(rh1, lh1)) + popcount(_mm512_cmpgt_epu8_mask(rh2, lh2)) + popcount(_mm512_cmpgt_epu8_mask(rh3, lh3));
     }
-    for(size_t i = nsimd * nper; i < n; ++i) {
+    for(; i < nsimd; ++i) {
+        const auto lhv = _mm512_loadu_si512((__m512i *)lhs + i);
+        const auto rhv = _mm512_loadu_si512((__m512i *)rhs + i);
+        lhgt += popcount(_mm512_cmpgt_epu8_mask(lhv, rhv));
+        rhgt += popcount(_mm512_cmpgt_epu8_mask(rhv, lhv));
+    }
+    for(i = nsimd * nper; i < n; ++i) {
         lhgt += lhs[i] > rhs[i];
         rhgt += rhs[i] > lhs[i];
     }
