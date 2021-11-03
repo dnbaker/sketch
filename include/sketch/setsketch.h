@@ -1,5 +1,5 @@
-#ifndef EHLL_H__
-#define EHLL_H__
+#ifndef D2_SETSKETCH_H___H__
+#define D2_SETSKETCH_H___H__
 #include <stdexcept>
 #include <cassert>
 #include "aesctr/wy.h"
@@ -7,7 +7,7 @@
 #include "sketch/div.h"
 #include <unordered_map>
 #include <memory>
-#include "fy.h"
+#include "sketch/fy.h"
 #include "sketch/count_eq.h"
 #include "sketch/macros.h"
 #include "sketch/hash.h"
@@ -21,13 +21,6 @@ namespace sketch {
 namespace setsketch {
 
 namespace detail {
-    template<typename T>
-    INLINE T kahan_update(T &sum, T &carry, T increment) {
-        increment -= carry;
-        T tmp = sum + increment;
-        carry = (tmp - sum) - increment;
-        return sum = tmp;
-    }
     struct Deleter {
         template<typename T>
         void operator()(const T *x) const {std::free(const_cast<T *>(x));}
@@ -116,10 +109,11 @@ static inline FT jmle_simple(const uint64_t lhgt, const uint64_t rhgt, const siz
 }
 
 
+    static constexpr double INVMUL64 =
 #if __cplusplus >= 201703L
-    static constexpr double INVMUL64 = 0x1p-64;
+    0x1p-64;
 #else
-    static constexpr double INVMUL64 = 5.42101086242752217e-20;
+    5.42101086242752217e-20;
 #endif
 
 // Implementations of set sketch
@@ -276,12 +270,13 @@ static inline long double g_b(long double b, long double arg) {
 template<typename ResT, typename FT=double> class SetSketch; // Forward
 
 
-template<typename FT=double, bool FLOGFILTER=true>
+template<typename FT=double>
 class CSetSketch {
     // This uses Kahan summation for floating-point values by default
     // std::fma is expected to be accurate enough for long doubles.
     static_assert(std::is_floating_point<FT>::value, "Must float");
     // SetSketch 1
+protected:
     size_t m_; // Number of registers
     std::unique_ptr<FT[], detail::Deleter> data_;
     fy::LazyShuffler ls_;
@@ -311,6 +306,9 @@ public:
     const FT *data() const {return data_.get();}
     FT *data() {return data_.get();}
     CSetSketch(size_t m, bool track_ids=false, bool track_counts=false, FT maxv=std::numeric_limits<FT>::max()): m_(m), ls_(m_), mvt_(m_) {
+        if(m > 0xFFFFFFFFull) {
+            throw std::invalid_argument("CSetSketch's maximum sketch size is 2^32/0xFFFFFFFFu/4294967295.");
+        }
         data_.reset(allocate(m_));
         mvt_.assign(data_.get(), m_, maxv);
         if(track_ids || track_counts) ids_.resize(m_);
@@ -372,7 +370,7 @@ public:
         mycard_ = -1.;
         ++total_updates_;
         uint64_t hid = id;
-        uint64_t rv = wy::wyhash64_stateless(&hid);
+        uint64_t rv = sketch::hash::CEHasher()(id ^ uint64_t(0xb2069fc679a8da0buLL));
 
         FT ev;
         FT mv = max();
@@ -386,14 +384,10 @@ public:
         } else {
             auto tv = rv * INVMUL64;
             const FT bv = -1. / m_;
-            // Filter with fast log first
-            CONST_IF(FLOGFILTER) {
-                if(bv * flog(tv) * FT(.7) > mv) return;
-            }
+            if(bv * flog(tv) * FT(.7) > mv) return;
             ev = bv * std::log(tv);
             if(ev > mv) return;
         }
-        //std::fprintf(stderr, "For past first: ev: %g. mv: %g\n", ev, mv);
         ls_.reset();
         ls_.seed(rv);
         uint64_t bi = 1;
@@ -420,13 +414,7 @@ public:
                 if(kahan::update(ev, kahan_carry, increment) > mv) break;
             } else {
                 const FT nv = rv * INVMUL64;
-                CONST_IF(FLOGFILTER) {
-                    if(bv * flog(nv) * FT(.7) + ev > mv) {
-                        assert(std::fma(bv, std::log(nv), ev) > mv);
-                        break;
-                    }
-                }
-                if(kahan::update(ev, kahan_carry, bv * std::log(nv)) > mv)
+                if(bv * flog(nv) * FT(.7) + ev > mv || kahan::update(ev, kahan_carry, bv * std::log(nv)) > mv)
                     break;
             }
         }
@@ -534,15 +522,7 @@ public:
     }
     const std::vector<uint64_t> &ids() const {return ids_;}
     const std::vector<uint32_t> &idcounts() const {return idcounts_;}
-    double union_size(const CSetSketch<FT> &o) const {
-        double s = 0.;
-#if _OPENMP >= 201307L
-        #pragma omp simd reduction(+:s)
-#endif
-        for(size_t i = 0; i < m_; ++i)
-            s += std::min(data_[i], o.data_[i]);
-        return m_ / s;
-    }
+    double union_size(const CSetSketch<FT> &o);
     auto alpha_beta(const CSetSketch<FT> &o) const {
         auto gtlt = eq::count_gtlt(data(), o.data(), m_);
         return std::pair<double, double>{double(gtlt.first) / m_, double(gtlt.second) / m_};
@@ -592,9 +572,11 @@ public:
     std::vector<IT> to_sigs() const {
         std::vector<IT> ret(m_);
         if(std::is_integral<IT>::value) {
-            using TmpT = std::conditional_t<(sizeof(IT) <= 8), uint64_t, __uint128_t>;
+            using TmpT = std::conditional_t<(std::max(sizeof(IT), sizeof(FT)) <= 8), uint64_t, __uint128_t>;
             std::transform(data_.get(), data_.get() + m_, ret.begin(), [](auto x) {
-                TmpT t = 0;std::memcpy(&t, &x, sizeof(x));
+                static_assert(sizeof(x) <= sizeof(TmpT), "Sanity check");
+                TmpT t = 0;
+                std::memcpy(&t, &x, sizeof(x));
                 uint64_t ret = wy::wyhash64_stateless((uint64_t *)&t);
                 if(sizeof(TmpT) >= 16) ret ^= wy::wyhash64_stateless((uint64_t *)&t + 1);
                 return ret;
@@ -605,288 +587,6 @@ public:
         return ret;
     }
 };
-template<typename FT=double>
-class OPCSetSketch {
-    static_assert(std::is_floating_point<FT>::value, "Must float");
-    size_t m_; // Number of registers
-    std::unique_ptr<FT[], detail::Deleter> data_;
-    schism::Schismatic<uint32_t> div_;
-    std::vector<uint64_t> ids_;
-    std::vector<uint32_t> idcounts_;
-    uint64_t total_updates_ = 0;
-    mutable double mycard_ = -1.;
-    static FT *allocate(size_t n) {
-        FT *ret = nullptr;
-        if(posix_memalign((void **)&ret, 64, n * sizeof(FT))) throw std::bad_alloc();
-        return ret;
-    }
-public:
-    const FT *data() const {return data_.get();}
-    FT *data() {return data_.get();}
-    OPCSetSketch(size_t m, bool track_ids=false, bool track_counts=false, FT maxv=std::numeric_limits<FT>::max()): m_(m), div_(m_) {
-        data_.reset(allocate(m_));
-        std::fill(data_.get(), &data_[m_], maxv);
-        if(track_ids || track_counts) ids_.resize(m_);
-        if(track_counts && !track_ids) {
-            std::fprintf(stderr, "track_counts implies track_ids, enabling both\n");
-            track_ids = true;
-        }
-        if(track_counts) idcounts_.resize(m_);
-    }
-    OPCSetSketch(const OPCSetSketch &o): m_(o.m_), data_(allocate(o.m_)), div_(m_), ids_(o.ids_), idcounts_(o.idcounts_) {
-        std::copy(&o.data_[0], &o.data_[m_], data_.get());
-    }
-    template<typename ResT=uint16_t>
-    SetSketch<ResT, FT> to_setsketch(double b, double a, int64_t q=std::numeric_limits<ResT>::max() - 1) const {
-        SetSketch<ResT, FT> ret(m_, b, a, q, ids_.size());
-        const double logbinv = 1. / std::log1p(b - 1.);
-        for(size_t i = 0; i < m_; ++i) {
-            ret.lowkh().update(i, std::max(int64_t(0), std::min(int64_t(q) + 1, static_cast<int64_t>((1. - std::log(data_[i] / a) * logbinv)))));
-        }
-        return ret;
-    }
-    OPCSetSketch &operator=(const OPCSetSketch &o) {
-        if(size() != o.size()) {
-            if(m_ < o.m_) data_.reset(allocate(o.m_));
-            m_ = o.m_;
-        }
-        std::copy(o.data(), &o.data()[m_], data());
-        if(o.ids_.size()) {
-            ids_ = o.ids_;
-            if(o.idcounts_.size()) idcounts_ = o.idcounts_;
-        }
-        total_updates_ = o.total_updates_;
-        return *this;
-    }
-    OPCSetSketch(std::FILE *fp): div_(1) {read(fp);}
-    OPCSetSketch(gzFile fp): div_(1) {read(fp);}
-    OPCSetSketch(const std::string &s): div_(1) {
-        read(s);
-    }
-    OPCSetSketch<FT> clone_like() const {
-        return OPCSetSketch(m_, !ids().empty(), !idcounts().empty());
-    }
-    FT min() const {return *std::min_element(data(), data() + m_);}
-    FT max() const {return *std::max_element(data(), data() + m_);}
-    size_t size() const {return m_;}
-    FT &operator[](size_t i) {return data_[i];}
-    const FT &operator[](size_t i) const {return data_[i];}
-    void addh(uint64_t id) {update(id);}
-    void add(uint64_t id) {update(id);}
-    size_t total_updates() const {return total_updates_;}
-    template<typename OFT, typename=typename std::enable_if<std::is_arithmetic<OFT>::value>::type>
-    INLINE void update(const uint64_t id, OFT) {update(id);}
-    // If a weight is passed, ignore it
-    INLINE bool update(const uint64_t id) {
-        using fastlog::flog;
-        ++total_updates_;
-        uint64_t hid = id, rv = wy::wyhash64_stateless(&hid);
-
-        auto idx = div_.mod(rv);
-        auto &reg = data_[idx];
-        FT ev;
-        CONST_IF(sizeof(FT) > 8) {
-            auto lrv = __uint128_t(rv) << 64;
-            const FT bv = -1. / m_;
-            lrv |= wy::wyhash64_stateless(&rv);
-            FT tv = static_cast<long double>((lrv >> 32) * 1.2621774483536188887e-29L);
-            ev = bv * std::log(tv);
-        } else {
-            auto tv = rv * INVMUL64;
-            const FT bv = -1. / m_;
-            // Filter with fast log first
-            //if(.7 * flog(tv) * bv > reg) return false;
-            ev = bv * std::log(tv);
-        }
-        if(reg > ev) {
-            reg = ev;
-            if(!ids_.empty()) {
-                ids_[idx] = id;
-                if(!idcounts_.empty()) idcounts_[idx] = 1;
-            }
-            return true;
-        } else if(reg == ev && !ids_.empty() && ids_[idx] == id && !idcounts_.empty()) ++idcounts_[idx];
-        return false;
-    }
-    bool operator==(const OPCSetSketch<FT> &o) const {
-        return same_params(o) && std::equal(data(), data() + m_, o.data());
-    }
-    bool same_params(const OPCSetSketch<FT> &o) const {
-        return m_ == o.m_
-            && (ids().empty() == o.ids().empty())
-            && (idcounts().empty() == o.idcounts().empty());
-    }
-    void merge(const OPCSetSketch<FT> &o) {
-        if(!same_params(o)) throw std::runtime_error("Can't merge sets with differing parameters");
-        if(ids().empty()) {
-            std::transform(data(), data() + m_, o.data(), data(), [](auto x, auto y) {return std::min(x, y);});
-        } else {
-            for(size_t i = 0; i < size(); ++i) {
-                if(!idcounts_.empty() && !ids_.empty() && ids_[i] == o.ids_[i]) {
-                    idcounts_[i] += o.idcounts_[i];
-                } else if(data_[i] < o.data_[i]) {
-                    data_[i] = o.data_[i];
-                    if(!ids_.empty()) ids_[i] = o.ids_[i];
-                    if(!idcounts_.empty()) idcounts_[i] = o.idcounts_[i];
-                }
-            }
-        }
-        total_updates_ += o.total_updates_;
-        mycard_ = -1.;
-    }
-    OPCSetSketch &operator+=(const OPCSetSketch<FT> &o) {merge(o); return *this;}
-    OPCSetSketch operator+(const OPCSetSketch<FT> &o) const {
-        OPCSetSketch ret(*this);
-        ret += o;
-        return ret;
-    }
-    double jaccard_index(const OPCSetSketch<FT> &o) const {
-        return shared_registers(o) / double(m_);
-    }
-    size_t shared_registers(const OPCSetSketch<FT> &o) const {
-        CONST_IF(sizeof(FT) == 4) {
-            return eq::count_eq((uint32_t *)data(), (uint32_t *)o.data(), m_);
-        } else CONST_IF(sizeof(FT) == 8) {
-            return eq::count_eq((uint64_t *)data(), (uint64_t *)o.data(), m_);
-        } else CONST_IF(sizeof(FT) == 2) {
-            return eq::count_eq((uint16_t *)data(), (uint16_t *)o.data(), m_);
-        }
-        auto optr = o.data();
-        return std::accumulate(data(), data() + m_, size_t(0), [&optr](size_t nshared, FT x) {
-            return nshared + (x == *optr++);
-        });
-    }
-    void write(std::string s) const {
-        gzFile fp = gzopen(s.data(), "w");
-        if(!fp) throw ZlibError(std::string("Failed to open file ") + s + "for writing");
-        write(fp);
-        gzclose(fp);
-    }
-    void read(std::string s) {
-        gzFile fp = gzopen(s.data(), "r");
-        if(!fp) throw ZlibError(std::string("Failed to open file ") + s);
-        read(fp);
-        gzclose(fp);
-    }
-    void read(gzFile fp) {
-        gzread(fp, &m_, sizeof(m_));
-        data_.reset(allocate(m_));
-        div_ = schism::Schismatic<uint32_t>(m_);
-        gzread(fp, (void *)data_.get(), m_ * sizeof(FT));
-    }
-    int checkwrite(std::FILE *fp, const void *ptr, size_t nb) const {
-        auto ret = ::write(::fileno(fp), ptr, nb);
-        if(size_t(ret) != nb) throw ZlibError("Failed to write setsketch to file");
-        return ret;
-    }
-    int checkwrite(gzFile fp, const void *ptr, size_t nb) const {
-        auto ret = gzwrite(fp, ptr, nb);
-        if(size_t(ret) != nb) throw ZlibError("Failed to write setsketch to file");
-        return ret;
-    }
-    void write(std::FILE *fp) const {
-        checkwrite(fp, (const void *)&m_, sizeof(m_));
-        checkwrite(fp, (const void *)data_.get(), m_ * sizeof(FT));
-    }
-    void write(gzFile fp) const {
-        checkwrite(fp, (const void *)&m_, sizeof(m_));
-        checkwrite(fp, (const void *)data_.get(), m_ * sizeof(FT));
-    }
-    void reset() {clear();}
-    void clear() {
-        std::fill_n(data_.get(), m_, std::numeric_limits<FT>::max());
-        total_updates_ = 0;
-        if(ids_.size()) {
-            std::fill(ids_.begin(), ids_.end(), uint64_t(0));
-            if(idcounts_.size()) std::fill(idcounts_.begin(), idcounts_.end(), uint32_t(0));
-        }
-        mycard_ = -1.;
-    }
-    const std::vector<uint64_t> &ids() const {return ids_;}
-    const std::vector<uint32_t> &idcounts() const {return idcounts_;}
-    double union_size(const OPCSetSketch<FT> &o) const {
-        double s = 0.;
-#if _OPENMP >= 201307L
-        #pragma omp simd reduction(+:s)
-#endif
-        for(size_t i = 0; i < m_; ++i)
-            s += std::min(data_[i], o.data_[i]);
-        return m_ / s;
-    }
-    auto alpha_beta(const OPCSetSketch<FT> &o) const {
-        auto gtlt = eq::count_gtlt(data(), o.data(), m_);
-        return std::pair<double, double>{double(gtlt.first) / m_, double(gtlt.second) / m_};
-    }
-    static constexpr double __union_card(double alph, double beta, double lhcard, double rhcard) {
-        return std::max((lhcard + rhcard) / (2. - alph - beta), 0.);
-    }
-    double getcard() const {
-        if(mycard_ < 0.)
-            mycard_ = cardinality();
-        return mycard_;
-    }
-    double intersection_size(const OPCSetSketch<FT> &o) const {
-        auto triple = alpha_beta_mu(o);
-        return std::max(1. - (std::get<0>(triple) + std::get<1>(triple)), 0.) * std::get<2>(triple);
-    }
-    std::tuple<double, double, double> alpha_beta_mu(const OPCSetSketch<FT> &o) const {
-        const auto ab = alpha_beta(o);
-        auto mycard = getcard(), ocard = o.getcard();
-        if(ab.first + ab.second >= 1.) // They seem to be disjoint sets, use SetSketch (15)
-            return {(mycard) / (mycard + ocard), ocard / (mycard + ocard), mycard + ocard};
-        return {ab.first, ab.second, __union_card(ab.first, ab.second, mycard, ocard)};
-    }
-
-    double cardinality_estimate() const {return cardinality();}
-    double cardinality() const {
-        double s = 0.;
-#if _OPENMP >= 201307L
-        #pragma omp simd reduction(+:s)
-#endif
-        for(size_t i = 0; i < m_; ++i)
-            s += data_[i];
-        return m_ / s;
-    }
-    template<typename ResT=uint16_t>
-    static std::pair<long double, long double> optimal_parameters(FT maxreg, FT minreg, FT mx=std::numeric_limits<ResT>::max()) {
-        if(maxreg < minreg) std::swap(maxreg, minreg);
-        return detail::optimal_parameters(maxreg, minreg, mx);
-    }
-    double containment_index(const OPCSetSketch<FT> &o) const {
-        auto abm = alpha_beta_mu(o);
-        auto lho = std::get<0>(abm);
-        auto isf = std::max(1. - (lho + std::get<1>(abm)), 0.);
-        return isf / (lho + isf);
-    }
-    template<typename IT=FT>
-    std::vector<IT> to_sigs() const {
-        std::vector<IT> ret(m_);
-        if(std::is_integral<IT>::value) {
-            using TmpT = std::conditional_t<(sizeof(IT) <= 8), uint64_t, __uint128_t>;
-            std::transform(data_.get(), data_.get() + m_, ret.begin(), [](auto x) {
-                TmpT t = 0;std::memcpy(&t, &x, sizeof(x));
-                uint64_t ret = wy::wyhash64_stateless((uint64_t *)&t);
-                if(sizeof(TmpT) >= 16) ret ^= wy::wyhash64_stateless((uint64_t *)&t + 1);
-                return ret;
-            });
-        } else {
-            std::copy(data_.get(), data_.get() + m_, ret.begin());
-        }
-        return ret;
-    }
-};
-
-
-
-template<typename FT>
-static inline double intersection_size(const OPCSetSketch<FT> &lhs, const OPCSetSketch<FT> &rhs) {
-    return lhs.intersection_size(rhs);
-}
-template<typename FT>
-static inline double intersection_size(const CSetSketch<FT> &lhs, const CSetSketch<FT> &rhs) {
-    return lhs.intersection_size(rhs);
-}
-
 template<typename ResT, typename FT>
 class SetSketch {
     static_assert(std::is_floating_point<FT>::value, "Must float");
@@ -1213,18 +913,167 @@ struct EByteSetS: public SetSketch<uint8_t, double> {
     template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
 };
 
+template<typename FT=double>
+struct CountFilteredCSetSketch: public CSetSketch<FT> {
+    using super = CSetSketch<FT>;
+    const uint32_t mc_;
+    ska::flat_hash_map<uint64_t, uint32_t> potentials_;
+#ifdef VERBOSE_AF
+    size_t numremoved = 0;
+    ~CountFilteredCSetSketch() {
+        std::fprintf(stderr, "%zu removed total in lifetime\n", numremoved);
+    }
+#endif
+    template<typename...Args>
+    CountFilteredCSetSketch(uint32_t mincount=1, Args &&...args): CSetSketch<FT>(std::forward<Args>(args)...), mc_(mincount) {
+    }
+    void reset() {
+        CSetSketch<FT>::reset();
+        potentials_.clear();
+    }
+    // If a weight is passed, ignore it
+    template<typename OFT, typename=typename std::enable_if<std::is_arithmetic<OFT>::value>::type>
+    void update(const uint64_t id, OFT) {update(id);}
+    using super::mycard_;
+    using super::total_updates_;
+    using super::idcounts_;
+    using super::ids_;
+    using super::mvt_;
+    using super::m_;
+    using super::max;
+    using super::ls_;
+    using super::getbeta;
+    long double id2ldv(uint64_t *rv, double mi) const {
+        auto lrv = __uint128_t(*rv) << 64;
+        lrv |= wy::wyhash64_stateless(rv);
+        long double tv = (lrv >> 32) * 1.2621774483536188887e-29L;
+        return mi * std::log(tv);
+    }
+    INLINE void erase_if(typename ska::flat_hash_map<uint64_t, uint32_t>::iterator it) {
+#ifdef VERBOSE_AF
+        ++numremoved;
+#endif
+        potentials_.erase(it);
+    }
+    void trim_potentials(FT mv) {
+        using fastlog::flog;
+        for(auto it = potentials_.begin(); it != potentials_.end(); ++it) {
+            const FT mi = -1.L / m_;
+            FT nv;
+            uint64_t hid = it->first;
+            uint64_t rv = wy::wyhash64_stateless(&hid);
+            CONST_IF(sizeof(FT) > 8) {
+                nv = id2ldv(&rv, mi);
+                // Uses 96 bits of precision
+            } else {
+                auto tv = rv * INVMUL64;
+                // Filter with fast log first
+                nv = mi * flog(tv) * FT(.7);
+                if(nv < mv) nv = mi * std::log(tv);
+            }
+            if(nv >= mv) {
+                erase_if(it);
+                continue;
+            }
+#if 0
+            if(sizeof(FT) <= 8) {
+                FT kahan_carry = 0;
+                ls_.seed(rv);
+                if(nv < mvt_[ls_.step()])
+                    continue;
+                bool erase = true;
+                for(size_t bi = 0;++bi < m_;) {
+                    const FT bv = -getbeta(bi);
+                    rv = wy::wyhash64_stateless(&hid);
+                    if(kahan::update(nv, kahan_carry, bv * std::log(rv * INVMUL64)) > mv) {break;}
+                    if(nv < mvt_[ls_.step()]) {
+                        erase = false;
+                        break;
+                    }
+                }
+                if(erase) erase_if(it);
+            }
+#endif
+        }
+    }
+    void update(const uint64_t id) {
+        using fastlog::flog;
+        if(mc_ <= 1u) return CSetSketch<FT>::update(id);
+        FT kahan_carry = 0;
+        mycard_ = -1.;
+        ++total_updates_;
+        uint64_t hid = id;
+        sketch::hash::CEHasher ch;
+        uint64_t rv = sketch::hash::CEHasher()(id ^ uint64_t(0xb2069fc679a8da0buLL));
+
+        FT ev;
+        FT mv = max();
+        if((CEHasher()(id) & 0x8fffffu) == 0u)
+            trim_potentials(mv);
+        CONST_IF(sizeof(FT) > 8) {
+            if((ev = id2ldv(&rv, -1.L / m_)) > mv) return;
+        } else {
+            auto tv = rv * INVMUL64;
+            const FT bv = -1. / m_;
+            // Filter with fast log first
+            if(bv * flog(tv) * FT(.7) > mv || (ev = bv * std::log(tv)) > mv) return;
+        }
+        auto pit = potentials_.find(id);
+        if(pit == potentials_.end()) {
+            potentials_.emplace(id, 1);
+            return;
+        }
+        if(pit->second >= mc_) {
+            ++pit->second; // Already added
+            return;
+        }
+        if(++pit->second < mc_) return;
+        // What's left now is that we have just reached the minimum count
+        // We will periodically remove unnecessary k-mers as the sketch becomes filled.
+        // This is done randomly as a function of the random id;
+        ls_.reset();
+        ls_.seed(rv);
+        uint64_t bi = 1;
+        uint32_t idx;
+        for(;;) {
+            idx = ls_.step();
+            if(mvt_.update(idx, ev)) {
+                if(!ids_.empty()) {
+                    ids_.operator[](idx) = id;
+                    if(!idcounts_.empty()) idcounts_[idx] = 1;
+                }
+                mv = max();
+            } else if(!idcounts_.empty() && id == ids_[idx]) {
+                ++idcounts_[idx];
+            }
+            if(bi == m_) return;
+            rv = wy::wyhash64_stateless(&hid);
+            const FT bv = -getbeta(bi++);
+            CONST_IF(sizeof(FT) > 8) {
+                auto lrv = __uint128_t(rv) << 64;
+                lrv |= wy::wyhash64_stateless(&rv);
+                if(kahan::update(ev, kahan_carry, bv * std::log((lrv >> 32) * 1.2621774483536188887e-29L)) > mv)
+                    break;
+            } else {
+                const FT nv = rv * INVMUL64;
+                if(bv * flog(nv) * FT(.7) + ev > mv) {
+                    assert(std::fma(bv, std::log(nv), ev) > mv);
+                    break;
+                }
+                if(kahan::update(ev, kahan_carry, bv * std::log(nv)) > mv)
+                    break;
+            }
+        }
+    }
+};
+template<typename FT>
+static inline double intersection_size(const CSetSketch<FT> &lhs, const CSetSketch<FT> &rhs) {
+    return lhs.intersection_size(rhs);
+}
 
 } // namespace setsketch
-using setsketch::EByteSetS;
-using setsketch::ByteSetS;
-using setsketch::ShortSetS;
-using setsketch::EShortSetS;
-using setsketch::WideShortSetS;
-using setsketch::NibbleSetS;
-using setsketch::SmallNibbleSetS;
 using setsketch::CSetSketch;
-using setsketch::SetSketch;
 
 } // namespace sketch
 
-#endif
+#endif /*  D2_SETSKETCH_H___H__ */
