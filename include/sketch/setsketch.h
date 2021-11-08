@@ -597,7 +597,7 @@ class SetSketch {
     FT b_; // Base
     FT ainv_;
     FT logbinv_;
-    using QType = std::common_type_t<ResT, int>;
+    using QType = std::common_type_t<ResT, int64_t>;
     QType q_;
     std::unique_ptr<ResT[], detail::Deleter> data_;
     std::vector<uint64_t> ids_; // The IDs representing the sampled items.
@@ -633,7 +633,7 @@ public:
     ResT *data() {return data_.get();}
     auto &lowkh() {return lowkh_;}
     const auto &lowkh() const {return lowkh_;}
-    SetSketch(size_t m, FT b, FT a, int q, bool track_ids = false): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_), lowkh_(m) {
+    SetSketch(size_t m, FT b, FT a, QType q, bool track_ids = false): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_), lowkh_(m) {
         ResT *p = allocate(m_);
         data_.reset(p);
         std::fill(p, p + m_, static_cast<ResT>(0));
@@ -685,7 +685,7 @@ public:
                 kahan::update(ev, carry, GenFT(ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L)));
             } else kahan::update(ev, carry, ba * std::log(rv * INVMUL64));
             if(ev > lowkh_.explim()) return;
-            const QType k = std::max(0, std::min(q_ + 1, static_cast<QType>((1. - std::log(ev) * logbinv_))));
+            const QType k = std::max(QType(0), std::min(q_ + 1, static_cast<QType>((1. - std::log(ev) * logbinv_))));
             if(k <= klow()) return;
             auto idx = ls_.step();
             if(lowkh_.update(idx, k)) {
@@ -911,6 +911,13 @@ struct EByteSetS: public SetSketch<uint8_t, double> {
     template<typename IT, typename=typename std::enable_if<std::is_integral<IT>::value>::type>
     EByteSetS(IT nreg, double b=DEFAULT_B, double a=DEFAULT_A): SetSketch<uint8_t, double>(nreg, b, a, QV) {}
     template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
+};
+struct UintSetS: public sketch::setsketch::SetSketch<uint32_t, long double> {
+    static constexpr long double DEFAULT_B = 1.0000000109723500835;
+    static constexpr long double DEFAULT_A = 19.77882586;
+    static constexpr size_t QV = 0xFFFFFFFE;
+    UintSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): SetSketch<uint32_t, long double>(nreg, b, a, QV) {}
+    template<typename Arg> UintSetS(const Arg &arg): SetSketch<uint32_t, long double>(arg) {}
 };
 
 template<typename FT=double>
