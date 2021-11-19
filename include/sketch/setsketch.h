@@ -597,7 +597,7 @@ class SetSketch {
     FT b_; // Base
     FT ainv_;
     FT logbinv_;
-    using QType = std::common_type_t<ResT, int>;
+    using QType = std::common_type_t<ResT, int64_t>;
     QType q_;
     std::unique_ptr<ResT[], detail::Deleter> data_;
     std::vector<uint64_t> ids_; // The IDs representing the sampled items.
@@ -606,8 +606,8 @@ class SetSketch {
     minvt_t<ResT> lowkh_;
     std::vector<FT> lbetas_; // Cache Beta values * 1. / a
     mutable double mycard_ = -1.;
-    static ResT *allocate(size_t n) {
-        n = (n << 1) - 1;
+    static ResT *allocate(size_t num_sigs) {
+        size_t n = (num_sigs << 1) - 1;
         ResT *ret = nullptr;
         static constexpr size_t ALN =
 #if __AVX512F__
@@ -618,11 +618,16 @@ class SetSketch {
             16;
 #endif
 #if __cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC)
-        if((ret = static_cast<ResT *>(std::aligned_alloc(ALN, n * sizeof(ResT)))) == nullptr)
+        const size_t mem_needed = n * sizeof(ResT);
+        const size_t mem_requested = mem_needed + (mem_needed % ALN ? ALN - mem_needed % ALN: 0);
+        if((ret = static_cast<ResT *>(std::aligned_alloc(ALN, mem_requested))) == nullptr)
 #else
         if(posix_memalign((void **)&ret, ALN, n * sizeof(ResT)))
 #endif
+        {
+            std::fprintf(stderr, "Failed to allocate with nsigs = %zu, nalloc = %zu, sizef(ResT) == %zu, ALN = %zu\n", num_sigs, n, sizeof(ResT), ALN);
             throw std::bad_alloc();
+        }
         return ret;
     }
     FT getbeta(size_t idx) const {
@@ -633,7 +638,7 @@ public:
     ResT *data() {return data_.get();}
     auto &lowkh() {return lowkh_;}
     const auto &lowkh() const {return lowkh_;}
-    SetSketch(size_t m, FT b, FT a, int q, bool track_ids = false): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_), lowkh_(m) {
+    SetSketch(size_t m, FT b, FT a, QType q, bool track_ids = false): m_(m), a_(a), b_(b), ainv_(1./ a), logbinv_(1. / std::log1p(b_ - 1.)), q_(q), ls_(m_), lowkh_(m) {
         ResT *p = allocate(m_);
         data_.reset(p);
         std::fill(p, p + m_, static_cast<ResT>(0));
@@ -667,6 +672,8 @@ public:
     void print() const {
         std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
     }
+    template<typename OFT, typename=std::enable_if_t<std::is_arithmetic_v<OFT>>>
+    INLINE void update(const uint64_t id, OFT) {update(id);}
     void update(const uint64_t id) {
         using GenFT = std::conditional_t<(sizeof(FT) <= 8), double, long double>;
         GenFT carry = 0.;
@@ -685,7 +692,7 @@ public:
                 kahan::update(ev, carry, GenFT(ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L)));
             } else kahan::update(ev, carry, ba * std::log(rv * INVMUL64));
             if(ev > lowkh_.explim()) return;
-            const QType k = std::max(0, std::min(q_ + 1, static_cast<QType>((1. - std::log(ev) * logbinv_))));
+            const QType k = std::max(QType(0), std::min(q_ + 1, static_cast<QType>((1. - std::log(ev) * logbinv_))));
             if(k <= klow()) return;
             auto idx = ls_.step();
             if(lowkh_.update(idx, k)) {
@@ -858,25 +865,26 @@ public:
 };
 
 
-#ifndef M_E
-#define EULER_E 2.718281828459045
-#else
-#define EULER_E M_E
-#endif
 struct NibbleSetS: public SetSketch<uint8_t> {
-    NibbleSetS(size_t nreg, double b=EULER_E, double a=5e-4): SetSketch<uint8_t>(nreg, b, a, QV) {}
+    static constexpr long double DEFAULT_B = 2.7182818284590452354L;
+    static constexpr long double DEFAULT_A = 5e-4L;
+    NibbleSetS(size_t nreg, double b=DEFAULT_B, double a=DEFAULT_A): SetSketch<uint8_t>(nreg, b, a, QV) {}
     static constexpr size_t QV = 14u;
     template<typename Arg> NibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };
 struct SmallNibbleSetS: public SetSketch<uint8_t> {
-    SmallNibbleSetS(size_t nreg, double b=4., double a=1e-6): SetSketch<uint8_t>(nreg, b, a, QV) {}
+    static constexpr long double DEFAULT_B = 4L;
+    static constexpr long double DEFAULT_A = 1e-6L;
     static constexpr size_t QV = 14u;
+    SmallNibbleSetS(size_t nreg, double b=DEFAULT_B, double a=DEFAULT_A): SetSketch<uint8_t>(nreg, b, a, QV) {}
     template<typename Arg> SmallNibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };
 struct ByteSetS: public SetSketch<uint8_t, long double> {
     using Super = SetSketch<uint8_t, long double>;
+    static constexpr long double DEFAULT_B = 1.2;
+    static constexpr long double DEFAULT_A = 20.;
     static constexpr size_t QV = 254u;
-    ByteSetS(size_t nreg, long double b=1.2, long double a=20.): Super(nreg, b, a, QV) {}
+    ByteSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): Super(nreg, b, a, QV) {}
     template<typename Arg> ByteSetS(const Arg &arg): Super(arg) {}
 };
 struct ShortSetS: public SetSketch<uint16_t, long double> {
@@ -911,6 +919,13 @@ struct EByteSetS: public SetSketch<uint8_t, double> {
     template<typename IT, typename=typename std::enable_if<std::is_integral<IT>::value>::type>
     EByteSetS(IT nreg, double b=DEFAULT_B, double a=DEFAULT_A): SetSketch<uint8_t, double>(nreg, b, a, QV) {}
     template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
+};
+struct UintSetS: public sketch::setsketch::SetSketch<uint32_t, long double> {
+    static constexpr long double DEFAULT_B = 1.0000000109723500835;
+    static constexpr long double DEFAULT_A = 19.77882586;
+    static constexpr size_t QV = 0xFFFFFFFE;
+    UintSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): SetSketch<uint32_t, long double>(nreg, b, a, QV) {}
+    template<typename Arg> UintSetS(const Arg &arg): SetSketch<uint32_t, long double>(arg) {}
 };
 
 template<typename FT=double>
