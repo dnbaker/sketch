@@ -8,7 +8,7 @@ int main (int argc, char **argv) {
         "die", "again", "tomorrow", "forever", "today", "todie"
     };
     const size_t ns = strings.size();
-    std::vector<double> sigs;
+    std::vector<uint64_t> sigs;
     for(const auto &s: strings) {
         const auto sig = h(s.data(), s.size());
         sigs.insert(sigs.end(), sig.begin(), sig.end());

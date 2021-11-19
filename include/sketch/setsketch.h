@@ -606,8 +606,8 @@ class SetSketch {
     minvt_t<ResT> lowkh_;
     std::vector<FT> lbetas_; // Cache Beta values * 1. / a
     mutable double mycard_ = -1.;
-    static ResT *allocate(size_t n) {
-        n = (n << 1) - 1;
+    static ResT *allocate(size_t num_sigs) {
+        size_t n = (num_sigs << 1) - 1;
         ResT *ret = nullptr;
         static constexpr size_t ALN =
 #if __AVX512F__
@@ -618,11 +618,16 @@ class SetSketch {
             16;
 #endif
 #if __cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC)
-        if((ret = static_cast<ResT *>(std::aligned_alloc(ALN, n * sizeof(ResT)))) == nullptr)
+        const size_t mem_needed = n * sizeof(ResT);
+        const size_t mem_requested = mem_needed + (mem_needed % ALN ? ALN - mem_needed % ALN: 0);
+        if((ret = static_cast<ResT *>(std::aligned_alloc(ALN, mem_requested))) == nullptr)
 #else
         if(posix_memalign((void **)&ret, ALN, n * sizeof(ResT)))
 #endif
+        {
+            std::fprintf(stderr, "Failed to allocate with nsigs = %zu, nalloc = %zu, sizef(ResT) == %zu, ALN = %zu\n", num_sigs, n, sizeof(ResT), ALN);
             throw std::bad_alloc();
+        }
         return ret;
     }
     FT getbeta(size_t idx) const {
@@ -667,6 +672,8 @@ public:
     void print() const {
         std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
     }
+    template<typename OFT, typename=std::enable_if_t<std::is_arithmetic_v<OFT>>>
+    INLINE void update(const uint64_t id, OFT) {update(id);}
     void update(const uint64_t id) {
         using GenFT = std::conditional_t<(sizeof(FT) <= 8), double, long double>;
         GenFT carry = 0.;
@@ -858,25 +865,26 @@ public:
 };
 
 
-#ifndef M_E
-#define EULER_E 2.718281828459045
-#else
-#define EULER_E M_E
-#endif
 struct NibbleSetS: public SetSketch<uint8_t> {
-    NibbleSetS(size_t nreg, double b=EULER_E, double a=5e-4): SetSketch<uint8_t>(nreg, b, a, QV) {}
+    static constexpr long double DEFAULT_B = 2.7182818284590452354L;
+    static constexpr long double DEFAULT_A = 5e-4L;
+    NibbleSetS(size_t nreg, double b=DEFAULT_B, double a=DEFAULT_A): SetSketch<uint8_t>(nreg, b, a, QV) {}
     static constexpr size_t QV = 14u;
     template<typename Arg> NibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };
 struct SmallNibbleSetS: public SetSketch<uint8_t> {
-    SmallNibbleSetS(size_t nreg, double b=4., double a=1e-6): SetSketch<uint8_t>(nreg, b, a, QV) {}
+    static constexpr long double DEFAULT_B = 4L;
+    static constexpr long double DEFAULT_A = 1e-6L;
     static constexpr size_t QV = 14u;
+    SmallNibbleSetS(size_t nreg, double b=DEFAULT_B, double a=DEFAULT_A): SetSketch<uint8_t>(nreg, b, a, QV) {}
     template<typename Arg> SmallNibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
 };
 struct ByteSetS: public SetSketch<uint8_t, long double> {
     using Super = SetSketch<uint8_t, long double>;
+    static constexpr long double DEFAULT_B = 1.2;
+    static constexpr long double DEFAULT_A = 20.;
     static constexpr size_t QV = 254u;
-    ByteSetS(size_t nreg, long double b=1.2, long double a=20.): Super(nreg, b, a, QV) {}
+    ByteSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): Super(nreg, b, a, QV) {}
     template<typename Arg> ByteSetS(const Arg &arg): Super(arg) {}
 };
 struct ShortSetS: public SetSketch<uint16_t, long double> {
