@@ -606,8 +606,8 @@ class SetSketch {
     minvt_t<ResT> lowkh_;
     std::vector<FT> lbetas_; // Cache Beta values * 1. / a
     mutable double mycard_ = -1.;
-    static ResT *allocate(size_t n) {
-        n = (n << 1) - 1;
+    static ResT *allocate(size_t num_sigs) {
+        const size_t n = (num_sigs << 1) - 1;
         ResT *ret = nullptr;
         static constexpr size_t ALN =
 #if __AVX512F__
@@ -618,17 +618,23 @@ class SetSketch {
             16;
 #endif
 #if __cplusplus >= 201703L && defined(_GLIBCXX_HAVE_ALIGNED_ALLOC)
-        if((ret = static_cast<ResT *>(std::aligned_alloc(ALN, n * sizeof(ResT)))) == nullptr)
+        const size_t mem_needed = n * sizeof(ResT);
+        const size_t mem_requested = mem_needed + (mem_needed % ALN ? ALN - mem_needed % ALN: 0);
+        if((ret = static_cast<ResT *>(std::aligned_alloc(ALN, mem_requested))) == nullptr)
 #else
         if(posix_memalign((void **)&ret, ALN, n * sizeof(ResT)))
 #endif
+        {
+            std::fprintf(stderr, "[%s:%s:%d] Failed to allocate with nsigs = %zu, nalloc = %zu, sizef(ResT) == %zu, ALN = %zu\n", __PRETTY_FUNCTION__, __FILE__, __LINE__, num_sigs, n, sizeof(ResT), ALN);
             throw std::bad_alloc();
+        }
         return ret;
     }
     FT getbeta(size_t idx) const {
         return FT(1.) / (m_ - idx);
     }
 public:
+    FT ainv() const {return ainv_;}
     const ResT *data() const {return data_.get();}
     ResT *data() {return data_.get();}
     auto &lowkh() {return lowkh_;}
@@ -667,6 +673,9 @@ public:
     void print() const {
         std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
     }
+    auto explim() const {return lowkh_.explim();}
+    template<typename OFT, typename=std::enable_if_t<std::is_arithmetic<OFT>::value>>
+    INLINE void update(const uint64_t id, OFT) {update(id);}
     void update(const uint64_t id) {
         using GenFT = std::conditional_t<(sizeof(FT) <= 8), double, long double>;
         GenFT carry = 0.;
@@ -706,6 +715,14 @@ public:
     }
     double harmean(const SetSketch<ResT, FT> *ptr=static_cast<const SetSketch<ResT, FT> *>(nullptr)) const {
         static std::unordered_map<FT, std::vector<FT>> powers;
+        CONST_IF(sizeof(ResT) >= 4) {
+            ska::flat_hash_map<ResT, uint32_t> counts;
+            if(ptr) {
+                for(size_t i = 0; i < m_; ++i)
+                    ++counts[std::max(data_[i], ptr->data()[i])];
+            } else for(size_t i = 0; i < m_; ++counts[data_[i++]]);
+            return std::accumulate(counts.begin(), counts.end(), static_cast<FT>(0.L), [b=b_](long double s, const std::pair<ResT, uint32_t> &reg) {return std::fma(reg.second, std::pow(b, -static_cast<ptrdiff_t>(reg.first)), s);});
+        }
         auto it = powers.find(b_);
         if(it == powers.end()) {
             it = powers.emplace(b_, std::vector<FT>()).first;
@@ -728,7 +745,7 @@ public:
                     ++counts[std::max(data_[i], ptr->data()[i])];
             } else for(size_t i = 0; i < m_; ++counts[data_[i++]]);
             auto &ptable = it->second;
-            return std::accumulate(counts.begin(), counts.end(), 0.L, [&ptable](long double s, std::pair<ResT, uint32_t> reg) {return s + reg.second * ptable[reg.first];});
+            return std::accumulate(counts.begin(), counts.end(), static_cast<FT>(0.L), [&ptable](long double s, const std::pair<ResT, uint32_t> &reg) {return std::fma(reg.second, ptable[reg.first], s);});
         }
     }
     double jaccard_by_ix(const SetSketch<ResT, FT> &o) const {
@@ -857,35 +874,86 @@ public:
     const std::vector<uint64_t> &ids() const {return ids_;}
 };
 
+template<typename ResT, typename FT>
+class CountFilteredSetSketch: public SetSketch<ResT, FT> {
+    using Super = SetSketch<ResT, FT>;
 
-#ifndef M_E
-#define EULER_E 2.718281828459045
-#else
-#define EULER_E M_E
-#endif
-struct NibbleSetS: public SetSketch<uint8_t> {
-    NibbleSetS(size_t nreg, double b=EULER_E, double a=5e-4): SetSketch<uint8_t>(nreg, b, a, QV) {}
-    static constexpr size_t QV = 14u;
-    template<typename Arg> NibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
+    const uint32_t mc_;
+    ska::flat_hash_map<uint64_t, uint32_t> potentials_;
+public:
+    template<typename...Args>
+    CountFilteredSetSketch(int32_t mincount=1, Args &&...args): Super(std::forward<Args>(args)...), mc_(mincount) {
+    }
+    void reset() {
+        CSetSketch<FT>::reset();
+        potentials_.clear();
+    }
+    double getlim(const uint64_t id) const {
+        using GenFT = std::conditional_t<(sizeof(FT) <= 8), double, long double>;
+        uint64_t hid = id;
+        uint64_t rv = wy::wyhash64_stateless(&hid);
+        GenFT ev;
+        const GenFT ba = -this->ainv() / this->size();
+        if(sizeof(GenFT) > 8) {
+            auto lrv = __uint128_t(rv) << 64;
+            lrv |= wy::wyhash64_stateless(&rv);
+            ev = ba * std::log((lrv >> 32) * 1.2621774483536188887e-29L);
+        } else ev = ba * std::log(rv * INVMUL64);
+        return ev;
+    }
+    bool check_can_update(const uint64_t id) const {
+        return getlim(id) < this->explim();
+    }
+    template<typename IT, typename OFT, typename=typename std::enable_if<std::is_arithmetic<OFT>::value>::type>
+    void update(const IT id, OFT) {update(id);}
+    void trim_potentials() {
+        const auto lim = this->explim();
+        for(auto it = potentials_.begin(), eit = potentials_.end(); it != eit; ++it) {
+            if(getlim(it->first) < lim) potentials_.erase(it);
+        }
+    }
+    void update(const uint64_t id) {
+        if(mc_ > 1u) {
+            if((CEHasher()(id) & 0x8fffffu) == 0u) {
+                trim_potentials();
+            }
+            if(!check_can_update(id)) return;
+            auto pit = potentials_.find(id);
+            if(pit == potentials_.end()) {
+                potentials_.emplace(id, 1);
+                return;
+            }
+            if(pit->second >= mc_) {
+                ++pit->second; // Already added
+                return;
+            }
+            if(++pit->second < mc_) return;
+        }
+        Super::update(id);
+    }
 };
-struct SmallNibbleSetS: public SetSketch<uint8_t> {
-    SmallNibbleSetS(size_t nreg, double b=4., double a=1e-6): SetSketch<uint8_t>(nreg, b, a, QV) {}
-    static constexpr size_t QV = 14u;
-    template<typename Arg> SmallNibbleSetS(const Arg &arg): SetSketch<uint8_t>(arg) {}
-};
-struct ByteSetS: public SetSketch<uint8_t, long double> {
-    using Super = SetSketch<uint8_t, long double>;
-    static constexpr size_t QV = 254u;
-    ByteSetS(size_t nreg, long double b=1.2, long double a=20.): Super(nreg, b, a, QV) {}
-    template<typename Arg> ByteSetS(const Arg &arg): Super(arg) {}
-};
-struct ShortSetS: public SetSketch<uint16_t, long double> {
-    static constexpr long double DEFAULT_B = 1.0005;
-    static constexpr long double DEFAULT_A = .06;
-    static constexpr size_t QV = 65534u;
-    ShortSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): SetSketch<uint16_t, long double>(nreg, b, a, QV) {}
-    template<typename Arg> ShortSetS(const Arg &arg): SetSketch<uint16_t, long double>(arg) {}
-};
+
+
+#define CFDeclare(desttype, A, B, QC, RT, FT) \
+struct desttype: SetSketch<RT, FT> {\
+    static constexpr long double DEFAULT_B = A;\
+    static constexpr long double DEFAULT_A = B;\
+    desttype(size_t nreg, double b=DEFAULT_B, double a=DEFAULT_A): SetSketch<RT, FT>(nreg, b, a, QV) {}\
+    static constexpr size_t QV = QC;\
+    template<typename Arg> desttype(const Arg &arg): SetSketch<RT, FT>(arg) {}\
+};\
+struct CF##desttype: CountFilteredSetSketch<RT, FT> {\
+    static constexpr long double DEFAULT_B = A;\
+    static constexpr long double DEFAULT_A = B;\
+    CF##desttype(uint32_t mincount, size_t nreg, double b=DEFAULT_B, double a=DEFAULT_A): CountFilteredSetSketch<RT, FT>(mincount, nreg, b, a, QV) {}\
+    static constexpr size_t QV = QC;\
+    template<typename Arg> CF##desttype(uint32_t mincount, const Arg &arg): CountFilteredSetSketch<RT, FT>(mincount, arg) {}\
+}
+
+CFDeclare(NibbleSetS, 2.7182818284590452354L, 5e-4L, 14u, uint8_t, double);
+CFDeclare(SmallNibbleSetS, 4L, 1e-6L, 14u, uint8_t, double);
+CFDeclare(ByteSetS, 1.2, 20., 254u, uint8_t, double);
+CFDeclare(ShortSetS, 1.0005, .06, 65534u, uint16_t, long double);
 struct WideShortSetS: public SetSketch<uint16_t, long double> {
     static constexpr long double DEFAULT_B = 1.0004;
     static constexpr long double DEFAULT_A = .06;
@@ -912,13 +980,8 @@ struct EByteSetS: public SetSketch<uint8_t, double> {
     EByteSetS(IT nreg, double b=DEFAULT_B, double a=DEFAULT_A): SetSketch<uint8_t, double>(nreg, b, a, QV) {}
     template<typename...Args> EByteSetS(Args &&...args): SetSketch<uint8_t, double>(std::forward<Args>(args)...) {}
 };
-struct UintSetS: public sketch::setsketch::SetSketch<uint32_t, long double> {
-    static constexpr long double DEFAULT_B = 1.0000000109723500835;
-    static constexpr long double DEFAULT_A = 19.77882586;
-    static constexpr size_t QV = 0xFFFFFFFE;
-    UintSetS(size_t nreg, long double b=DEFAULT_B, long double a=DEFAULT_A): SetSketch<uint32_t, long double>(nreg, b, a, QV) {}
-    template<typename Arg> UintSetS(const Arg &arg): SetSketch<uint32_t, long double>(arg) {}
-};
+CFDeclare(UintSetS, 1.0000000109723500835L, 19.77882586L, 0xFFFFFFFEuL, uint32_t, long double);
+#undef CFDeclare
 
 template<typename FT=double>
 struct CountFilteredCSetSketch: public CSetSketch<FT> {
@@ -982,25 +1045,6 @@ struct CountFilteredCSetSketch: public CSetSketch<FT> {
                 erase_if(it);
                 continue;
             }
-#if 0
-            if(sizeof(FT) <= 8) {
-                FT kahan_carry = 0;
-                ls_.seed(rv);
-                if(nv < mvt_[ls_.step()])
-                    continue;
-                bool erase = true;
-                for(size_t bi = 0;++bi < m_;) {
-                    const FT bv = -getbeta(bi);
-                    rv = wy::wyhash64_stateless(&hid);
-                    if(kahan::update(nv, kahan_carry, bv * std::log(rv * INVMUL64)) > mv) {break;}
-                    if(nv < mvt_[ls_.step()]) {
-                        erase = false;
-                        break;
-                    }
-                }
-                if(erase) erase_if(it);
-            }
-#endif
         }
     }
     void update(const uint64_t id) {
