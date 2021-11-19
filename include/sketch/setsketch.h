@@ -674,7 +674,7 @@ public:
         std::fprintf(stderr, "%zu = m, a %lg, b %lg, q %d\n", m_, double(a_), double(b_), int(q_));
     }
     auto explim() const {return lowkh_.explim();}
-    template<typename OFT, typename=std::enable_if_t<std::is_arithmetic_v<OFT>>>
+    template<typename OFT, typename=std::enable_if_t<std::is_arithmetic<OFT>::value>>
     INLINE void update(const uint64_t id, OFT) {update(id);}
     void update(const uint64_t id) {
         using GenFT = std::conditional_t<(sizeof(FT) <= 8), double, long double>;
@@ -715,7 +715,7 @@ public:
     }
     double harmean(const SetSketch<ResT, FT> *ptr=static_cast<const SetSketch<ResT, FT> *>(nullptr)) const {
         static std::unordered_map<FT, std::vector<FT>> powers;
-        if constexpr(sizeof(ResT) >= 4) {
+        CONST_IF(sizeof(ResT) >= 4) {
             ska::flat_hash_map<ResT, uint32_t> counts;
             if(ptr) {
                 for(size_t i = 0; i < m_; ++i)
