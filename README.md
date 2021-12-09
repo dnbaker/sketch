@@ -108,4 +108,21 @@ By default, updates to the hyperloglog structure to occur using atomic operation
 ## Python bindings
 Python bindings are available via pybind11. Simply `cd python && python setup.py install`.
 
-
+Utilities include:
+    1. Sketching/serialization for sketch data structures
+        1. Supported: sketch.bbmh.BBitMinHasher, sketch.bf.bf, sketch.hmh.hmh, sketch.hll.hll
+    2. shs\_isz, which computes the intersection size of sorted hash sets.
+        1. Supported: {uint,int}{32,64}, float32, float64
+    3. fastmod/fastdiv, which uses the fast modulo reduction to do faster division/mod than numpy.
+        1. Supportd: {uint,int}{32,64}
+    4. matrix generation functions - taking a list of sketches and creating the similarity function matrix.
+        1. Supported: sketch.bbmh.BBitMinHasher, sketch.bf.bf, sketch.hmh.hmh, sketch.hll.hll
+        2. Types: "jaccard_matrix", "intersection_matrix", "containment_matrix", "union_size_matrix", "symmetric_containment_matrix"
+        3. Returns a compressed distance matrix.
+    5. ccount\_eq, pcount\_eq compute the number of identical registers between integral registers.
+        1. Inspired by cdist and pdist from scipy.spatial.distance
+        2. ccount\_eq computes the number of identical registers between all pairs of rows between two matrices A and B.
+            1. Size of returned matrix: (A.shape[0], A.shape[1])
+        3. pcount\_eq computes the number of identical registers between all pairs of rows in a single matrix A.
+            1. Size of returned matrix: (A.shape[0] * (A.shape[0]) - 1) / 2
+        4. pcount\_eq output can be transformed from similarities to distances via -np.log(distmat / A.shape[1]).
