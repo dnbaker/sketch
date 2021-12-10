@@ -1,5 +1,4 @@
 #include "sketch/lpcqf.h"
-template<typename T> struct f;
 
 template<typename FT>
 int submain() {
@@ -9,12 +8,6 @@ int submain() {
     for(size_t i = 0; i < 10; ++i) {
         lpf.update(i, i + 1);
         std::fprintf(stderr, "Inserted %zu, got %g as estimate back\n", i + 1, lpf.count_estimate(i));
-#if 0
-        auto out = lpf.count_estimate(i);
-        //f<decltype(out)> d;
-        std::fprintf(stderr, "Input: %zu. Out: %g\n", i + 1, out);
-        assert(lp.count_estimate(i) == i + 1);
-#endif
     }
     auto ip = lpf.inner_product(lpf);
     std::fprintf(stderr, "ip: %g\n", ip);
@@ -22,5 +15,5 @@ int submain() {
 }
 
 int main() {
-return submain<float>() || submain<double>();
+    return submain<float>() || submain<double>();
 }

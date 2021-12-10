@@ -1,10 +1,9 @@
 #include "sketch/lpcqf.h"
-template<typename T> struct f;
 
 int main() {
-    size_t nentered = 128;
+    size_t nentered = 132;
     size_t ss = 128;
-    sketch::LPCQF<uint32_t, 5, sketch::IS_QUADRATIC_PROBING> lp(ss);
+    sketch::LPCQF<uint32_t, 5, sketch::IS_QUADRATIC_PROBING | sketch::IS_POW2> lp(ss);
     for(size_t i = 0; i < nentered; ++i) {
         lp.update(i, i + 1);
     }
