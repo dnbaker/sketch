@@ -4,14 +4,17 @@
 #include <climits>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <ratio>
 #include <vector>
 
 #include <x86intrin.h>
 
-#include "sseutil.h"
-#include "div.h"
+#include "aesctr/wy.h"
+#include "sketch/sseutil.h"
+#include "sketch/div.h"
+#include "sketch/macros.h"
 
 #ifndef INLINE
 #define INLINE __attribute__((always_inline)) inline
@@ -36,20 +39,51 @@ enum LPCQFFlags {
     IS_QUADRATIC_PROBING = 8
 };
 
-INLINE float halfcvt(uint16_t x) {
-    return ((x&0x8000)<<16) | (((x&0x7c00)+0x1C000)<<13) | ((x&0x03FF)<<13);
+
+uint32_t as_uint(const float x) {
+    uint32_t ret;
+    std::memcpy(&ret, &x, sizeof(ret));
+    return ret;
 }
-INLINE uint16_t hashcvt(float item) {
-    uint32_t x;
-    std::memcpy(&x, &item, sizeof(float));
-    return ((x>>16)&0x8000)|((((x&0x7f800000)-0x38000000)>>13)&0x7c00)|((x>>13)&0x03ff);
+float as_float(const uint32_t x) {
+    float ret;
+    std::memcpy(&ret, &x, sizeof(ret));
+    return ret;
 }
 
-template<typename BaseT = uint64_t, size_t sigbits=8, int flags = IS_QUADRATIC_PROBING, size_t num = 2, size_t denom = 1, typename ModT=uint32_t>
+
+// Approximate counting using math from
+// Optimal bounds for approximate counting, Jelani Nelson, Huacheng Yu
+// 2020.
+// https://arxiv.org/abs/2010.02116
+
+INLINE float half_to_float(const uint16_t x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    const uint32_t e = (x&0x7C00)>>10; // exponent
+    const uint32_t m = (x&0x03FF)<<13; // mantissa
+    const uint32_t v = as_uint((float)m)>>23; // evil log2 bit hack to count leading zeros in denormalized format
+    
+    return as_float((x&0x8000)<<16 | (e!=0)*((e+112)<<23|m) | ((e==0)&(m!=0))*((v-37)<<23|((m<<(150-v))&0x007FE000))); // sign : normalized : denormalized
+}
+
+INLINE uint16_t float_to_half(const float x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    const uint32_t b = as_uint(x)+0x00001000; // round-to-nearest-even: add last bit after truncated mantissa
+    const uint32_t e = (b&0x7F800000)>>23; // exponent
+    const uint32_t m = b&0x007FFFFF; // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 = decimal indicator flag - initial rounding
+    return (b&0x80000000)>>16 | (e>112)*((((e-112)<<10)&0x7C00)|m>>13) | ((e<113)&(e>101))*((((0x007FF000+m)>>(125-e))+1)>>1) | (e>143)*0x7FFF; // sign : normalized : denormalized : saturate
+}
+template<typename T, typename=std::enable_if_t<!std::is_same_v<float, T> && !std::is_same_v<uint16_t, T>>>
+T halfcvt(T x) {throw std::runtime_error("Used the wrong halfcvt; this should only be run on float and uint16_t");}
+
+
+template<typename BaseT = uint64_t, size_t sigbits=8, int flags = IS_QUADRATIC_PROBING, size_t argnum = 2, size_t argdenom = 1, typename ModT=uint32_t>
 struct LPCQF {
     using T = typename IntegerSizeEquivalent<BaseT>::type;
-    static constexpr std::ratio<num, denom> approxlogbase;
-    static constexpr double approxlogb = double(num) / denom;
+    using MyType = LPCQF<BaseT, sigbits, flags, argnum, argdenom, ModT>;
+    //using Ratio = std::ratio<argnum, argdenom>;
+    static constexpr std::ratio<argnum, argdenom> ratio = std::ratio<argnum, argdenom> ();
+    static constexpr size_t num = ratio.num;
+    static constexpr size_t denom = ratio.den;
+    static constexpr long double approxlogb = double(num) / denom;
     static constexpr size_t countbits = sizeof(T) * CHAR_BIT - sigbits;
     static constexpr size_t countmask = (size_t(1) << countbits) - 1;
     static constexpr bool is_pow2 = flags & IS_POW2;
@@ -57,17 +91,55 @@ struct LPCQF {
     static constexpr bool countsketch_increment = flags & IS_COUNTSKETCH;
     static constexpr bool quadratic_probing = flags & IS_QUADRATIC_PROBING;
     static constexpr bool is_floating = std::is_floating_point_v<BaseT>;
-    using MyType = LPCQF<BaseT, sigbits, flags, num, denom, ModT>;
     static_assert(sizeof(T) * CHAR_BIT > sigbits, "T must be >= sigbits size");
     static_assert(countbits < sizeof(T) * CHAR_BIT, "T must be >= countbits size");
     static_assert(approxlogb > 1., "approxlogb must be > 1");
 private:
+    // Helper functions for approximate increment
+    static long double ainc_increment_prob(signed long long n) {
+        return std::pow(approxlogb, -n);
+    }
+    static long double ainc_estimate_count(signed long long n) {
+        if constexpr(num == 2 && denom == 1) {
+            if(n < 64) return 1ull << n;
+            return std::ldexp(1., n) - 1.L;
+        }
+        return (std::pow(approxlogb, n) - 1.L) / (approxlogb - 1.L);
+    }
+    template<typename T>
+    void ainc(T &counter) {
+        static constexpr bool is_apow2 = (num == 2 && denom == 1);
+        if constexpr(is_apow2) {
+            if(numdraws < counter) {
+                rv = wy::wyhash64_stateless(&rseed);
+                numdraws = 64;
+            }
+            const T old = counter;
+            if((rv & (UINT64_C(-1) >> (64 - counter))) == 0)
+                ++counter;
+            rv >>= old; numdraws -= old;
+        } else {
+            if(static_cast<long double>(wy::wyhash64_stateless(&rseed)) * 0x1p-64L < ainc_increment_prob(counter))
+                ++counter;
+        }
+    }
+
+    static_assert(sizeof(T) * CHAR_BIT > sigbits, "T must be >= sigbits size");
+    static_assert(countbits < sizeof(T) * CHAR_BIT, "T must be >= countbits size");
+    static_assert(approxlogb > 1., "approxlogb must be > 1");
+    static_assert(!is_floating || (sigbits == 16 || sigbits == 32), "Floating needs 16 or 32-bit remainders for counting.");
+    static_assert(!approx_inc || (!is_floating && !countsketch_increment), "Approximate increment cannot use floating-point representations or count-sketch incrementing.");
+    uint64_t rv;
+    uint64_t rseed = 0;
+    unsigned int numdraws = 64;
     schism::Schismatic<ModT> div_;
-    std::unique_ptr<MyType> leftovers_;
+    //std::unique_ptr<MyType> leftovers_;
+
     std::vector<T, sse::AlignedAllocator<T>> data_;
     int l2n = 0;
     uint64_t bitmask = 0xFFFFFFFFFFFFFFFFull;
     size_t size_;
+
 public:
     static constexpr auto hash(uint64_t key) {
           key = (~key) + (key << 21); // key = (key << 21) - key - 1;
@@ -91,6 +163,7 @@ public:
     std::conditional_t<is_floating, double, uint64_t> inner_product(const MyType &o) {
         if(size_ != o.size_) throw std::invalid_argument("Can't compare LPCQF of different sizes");
         std::conditional_t<is_floating, double, uint64_t> ret = 0;
+        if constexpr(approx_inc) throw std::invalid_argument("Not yet implemented: approx_inc inner product.");
         // TODO: SIMD Implementation
         for(size_t i = 0; i < size_; ++i) {
             if(data_[i] && o.data_[i]) {
@@ -104,60 +177,101 @@ public:
         return ret;
     }
     INLINE BaseT extract_res(T x) const {
-        BaseT v;
-        T tmp = x & countmask;
-        std::memcpy(&v, &tmp, sizeof(T));
-        return v;
+        if constexpr(!is_floating) {
+            return x & countmask;
+        } else {
+            if constexpr(sigbits == 32) {
+                //std::fprintf(stderr, "Integer %u becomes %g\n", int(x & countmask), as_float(x & countmask));
+                return as_float(x & countmask);
+            } else if constexpr(sigbits == 16) {
+                //std::fprintf(stderr, "Integer %u becomes %g\n", int(x & countmask), half_to_float(x & countmask));
+                return half_to_float(x & countmask);
+            } else {
+                throw std::runtime_error("sigbits should be 32 or 16 if floating point sizes are used.");
+            }
+        }
+        return BaseT(0);
     }
     BaseT count_estimate(uint64_t item) const {
         uint64_t hv = hash(item);
-        auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
+        ModT hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
         const ModT sig = hv & ModT((1ull << sigbits) - 1);
         size_t step = 0;
         size_t stepnum = -1;
         for(;++stepnum != data_.size();) {
             const T &reg = data_[hi];
-            if(!reg)
+            if(!reg) {
+#ifndef VERBOSE_AF
+                std::fprintf(stderr, "Item %zu was not found in the table, returning 0.\n", size_t(item));
+#endif
                 return static_cast<BaseT>(0);
-            if((reg >> countbits) == sig) {
-                return extract_res(reg);
+            }
+            if(ModT osig = (reg >> countbits); osig == sig) {
+                BaseT ret = extract_res(reg);
+                if constexpr(approx_inc)
+                    ret = ainc_estimate_count(ret);
+                return ret;
             }
             if(quadratic_probing) hi += ++step;
             else                ++hi;
+            hi = is_pow2 ? ModT(hi & bitmask): ModT(div_.mod(hi));
         }
         return static_cast<BaseT>(0);
     }
-    template<typename CT, typename=std::enable_if_t<std::is_integral_v<CT>>>
+    static constexpr T encode_res(BaseT val) {
+        if constexpr(!is_floating) {return val;}
+        else {
+            uint32_t ret;
+            if constexpr(sigbits == 16) {
+                ret = float_to_half(float(val));
+            }
+            else if constexpr(sigbits == 32) {
+                float t = val;
+                std::memcpy(&ret, &t, sizeof(ret));
+            } else {throw std::runtime_error("Should not happen.");}
+            return ret;
+        }
+    }
+    template<typename CT, typename=std::enable_if_t<std::is_arithmetic_v<CT>>>
     void update(uint64_t item, CT count) {
         static_assert(std::is_signed_v<CT> || !countsketch_increment, "Make sure the type is signed or not countsketch");
         uint64_t hv = hash(item);
         auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
-        const ModT sig = hv & ModT((1ull << sigbits) - 1);
+        const T sig = hv & ModT((1ull << sigbits) - 1);
         size_t step = 0;
         size_t stepnum = -1;
         for(;++stepnum < data_.size();) {
             if(!data_[hi]) {
-                data_[hi] = (T(sig) << countbits) | count;
+                if constexpr(approx_inc) {
+                    T insert = 1;
+                    for(size_t i = 1; i < count; ainc(insert), ++i);
+                    std::fprintf(stderr, "Count variable is %u from increment of %u\n", int(insert), int(count));
+                    data_[hi] = (T(sig) << countbits) | insert;
+                    assert(data_[hi] != T(0));
+                } else {
+                    T val = encode_res(count);
+                    data_[hi] = (T(sig) << countbits) | val;
+                }
                 return;
-            } else if(auto osig = (data_[hi] >> countbits); osig == sig) {
-                if constexpr (approx_inc) { throw std::runtime_error("Not implemented.");}
-                else if constexpr(countsketch_increment) {
+            } else if(T osig = (data_[hi] >> countbits); osig == sig) {
+                if constexpr (approx_inc) {
+                    T current_count = data_[hi] & countmask;
+                    if(current_count >= ((1ull << countbits) - 1)) return; // Saturated
+                    for(size_t i = 0; i < count && likely(current_count != ((1ull << countbits) - 1)); ++i)
+                        ainc(current_count);
+                    data_[hi] = (sig << countbits) | current_count;
+                } else if constexpr(countsketch_increment) {
                     const bool flip_sign = hv >> 63;
                     if constexpr(is_floating) {
-                        BaseT v = extract_res(data_[hi]) + (flip_sign ? count: -count);
-                        T tmp;
-                        std::memcpy(&tmp, &v, sizeof(T));
-                        data_[hi] = (osig << countbits) | tmp;
+                        data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + (flip_sign ? count: -count));
                     } else {
                         T newval = (data_[hi] & countmask) + (flip_sign ? count: -count);
                         data_[hi] = (osig << countbits) | newval;
                     }
                 } else {
                     if constexpr(is_floating) {
-                        BaseT v = extract_res(data_[hi]) + count;
-                        T tmp;
-                        std::memcpy(&tmp, &v, sizeof(T));
-                        data_[hi] = (osig << countbits) | tmp;
+                        std::fprintf(stderr, "Old count: %g, incremented and included as %u\n", extract_res(data_[hi]), encode_res(extract_res(data_[hi]) + count));
+                        data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + count);
                     } else {
                         data_[hi] += count;
                     }
@@ -169,7 +283,9 @@ public:
             } else {
                 ++hi;
             }
-            assert( ModT(hi & bitmask) == ModT(div_.mod(hi)));
+            if constexpr(is_pow2) {
+                assert(ModT(hi & bitmask) == ModT(div_.mod(hi)));
+            }
             hi = is_pow2 ? ModT(hi & bitmask): ModT(div_.mod(hi));
         }
 
@@ -192,7 +308,8 @@ public:
         }
     }
     void update(uint64_t item) {
-        update(item, 1);
+        static constexpr std::conditional_t<is_floating, double, std::conditional_t<countsketch_increment, std::make_signed_t<T>, std::make_unsigned_t<T>>> inc = 1;
+        update(item, inc);
     }
     void reset() {
         std::fill_n(data_.data(), size_, T(0));

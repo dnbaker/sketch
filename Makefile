@@ -36,7 +36,7 @@ all: $(EX)
 setup_tests: $(EX) lztest
 	echo $(EX) lztest > tmpfiles.txt
 
-STD?= -std=c++14
+STD?= -std=c++17
 
 #CCBIN?=-ccbin=clang++
 
