@@ -114,8 +114,8 @@ public:
         } else {
             if constexpr(sigbits == 32) {
                 float v;
-                T tmp = x & countmask;
-                std::memcpy(&v, &tmp, sizeof(T));
+                uint32_t tmp = x & countmask;
+                std::memcpy(&v, &tmp, sizeof(uint32_t));
                 return v;
             } else if constexpr(sigbits == 16) {
                 return halfcvt(uint16_t(x & countmask));
@@ -136,7 +136,6 @@ public:
             if(!reg)
                 return static_cast<BaseT>(0);
             if((reg >> countbits) == sig) {
-                std::fprintf(stderr, "Bucket %zu matches sig %zu. extracted: %g\n", size_t(hi), size_t(sig), double(extract_res(reg)));
                 return extract_res(reg);
             }
             if(quadratic_probing) hi += ++step;
@@ -151,8 +150,8 @@ public:
             if constexpr(sigbits == 16) {ret = halfcvt(float(val));}
             else if constexpr(sigbits == 32) {
                 float t = val;
-                std::memcpy(&ret, &t, sizeof(val));
-            }
+                std::memcpy(&ret, &t, sizeof(ret));
+            } else {throw std::runtime_error("Should not happen.");}
             return ret;
         }
     }
@@ -169,7 +168,8 @@ public:
         size_t stepnum = -1;
         for(;++stepnum < data_.size();) {
             if(!data_[hi]) {
-                data_[hi] = (T(sig) << countbits) | count;
+                T val = encode_res(count);
+                data_[hi] = (T(sig) << countbits) | val;
                 return;
             } else if(auto osig = (data_[hi] >> countbits); osig == sig) {
                 if constexpr (approx_inc) { throw std::runtime_error("Not implemented.");}
