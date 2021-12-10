@@ -37,14 +37,35 @@ enum LPCQFFlags {
     IS_QUADRATIC_PROBING = 8
 };
 
-INLINE float halfcvt(uint16_t x) {
-    return ((x&0x8000)<<16) | (((x&0x7c00)+0x1C000)<<13) | ((x&0x03FF)<<13);
+
+uint32_t as_uint(const float x) {
+    uint32_t ret;
+    std::memcpy(&ret, &x, sizeof(ret));
+    return ret;
 }
-INLINE uint16_t hashcvt(float item) {
-    uint32_t x;
-    std::memcpy(&x, &item, sizeof(float));
-    return ((x>>16)&0x8000)|((((x&0x7f800000)-0x38000000)>>13)&0x7c00)|((x>>13)&0x03ff);
+float as_float(const uint32_t x) {
+    float ret;
+    std::memcpy(&ret, &x, sizeof(ret));
+    return ret;
 }
+
+INLINE float half_to_float(const uint16_t x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    const uint32_t e = (x&0x7C00)>>10; // exponent
+    const uint32_t m = (x&0x03FF)<<13; // mantissa
+    const uint32_t v = as_uint((float)m)>>23; // evil log2 bit hack to count leading zeros in denormalized format
+    
+    return as_float((x&0x8000)<<16 | (e!=0)*((e+112)<<23|m) | ((e==0)&(m!=0))*((v-37)<<23|((m<<(150-v))&0x007FE000))); // sign : normalized : denormalized
+}
+
+INLINE uint16_t float_to_half(const float x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    const uint32_t b = as_uint(x)+0x00001000; // round-to-nearest-even: add last bit after truncated mantissa
+    const uint32_t e = (b&0x7F800000)>>23; // exponent
+    const uint32_t m = b&0x007FFFFF; // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 = decimal indicator flag - initial rounding
+    return (b&0x80000000)>>16 | (e>112)*((((e-112)<<10)&0x7C00)|m>>13) | ((e<113)&(e>101))*((((0x007FF000+m)>>(125-e))+1)>>1) | (e>143)*0x7FFF; // sign : normalized : denormalized : saturate
+}
+template<typename T, typename=std::enable_if_t<!std::is_same_v<float, T> && !std::is_same_v<uint16_t, T>>>
+T halfcvt(T x) {throw std::runtime_error("Used the wrong halfcvt; this should only be run on float and uint16_t");}
+
 
 template<typename BaseT = uint64_t, size_t sigbits=8, int flags = IS_QUADRATIC_PROBING, size_t num = 2, size_t denom = 1, typename ModT=uint32_t>
 struct LPCQF {
@@ -89,9 +110,6 @@ public:
         }
         data_.resize(nregs);
         size_ = nregs;
-        if(is_floating) {
-            std::fprintf(stderr, "Error: Floating-point support does not work yet. Do not use.\n");
-        }
     }
     std::conditional_t<is_floating, double, uint64_t> inner_product(const MyType &o) {
         if(size_ != o.size_) throw std::invalid_argument("Can't compare LPCQF of different sizes");
@@ -113,12 +131,9 @@ public:
             return x & countmask;
         } else {
             if constexpr(sigbits == 32) {
-                float v;
-                uint32_t tmp = x & countmask;
-                std::memcpy(&v, &tmp, sizeof(uint32_t));
-                return v;
+                return as_float(x & countmask);
             } else if constexpr(sigbits == 16) {
-                return halfcvt(uint16_t(x & countmask));
+                return half_to_float(x & countmask);
             } else {
                 throw std::runtime_error("sigbits should be 32 or 16 if floating point sizes are used.");
             }
@@ -147,7 +162,9 @@ public:
         if constexpr(!is_floating) {return val;}
         else {
             uint32_t ret = 0;
-            if constexpr(sigbits == 16) {ret = halfcvt(float(val));}
+            if constexpr(sigbits == 16) {
+                ret = float_to_half(float(val));
+            }
             else if constexpr(sigbits == 32) {
                 float t = val;
                 std::memcpy(&ret, &t, sizeof(ret));
@@ -157,9 +174,6 @@ public:
     }
     template<typename CT, typename=std::enable_if_t<std::is_integral_v<CT>>>
     void update(uint64_t item, CT count) {
-        if constexpr(is_floating) {
-            std::fprintf(stderr, "Error: Floating-point support does not work yet. Do not use.");
-        }
         static_assert(std::is_signed_v<CT> || !countsketch_increment, "Make sure the type is signed or not countsketch");
         uint64_t hv = hash(item);
         auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
