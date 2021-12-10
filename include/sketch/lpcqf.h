@@ -98,12 +98,27 @@ private:
         return std::pow(approxlogb, -n);
     }
     static long double ainc_estimate_count(signed long long n) {
-        return (std::pow(approxlogb, n) - 1.L) / (approxlogb - 1.L);
+        if constexpr(num == 2 && denom == 1) {
+            if(n < 64) return (1ull << n) - 1ull;
+            return std::ldexp(1., n) - 1.L;
+        } else
+            return (std::pow(approxlogb, n) - 1.L) / (approxlogb - 1.L);
     }
     template<typename T>
     void ainc(T &counter) {
-        if(static_cast<long double>(wy::wyhash64_stateless(&rseed)) * 0x1p-64L < ainc_increment_prob(counter))
-            ++counter;
+        if constexpr(is_apow2) {
+            if(numdraws < counter) {
+                rv = wy::wyhash64_stateless(&rseed);
+                numdraws = 64;
+            }
+            const T old = counter;
+            if((rv & (UINT64_C(-1) >> (64 - counter))) == 0)
+                ++counter;
+            rv >>= old; numdraws -= old;
+        } else {
+            if(static_cast<long double>(wy::wyhash64_stateless(&rseed)) * 0x1p-64L < ainc_increment_prob(counter))
+                ++counter;
+        }
     }
 
     static_assert(sizeof(T) * CHAR_BIT > sigbits, "T must be >= sigbits size");
@@ -113,7 +128,7 @@ private:
     static_assert(!approx_inc || (!is_floating && !countsketch_increment), "Approximate increment cannot use floating-point representations or count-sketch incrementing.");
     uint64_t rv;
     uint64_t rseed = 13;
-    unsigned int numdraws = 64;
+    unsigned int numdraws = 0;
     schism::Schismatic<ModT> div_;
     //std::unique_ptr<MyType> leftovers_;
 
