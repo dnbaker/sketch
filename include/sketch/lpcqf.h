@@ -91,9 +91,7 @@ struct LPCQF {
     static constexpr bool countsketch_increment = flags & IS_COUNTSKETCH;
     static constexpr bool quadratic_probing = flags & IS_QUADRATIC_PROBING;
     static constexpr bool is_floating = std::is_floating_point_v<BaseT>;
-    static_assert(sizeof(T) * CHAR_BIT > sigbits, "T must be >= sigbits size");
-    static_assert(countbits < sizeof(T) * CHAR_BIT, "T must be >= countbits size");
-    static_assert(approxlogb > 1., "approxlogb must be > 1");
+    static constexpr bool is_apow2 = num == 2 && denom == 1;
 private:
     // Helper functions for approximate increment
     static long double ainc_increment_prob(signed long long n) {
@@ -101,14 +99,13 @@ private:
     }
     static long double ainc_estimate_count(signed long long n) {
         if constexpr(num == 2 && denom == 1) {
-            if(n < 64) return 1ull << n;
+            if(n < 64) return (1ull << n) - 1ull;
             return std::ldexp(1., n) - 1.L;
-        }
-        return (std::pow(approxlogb, n) - 1.L) / (approxlogb - 1.L);
+        } else
+            return (std::pow(approxlogb, n) - 1.L) / (approxlogb - 1.L);
     }
     template<typename T>
     void ainc(T &counter) {
-        static constexpr bool is_apow2 = (num == 2 && denom == 1);
         if constexpr(is_apow2) {
             if(numdraws < counter) {
                 rv = wy::wyhash64_stateless(&rseed);
@@ -125,13 +122,13 @@ private:
     }
 
     static_assert(sizeof(T) * CHAR_BIT > sigbits, "T must be >= sigbits size");
-    static_assert(countbits < sizeof(T) * CHAR_BIT, "T must be >= countbits size");
+    static_assert(countbits <= sizeof(T) * CHAR_BIT, "T must be >= countbits size");
     static_assert(approxlogb > 1., "approxlogb must be > 1");
     static_assert(!is_floating || (sigbits == 16 || sigbits == 32), "Floating needs 16 or 32-bit remainders for counting.");
     static_assert(!approx_inc || (!is_floating && !countsketch_increment), "Approximate increment cannot use floating-point representations or count-sketch incrementing.");
     uint64_t rv;
-    uint64_t rseed = 0;
-    unsigned int numdraws = 64;
+    uint64_t rseed = 13;
+    unsigned int numdraws = 0;
     schism::Schismatic<ModT> div_;
     //std::unique_ptr<MyType> leftovers_;
 
@@ -151,7 +148,9 @@ public:
           key = key + (key << 31);
           return key;
     }
-    LPCQF(size_t nregs): div_(nregs) {
+    LPCQF(size_t nregs, size_t seed=0): div_(nregs) {
+        rseed = seed ? seed: nregs;
+        if(nregs > std::numeric_limits<ModT>::max()) throw std::invalid_argument(std::string("nregs ") + std::to_string(nregs) + " is > than ModT size. Use a 64-bit ModT to build an LPCQF of that size.");
         if(is_pow2) {
             if(nregs & (nregs - 1)) throw std::invalid_argument("LPCQF of power of 2 size requires a power-of-two size.");
             l2n = 64 - __builtin_clzll(nregs) - 1;
@@ -195,7 +194,8 @@ public:
     BaseT count_estimate(uint64_t item) const {
         uint64_t hv = hash(item);
         ModT hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
-        const ModT sig = hv & ModT((1ull << sigbits) - 1);
+        const ModT sig = sigbits ? hv & ModT((1ull << sigbits) - 1): ModT(0);
+        ModT osig;
         size_t step = 0;
         size_t stepnum = -1;
         for(;++stepnum != data_.size();) {
@@ -206,7 +206,8 @@ public:
 #endif
                 return static_cast<BaseT>(0);
             }
-            if(ModT osig = (reg >> countbits); osig == sig) {
+            if constexpr(sigbits > 0) osig = reg >> countbits;
+            if(sigbits == 0|| osig == sig) {
                 BaseT ret = extract_res(reg);
                 if constexpr(approx_inc)
                     ret = ainc_estimate_count(ret);
@@ -234,49 +235,55 @@ public:
     }
     template<typename CT, typename=std::enable_if_t<std::is_arithmetic_v<CT>>>
     void update(uint64_t item, CT count) {
+        if(approx_inc && unlikely(count < CT(0))) throw std::invalid_argument(std::string("Update with negative count ") + std::to_string(count) + " is not permitted in approximate counting mode.");
         static_assert(std::is_signed_v<CT> || !countsketch_increment, "Make sure the type is signed or not countsketch");
         uint64_t hv = hash(item);
         auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
-        const T sig = hv & ModT((1ull << sigbits) - 1);
+        T sig, osig;
+        if constexpr(sigbits > 0) sig = hv & ModT((1ull << sigbits) - 1);
         size_t step = 0;
         size_t stepnum = -1;
         for(;++stepnum < data_.size();) {
             if(!data_[hi]) {
                 if constexpr(approx_inc) {
                     T insert = 1;
-                    for(size_t i = 1; i < count; ainc(insert), ++i);
+                    for(size_t i = 1; i < static_cast<size_t>(count); ainc(insert), ++i);
                     std::fprintf(stderr, "Count variable is %u from increment of %u\n", int(insert), int(count));
                     data_[hi] = (T(sig) << countbits) | insert;
                     assert(data_[hi] != T(0));
                 } else {
                     T val = encode_res(count);
-                    data_[hi] = (T(sig) << countbits) | val;
+                    if constexpr(sigbits)
+                        val |= (T(sig) << countbits);
+                    data_[hi] = val;
                 }
                 return;
-            } else if(T osig = (data_[hi] >> countbits); osig == sig) {
-                if constexpr (approx_inc) {
-                    T current_count = data_[hi] & countmask;
-                    if(current_count >= ((1ull << countbits) - 1)) return; // Saturated
-                    for(size_t i = 0; i < count && likely(current_count != ((1ull << countbits) - 1)); ++i)
-                        ainc(current_count);
-                    data_[hi] = (sig << countbits) | current_count;
-                } else if constexpr(countsketch_increment) {
-                    const bool flip_sign = hv >> 63;
-                    if constexpr(is_floating) {
-                        data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + (flip_sign ? count: -count));
+            } else {
+                if constexpr(sigbits > 0) osig = data_[hi] >> countbits;
+                if(sigbits == 0 || osig == sig) {
+                    if constexpr (approx_inc) {
+                        T current_count = data_[hi] & countmask;
+                        if(current_count >= ((1ull << countbits) - 1)) return; // Saturated
+                        for(size_t i = 0; i < size_t(count) && likely(current_count != ((1ull << countbits) - 1)); ++i)
+                            ainc(current_count);
+                        data_[hi] = (sig << countbits) | current_count;
+                    } else if constexpr(countsketch_increment) {
+                        const bool flip_sign = hv >> 63;
+                        if constexpr(is_floating) {
+                            data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + (flip_sign ? count: -count));
+                        } else {
+                            T newval = (data_[hi] & countmask) + (flip_sign ? count: -count);
+                            data_[hi] = (osig << countbits) | newval;
+                        }
                     } else {
-                        T newval = (data_[hi] & countmask) + (flip_sign ? count: -count);
-                        data_[hi] = (osig << countbits) | newval;
+                        if constexpr(is_floating) {
+                            data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + count);
+                        } else {
+                            data_[hi] += count;
+                        }
                     }
-                } else {
-                    if constexpr(is_floating) {
-                        std::fprintf(stderr, "Old count: %g, incremented and included as %u\n", extract_res(data_[hi]), encode_res(extract_res(data_[hi]) + count));
-                        data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + count);
-                    } else {
-                        data_[hi] += count;
-                    }
+                    return;
                 }
-                return;
             }
             if constexpr(quadratic_probing) {
                 hi += ++step;
