@@ -283,7 +283,6 @@ public:
                 if constexpr(approx_inc) {
                     T insert = 1;
                     for(size_t i = 1; i < static_cast<size_t>(count); ainc(insert), ++i);
-                    std::fprintf(stderr, "Count variable is %u from increment of %u\n", int(insert), int(count));
                     data_[hi] = (T(sig) << countbits) | insert;
                     assert(data_[hi] != T(0));
                 } else {
