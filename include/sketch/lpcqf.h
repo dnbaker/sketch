@@ -91,6 +91,7 @@ struct LPCQF {
     static constexpr bool countsketch_increment = flags & IS_COUNTSKETCH;
     static constexpr bool quadratic_probing = flags & IS_QUADRATIC_PROBING;
     static constexpr bool is_floating = std::is_floating_point_v<BaseT>;
+    static constexpr bool is_apow2 = num == 2 && denom == 1;
 private:
     // Helper functions for approximate increment
     static long double ainc_increment_prob(signed long long n) {
@@ -98,14 +99,13 @@ private:
     }
     static long double ainc_estimate_count(signed long long n) {
         if constexpr(num == 2 && denom == 1) {
-            if(n < 64) return 1ull << n;
+            if(n < 64) return (1ull << n) - 1ull;
             return std::ldexp(1., n) - 1.L;
-        }
-        return (std::pow(approxlogb, n) - 1.L) / (approxlogb - 1.L);
+        } else
+            return (std::pow(approxlogb, n) - 1.L) / (approxlogb - 1.L);
     }
     template<typename T>
     void ainc(T &counter) {
-        static constexpr bool is_apow2 = (num == 2 && denom == 1);
         if constexpr(is_apow2) {
             if(numdraws < counter) {
                 rv = wy::wyhash64_stateless(&rseed);
@@ -127,8 +127,8 @@ private:
     static_assert(!is_floating || (sigbits == 16 || sigbits == 32), "Floating needs 16 or 32-bit remainders for counting.");
     static_assert(!approx_inc || (!is_floating && !countsketch_increment), "Approximate increment cannot use floating-point representations or count-sketch incrementing.");
     uint64_t rv;
-    uint64_t rseed = 0;
-    unsigned int numdraws = 64;
+    uint64_t rseed = 13;
+    unsigned int numdraws = 0;
     schism::Schismatic<ModT> div_;
     //std::unique_ptr<MyType> leftovers_;
 
@@ -148,7 +148,9 @@ public:
           key = key + (key << 31);
           return key;
     }
-    LPCQF(size_t nregs): div_(nregs) {
+    LPCQF(size_t nregs, size_t seed=0): div_(nregs) {
+        rseed = seed ? seed: nregs;
+        if(nregs > std::numeric_limits<ModT>::max()) throw std::invalid_argument(std::string("nregs ") + std::to_string(nregs) + " is > than ModT size. Use a 64-bit ModT to build an LPCQF of that size.");
         if(is_pow2) {
             if(nregs & (nregs - 1)) throw std::invalid_argument("LPCQF of power of 2 size requires a power-of-two size.");
             l2n = 64 - __builtin_clzll(nregs) - 1;
