@@ -40,12 +40,12 @@ enum LPCQFFlags {
 };
 
 
-uint32_t as_uint(const float x) {
+static INLINE uint32_t as_uint(const float x) {
     uint32_t ret;
     std::memcpy(&ret, &x, sizeof(ret));
     return ret;
 }
-float as_float(const uint32_t x) {
+static INLINE float as_float(const uint32_t x) {
     float ret;
     std::memcpy(&ret, &x, sizeof(ret));
     return ret;
@@ -57,25 +57,55 @@ float as_float(const uint32_t x) {
 // 2020.
 // https://arxiv.org/abs/2010.02116
 
+// Convert float/half and half/float using intrinsics if available
+// and manually otherwise. 5-10x performance penalty for manual.
+
 INLINE float half_to_float(const uint16_t x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    float ret;
+#if __F16C__ && __SSE__
+    ret = _mm_cvtph_ps(_mm_set1_epi16(x))[0];
+#else
     const uint32_t e = (x&0x7C00)>>10; // exponent
     const uint32_t m = (x&0x03FF)<<13; // mantissa
     const uint32_t v = as_uint((float)m)>>23; // evil log2 bit hack to count leading zeros in denormalized format
-    
-    return as_float((x&0x8000)<<16 | (e!=0)*((e+112)<<23|m) | ((e==0)&(m!=0))*((v-37)<<23|((m<<(150-v))&0x007FE000))); // sign : normalized : denormalized
+    ret = as_float((x&0x8000)<<16 | (e!=0)*((e+112)<<23|m) | ((e==0)&(m!=0))*((v-37)<<23|((m<<(150-v))&0x007FE000))); // sign : normalized : denormalized
+#endif
+    return ret;
 }
 
+#if __F16C__ && __SSE__
+template<int ROUND=0>
+#endif
 INLINE uint16_t float_to_half(const float x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    uint16_t ret;
+#if (__F16C__ && __SSE__)
+    const auto ph = _mm_cvtps_ph(_mm_set1_ps(x), ROUND);
+    std::memcpy(&ret, &ph, sizeof(ret));
+#else
     const uint32_t b = as_uint(x)+0x00001000; // round-to-nearest-even: add last bit after truncated mantissa
     const uint32_t e = (b&0x7F800000)>>23; // exponent
     const uint32_t m = b&0x007FFFFF; // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 = decimal indicator flag - initial rounding
-    return (b&0x80000000)>>16 | (e>112)*((((e-112)<<10)&0x7C00)|m>>13) | ((e<113)&(e>101))*((((0x007FF000+m)>>(125-e))+1)>>1) | (e>143)*0x7FFF; // sign : normalized : denormalized : saturate
+    ret = (b&0x80000000)>>16 | (e>112)*((((e-112)<<10)&0x7C00)|m>>13) | ((e<113)&(e>101))*((((0x007FF000+m)>>(125-e))+1)>>1) | (e>143)*0x7FFF; // sign : normalized : denormalized : saturate
+#endif
+    return ret;
 }
+
 template<typename T, typename=std::enable_if_t<!std::is_same_v<float, T> && !std::is_same_v<uint16_t, T>>>
 T halfcvt(T x) {throw std::runtime_error("Used the wrong halfcvt; this should only be run on float and uint16_t");}
 
+template<size_t num, size_t denom, size_t N = 64>
+constexpr std::array<long double, N> get_ipowers() {
+    std::array<long double, N> ret{1.L};
+    constexpr long double approxlogb = static_cast<long double>(num) / denom;
+    for(size_t i = 0;++i < N;) {
+        ret[i] = ret[i - 1] / approxlogb;
+    }
+    return ret;
+}
+template<size_t num, size_t denom, size_t N>
+constexpr std::array<long double, N> POWERS = get_ipowers<num, denom, N>();
 
-template<typename BaseT = uint64_t, size_t sigbits=8, int flags = IS_QUADRATIC_PROBING, size_t argnum = 2, size_t argdenom = 1, typename ModT=uint32_t>
+template<typename BaseT = uint64_t, size_t sigbits=8, int flags = IS_QUADRATIC_PROBING, size_t argnum = 2, size_t argdenom = 1, typename ModT=uint32_t, long long int NCACHED_POWERS=64>
 struct LPCQF {
     using T = typename IntegerSizeEquivalent<BaseT>::type;
     using MyType = LPCQF<BaseT, sigbits, flags, argnum, argdenom, ModT>;
@@ -83,7 +113,7 @@ struct LPCQF {
     static constexpr std::ratio<argnum, argdenom> ratio = std::ratio<argnum, argdenom> ();
     static constexpr size_t num = ratio.num;
     static constexpr size_t denom = ratio.den;
-    static constexpr long double approxlogb = double(num) / denom;
+    static constexpr long double approxlogb = static_cast<long double>(num) / denom;
     static constexpr size_t countbits = sizeof(T) * CHAR_BIT - sigbits;
     static constexpr size_t countmask = (size_t(1) << countbits) - 1;
     static constexpr bool is_pow2 = flags & IS_POW2;
@@ -95,14 +125,19 @@ struct LPCQF {
 private:
     // Helper functions for approximate increment
     static long double ainc_increment_prob(signed long long n) {
-        return std::pow(approxlogb, -n);
+        long double ret;
+        if(n < NCACHED_POWERS) ret = POWERS<num, denom, NCACHED_POWERS>[n];
+        else ret = std::pow(approxlogb, -n);
+        return ret;
     }
     static long double ainc_estimate_count(signed long long n) {
         if constexpr(num == 2 && denom == 1) {
             if(n < 64) return (1ull << n) - 1ull;
             return std::ldexp(1., n) - 1.L;
-        } else
-            return (std::pow(approxlogb, n) - 1.L) / (approxlogb - 1.L);
+        } else {
+            const long double v = n < NCACHED_POWERS ? POWERS<denom, num, NCACHED_POWERS>[n]: std::pow(approxlogb, n);
+            return (v - 1.L) / (approxlogb - 1.L);
+        }
     }
     template<typename T>
     void ainc(T &counter) {
@@ -191,7 +226,7 @@ public:
         }
         return BaseT(0);
     }
-    BaseT count_estimate(uint64_t item) const {
+    std::conditional_t<approx_inc, long double, BaseT> count_estimate(uint64_t item) const {
         uint64_t hv = hash(item);
         ModT hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
         const ModT sig = sigbits ? hv & ModT((1ull << sigbits) - 1): ModT(0);
@@ -204,20 +239,20 @@ public:
 #ifndef VERBOSE_AF
                 std::fprintf(stderr, "Item %zu was not found in the table, returning 0.\n", size_t(item));
 #endif
-                return static_cast<BaseT>(0);
+                return 0.;
             }
             if constexpr(sigbits > 0) osig = reg >> countbits;
             if(sigbits == 0|| osig == sig) {
                 BaseT ret = extract_res(reg);
                 if constexpr(approx_inc)
-                    ret = ainc_estimate_count(ret);
+                    return ainc_estimate_count(ret);
                 return ret;
             }
             if(quadratic_probing) hi += ++step;
             else                ++hi;
             hi = is_pow2 ? ModT(hi & bitmask): ModT(div_.mod(hi));
         }
-        return static_cast<BaseT>(0);
+        return 0.L;
     }
     static constexpr T encode_res(BaseT val) {
         if constexpr(!is_floating) {return val;}
@@ -248,7 +283,6 @@ public:
                 if constexpr(approx_inc) {
                     T insert = 1;
                     for(size_t i = 1; i < static_cast<size_t>(count); ainc(insert), ++i);
-                    std::fprintf(stderr, "Count variable is %u from increment of %u\n", int(insert), int(count));
                     data_[hi] = (T(sig) << countbits) | insert;
                     assert(data_[hi] != T(0));
                 } else {

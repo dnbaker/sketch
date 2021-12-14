@@ -147,11 +147,13 @@ template<> struct Schismatic<uint32_t> {
     }
 };
 template<> struct Schismatic<int32_t>: Schismatic<uint32_t> {
-    template<typename...Args>Schismatic<int32_t>(Args &&...args):
-        Schismatic<uint32_t>(std::forward<Args>(args)...){}
+    using BT = Schismatic<uint32_t>;
+    template<typename... Args>
+        Schismatic<int32_t>(Args &&...args):
+            BT(std::forward<Args>(args)...){}
 };
 template<> struct Schismatic<int64_t>: Schismatic<uint64_t> {
-    template<typename...Args>Schismatic<int64_t>(Args &&...args):
+    template<typename...Args> Schismatic<int64_t>(Args &&...args):
         Schismatic<uint64_t>(std::forward<Args>(args)...){}
 };
 
