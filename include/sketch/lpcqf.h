@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <ratio>
 #include <vector>
+#include <memory>
 
 #include <x86intrin.h>
 
@@ -122,6 +123,8 @@ struct LPCQF {
     static constexpr bool quadratic_probing = flags & IS_QUADRATIC_PROBING;
     static constexpr bool is_floating = std::is_floating_point_v<BaseT>;
     static constexpr bool is_apow2 = num == 2 && denom == 1;
+    static constexpr bool is_64bit_index = sizeof(ModT) == 8;
+    static_assert(sizeof(ModT) == 4 || sizeof(ModT) == 8, "ModT must be 4 or 8 bytes");
 private:
     // Helper functions for approximate increment
     static long double ainc_increment_prob(signed long long n) {
@@ -269,11 +272,7 @@ public:
         }
     }
     template<typename CT, typename=std::enable_if_t<std::is_arithmetic_v<CT>>>
-    void update(uint64_t item, CT count) {
-        if(approx_inc && unlikely(count < CT(0))) throw std::invalid_argument(std::string("Update with negative count ") + std::to_string(count) + " is not permitted in approximate counting mode.");
-        static_assert(std::is_signed_v<CT> || !countsketch_increment, "Make sure the type is signed or not countsketch");
-        uint64_t hv = hash(item);
-        auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
+    void update_hashed(uint64_t hv, ModT hi, CT count) {
         T sig, osig;
         if constexpr(sigbits > 0) sig = hv & ModT((1ull << sigbits) - 1);
         size_t step = 0;
@@ -333,6 +332,70 @@ public:
         std::fprintf(stderr, "Failed to find empty bucket in table of size %zu\n", data_.size());
         throw std::runtime_error("CQF exceeded size. Resizing not yet implemented.");
     }
+    template<typename CT, typename=std::enable_if_t<std::is_arithmetic_v<CT>>>
+    void update(uint64_t item, CT count) {
+        if(approx_inc && unlikely(count < CT(0))) throw std::invalid_argument(std::string("Update with negative count ") + std::to_string(count) + " is not permitted in approximate counting mode.");
+        static_assert(std::is_signed_v<CT> || !countsketch_increment, "Make sure the type is signed or not countsketch");
+        uint64_t hv = hash(item);
+        auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
+        update_hashed(hv, hi, count);
+    }
+    static INLINE void store(uint32_t *data, __m512i val) {
+        _mm512_storeu_si512(data, val);
+    }
+    static INLINE void store(uint32_t *data, __m256i val) {
+        _mm256_storeu_si256((__m256i *)data, val);
+    }
+    static INLINE void store(uint32_t *data, __m128i val) {
+        _mm_storeu_si128((__m128i *)data, val);
+    }
+    static INLINE void store(uint64_t *data, __m512i val) {
+        _mm512_storeu_si512(data, val);
+    }
+    static INLINE void store(uint64_t *data, __m256i val) {
+        _mm256_storeu_si256((__m256i *)data, val);
+    }
+    static INLINE void store(uint64_t *data, __m128i val) {
+        _mm_storeu_si128((__m128i *)data, val);
+    }
+    template<typename IncT=uint32_t>
+    void batch_update(const uint64_t *data, size_t n, IncT *inc = static_cast<IncT *>(nullptr)) {
+        // note: This handles batches up to 0xFFFFFFFF in size.
+        std::unique_ptr<ModT[]> tmp(new ModT[n]);
+        std::unique_ptr<uint64_t[]> hashdata(new uint64_t[n]);
+        std::unique_ptr<uint32_t[]> indices(new uint32_t[n]);
+        size_t i = 0;
+#ifdef __AVX512F__
+        constexpr size_t npersimd = sizeof(__m512i) / sizeof(uint64_t);
+        const size_t nsimd = n / npersimd;
+        const size_t scalar_index = nsimd * npersimd;
+        for(i = 0; i < scalar_index; i += npersimd) {
+            __m512i hv = hash(_mm512_loadu_si512(data + i));
+            store(&tmp[i], rem(hv));
+            store(&hashdata[i], hv);
+        }
+#elif __AVX2__
+        constexpr size_t npersimd = sizeof(__m256i) / sizeof(uint64_t);
+        const size_t nsimd = n / npersimd;
+        const size_t scalar_index = nsimd * npersimd;
+        for(i = 0; i < scalar_index; i += npersimd) {
+            __m256i hv = hash(_mm256_loadu_si256(reinterpret_cast<const __m256i *>(data + i)));
+            store(&tmp[i], rem(hv));
+            store(&hashdata[i], hv);
+        }
+#endif
+        for(;i < n; ++i) {
+            hashdata[i] = hash(data[i]);
+            tmp[i] = div_.mod(hashdata[i]);
+        }
+        std::iota(indices.get(), indices.get() + n, 0u);
+        std::sort(indices.get(), indices.get() + n, [&tmp](auto x, auto y) {return tmp[x] < tmp[y];});
+        for(i = 0; i < n; ++i) {
+            auto index = indices[i];
+            const IncT incv = inc ? inc[index]: IncT(1);
+            update_hashed(hashdata[index], tmp[index], incv);
+        }
+    }
     template<typename F>
     void for_each(F &&f) {
         for(auto &v: data_) {
@@ -356,6 +419,15 @@ public:
         std::fill_n(data_.data(), size_, T(0));
     }
 #if __AVX2__
+    INLINE __m128i cvtepi64_epi32_avx(__m256i v)
+    {
+       __m256 vf = _mm256_castsi256_ps( v );      // free
+       __m128 hi = _mm256_extractf128_ps(vf, 1);  // vextractf128
+       __m128 lo = _mm256_castps256_ps128( vf );  // also free
+       // take the bottom 32 bits of each 64-bit chunk in lo and hi
+       __m128 packed = _mm_shuffle_ps(lo, hi, _MM_SHUFFLE(2, 0, 2, 0));  // shufps
+       return _mm_castps_si128(packed);  // if you want
+    }
     static INLINE __m256i hash(__m256i element) {
         __m256i key = _mm256_add_epi64(_mm256_slli_epi64(element, 21), ~element);
         key = _mm256_srli_epi64(key, 24) ^ key;
@@ -366,6 +438,15 @@ public:
         key = _mm256_xor_si256(key, _mm256_srli_epi64(key, 28));
         key = _mm256_add_epi64(_mm256_slli_epi64(key, 31), key);
         return key;
+    }
+    static INLINE __m256i hashrem(__m256i el) {
+        return rem(hash(el));
+    }
+    INLINE __m256i rem(__m256i el) {
+        for(size_t i = 0; i < sizeof(el) / sizeof(ModT); ++i) {
+            ((ModT *)&el)[i] = div_.mod(((ModT *)&el)[i]);
+        }
+        return el;
     }
 #endif
 #if __AVX512F__
@@ -379,6 +460,15 @@ public:
         key = _mm512_xor_si512(key, _mm512_srli_epi64(key, 28));
         key = _mm512_add_epi64(_mm512_slli_epi64(key, 31), key);
         return key;
+    }
+    static INLINE std::conditional_t<is_64bit_index, __m512i, __m256i> rem(__m512i el) {
+        for(size_t i = 0; i < sizeof(el) / sizeof(ModT); ++i) {
+            ((ModT *)&el)[i] = div_.mod(((ModT *)&el)[i]);
+        }
+    }
+    static INLINE std::conditional_t<is_64bit_index, __m512i, __m256i> hashrem(__m512i el) {
+        el = hash(el);
+        return rem(el);
     }
 #endif
 };
