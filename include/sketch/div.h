@@ -6,6 +6,10 @@
 #include <utility>
 #include <limits>
 
+#ifdef __AVX2__
+#include <x86intrin.h>
+#endif
+
 #undef INLINE
 #if __GNUC__ || __clang__
 #  define INLINE __attribute__((always_inline)) inline
@@ -70,9 +74,16 @@ INLINE __m128i cvtepi64_epi32_avx(__m256i v)
    __m128 packed = _mm_shuffle_ps(lo, hi, _MM_SHUFFLE(2, 0, 2, 0));  // shufps
    return _mm_castps_si128(packed);  // if you want
 }
-static inline __m128i mul128_u32(__m256i lowbits, uint32_t d) {
-  throw std::runtime_error("Not yet implemented: mul128_u32");
+static inline __m128i mul128_u32_si256(__m256i lowbits, uint32_t d) {
+#if 1
+  __m128i ret;
+  for(size_t i = 0; i < 4; ++i) {
+       ((uint32_t *)&ret)[i] = mul128_u32(((uint64_t *)&lowbits)[i], d);
+  }
+  return ret;
+#else
   return cvtepi64_epi32_avx(lowbits);
+#endif
 }
 static inline __m256i mul64_haswell (__m256i a, __m256i b) {
     // instruction does not exist. Split into 32-bit multiplies
@@ -94,8 +105,8 @@ static inline __m256i fastmod_u32(__m256i a, uint64_t M, uint32_t d) {
   auto hia = _mm256_cvtepi32_epi64(_mm256_extractf128_si256(a, 1));
   auto lo_lo = mul64_haswell(loa, _mm256_set1_epi64x(M));
   auto hi_lo = mul64_haswell(hia, _mm256_set1_epi64x(M));
-  auto lo_mullo = mul128_u32(lo_lo, d);
-  auto hi_mullo = mul128_u32(hi_lo, d);
+  auto lo_mullo = mul128_u32_si256(lo_lo, d);
+  auto hi_mullo = mul128_u32_si256(hi_lo, d);
   return _mm256_setr_m128i(lo_mullo, hi_mullo);
 }
 #endif
@@ -180,6 +191,11 @@ template<> struct Schismatic<uint32_t> {
     auto d() const {return d_;}
     INLINE uint32_t div(uint32_t v) const {return fastdiv_u32(v, M_);}
     INLINE uint32_t mod(uint32_t v) const {return fastmod_u32(v, M_, d_);}
+#if 0
+#ifdef __AVX2__
+    INLINE auto mod(__m256i v) const {return fastmod_u32(v, M_, d_);}
+#endif
+#endif
     INLINE div_t<uint32_t> divmod(uint32_t v) const {
         auto tmpd = div(v);
         return div_t<uint32_t> {tmpd, v - d_ * tmpd};

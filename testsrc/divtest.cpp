@@ -38,4 +38,20 @@ int main() {
         policy::SizeDivPolicy<uint64_t> p2(j);
         std::fprintf(stderr, "input: %zu. power of two: %zu. div: %zu.\n", j, p1.nelem(), p2.nelem());
     }
+    schism::Schismatic<uint32_t> sm(133337);
+#if 0
+    __m256i vals;
+    uint32_t *vp = (uint32_t *)&vals;
+    std::mt19937 mt;
+    std::array<uint32_t, 8> truem;
+    for(size_t i = 0; i < 8; ++i) {
+        vp[i] = mt();
+        truem[i] = vp[i] % 133337;
+    }
+    auto vmod = sm.mod(vals);
+    vp = (uint32_t *)&vmod;
+    for(size_t i = 0; i < 8; ++i) {
+        std::fprintf(stderr, "True mod: %u. SIMD mod: %u\n", truem[i], vp[i]);
+    }
+#endif
 }

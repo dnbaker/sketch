@@ -442,11 +442,19 @@ public:
     static INLINE __m256i hashrem(__m256i el) {
         return rem(hash(el));
     }
-    INLINE __m256i rem(__m256i el) {
-        for(size_t i = 0; i < sizeof(el) / sizeof(ModT); ++i) {
-            ((ModT *)&el)[i] = div_.mod(((ModT *)&el)[i]);
+    INLINE auto rem(__m256i el) {
+        if constexpr(is_64bit_index) {
+            for(size_t i = 0; i < sizeof(el) / sizeof(uint64_t); ++i) {
+                ((ModT *)&el)[i] = div_.mod(((uint64_t *)&el)[i]);
+            }
+            return el;
+        } else {
+            __m128i ret;
+            for(size_t i = 0; i < sizeof(el) / sizeof(uint64_t); ++i) {
+                ((ModT *)&ret)[i] = div_.mod(((uint64_t *)&el)[i]);
+            }
+            return ret;
         }
-        return el;
     }
 #endif
 #if __AVX512F__
@@ -461,14 +469,22 @@ public:
         key = _mm512_add_epi64(_mm512_slli_epi64(key, 31), key);
         return key;
     }
-    static INLINE std::conditional_t<is_64bit_index, __m512i, __m256i> rem(__m512i el) {
-        for(size_t i = 0; i < sizeof(el) / sizeof(ModT); ++i) {
-            ((ModT *)&el)[i] = div_.mod(((ModT *)&el)[i]);
+    INLINE auto rem(__m512i el) const {
+        if constexpr(is_64bit_index) {
+            for(size_t i = 0; i < sizeof(el) / sizeof(uint64_t); ++i) {
+                ((ModT *)&el)[i] = div_.mod(((uint64_t *)&el)[i]);
+            }
+            return el;
+        } else {
+            __m256i ret;
+            for(size_t i = 0; i < sizeof(el) / sizeof(uint64_t); ++i) {
+                ((ModT *)&ret)[i] = div_.mod(((uint64_t *)&el)[i]);
+            }
+            return ret;
         }
     }
-    static INLINE std::conditional_t<is_64bit_index, __m512i, __m256i> hashrem(__m512i el) {
-        el = hash(el);
-        return rem(el);
+    static INLINE auto hashrem(__m512i el) {
+        return rem(hash(el));
     }
 #endif
 };
