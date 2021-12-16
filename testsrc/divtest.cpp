@@ -63,17 +63,28 @@ int main() {
     for(size_t i = 0; i < 8; ++i) {
         assert(truem[i] == vp[i]);
     }
-    std::vector<uint32_t> u32vals(1<<20);
+    constexpr size_t nitems = 1ull << 16;
+    std::vector<uint32_t> u32vals(nitems);
     auto t1 = std::chrono::high_resolution_clock::now();
-    for(size_t i = 0; i < (1ull << 20); ++i) {
+    for(size_t i = 0; i < nitems; ++i) {
+        //doNotOptimizeAway(u32vals[i] % 133337);
         doNotOptimizeAway(sm.mod(u32vals[i]));
     }
     auto t2 = std::chrono::high_resolution_clock::now();
-    for(size_t i = 0; i < (1ull << 20); i += 8) {
-        doNotOptimizeAway(sm.mod(_mm256_loadu_si256((const __m256i *)&u32vals[i])));
+    for(size_t i = 0; i < nitems; i += 8) {
+        //doNotOptimizeAway(
+        sm.mod(_mm256_loadu_si256((const __m256i *)&u32vals[i]));
+        //);
     }
     auto t4 = std::chrono::high_resolution_clock::now();
+#if 0
+    for(size_t i = 0; i < (1ull << 20); i += 16) {
+        sm.mod(_mm256_loadu_si256((const __m256i *)&u32vals[i]), _mm256_loadu_si256((const __m256i *)&u32vals[i + 8]));
+    }
+    auto t6 = std::chrono::high_resolution_clock::now();
+#endif
     auto ts1 = std::chrono::duration<double, std::milli>(t2 - t1).count();
     auto ts2 = std::chrono::duration<double, std::milli>(t4 - t2).count();
+    //auto ts3 = std::chrono::duration<double, std::milli>(t6 - t5).count();
     std::fprintf(stderr, "Time for serial: %g. Time for SIMD: %g\n", ts1, ts2);
 }
