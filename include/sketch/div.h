@@ -74,36 +74,80 @@ INLINE __m128i cvtepi64_epi32_avx(__m256i v)
    __m128 packed = _mm_shuffle_ps(lo, hi, _MM_SHUFFLE(2, 0, 2, 0));  // shufps
    return _mm_castps_si128(packed);  // if you want
 }
+static inline __m256i mul64_haswell (__m256i a, __m256i b);
+
+
+__m256i _mm256_mulhi_epi64_manual(const __m256i lhs, const uint32_t d) {
+    // Now, we want a __m256i which has 4 64-bit integers
+    __m256i lo_lhs_lo_upcasted = _mm256_cvtepu32_epi64(cvtepi64_epi32_avx(lhs));
+    __m256i lo_lhs_hi_upcasted = _mm256_cvtepu32_epi64(cvtepi64_epi32_avx(_mm256_srli_epi64(lhs, 32)));
+    __m256i lo_rhs_lo_upcasted = _mm256_set1_epi64x(d);
+    __m256i lo_rhs_hi_upcasted = _mm256_set1_epi64x(d);
+    __m256i lo_a_x_b_hi = mul64_haswell(lo_lhs_hi_upcasted, lo_rhs_hi_upcasted);
+    __m256i lo_a_x_b_mid = mul64_haswell(lo_lhs_hi_upcasted, lo_rhs_lo_upcasted);
+    __m256i lo_b_x_a_mid = mul64_haswell(lo_rhs_hi_upcasted, lo_lhs_lo_upcasted);
+    __m256i lo_a_x_b_lo = mul64_haswell(lo_lhs_lo_upcasted, lo_rhs_lo_upcasted);
+    __m256i lo_carry_bit = _mm256_srli_epi64(_mm256_add_epi64(_mm256_add_epi64(_mm256_cvtepu32_epi64(cvtepi64_epi32_avx(lo_a_x_b_mid)), _mm256_cvtepu32_epi64(cvtepi64_epi32_avx(lo_b_x_a_mid))), _mm256_srli_epi64(lo_a_x_b_lo, 32)), 32);
+    __m256i lo_multh = _mm256_add_epi64(_mm256_add_epi64(lo_a_x_b_hi, _mm256_add_epi64(_mm256_srli_epi64(lo_a_x_b_mid, 32), _mm256_srli_epi64(lo_b_x_a_mid, 32))), lo_carry_bit);
+    return lo_multh;
+    //__m128i lo_multh_u32 = cvtepi64_epi32_avx(lo_multh);
+}
 static inline __m128i mul128_u32_si256(__m256i lowbits, uint32_t d) {
-#if 1
+#if 0
   __m128i ret;
   for(size_t i = 0; i < 4; ++i) {
        ((uint32_t *)&ret)[i] = mul128_u32(((uint64_t *)&lowbits)[i], d);
   }
   return ret;
 #else
-  return cvtepi64_epi32_avx(lowbits);
+  __m128i packlo = cvtepi64_epi32_avx(_mm256_mulhi_epi64_manual(lowbits, d));
+#ifndef NDEBUG
+  for(size_t i = 0; i < 4; ++i) {
+     assert(((uint32_t *)&packlo)[i] == ((static_cast<__uint128_t>(((uint64_t *)&lowbits)[i]) * d) >> 64));
+  }
+#endif
+  return packlo;
 #endif
 }
 static inline __m256i mul64_haswell (__m256i a, __m256i b) {
-    // instruction does not exist. Split into 32-bit multiplies
-    __m256i bswap   = _mm256_shuffle_epi32(b,0xB1);           // swap H<->L
-    __m256i prodlh  = _mm256_mullo_epi32(a,bswap);            // 32 bit L*H products
-
-    // or use pshufb instead of psrlq to reduce port0 pressure on Haswell
-    __m256i prodlh2 = _mm256_srli_epi64(prodlh, 32);          // 0  , a0Hb0L,          0, a1Hb1L
-    __m256i prodlh3 = _mm256_add_epi32(prodlh2, prodlh);      // xxx, a0Lb0H+a0Hb0L, xxx, a1Lb1H+a1Hb1L
-    __m256i prodlh4 = _mm256_and_si256(prodlh3, _mm256_set1_epi64x(0x00000000FFFFFFFF)); // zero high halves
-
-    __m256i prodll  = _mm256_mul_epu32(a,b);                  // a0Lb0L,a1Lb1L, 64 bit unsigned products
-    __m256i prod    = _mm256_add_epi64(prodll,prodlh4);       // a0Lb0L+(a0Lb0H+a0Hb0L)<<32, a1Lb1L+(a1Lb1H+a1Hb1L)<<32
+    // From vectorclass V2
+    __m256i bswap   = _mm256_shuffle_epi32(b,0xB1);        // swap H<->L
+    __m256i prodlh  = _mm256_mullo_epi32(a,bswap);         // 32 bit L*H products
+    __m256i zero    = _mm256_setzero_si256();              // 0
+    __m256i prodlh2 = _mm256_hadd_epi32(prodlh,zero);      // a0Lb0H+a0Hb0L,a1Lb1H+a1Hb1L,0,0
+    __m256i prodlh3 = _mm256_shuffle_epi32(prodlh2,0x73);  // 0, a0Lb0H+a0Hb0L, 0, a1Lb1H+a1Hb1L
+    __m256i prodll  = _mm256_mul_epu32(a,b);               // a0Lb0L,a1Lb1L, 64 bit unsigned products
+    __m256i prod    = _mm256_add_epi64(prodll,prodlh3);    // a0Lb0L+(a0Lb0H+a0Hb0L)<<32, a1Lb1L+(a1Lb1H+a1Hb1L)<<32
+    for(size_t i = 0; i < 4; ++i) {
+        assert(((uint64_t *)&prod)[i] == ((uint64_t *)&a)[i] * ((uint64_t *)&b)[i]);
+    }
     return  prod;
 }
 
 static inline __m256i fastmod_u32(__m256i a, uint64_t M, uint32_t d) {
-  auto loa = _mm256_cvtepi32_epi64(_mm256_extractf128_si256(a, 0));
-  auto hia = _mm256_cvtepi32_epi64(_mm256_extractf128_si256(a, 1));
+  __m128i loex = _mm256_castsi256_si128(a), hiex = _mm256_extractf128_si256(a, 1);
+  assert(std::equal((uint32_t *)&loex, (uint32_t *)&loex + 4, (uint32_t *)&a));
+  __m256i loa = _mm256_cvtepu32_epi64(loex);
+  assert(std::equal((uint64_t *)&loa, (uint64_t *)&loa + 4, (uint32_t *)&loex));
+  assert(std::equal((uint64_t *)&loa, (uint64_t *)&loa + 4, (uint32_t *)&a));
+  __m256i hia = _mm256_cvtepu32_epi64(hiex);
+#ifndef NDEBUG
+  const uint64_t *loptr = (const uint64_t *)&loa;
+  for(size_t i = 0; i < 256 / 64; ++i) {
+        assert(loptr[i] == ((uint32_t *)&a)[i]);
+  }
+  const uint64_t *hiptr = (const uint64_t *)&hia;
+  for(size_t i = 4; i < 8; ++i) {
+        assert(hiptr[i - 4] == ((uint32_t *)&a)[i]);
+  }
+#endif
   auto lo_lo = mul64_haswell(loa, _mm256_set1_epi64x(M));
+#ifndef NDEBUG
+  for(size_t i = 0; i < 4; ++i) {
+      auto lptr = (const uint64_t *)&loa, dptr = (const uint64_t *)&lo_lo;
+      assert(dptr[i] == size_t(lptr[i] * M));
+  }
+#endif
   auto hi_lo = mul64_haswell(hia, _mm256_set1_epi64x(M));
   auto lo_mullo = mul128_u32_si256(lo_lo, d);
   auto hi_mullo = mul128_u32_si256(hi_lo, d);
@@ -191,7 +235,7 @@ template<> struct Schismatic<uint32_t> {
     auto d() const {return d_;}
     INLINE uint32_t div(uint32_t v) const {return fastdiv_u32(v, M_);}
     INLINE uint32_t mod(uint32_t v) const {return fastmod_u32(v, M_, d_);}
-#if 0
+#if 1
 #ifdef __AVX2__
     INLINE auto mod(__m256i v) const {return fastmod_u32(v, M_, d_);}
 #endif

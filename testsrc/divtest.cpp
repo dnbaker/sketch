@@ -3,6 +3,17 @@
 using namespace sketch;
 using namespace common;
 
+template <typename T>
+void doNotOptimizeAway(const T& datum) {
+  asm volatile("" ::"r"(datum));
+}
+template <>
+void doNotOptimizeAway(const __m256i & datum) {
+  const uint32_t ret = *(const uint32_t *)&datum;
+  asm volatile("" ::"r"(ret));
+}
+
+
 int main() {
     size_t maxn = 10000000;
     for(size_t i = 10; i < maxn; i *= 10) {
@@ -39,7 +50,6 @@ int main() {
         std::fprintf(stderr, "input: %zu. power of two: %zu. div: %zu.\n", j, p1.nelem(), p2.nelem());
     }
     schism::Schismatic<uint32_t> sm(133337);
-#if 0
     __m256i vals;
     uint32_t *vp = (uint32_t *)&vals;
     std::mt19937 mt;
@@ -51,7 +61,19 @@ int main() {
     auto vmod = sm.mod(vals);
     vp = (uint32_t *)&vmod;
     for(size_t i = 0; i < 8; ++i) {
-        std::fprintf(stderr, "True mod: %u. SIMD mod: %u\n", truem[i], vp[i]);
+        assert(truem[i] == vp[i]);
     }
-#endif
+    std::vector<uint32_t> u32vals(1<<20);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    for(size_t i = 0; i < (1ull << 20); ++i) {
+        doNotOptimizeAway(sm.mod(u32vals[i]));
+    }
+    auto t2 = std::chrono::high_resolution_clock::now();
+    for(size_t i = 0; i < (1ull << 20); i += 8) {
+        doNotOptimizeAway(sm.mod(_mm256_loadu_si256((const __m256i *)&u32vals[i])));
+    }
+    auto t4 = std::chrono::high_resolution_clock::now();
+    auto ts1 = std::chrono::duration<double, std::milli>(t2 - t1).count();
+    auto ts2 = std::chrono::duration<double, std::milli>(t4 - t2).count();
+    std::fprintf(stderr, "Time for serial: %g. Time for SIMD: %g\n", ts1, ts2);
 }
