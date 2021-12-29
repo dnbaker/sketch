@@ -323,9 +323,7 @@ public:
             } else {
                 ++hi;
             }
-            if constexpr(is_pow2) {
-                assert(ModT(hi & bitmask) == ModT(div_.mod(hi)));
-            }
+            assert(!is_pow2 || ModT(hi & bitmask) == ModT(div_.mod(hi)));
             hi = is_pow2 ? ModT(hi & bitmask): ModT(div_.mod(hi));
         }
 
