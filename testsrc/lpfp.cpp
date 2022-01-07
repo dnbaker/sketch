@@ -6,11 +6,11 @@ double timelen(T x, T y) {
     return std::chrono::duration<double, std::milli>(y - x).count();
 }
 
-template<typename FT>
+template<typename FT, size_t SIGBITS = sizeof(FT) * 4>
 int submain(size_t NITEMS) {
     size_t nentered = NITEMS * .75;
     size_t ss = NITEMS;
-    sketch::LPCQF<FT, sizeof(FT) * 4, sketch::IS_POW2> lpf(ss);
+    sketch::LPCQF<FT, SIGBITS, sketch::IS_POW2> lpf(ss);
     std::vector<uint64_t> bulk;
     std::vector<size_t> counts;
     auto ts = std::chrono::high_resolution_clock::now();
@@ -50,7 +50,9 @@ int main() {
     int ret;
     for(const auto N: {size_t(1<<16), size_t(1) << 20, size_t(16) << 20}) {
     ret |= submain<float>(N)
-        || submain<double>(N);
+        || submain<float, 0>(N)
+        || submain<double>(N)
+        || submain<double, 0>(N);
         if(ret) return ret;
     }
     return 0;
