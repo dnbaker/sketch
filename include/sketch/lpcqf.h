@@ -296,6 +296,31 @@ public:
         }
         return ret;
     }
+    MyType &operator+=(const MyType &o) {
+        if(o.size_ != size_) throw std::invalid_argument(std::string("Mismatched sizes: ") + std::to_string(size_) + ", vs " + std::to_string(o.size_));
+        if constexpr(sigbits == 0) {
+            std::transform((const BaseT *)o.data_.data(), (const BaseT *)o.data_.data() + size_, (BaseT *)data_.data(), (BaseT *)data_.data(), [](auto x, auto y) {return x + y;});
+        } else {
+            for(size_t i = 0; i < size_; ++i) {
+                auto &lhv = data_[i];
+                const auto rhv = o.data_[i];
+                if(lhv && rhv) {
+                    if constexpr(sigbits > 0) {
+                        auto lhc = lhv >> countbits;
+                        auto rhc = rhv >> countbits;
+                        if(lhc == rhc) {
+                            lhv = (lhc << countbits) | encode_res(extract_res(lhv) + extract_res(rhv));
+                        } else if(lhc > rhc) {
+                            lhv = o.data_[i];
+                        }
+                    }
+                } else if(!lhv != !rhv) {
+                   lhv = std::max(data_[i], o.data_[i]);
+                }
+            }
+        }
+        return *this;
+    }
     INLINE BaseT extract_res(T x) const {
         if constexpr(!is_floating) {
             return x & countmask;

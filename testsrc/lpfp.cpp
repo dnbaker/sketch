@@ -13,9 +13,10 @@ int submain(size_t NITEMS) {
     };
     size_t nentered = NITEMS * .75;
     size_t ss = NITEMS;
-    sketch::LPCQF<FT, SIGBITS, sketch::IS_POW2> lpf(ss);
+    sketch::LPCQF<FT, SIGBITS, sketch::IS_POW2> lpf(ss), lpf2(ss);
     std::vector<uint64_t> bulk;
     std::vector<size_t> counts;
+    lpf += lpf2;
     auto ts = std::chrono::high_resolution_clock::now();
     for(size_t i = 0; i < nentered; ++i) {
         lpf.update(nentered - i - 1, id2w(i));
