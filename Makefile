@@ -103,6 +103,8 @@ clean:
 test:
 	bash ./run_tests.sh
 
+lpf: lpcqf_test lpcqf_approx lpfp
+
 
 PREFIX?=/usr/local
 
