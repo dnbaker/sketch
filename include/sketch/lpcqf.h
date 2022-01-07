@@ -52,6 +52,12 @@ static INLINE float as_float(const uint32_t x) {
     return ret;
 }
 
+static INLINE double as_double(const uint64_t x) {
+    double ret;
+    std::memcpy(&ret, &x, sizeof(ret));
+    return ret;
+}
+
 
 // Approximate counting using math from
 // Optimal bounds for approximate counting, Jelani Nelson, Huacheng Yu
@@ -210,7 +216,7 @@ public:
         data_.resize(nregs);
         size_ = nregs;
     }
-    std::conditional_t<is_floating, double, uint64_t> inner_product(const MyType &o) {
+    std::conditional_t<is_floating, double, uint64_t> inner_product(const MyType &o) const {
         if(size_ != o.size_) throw std::invalid_argument("Can't compare LPCQF of different sizes");
         std::conditional_t<is_floating, double, uint64_t> ret = 0;
         if constexpr(approx_inc) throw std::invalid_argument("Not yet implemented: approx_inc inner product.");
@@ -248,7 +254,6 @@ public:
                 }
                 i = nsimd * npersimd;
                 sum = std::accumulate((T *)&vsumt, (T *)((uint8_t *)&vsumt + sizeof(vsumt)), 0.L);
-                std::fprintf(stderr, "sum: %g\n", double(sum));
 #endif
                 for(; i < size_; ++i)
                     sum = std::fma(lptr[i], rptr[i], sum);
@@ -295,17 +300,13 @@ public:
         if constexpr(!is_floating) {
             return x & countmask;
         } else {
+            if constexpr(sigbits > 0) x &= countmask;
             if constexpr(countbits == 32) {
-                //std::fprintf(stderr, "Integer %u becomes %g\n", int(x & countmask), as_float(x & countmask));
-                return as_float(x & countmask);
+                return as_float(x);
             } else if constexpr(countbits == 16) {
-                //std::fprintf(stderr, "Integer %u becomes %g\n", int(x & countmask), half_to_float(x & countmask));
-                return half_to_float(x & countmask);
+                return half_to_float(x);
             } else if constexpr(countbits == 64) {
-                BaseT ret;
-                static_assert(sizeof(T) == sizeof(BaseT), "T and BaseT should have the same size");
-                std::memcpy(&ret, &x, sizeof(T));
-                return ret;
+                return as_double(x);
             } else {
                 throw std::runtime_error("sigbits should be 32 or 16 if floating point sizes are used.");
             }
@@ -513,14 +514,31 @@ public:
         for(auto &v: data_) {
             if(!v) continue; // Skip empty buckets
             const T rem = v >> countbits;
-            if constexpr(is_floating) {
-                BaseT countv;
-                T rv = v & countmask;
-                std::memcpy(&countv, &rv, sizeof(T));
+            auto countv = extract_res(v);
+            if(countv > static_cast<BaseT>(0))
                 f(rem, countv);
-            } else {
-                f(rem, v & countmask);
-            }
+        }
+    }
+    template<typename F>
+    void for_each(F &&f) const {
+        for(auto &v: data_) {
+            if(!v) continue; // Skip empty buckets
+            const T rem = v >> countbits;
+            auto countv = extract_res(v);
+            if(countv > static_cast<BaseT>(0))
+                f(rem, countv);
+        }
+    }
+    template<typename F>
+    void for_each_sig(F &&f) const {
+        for(auto &v: data_) {
+            if(v) f(v >> countbits);
+        }
+    }
+    template<typename F>
+    void for_each_count(F &&f) const {
+        for(auto &v: data_) {
+            if(v) f(extract_res(v));
         }
     }
     void update(uint64_t item) {
