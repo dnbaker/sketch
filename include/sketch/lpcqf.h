@@ -368,20 +368,18 @@ public:
     }
     static constexpr T encode_res(BaseT val) {
         if constexpr(!is_floating) {return val;}
-        else {
+        if constexpr(countbits == 16) {
+            return float_to_half(float(val));
+        } else if constexpr(countbits == 32) {
             uint32_t ret;
-            if constexpr(countbits == 16) {
-                ret = float_to_half(float(val));
-            } else if constexpr(countbits == 32) {
-                float t = val;
-                std::memcpy(&ret, &t, sizeof(ret));
-            } else if constexpr(countbits == 64) {
-                uint64_t ret;
-                std::memcpy(&ret, &val, sizeof(val));
-                return ret;
-            } else {throw std::runtime_error("Should not happen.");}
+            float t = val;
+            std::memcpy(&ret, &t, sizeof(ret));
             return ret;
-        }
+        } else if constexpr(countbits == 64) {
+            uint64_t ret;
+            std::memcpy(&ret, &val, sizeof(val));
+            return ret;
+        } else {throw std::runtime_error("Should not happen."); return T(0);}
     }
     template<typename CT, typename=std::enable_if_t<std::is_arithmetic_v<CT>>>
     void update_hashed(uint64_t hv, ModT hi, CT count) {
