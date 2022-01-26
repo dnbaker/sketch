@@ -656,6 +656,8 @@ struct pmh3_t: public pmh2_t<FT, IdxT> {
     using base_t = pmh2_t<FT, IdxT>;
     const std::array<FT, 5> CONSTANTS;
     template<typename...Args> pmh3_t(Args &&...args): base_t(std::forward<Args>(args)...), CONSTANTS(compute_truncexp_constants<FT>(this->size())) {
+        if(this->size() < 2)
+            throw std::invalid_argument("ProbMinHash3 (pmh3_t) requires M >= 2");
     }
     INLINE FT steptrunc(uint64_t *src) const {
         return steptrunc(wy::wyhash64_stateless(src));
