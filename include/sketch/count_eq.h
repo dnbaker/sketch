@@ -1071,6 +1071,7 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_shorts_aligned(const uint
     return std::make_pair(lhgt, rhgt);
 }
 
+
 }} // sketch::eq
 
 #endif
