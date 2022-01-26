@@ -676,7 +676,7 @@ struct pmh3_t: public pmh2_t<FT, IdxT> {
         FT hv = wi * steptrunc(rv); // Since we already generated the point, don't use this.
         if(hv >= maxv) return;
         for(this->ls_.reset(), this->ls_.seed(rv);hv < maxv;) {
-            auto idx = this->ls_.step();
+            const auto idx = this->ls_.step();
             if(this->hvals_.update(idx, hv)) {
                 this->res_[idx] = id;
                 this->resweights_[idx] = w;
@@ -688,13 +688,16 @@ struct pmh3_t: public pmh2_t<FT, IdxT> {
         }
     }
 };
+template<typename FT, typename IdxT> using ProbMinHash = pmh3_t<FT, IdxT>;
 
 
 } // namespace wmh
 using wmh::mh2str;
 using wmh::pmh2_t;
+using wmh::pmh3_t;
 using wmh::BagMinHash1;
 using wmh::BagMinHash2;
+using wmh::ProbMinHash;
 using wmh::compute_truncexp_lambda;
 using wmh::compute_truncexp_constants;
 using wmh::truncexpsample;
