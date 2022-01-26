@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <ratio>
 #include <vector>
+#include <memory>
 
 #include <x86intrin.h>
 
@@ -47,6 +48,12 @@ static INLINE uint32_t as_uint(const float x) {
 }
 static INLINE float as_float(const uint32_t x) {
     float ret;
+    std::memcpy(&ret, &x, sizeof(ret));
+    return ret;
+}
+
+static INLINE double as_double(const uint64_t x) {
+    double ret;
     std::memcpy(&ret, &x, sizeof(ret));
     return ret;
 }
@@ -105,6 +112,19 @@ constexpr std::array<long double, N> get_ipowers() {
 template<size_t num, size_t denom, size_t N>
 constexpr std::array<long double, N> POWERS = get_ipowers<num, denom, N>();
 
+union U256 {
+#ifdef __AVX2__
+    __m256 fv;
+    __m256d dv;
+#endif
+};
+union U512 {
+#ifdef __AVX512F__
+    __m512 fv;
+    __m512d dv;
+#endif
+};
+
 template<typename BaseT = uint64_t, size_t sigbits=8, int flags = IS_QUADRATIC_PROBING, size_t argnum = 2, size_t argdenom = 1, typename ModT=uint32_t, long long int NCACHED_POWERS=64>
 struct LPCQF {
     using T = typename IntegerSizeEquivalent<BaseT>::type;
@@ -122,6 +142,8 @@ struct LPCQF {
     static constexpr bool quadratic_probing = flags & IS_QUADRATIC_PROBING;
     static constexpr bool is_floating = std::is_floating_point_v<BaseT>;
     static constexpr bool is_apow2 = num == 2 && denom == 1;
+    static constexpr bool is_64bit_index = sizeof(ModT) == 8;
+    static_assert(sizeof(ModT) == 4 || sizeof(ModT) == 8, "ModT must be 4 or 8 bytes");
 private:
     // Helper functions for approximate increment
     static long double ainc_increment_prob(signed long long n) {
@@ -159,7 +181,7 @@ private:
     static_assert(sizeof(T) * CHAR_BIT > sigbits, "T must be >= sigbits size");
     static_assert(countbits <= sizeof(T) * CHAR_BIT, "T must be >= countbits size");
     static_assert(approxlogb > 1., "approxlogb must be > 1");
-    static_assert(!is_floating || (sigbits == 16 || sigbits == 32), "Floating needs 16 or 32-bit remainders for counting.");
+    static_assert(!is_floating || (countbits == 16 || countbits == 32 || countbits == 64), "Floating needs 16 or 32 bits for counting.");
     static_assert(!approx_inc || (!is_floating && !countsketch_increment), "Approximate increment cannot use floating-point representations or count-sketch incrementing.");
     uint64_t rv;
     uint64_t rseed = 13;
@@ -194,32 +216,122 @@ public:
         data_.resize(nregs);
         size_ = nregs;
     }
-    std::conditional_t<is_floating, double, uint64_t> inner_product(const MyType &o) {
+    std::conditional_t<is_floating, double, uint64_t> inner_product(const MyType &o) const {
         if(size_ != o.size_) throw std::invalid_argument("Can't compare LPCQF of different sizes");
         std::conditional_t<is_floating, double, uint64_t> ret = 0;
         if constexpr(approx_inc) throw std::invalid_argument("Not yet implemented: approx_inc inner product.");
-        // TODO: SIMD Implementation
-        for(size_t i = 0; i < size_; ++i) {
-            if(data_[i] && o.data_[i]) {
-                T lhsig = data_[i] >> countbits;
-                T rhsig = o.data_[i] >> countbits;
-                if(lhsig == rhsig) {
-                    ret = std::fma(extract_res(data_[i]), extract_res(o.data_[i]), ret);
+        if constexpr(sigbits == 0) {
+            if constexpr(is_floating) {
+                const BaseT * __restrict__ lptr = reinterpret_cast<const BaseT *>(data_.data());
+                const BaseT * __restrict__ rptr = reinterpret_cast<const BaseT *>(o.data_.data());
+                size_t i = 0;
+                BaseT sum = 0.;
+#ifdef __AVX512F__
+                const size_t npersimd = sizeof(__m512) / sizeof(T);
+                const size_t nsimd = size_ / npersimd;
+                U512 vsumt;
+                std::memset(&vsumt, 0, sizeof(vsumt));
+                for(size_t j = 0; j < nsimd; ++j) {
+                    if constexpr(sizeof(T) == 4) {
+                        vsumt.fv = fmadd(load(lptr + npersimd * j), load(rptr + npersimd * j), vsumt.fv);
+                    } else {
+                        vsumt.dv = fmadd(load(lptr + npersimd * j), load(rptr + npersimd * j), vsumt.dv);
+                    }
+                }
+                i = nsimd * npersimd;
+                sum = std::accumulate((T *)&vsumt, (T *)((uint8_t *)&vsumt + sizeof(vsumt)), 0.L);
+#elif __AVX2__
+                const size_t npersimd = sizeof(__m256) / sizeof(T);
+                const size_t nsimd = size_ / npersimd;
+                U256 vsumt;
+                std::memset(&vsumt, 0, sizeof(vsumt));
+                for(size_t j = 0; j < nsimd; ++j) {
+                    if constexpr(sizeof(T) == 4) {
+                        vsumt.fv = fmadd(load(lptr + npersimd * j), load(rptr + npersimd * j), vsumt.fv);
+                    } else {
+                        vsumt.dv = fmadd(load(lptr + npersimd * j), load(rptr + npersimd * j), vsumt.dv);
+                    }
+                }
+                i = nsimd * npersimd;
+                sum = std::accumulate((T *)&vsumt, (T *)((uint8_t *)&vsumt + sizeof(vsumt)), 0.L);
+#endif
+                for(; i < size_; ++i)
+                    sum = std::fma(lptr[i], rptr[i], sum);
+                return sum;
+            } else {
+                T sum = T(0);
+                for(size_t i = 0; i < size_; ++i) {
+                    sum = std::fma(data_[i], o.data_[i], sum);
+                }
+                return sum;
+            }
+        } else {
+            if constexpr(is_floating) {
+                double ret = 0.;
+                for(size_t i = 0; i < size_; ++i) {
+                    auto lhsig = data_[i] >> countbits;
+                    auto rhsig = o.data_[i] >> countbits;
+                    if(lhsig == rhsig)
+                        ret = std::fma(extract_res(data_[i]), extract_res(o.data_[i]), ret);
+                }
+                return ret;
+                // Pseudocode:
+                // For each SIMD:
+                //     Load vectors, zero based on bitmask
+                //     Extract counts
+                //     Compare signatures for equality
+                //     Compute sum of masked signatures
+            } else {
+                // TODO: SIMD Implementation
+                for(size_t i = 0; i < size_; ++i) {
+                    if(data_[i] && o.data_[i]) {
+                        T lhsig = data_[i] >> countbits;
+                        T rhsig = o.data_[i] >> countbits;
+                        if(lhsig == rhsig) {
+                            ret = std::fma(extract_res(data_[i]), extract_res(o.data_[i]), ret);
+                        }
+                    }
                 }
             }
         }
         return ret;
     }
+    MyType &operator+=(const MyType &o) {
+        if(o.size_ != size_) throw std::invalid_argument(std::string("Mismatched sizes: ") + std::to_string(size_) + ", vs " + std::to_string(o.size_));
+        if constexpr(sigbits == 0) {
+            std::transform((const BaseT *)o.data_.data(), (const BaseT *)o.data_.data() + size_, (BaseT *)data_.data(), (BaseT *)data_.data(), [](auto x, auto y) {return x + y;});
+        } else {
+            for(size_t i = 0; i < size_; ++i) {
+                auto &lhv = data_[i];
+                const auto rhv = o.data_[i];
+                if(lhv && rhv) {
+                    if constexpr(sigbits > 0) {
+                        auto lhc = lhv >> countbits;
+                        auto rhc = rhv >> countbits;
+                        if(lhc == rhc) {
+                            lhv = (lhc << countbits) | encode_res(extract_res(lhv) + extract_res(rhv));
+                        } else if(lhc > rhc) {
+                            lhv = o.data_[i];
+                        }
+                    }
+                } else if(!lhv != !rhv) {
+                   lhv = std::max(data_[i], o.data_[i]);
+                }
+            }
+        }
+        return *this;
+    }
     INLINE BaseT extract_res(T x) const {
         if constexpr(!is_floating) {
             return x & countmask;
         } else {
-            if constexpr(sigbits == 32) {
-                //std::fprintf(stderr, "Integer %u becomes %g\n", int(x & countmask), as_float(x & countmask));
-                return as_float(x & countmask);
-            } else if constexpr(sigbits == 16) {
-                //std::fprintf(stderr, "Integer %u becomes %g\n", int(x & countmask), half_to_float(x & countmask));
-                return half_to_float(x & countmask);
+            if constexpr(sigbits > 0) x &= countmask;
+            if constexpr(countbits == 32) {
+                return as_float(x);
+            } else if constexpr(countbits == 16) {
+                return half_to_float(x);
+            } else if constexpr(countbits == 64) {
+                return as_double(x);
             } else {
                 throw std::runtime_error("sigbits should be 32 or 16 if floating point sizes are used.");
             }
@@ -256,24 +368,21 @@ public:
     }
     static constexpr T encode_res(BaseT val) {
         if constexpr(!is_floating) {return val;}
-        else {
+        if constexpr(countbits == 16) {
+            return float_to_half(float(val));
+        } else if constexpr(countbits == 32) {
             uint32_t ret;
-            if constexpr(sigbits == 16) {
-                ret = float_to_half(float(val));
-            }
-            else if constexpr(sigbits == 32) {
-                float t = val;
-                std::memcpy(&ret, &t, sizeof(ret));
-            } else {throw std::runtime_error("Should not happen.");}
+            float t = val;
+            std::memcpy(&ret, &t, sizeof(ret));
             return ret;
-        }
+        } else if constexpr(countbits == 64) {
+            uint64_t ret;
+            std::memcpy(&ret, &val, sizeof(val));
+            return ret;
+        } else {throw std::runtime_error("Should not happen."); return T(0);}
     }
     template<typename CT, typename=std::enable_if_t<std::is_arithmetic_v<CT>>>
-    void update(uint64_t item, CT count) {
-        if(approx_inc && unlikely(count < CT(0))) throw std::invalid_argument(std::string("Update with negative count ") + std::to_string(count) + " is not permitted in approximate counting mode.");
-        static_assert(std::is_signed_v<CT> || !countsketch_increment, "Make sure the type is signed or not countsketch");
-        uint64_t hv = hash(item);
-        auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
+    void update_hashed(uint64_t hv, ModT hi, CT count) {
         T sig, osig;
         if constexpr(sigbits > 0) sig = hv & ModT((1ull << sigbits) - 1);
         size_t step = 0;
@@ -311,7 +420,9 @@ public:
                         }
                     } else {
                         if constexpr(is_floating) {
-                            data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + count);
+                            if constexpr(sigbits == 0) data_[hi] = encode_res(extract_res(data_[hi]) + count);
+                            else
+                                data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + count);
                         } else {
                             data_[hi] += count;
                         }
@@ -324,28 +435,133 @@ public:
             } else {
                 ++hi;
             }
-            if constexpr(is_pow2) {
-                assert(ModT(hi & bitmask) == ModT(div_.mod(hi)));
-            }
+            assert(!is_pow2 || ModT(hi & bitmask) == ModT(div_.mod(hi)));
             hi = is_pow2 ? ModT(hi & bitmask): ModT(div_.mod(hi));
         }
 
         std::fprintf(stderr, "Failed to find empty bucket in table of size %zu\n", data_.size());
         throw std::runtime_error("CQF exceeded size. Resizing not yet implemented.");
     }
+    template<typename CT, typename=std::enable_if_t<std::is_arithmetic_v<CT>>>
+    void update(uint64_t item, CT count) {
+        if(approx_inc && unlikely(count < CT(0))) throw std::invalid_argument(std::string("Update with negative count ") + std::to_string(count) + " is not permitted in approximate counting mode.");
+        static_assert(std::is_signed_v<CT> || !countsketch_increment, "Make sure the type is signed or not countsketch");
+        uint64_t hv = hash(item);
+        auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
+        update_hashed(hv, hi, count);
+    }
+#ifdef __AVX512F__
+    static INLINE __m512d fmadd(__m512d x, __m512d y, __m512d sum) {
+        return _mm512_fmadd_pd(x, y, sum);
+    }
+    static INLINE __m512 fmadd(__m512 x, __m512 y, __m512 sum) {
+        return _mm512_fmadd_ps(x, y, sum);
+    }
+    static INLINE __m512 load(const float *data) {
+        return _mm512_loadu_ps(data);
+    }
+    static INLINE __m512d load(const double *data) {
+        return _mm512_loadu_pd(data);
+    }
+#elif __AVX2__
+    static INLINE __m256d fmadd(__m256d x, __m256d y, __m256d sum) {
+        return _mm256_fmadd_pd(x, y, sum);
+    }
+    static INLINE __m256 fmadd(__m256 x, __m256 y, __m256 sum) {
+        return _mm256_fmadd_ps(x, y, sum);
+    }
+    static INLINE __m256 load(const float *data) {
+        return _mm256_loadu_ps(data);
+    }
+    static INLINE __m256d load(const double *data) {
+        return _mm256_loadu_pd(data);
+    }
+#endif
+    static INLINE void store(uint32_t *data, __m512i val) {
+        _mm512_storeu_si512(data, val);
+    }
+    static INLINE void store(uint32_t *data, __m256i val) {
+        _mm256_storeu_si256((__m256i *)data, val);
+    }
+    static INLINE void store(uint32_t *data, __m128i val) {
+        _mm_storeu_si128((__m128i *)data, val);
+    }
+    static INLINE void store(uint64_t *data, __m512i val) {
+        _mm512_storeu_si512(data, val);
+    }
+    static INLINE void store(uint64_t *data, __m256i val) {
+        _mm256_storeu_si256((__m256i *)data, val);
+    }
+    static INLINE void store(uint64_t *data, __m128i val) {
+        _mm_storeu_si128((__m128i *)data, val);
+    }
+    template<typename IncT=uint32_t>
+    void batch_update(const uint64_t *data, size_t n, IncT *inc = static_cast<IncT *>(nullptr)) {
+        // note: This handles batches up to 0xFFFFFFFF in size.
+        std::unique_ptr<ModT[]> tmp(new ModT[n]);
+        std::unique_ptr<uint64_t[]> hashdata(new uint64_t[n]);
+        std::unique_ptr<uint32_t[]> indices(new uint32_t[n]);
+        size_t i = 0;
+#ifdef __AVX512F__
+        constexpr size_t npersimd = sizeof(__m512i) / sizeof(uint64_t);
+        const size_t nsimd = n / npersimd;
+        const size_t scalar_index = nsimd * npersimd;
+        for(; i < scalar_index; i += npersimd) {
+            __m512i hv = hash(_mm512_loadu_si512(data + i));
+            store(&tmp[i], rem(hv));
+            store(&hashdata[i], hv);
+        }
+#elif __AVX2__
+        constexpr size_t npersimd = sizeof(__m256i) / sizeof(uint64_t);
+        const size_t nsimd = n / npersimd;
+        const size_t scalar_index = nsimd * npersimd;
+        for(; i < scalar_index; i += npersimd) {
+            __m256i hv = hash(_mm256_loadu_si256(reinterpret_cast<const __m256i *>(data + i)));
+            store(&tmp[i], rem(hv));
+            store(&hashdata[i], hv);
+        }
+#endif
+        for(;i < n; ++i) {
+            hashdata[i] = hash(data[i]);
+            tmp[i] = div_.mod(hashdata[i]);
+        }
+        std::iota(indices.get(), indices.get() + n, 0u);
+        std::sort(indices.get(), indices.get() + n, [&tmp](auto x, auto y) {return tmp[x] < tmp[y];});
+        for(i = 0; i < n; ++i) {
+            const auto index = indices[i];
+            update_hashed(hashdata[index], tmp[index], inc ? inc[index]: IncT(1));
+        }
+    }
     template<typename F>
     void for_each(F &&f) {
         for(auto &v: data_) {
             if(!v) continue; // Skip empty buckets
             const T rem = v >> countbits;
-            if constexpr(is_floating) {
-                BaseT countv;
-                T rv = v & countmask;
-                std::memcpy(&countv, &rv, sizeof(T));
+            auto countv = extract_res(v);
+            if(countv > static_cast<BaseT>(0))
                 f(rem, countv);
-            } else {
-                f(rem, v & countmask);
-            }
+        }
+    }
+    template<typename F>
+    void for_each(F &&f) const {
+        for(auto &v: data_) {
+            if(!v) continue; // Skip empty buckets
+            const T rem = v >> countbits;
+            auto countv = extract_res(v);
+            if(countv > static_cast<BaseT>(0))
+                f(rem, countv);
+        }
+    }
+    template<typename F>
+    void for_each_sig(F &&f) const {
+        for(auto &v: data_) {
+            if(v) f(v >> countbits);
+        }
+    }
+    template<typename F>
+    void for_each_count(F &&f) const {
+        for(auto &v: data_) {
+            if(v) f(extract_res(v));
         }
     }
     void update(uint64_t item) {
@@ -356,6 +572,15 @@ public:
         std::fill_n(data_.data(), size_, T(0));
     }
 #if __AVX2__
+    INLINE __m128i cvtepi64_epi32_avx(__m256i v)
+    {
+       __m256 vf = _mm256_castsi256_ps( v );      // free
+       __m128 hi = _mm256_extractf128_ps(vf, 1);  // vextractf128
+       __m128 lo = _mm256_castps256_ps128( vf );  // also free
+       // take the bottom 32 bits of each 64-bit chunk in lo and hi
+       __m128 packed = _mm_shuffle_ps(lo, hi, _MM_SHUFFLE(2, 0, 2, 0));  // shufps
+       return _mm_castps_si128(packed);  // if you want
+    }
     static INLINE __m256i hash(__m256i element) {
         __m256i key = _mm256_add_epi64(_mm256_slli_epi64(element, 21), ~element);
         key = _mm256_srli_epi64(key, 24) ^ key;
@@ -366,6 +591,23 @@ public:
         key = _mm256_xor_si256(key, _mm256_srli_epi64(key, 28));
         key = _mm256_add_epi64(_mm256_slli_epi64(key, 31), key);
         return key;
+    }
+    static INLINE __m256i hashrem(__m256i el) {
+        return rem(hash(el));
+    }
+    INLINE auto rem(__m256i el) {
+        if constexpr(is_64bit_index) {
+            for(size_t i = 0; i < sizeof(el) / sizeof(uint64_t); ++i) {
+                ((ModT *)&el)[i] = div_.mod(((uint64_t *)&el)[i]);
+            }
+            return el;
+        } else {
+            __m128i ret;
+            for(size_t i = 0; i < sizeof(el) / sizeof(uint64_t); ++i) {
+                ((ModT *)&ret)[i] = div_.mod(((uint64_t *)&el)[i]);
+            }
+            return ret;
+        }
     }
 #endif
 #if __AVX512F__
@@ -379,6 +621,23 @@ public:
         key = _mm512_xor_si512(key, _mm512_srli_epi64(key, 28));
         key = _mm512_add_epi64(_mm512_slli_epi64(key, 31), key);
         return key;
+    }
+    INLINE auto rem(__m512i el) const {
+        if constexpr(is_64bit_index) {
+            for(size_t i = 0; i < sizeof(el) / sizeof(uint64_t); ++i) {
+                ((ModT *)&el)[i] = div_.mod(((uint64_t *)&el)[i]);
+            }
+            return el;
+        } else {
+            __m256i ret;
+            for(size_t i = 0; i < sizeof(el) / sizeof(uint64_t); ++i) {
+                ((ModT *)&ret)[i] = div_.mod(((uint64_t *)&el)[i]);
+            }
+            return ret;
+        }
+    }
+    static INLINE auto hashrem(__m512i el) {
+        return rem(hash(el));
     }
 #endif
 };

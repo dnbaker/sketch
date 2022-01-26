@@ -92,6 +92,12 @@ struct WangHash {
         return key;
     }
 #endif
+    INLINE __uint128_t operator()(__uint128_t key) const {
+        return this->operator()(uint64_t(key)) | (__uint128_t(this->operator()(uint64_t(key >> 64))) << 64);
+    }
+    INLINE __uint128_t inverse(__uint128_t key) const {
+        return inverse(static_cast<uint64_t>(key)) | (__uint128_t(inverse(uint64_t(key >> 64))) << 64);
+    }
     INLINE uint64_t inverse(uint64_t key) const {
         // https://naml.us/blog/tag/thomas-wang
         uint64_t tmp;

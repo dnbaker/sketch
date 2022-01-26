@@ -656,14 +656,14 @@ struct SIMDTypes<uint16_t> {
 // Max
     static INLINE __m512i _mm512_max_epu16_nobw(__m512i lhs, __m512i rhs) {
         const __m512i upper_mask = _mm512_set_epi16(0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu);
-        const __m512i lower_mask = _mm512_set_epi16(0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0); 
+        const __m512i lower_mask = _mm512_set_epi16(0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0);
         return _mm512_max_epu32(lhs & upper_mask, rhs & upper_mask) | _mm512_max_epu32(lhs & lower_mask, rhs & lower_mask);
     }
     static INLINE __m512i max(__m512i l, __m512i r) {return _mm512_max_epu16_nobw(l, r);}
 // Min
     static INLINE __m512i _mm512_min_epu16_nobw(__m512i lhs, __m512i rhs) {
         const __m512i upper_mask = _mm512_set_epi16(0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu);
-        const __m512i lower_mask = _mm512_set_epi16(0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0); 
+        const __m512i lower_mask = _mm512_set_epi16(0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0, 0xFFFFu, 0);
         return _mm512_min_epu32(lhs & upper_mask, rhs & upper_mask) | _mm512_min_epu32(lhs & lower_mask, rhs & lower_mask);
     }
     static INLINE __m512i min(__m512i l, __m512i r) {return _mm512_min_epu16_nobw(l, r);}

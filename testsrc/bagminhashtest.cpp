@@ -17,6 +17,7 @@ int main(int argc, char **argv) {
     pmh1_t<> pmh3(m), pmh4(m);
     pmh2_t<> pm21(m), pm22(m), pm23(m), pm24(m);
     pmh2_t<long double> lpm21(m), lpm22(m), lpm23(m), lpm24(m);
+    pmh3_t<> pm31(m), pm32(m), pm33(m), pm34(m);
     assert(bmh.m() == m);
     assert(bmh2.m() == m);
     assert(std::equal(bmh.hvals_.data(), bmh.hvals_.data() + m, bmh2.hvals_.data()));
@@ -44,6 +45,16 @@ int main(int argc, char **argv) {
     }
     stop = std::chrono::high_resolution_clock::now();
     std::fprintf(stderr, "Updates for 5 PMH2: %gs\n", static_cast<double>((stop - start).count() / 1000) * .001);
+    start = std::chrono::high_resolution_clock::now();
+    for(size_t i = 0; i < n; ++i) {
+        pm31.update(i, 1.);
+        pm32.update(i, 1);
+        pm33.update(i, 1);
+        pm34.update(i, 1);
+        if(i % 8 == 0) pm34.update(i * i * i * i + 1710, 8);
+    }
+    stop = std::chrono::high_resolution_clock::now();
+    std::fprintf(stderr, "Updates for 5 PMH3: %gs\n", static_cast<double>((stop - start).count() / 1000) * .001);
     start = std::chrono::high_resolution_clock::now();
     for(size_t i = 0; i < n; ++i) {
         pmh1.update(i, 1);
