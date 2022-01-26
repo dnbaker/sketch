@@ -480,6 +480,59 @@ struct pmh1_t {
     }
 };
 
+template<typename FT=long double>
+static inline FT compute_truncexp_lambda(size_t m) {
+    return static_cast<FT>(std::log1p(1.L / (m - size_t(1))));
+}
+template<typename FT=long double>
+static inline std::array<FT, 5> compute_truncexp_constants(size_t m) {
+    const long double lambda = compute_truncexp_lambda<long double>(m);
+    const long double c1 = (std::exp(lambda) - 1.L) / lambda;
+    const long double c2 = std::log(2.L / (1.L + std::exp(-lambda))) / lambda;
+    const long double c3 = (1.L - std::exp(-lambda)) / lambda;
+    const long double c4 = c1 * lambda;
+    return std::array<FT, 5>{FT(lambda), FT(c1), FT(c2), FT(c3), FT(c4)};
+}
+
+template<typename FT>
+static INLINE FT truncexpsamplestepped(uint64_t rngstate, const FT lambda, const FT c1, const FT c2, const FT c3, const FT c4) {
+    // Func should update the x and return the random value sampled
+    //uint64_t rngstate = wy::wyhash64_stateless(&src);
+    static constexpr FT one = static_cast<FT>(1);
+    FT x = (0x1p-64 * rngstate) * c1;
+    if(x < one) goto end;
+    for(;;) {
+        auto func = [&](uint64_t &x) -> FT __attribute__((always_inline)) {return static_cast<std::common_type_t<FT, double>>(0x1p-64) * wy::wyhash64_stateless(&x);};
+        if((x = func(rngstate)) < c2) break;
+        FT yhat = static_cast<FT>(0.5) * func(rngstate);
+        if(const FT one_minus_x = one - x;yhat > one_minus_x) {
+            x = one_minus_x; yhat = one - yhat;
+        }
+        const FT one_minus_x = one - x;
+        if(x <= c3 * (one - yhat) || (yhat * c1 <= one_minus_x)) break;
+        if(std::fma(yhat, c4, one) <= std::exp(lambda * one_minus_x)) break;
+    }
+    end:
+    return x;
+}
+template<typename FT>
+static INLINE FT truncexpsample(const uint64_t &src, const FT lambda, const FT c1, const FT c2, const FT c3, const FT c4) {
+    uint64_t src0(src);
+    return truncexpsamplestepped(wy::wyhash64_stateless(&src0), lambda, c1, c2, c3, c4);
+}
+template<typename FT>
+static INLINE FT truncexpsample(uint64_t &src, const FT lambda, const FT c1, const FT c2, const FT c3, const FT c4) {
+    return truncexpsamplestepped(wy::wyhash64_stateless(&src), lambda, c1, c2, c3, c4);
+}
+template<typename FT>
+static INLINE FT truncexpsample(const uint64_t &rngstate, const std::array<FT, 5> &c) {
+    return truncexpsample(rngstate, c[0], c[1], c[2], c[3], c[4]);
+};
+template<typename FT>
+static INLINE FT truncexpsample(uint64_t &rngstate, const std::array<FT, 5> &c) {
+    return truncexpsample(rngstate, c[0], c[1], c[2], c[3], c[4]);
+};
+
 
 template<typename FT=double, typename IdxT=uint32_t>
 struct pmh2_t {
@@ -598,6 +651,43 @@ struct pmh2_t {
         std::fclose(fp);
     }
 };
+template<typename FT=double, typename IdxT=uint32_t>
+struct pmh3_t: public pmh2_t<FT, IdxT> {
+    using base_t = pmh2_t<FT, IdxT>;
+    const std::array<FT, 5> CONSTANTS;
+    template<typename...Args> pmh3_t(Args &&...args): base_t(std::forward<Args>(args)...), CONSTANTS(compute_truncexp_constants<FT>(this->size())) {
+    }
+    INLINE FT steptrunc(uint64_t *src) const {
+        return steptrunc(wy::wyhash64_stateless(src));
+    }
+    INLINE FT steptrunc(uint64_t src) const {
+        return truncexpsamplestepped(src, CONSTANTS[0], CONSTANTS[1], CONSTANTS[2], CONSTANTS[3], CONSTANTS[4]);
+    }
+    void update(const uint64_t id, const FT w) {
+        using fastlog::flog;
+        if(w <= 0.) return;
+        kahan::update(this->total_weight_, this->total_weight_carry_, w);
+        ++this->total_updates_;
+        uint64_t hi = id;
+        const FT wi = 1. / w;
+        size_t i = 0;
+        uint64_t rv = wy::wyhash64_stateless(&hi);
+        auto maxv = this->hvals_.max();
+        FT hv = wi * steptrunc(rv); // Since we already generated the point, don't use this.
+        if(hv >= maxv) return;
+        for(this->ls_.reset(), this->ls_.seed(rv);hv < maxv;) {
+            auto idx = this->ls_.step();
+            if(this->hvals_.update(idx, hv)) {
+                this->res_[idx] = id;
+                this->resweights_[idx] = w;
+                maxv = this->hvals_.max();
+                if(hv >= maxv) return;
+            }
+            if((hv = wi * ++i) > maxv) return;
+            hv = std::fma(wi, steptrunc(&rv), hv);
+        }
+    }
+};
 
 
 } // namespace wmh
@@ -605,6 +695,9 @@ using wmh::mh2str;
 using wmh::pmh2_t;
 using wmh::BagMinHash1;
 using wmh::BagMinHash2;
+using wmh::compute_truncexp_lambda;
+using wmh::compute_truncexp_constants;
+using wmh::truncexpsample;
 
 namespace omh {
 template<typename FT=double>
