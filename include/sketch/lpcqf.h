@@ -164,13 +164,16 @@ private:
     template<typename T>
     void ainc(T &counter) {
         if constexpr(is_apow2) {
+            if(counter == T(0)) {
+                ++counter;
+                return;
+            }
             if(numdraws < counter) {
                 rv = wy::wyhash64_stateless(&rseed);
                 numdraws = 64;
             }
             const T old = counter;
-            if((rv & (UINT64_C(-1) >> (64 - counter))) == 0)
-                ++counter;
+            if((rv << (64 - counter)) == uint64_t(0)) ++counter;
             rv >>= old; numdraws -= old;
         } else {
             if(static_cast<long double>(wy::wyhash64_stateless(&rseed)) * 0x1p-64L < ainc_increment_prob(counter))
@@ -184,15 +187,17 @@ private:
     static_assert(!is_floating || (countbits == 16 || countbits == 32 || countbits == 64), "Floating needs 16 or 32 bits for counting.");
     static_assert(!approx_inc || (!is_floating && !countsketch_increment), "Approximate increment cannot use floating-point representations or count-sketch incrementing.");
     uint64_t rv;
+    schism::Schismatic<ModT> div_;
+    uint64_t base_rseed = 13;
     uint64_t rseed = 13;
     unsigned int numdraws = 0;
-    schism::Schismatic<ModT> div_;
     //std::unique_ptr<MyType> leftovers_;
 
     std::vector<T, sse::AlignedAllocator<T>> data_;
     int l2n = 0;
     uint64_t bitmask = 0xFFFFFFFFFFFFFFFFull;
     size_t size_;
+    size_t n_occupied_ = 0;
 
 public:
     static constexpr auto hash(uint64_t key) {
@@ -205,8 +210,7 @@ public:
           key = key + (key << 31);
           return key;
     }
-    LPCQF(size_t nregs, size_t seed=0): div_(nregs) {
-        rseed = seed ? seed: nregs;
+    LPCQF(size_t nregs, size_t seed=0): div_(nregs), base_rseed(seed), rseed(seed ? seed: nregs) {
         if(nregs > std::numeric_limits<ModT>::max()) throw std::invalid_argument(std::string("nregs ") + std::to_string(nregs) + " is > than ModT size. Use a 64-bit ModT to build an LPCQF of that size.");
         if(is_pow2) {
             if(nregs & (nregs - 1)) throw std::invalid_argument("LPCQF of power of 2 size requires a power-of-two size.");
@@ -215,6 +219,20 @@ public:
         }
         data_.resize(nregs);
         size_ = nregs;
+    }
+    using DoubleT = LPCQF<BaseT, sigbits - 1, flags, num, denom, ModT>;
+    DoubleT double_size() const {
+        if constexpr(sigbits <= 0) throw std::runtime_error("Can't double size if sigbits <= 0");
+        if constexpr(is_floating) throw std::runtime_error("Can't double size of floating-point LPCQF");
+        DoubleT res(size_ << 1, base_rseed);
+        const std::array<size_t, 2> offset{{0, size_}};
+        for(size_t i = 0; i < size_; ++i) {
+            auto res = data_[i];
+            auto signature_bits = res >> countbits;
+            auto count_bits = res & countmask;
+            res.data_[i + offset[(signature_bits >> (sigbits - 1))]] = (signature_bits << 1) | count_bits;
+        }
+        return res;
     }
     std::conditional_t<is_floating, double, uint64_t> inner_product(const MyType &o) const {
         if(size_ != o.size_) throw std::invalid_argument("Can't compare LPCQF of different sizes");
@@ -400,6 +418,7 @@ public:
                         val |= (T(sig) << countbits);
                     data_[hi] = val;
                 }
+                ++n_occupied_;
                 return;
             } else {
                 if constexpr(sigbits > 0) osig = data_[hi] >> countbits;
@@ -447,7 +466,7 @@ public:
         if(approx_inc && unlikely(count < CT(0))) throw std::invalid_argument(std::string("Update with negative count ") + std::to_string(count) + " is not permitted in approximate counting mode.");
         static_assert(std::is_signed_v<CT> || !countsketch_increment, "Make sure the type is signed or not countsketch");
         uint64_t hv = hash(item);
-        auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
+        const auto hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
         update_hashed(hv, hi, count);
     }
 #ifdef __AVX512F__
