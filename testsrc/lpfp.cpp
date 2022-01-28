@@ -13,7 +13,7 @@ int submain(size_t NITEMS) {
     };
     size_t nentered = NITEMS * .75;
     size_t ss = NITEMS;
-    sketch::LPCQF<FT, SIGBITS, sketch::IS_POW2> lpf(ss), lpf2(ss);
+    sketch::LPCQF<FT, sketch::IS_POW2> lpf(ss, SIGBITS), lpf2(ss, SIGBITS);
     std::vector<uint64_t> bulk;
     std::vector<size_t> counts;
     lpf += lpf2;

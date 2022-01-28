@@ -226,6 +226,14 @@ public:
     const auto &d() const {return d_;}
     const uint64_t &m32() const {assert(shortcircuit); return m32_;}
     using DivType = div_t<uint64_t>;
+    Schismatic& operator=(Schismatic<uint64_t> &&o) {
+        std::copy((uint8_t *)&o, (uint8_t *)&o + sizeof(o), (uint8_t *)this);
+        return *this;
+    }
+    Schismatic& operator=(const Schismatic<uint64_t> &o) {
+        std::copy((uint8_t *)&o, (uint8_t *)&o + sizeof(o), (uint8_t *)this);
+        return *this;
+    }
     Schismatic(uint64_t d): d_(d), M_(computeM_u64(d)) {
         CONST_IF(shortcircuit) {
             m32_ = computeM_u32(d);
@@ -233,6 +241,7 @@ public:
             m32_ = 0;
         }
     }
+    Schismatic(const Schismatic<uint64_t> &x): Schismatic(x.d_) {}
     INLINE bool test_limits(uint64_t v) const {
         assert(shortcircuit);
         static constexpr uint64_t threshold = std::numeric_limits<uint32_t>::max();
@@ -258,6 +267,15 @@ template<> struct Schismatic<uint32_t> {
     const uint32_t d_;
     const uint64_t M_;
     Schismatic(uint32_t d): d_(d), M_(computeM_u32(d)) {}
+    Schismatic(const Schismatic<uint32_t> &x): Schismatic(x.d_) {}
+    Schismatic& operator=(Schismatic<uint32_t> &&o) {
+        std::copy((uint8_t *)&o, (uint8_t *)&o + sizeof(o), (uint8_t *)this);
+        return *this;
+    }
+    Schismatic& operator=(const Schismatic<uint32_t> &o) {
+        std::copy((uint8_t *)&o, (uint8_t *)&o + sizeof(o), (uint8_t *)this);
+        return *this;
+    }
     auto d() const {return d_;}
     INLINE uint32_t div(uint32_t v) const {return fastdiv_u32(v, M_);}
     INLINE uint32_t mod(uint32_t v) const {return fastmod_u32(v, M_, d_);}

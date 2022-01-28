@@ -4,20 +4,20 @@ int main() {
     size_t nentered = 70;
     size_t ss = 64;
     for(const auto v: {500, 25}) {
-        sketch::LPCQF<uint16_t, 2, sketch::IS_APPROXINC | sketch::IS_QUADRATIC_PROBING | sketch::IS_POW2> lp(ss);
+        sketch::LPCQF<uint16_t, sketch::IS_APPROXINC | sketch::IS_QUADRATIC_PROBING | sketch::IS_POW2> lp(ss, 2);
         for(size_t i = 0; i < nentered; ++i) {
             lp.update(i, v + i + 1);
             std::fprintf(stderr, "Value %zd estimated as count %Lg from base %Lg\n", v + i + 1, (lp.count_estimate(i)), lp.approxlogb);
         }
     {
-        sketch::LPCQF<uint16_t, 2, sketch::IS_APPROXINC | sketch::IS_QUADRATIC_PROBING | sketch::IS_POW2, 52, 50> lp(ss);
+        sketch::LPCQF<uint16_t, sketch::IS_APPROXINC | sketch::IS_QUADRATIC_PROBING | sketch::IS_POW2, 52, 50> lp(ss, 2);
         for(size_t i = 0; i < nentered; ++i) {
             lp.update(i, v);
             std::fprintf(stderr, "Value %d with base %Lg estimated as count %Lg\n", v, lp.approxlogb, (lp.count_estimate(i)));
         }
     }
     {
-        sketch::LPCQF<uint16_t, 2, sketch::IS_APPROXINC | sketch::IS_QUADRATIC_PROBING | sketch::IS_POW2, 10003, 10000> lp(ss);
+        sketch::LPCQF<uint16_t, sketch::IS_APPROXINC | sketch::IS_QUADRATIC_PROBING | sketch::IS_POW2, 10003, 10000> lp(ss, 2);
         for(size_t i = 0; i < nentered; ++i) {
             lp.update(i, v);
             std::fprintf(stderr, "Value %d with base %Lg estimated as count %Lg\n", v, lp.approxlogb, (lp.count_estimate(i)));

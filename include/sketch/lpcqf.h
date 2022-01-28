@@ -125,17 +125,15 @@ union U512 {
 #endif
 };
 
-template<typename BaseT = uint64_t, size_t sigbits=8, int flags = IS_QUADRATIC_PROBING, size_t argnum = 2, size_t argdenom = 1, typename ModT=uint32_t, long long int NCACHED_POWERS=64>
+template<typename BaseT = uint64_t, int flags = IS_QUADRATIC_PROBING, size_t argnum = 2, size_t argdenom = 1, typename ModT=uint32_t, long long int NCACHED_POWERS=64>
 struct LPCQF {
     using T = typename IntegerSizeEquivalent<BaseT>::type;
-    using MyType = LPCQF<BaseT, sigbits, flags, argnum, argdenom, ModT>;
+    using MyType = LPCQF<BaseT, flags, argnum, argdenom, ModT>;
     //using Ratio = std::ratio<argnum, argdenom>;
     static constexpr std::ratio<argnum, argdenom> ratio = std::ratio<argnum, argdenom> ();
     static constexpr size_t num = ratio.num;
     static constexpr size_t denom = ratio.den;
     static constexpr long double approxlogb = static_cast<long double>(num) / denom;
-    static constexpr size_t countbits = sizeof(T) * CHAR_BIT - sigbits;
-    static constexpr size_t countmask = (size_t(1) << countbits) - 1;
     static constexpr bool is_pow2 = flags & IS_POW2;
     static constexpr bool approx_inc = flags & IS_APPROXINC;
     static constexpr bool countsketch_increment = flags & IS_COUNTSKETCH;
@@ -143,8 +141,10 @@ struct LPCQF {
     static constexpr bool is_floating = std::is_floating_point_v<BaseT>;
     static constexpr bool is_apow2 = num == 2 && denom == 1;
     static constexpr bool is_64bit_index = sizeof(ModT) == 8;
-    static_assert(sizeof(ModT) == 4 || sizeof(ModT) == 8, "ModT must be 4 or 8 bytes");
+
 private:
+    size_t sigbits_, countbits_, countmask_;
+    static_assert(sizeof(ModT) == 4 || sizeof(ModT) == 8, "ModT must be 4 or 8 bytes");
     // Helper functions for approximate increment
     static long double ainc_increment_prob(signed long long n) {
         long double ret;
@@ -181,17 +181,13 @@ private:
         }
     }
 
-    static_assert(sizeof(T) * CHAR_BIT > sigbits, "T must be >= sigbits size");
-    static_assert(countbits <= sizeof(T) * CHAR_BIT, "T must be >= countbits size");
     static_assert(approxlogb > 1., "approxlogb must be > 1");
-    static_assert(!is_floating || (countbits == 16 || countbits == 32 || countbits == 64), "Floating needs 16 or 32 bits for counting.");
     static_assert(!approx_inc || (!is_floating && !countsketch_increment), "Approximate increment cannot use floating-point representations or count-sketch incrementing.");
     uint64_t rv;
     schism::Schismatic<ModT> div_;
     uint64_t base_rseed = 13;
     uint64_t rseed = 13;
     unsigned int numdraws = 0;
-    //std::unique_ptr<MyType> leftovers_;
 
     std::vector<T, sse::AlignedAllocator<T>> data_;
     int l2n = 0;
@@ -210,8 +206,11 @@ public:
           key = key + (key << 31);
           return key;
     }
-    LPCQF(size_t nregs, size_t seed=0): div_(nregs), base_rseed(seed), rseed(seed ? seed: nregs) {
+    double occupancy() const {return double(n_occupied_) / size_;}
+    size_t size() const {return size_;}
+    LPCQF(size_t nregs, int sigbits=0, size_t seed=0): sigbits_(sigbits), countbits_(sizeof(T) * CHAR_BIT - sigbits_), countmask_((size_t(1) << countbits_) - 1), div_(nregs), base_rseed(seed), rseed(seed ? seed: nregs) {
         if(nregs > std::numeric_limits<ModT>::max()) throw std::invalid_argument(std::string("nregs ") + std::to_string(nregs) + " is > than ModT size. Use a 64-bit ModT to build an LPCQF of that size.");
+        if constexpr(is_floating) {if(countbits_!= 16 && countbits_!= 32 && countbits_!= 64) throw std::runtime_error("floating-point registers require countbits of 16, 32, or 64");}
         if(is_pow2) {
             if(nregs & (nregs - 1)) throw std::invalid_argument("LPCQF of power of 2 size requires a power-of-two size.");
             l2n = 64 - __builtin_clzll(nregs) - 1;
@@ -220,25 +219,54 @@ public:
         data_.resize(nregs);
         size_ = nregs;
     }
-    using DoubleT = LPCQF<BaseT, sigbits - 1, flags, num, denom, ModT>;
-    DoubleT double_size() const {
-        if constexpr(sigbits <= 0) throw std::runtime_error("Can't double size if sigbits <= 0");
-        if constexpr(is_floating) throw std::runtime_error("Can't double size of floating-point LPCQF");
-        DoubleT res(size_ << 1, base_rseed);
+    LPCQF(LPCQF &&o) = default;
+    LPCQF(const LPCQF &o): div_(o.div_) {
+        std::memcpy(this, &o, sizeof(*this));
+        std::memset(&this->data_, 0, sizeof(this->data_));
+        data_ = o.data_;
+    }
+    LPCQF &operator=(LPCQF &&o) = default;
+    LPCQF &operator=(const LPCQF &o) = default;
+    MyType &resize() {
+        MyType t(double_size());
+        std::fprintf(stderr, "My size: %zu. Doubled size %zu\n", size_, t.size());
+        *this = std::move(t);
+        std::fprintf(stderr, "After move size: %zu. Doubled size %zu\n", size_, t.size());
+        return *this;
+#if 0
+        if(sigbits_ < bitstouse) throw std::runtime_error("Can't double size if sigbits_ < bitstouse");
+        if constexpr(is_floating) throw std::invalid_argument("Can't double size of floating-point LPCQF");
+        std::fprintf(stderr, "Resizing. New size %zu, sigbits is now %d\n", size_ << 1, sigbits_ - 1);
+        MyType ret(size_ << bitstouse, sigbits_ - bitstouse, base_rseed);
         const std::array<size_t, 2> offset{{0, size_}};
         for(size_t i = 0; i < size_; ++i) {
             auto res = data_[i];
-            auto signature_bits = res >> countbits;
-            auto count_bits = res & countmask;
-            res.data_[i + offset[(signature_bits >> (sigbits - 1))]] = (signature_bits << 1) | count_bits;
+            auto signature_bits = res >> countbits_;
+            auto count_bits = res & countmask_;
+            ret.data_[i + offset[(signature_bits >> (sigbits_ - bitstouse))]] = (signature_bits << bitstouse) | count_bits;
         }
-        return res;
+        return ret;
+#endif
+    }
+    MyType double_size() const {
+        if(sigbits_ <= 0) throw std::runtime_error("Can't double size if sigbits_ <= 0");
+        if constexpr(is_floating) throw std::invalid_argument("Can't double size of floating-point LPCQF");
+        std::fprintf(stderr, "Resizing. New size %zu, sigbits is now %zu\n", size_ << 1, sigbits_ - 1);
+        MyType ret(size_ << 1, sigbits_ - 1, base_rseed);
+        const std::array<size_t, 2> offset{{0, size_}};
+        for(size_t i = 0; i < size_; ++i) {
+            auto res = data_[i];
+            auto signature_bits = res >> countbits_;
+            auto count_bits = res & countmask_;
+            ret.data_[i + offset[(signature_bits >> (sigbits_ - 1))]] = (signature_bits << 1) | count_bits;
+        }
+        return ret;
     }
     std::conditional_t<is_floating, double, uint64_t> inner_product(const MyType &o) const {
         if(size_ != o.size_) throw std::invalid_argument("Can't compare LPCQF of different sizes");
         std::conditional_t<is_floating, double, uint64_t> ret = 0;
         if constexpr(approx_inc) throw std::invalid_argument("Not yet implemented: approx_inc inner product.");
-        if constexpr(sigbits == 0) {
+        if(sigbits_ == 0) {
             if constexpr(is_floating) {
                 const BaseT * __restrict__ lptr = reinterpret_cast<const BaseT *>(data_.data());
                 const BaseT * __restrict__ rptr = reinterpret_cast<const BaseT *>(o.data_.data());
@@ -287,8 +315,8 @@ public:
             if constexpr(is_floating) {
                 double ret = 0.;
                 for(size_t i = 0; i < size_; ++i) {
-                    auto lhsig = data_[i] >> countbits;
-                    auto rhsig = o.data_[i] >> countbits;
+                    auto lhsig = data_[i] >> countbits_;
+                    auto rhsig = o.data_[i] >> countbits_;
                     if(lhsig == rhsig)
                         ret = std::fma(extract_res(data_[i]), extract_res(o.data_[i]), ret);
                 }
@@ -303,8 +331,8 @@ public:
                 // TODO: SIMD Implementation
                 for(size_t i = 0; i < size_; ++i) {
                     if(data_[i] && o.data_[i]) {
-                        T lhsig = data_[i] >> countbits;
-                        T rhsig = o.data_[i] >> countbits;
+                        T lhsig = data_[i] >> countbits_;
+                        T rhsig = o.data_[i] >> countbits_;
                         if(lhsig == rhsig) {
                             ret = std::fma(extract_res(data_[i]), extract_res(o.data_[i]), ret);
                         }
@@ -316,24 +344,25 @@ public:
     }
     MyType &operator+=(const MyType &o) {
         if(o.size_ != size_) throw std::invalid_argument(std::string("Mismatched sizes: ") + std::to_string(size_) + ", vs " + std::to_string(o.size_));
-        if constexpr(sigbits == 0) {
+        if(sigbits_ == 0) {
             std::transform((const BaseT *)o.data_.data(), (const BaseT *)o.data_.data() + size_, (BaseT *)data_.data(), (BaseT *)data_.data(), [](auto x, auto y) {return x + y;});
         } else {
             for(size_t i = 0; i < size_; ++i) {
                 auto &lhv = data_[i];
                 const auto rhv = o.data_[i];
                 if(lhv && rhv) {
-                    if constexpr(sigbits > 0) {
-                        auto lhc = lhv >> countbits;
-                        auto rhc = rhv >> countbits;
+                    if(sigbits_ > 0) {
+                        auto lhc = lhv >> countbits_;
+                        auto rhc = rhv >> countbits_;
                         if(lhc == rhc) {
-                            lhv = (lhc << countbits) | encode_res(extract_res(lhv) + extract_res(rhv));
+                            lhv = (lhc << countbits_) | encode_res(extract_res(lhv) + extract_res(rhv));
                         } else if(lhc > rhc) {
                             lhv = o.data_[i];
                         }
                     }
-                } else if(!lhv != !rhv) {
-                   lhv = std::max(data_[i], o.data_[i]);
+                } else if(!lhv != !rhv && rhv) {
+                    lhv = o.data_[i];
+                    ++n_occupied_;
                 }
             }
         }
@@ -341,17 +370,17 @@ public:
     }
     INLINE BaseT extract_res(T x) const {
         if constexpr(!is_floating) {
-            return x & countmask;
+            return x & countmask_;
         } else {
-            if constexpr(sigbits > 0) x &= countmask;
-            if constexpr(countbits == 32) {
+            if(sigbits_ > 0) x &= countmask_;
+            if(countbits_ == 32) {
                 return as_float(x);
-            } else if constexpr(countbits == 16) {
+            } else if(countbits_ == 16) {
                 return half_to_float(x);
-            } else if constexpr(countbits == 64) {
+            } else if(countbits_ == 64) {
                 return as_double(x);
             } else {
-                throw std::runtime_error("sigbits should be 32 or 16 if floating point sizes are used.");
+                throw std::runtime_error("sigbits_ should be 32 or 16 if floating point sizes are used.");
             }
         }
         return BaseT(0);
@@ -359,7 +388,7 @@ public:
     std::conditional_t<approx_inc, long double, BaseT> count_estimate(uint64_t item) const {
         uint64_t hv = hash(item);
         ModT hi = is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv));
-        const ModT sig = sigbits ? hv & ModT((1ull << sigbits) - 1): ModT(0);
+        const ModT sig = sigbits_ ? hv & ModT((1ull << sigbits_) - 1): ModT(0);
         ModT osig;
         size_t step = 0;
         size_t stepnum = -1;
@@ -371,8 +400,8 @@ public:
 #endif
                 return 0.;
             }
-            if constexpr(sigbits > 0) osig = reg >> countbits;
-            if(sigbits == 0|| osig == sig) {
+            if(sigbits_ > 0) osig = reg >> countbits_;
+            if(sigbits_ == 0|| osig == sig) {
                 BaseT ret = extract_res(reg);
                 if constexpr(approx_inc)
                     return ainc_estimate_count(ret);
@@ -384,25 +413,31 @@ public:
         }
         return 0.L;
     }
-    static constexpr T encode_res(BaseT val) {
+    T encode_res(BaseT val) const {
         if constexpr(!is_floating) {return val;}
-        if constexpr(countbits == 16) {
-            return float_to_half(float(val));
-        } else if constexpr(countbits == 32) {
+        switch(countbits_) {
+        case 16: return float_to_half(float(val));
+        case 32: {
             uint32_t ret;
             float t = val;
             std::memcpy(&ret, &t, sizeof(ret));
             return ret;
-        } else if constexpr(countbits == 64) {
+        }
+        case 64: {
             uint64_t ret;
             std::memcpy(&ret, &val, sizeof(val));
             return ret;
-        } else {throw std::runtime_error("Should not happen."); return T(0);}
+        }
+        default: ;
+        }
+        throw std::runtime_error("Should not happen.");
+        return T(0);
     }
     template<typename CT, typename=std::enable_if_t<std::is_arithmetic_v<CT>>>
-    void update_hashed(uint64_t hv, ModT hi, CT count) {
-        T sig, osig;
-        if constexpr(sigbits > 0) sig = hv & ModT((1ull << sigbits) - 1);
+    void update_hashed(const uint64_t hv, const ModT inithi, CT count) {
+        ModT hi = inithi;
+        T sig = 0, osig = 0;
+        if(sigbits_ > 0) sig = hv & ModT((1ull << sigbits_) - 1);
         size_t step = 0;
         size_t stepnum = -1;
         for(;++stepnum < data_.size();) {
@@ -410,38 +445,38 @@ public:
                 if constexpr(approx_inc) {
                     T insert = 1;
                     for(size_t i = 1; i < static_cast<size_t>(count); ainc(insert), ++i);
-                    data_[hi] = (T(sig) << countbits) | insert;
+                    data_[hi] = (T(sig) << countbits_) | insert;
                     assert(data_[hi] != T(0));
                 } else {
                     T val = encode_res(count);
-                    if constexpr(sigbits)
-                        val |= (T(sig) << countbits);
+                    if(sigbits_)
+                        val |= (T(sig) << countbits_);
                     data_[hi] = val;
                 }
                 ++n_occupied_;
                 return;
             } else {
-                if constexpr(sigbits > 0) osig = data_[hi] >> countbits;
-                if(sigbits == 0 || osig == sig) {
+                if(sigbits_ > 0) osig = data_[hi] >> countbits_;
+                if(sigbits_ == 0 || osig == sig) {
                     if constexpr (approx_inc) {
-                        T current_count = data_[hi] & countmask;
-                        if(current_count >= ((1ull << countbits) - 1)) return; // Saturated
-                        for(size_t i = 0; i < size_t(count) && likely(current_count != ((1ull << countbits) - 1)); ++i)
+                        T current_count = data_[hi] & countmask_;
+                        if(current_count >= ((1ull << countbits_) - 1)) return; // Saturated
+                        for(size_t i = 0; i < size_t(count) && likely(current_count != ((1ull << countbits_) - 1)); ++i)
                             ainc(current_count);
-                        data_[hi] = (sig << countbits) | current_count;
+                        data_[hi] = (sig << countbits_) | current_count;
                     } else if constexpr(countsketch_increment) {
                         const bool flip_sign = hv >> 63;
                         if constexpr(is_floating) {
-                            data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + (flip_sign ? count: -count));
+                            data_[hi] = (osig << countbits_) | encode_res(extract_res(data_[hi]) + (flip_sign ? count: -count));
                         } else {
-                            T newval = (data_[hi] & countmask) + (flip_sign ? count: -count);
-                            data_[hi] = (osig << countbits) | newval;
+                            T newval = (data_[hi] & countmask_) + (flip_sign ? count: -count);
+                            data_[hi] = (osig << countbits_) | newval;
                         }
                     } else {
                         if constexpr(is_floating) {
-                            if constexpr(sigbits == 0) data_[hi] = encode_res(extract_res(data_[hi]) + count);
+                            if(sigbits_ == 0) data_[hi] = encode_res(extract_res(data_[hi]) + count);
                             else
-                                data_[hi] = (osig << countbits) | encode_res(extract_res(data_[hi]) + count);
+                                data_[hi] = (osig << countbits_) | encode_res(extract_res(data_[hi]) + count);
                         } else {
                             data_[hi] += count;
                         }
@@ -458,8 +493,15 @@ public:
             hi = is_pow2 ? ModT(hi & bitmask): ModT(div_.mod(hi));
         }
 
-        std::fprintf(stderr, "Failed to find empty bucket in table of size %zu\n", data_.size());
-        throw std::runtime_error("CQF exceeded size. Resizing not yet implemented.");
+        [hv,count,this] __attribute__((noinline,cold)) {
+            try {
+                resize();
+                update_hashed(hv, is_pow2 ? ModT(hv & bitmask): ModT(div_.mod(hv)), count);
+            } catch(const std::runtime_error &ex) {
+                std::fprintf(stderr, "Failed to find empty bucket in table of size %zu, and additionally failed to resize (%s) with runtime_error \n", data_.size(), ex.what());
+                throw;
+            }
+        }();
     }
     template<typename CT, typename=std::enable_if_t<std::is_arithmetic_v<CT>>>
     void update(uint64_t item, CT count) {
@@ -555,7 +597,7 @@ public:
     void for_each(F &&f) {
         for(auto &v: data_) {
             if(!v) continue; // Skip empty buckets
-            const T rem = v >> countbits;
+            const T rem = v >> countbits_;
             auto countv = extract_res(v);
             if(countv > static_cast<BaseT>(0))
                 f(rem, countv);
@@ -565,7 +607,7 @@ public:
     void for_each(F &&f) const {
         for(auto &v: data_) {
             if(!v) continue; // Skip empty buckets
-            const T rem = v >> countbits;
+            const T rem = v >> countbits_;
             auto countv = extract_res(v);
             if(countv > static_cast<BaseT>(0))
                 f(rem, countv);
@@ -574,7 +616,8 @@ public:
     template<typename F>
     void for_each_sig(F &&f) const {
         for(auto &v: data_) {
-            if(v) f(v >> countbits);
+            if(v)
+                f(v >> countbits_);
         }
     }
     template<typename F>
@@ -584,8 +627,8 @@ public:
         }
     }
     void update(uint64_t item) {
-        static constexpr std::conditional_t<is_floating, double, std::conditional_t<countsketch_increment, std::make_signed_t<T>, std::make_unsigned_t<T>>> inc = 1;
-        update(item, inc);
+        using IncT = std::conditional_t<is_floating, double, std::conditional_t<countsketch_increment, std::make_signed_t<T>, std::make_unsigned_t<T>>>;
+        update(item, static_cast<IncT>(1));
     }
     void reset() {
         std::fill_n(data_.data(), size_, T(0));
