@@ -5,6 +5,7 @@
 #include <cassert>
 #include <utility>
 #include <limits>
+#include <algorithm>
 
 #ifdef __AVX2__
 #include <x86intrin.h>
