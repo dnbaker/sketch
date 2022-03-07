@@ -85,10 +85,10 @@ int main(int argc, char *argv[]) {
         assert(std::equal(hlls.begin(), hlls.end(), ohlls.begin()));
     }
     {
-        EShortSetS ss(100);
+        sketch::setsketch::EShortSetS ss(100);
         for(size_t i = 0; i < 1000; ++i) ss.add(i);
         ss.write("ss100.ss");
-        EShortSetS ss2("ss100.ss");
+         sketch::setsketch::EShortSetS ss2("ss100.ss");
         assert(ss2 == ss);
         if(std::system("rm ss100.ss")) throw "sideways";
     }
