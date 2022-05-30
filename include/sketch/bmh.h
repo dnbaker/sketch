@@ -527,11 +527,11 @@ static INLINE FT truncexpsample(uint64_t &src, const FT lambda, const FT c1, con
 template<typename FT>
 static INLINE FT truncexpsample(const uint64_t &rngstate, const std::array<FT, 5> &c) {
     return truncexpsample(rngstate, c[0], c[1], c[2], c[3], c[4]);
-};
+}
 template<typename FT>
 static INLINE FT truncexpsample(uint64_t &rngstate, const std::array<FT, 5> &c) {
     return truncexpsample(rngstate, c[0], c[1], c[2], c[3], c[4]);
-};
+}
 
 
 template<typename FT=double, typename IdxT=uint32_t>
