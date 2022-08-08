@@ -4,6 +4,7 @@
 using sketch::EByteSetS;
 using sketch::EShortSetS;
 using namespace sketch;
+using namespace sketch::setsketch;
 
 template<typename ResT, typename FT>
 py::array setsketch2np(const SetSketch<ResT, FT> &o) {
