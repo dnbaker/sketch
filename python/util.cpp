@@ -119,10 +119,12 @@ PYBIND11_MODULE(sketch_util, m) {
         std::transform(ptr, ptr + inf.size, retptr, [&](auto x) {return div.OP(x);});\
         return lhs;\
     }); } while(0);
+#if 0
     PERF_FM(int32_t, "fastdiv", div);
     PERF_FM(int32_t, "fastmod", mod);
     PERF_FM(int64_t, "fastdiv", div);
     PERF_FM(int64_t, "fastmod", mod);
+#endif
     PERF_FM(uint32_t, "fastdiv", div);
     PERF_FM(uint32_t, "fastmod", mod);
     PERF_FM(uint64_t, "fastdiv", div);
