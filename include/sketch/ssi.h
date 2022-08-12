@@ -90,8 +90,9 @@ public:
         packed_maps_.reserve(nrpr);
         for(;rpr <= m_;) {
             regs_per_reg_.push_back(rpr);
-            packed_maps_.emplace_back(HashV(m_ / rpr));
-            mutexes_.emplace_back(HashV(m_ / rpr));
+            const int64_t num_maps = m_ / rpr;
+            packed_maps_.emplace_back(HashV(num_maps));
+            mutexes_.emplace_back(std::vector<std::mutex>(num_maps));
             if(densified) {
                 ++rpr;
             } else {

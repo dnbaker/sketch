@@ -63,7 +63,7 @@ void declare_lsh_table(py::class_<SSI> &cls) {
     .def(py::init<size_t, py::array_t<int64_t, py::array::forcecast>>(), py::arg("m"), py::arg("persig"))
     .def(py::init<size_t, py::array_t<int64_t, py::array::forcecast>, py::array_t<int64_t, py::array::forcecast>>(), py::arg("m"), py::arg("persig"), py::arg("persigsize"))
     .def("m", &SSI::m)
-    .def("size", &SSI::size)
+    .def("size", [](const SSI& index) {return index.size();})
     .def("add", [](SSI &index, py::object item) {
         if(py::isinstance<py::array>(item)) {
             auto arr = py::cast<py::array>(item);
