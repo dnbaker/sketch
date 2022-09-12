@@ -1,9 +1,10 @@
 #include "python/pysketch.h"
 #include "sketch/setsketch.h"
 
-using sketch::EByteSetS;
-using sketch::EShortSetS;
 using namespace sketch;
+using namespace sketch::setsketch;
+using sketch::setsketch::EByteSetS;
+using sketch::setsketch::EShortSetS;
 
 template<typename ResT, typename FT>
 py::array setsketch2np(const SetSketch<ResT, FT> &o) {
@@ -49,13 +50,13 @@ PYBIND11_MODULE(sketch_ss, m) {
         //.def("union_size", [](const EShortSetS &h1, const EShortSetS &h2) {return h1.union_size(h2);})
         .def("__ior__", [](EShortSetS &lh, const EShortSetS &rh) {lh += rh; return lh;})
         .def("__or__", [](const EShortSetS &lh, const EShortSetS &rh) {return lh + rh;})
-        .def("__eq__", [](const sketch::EShortSetS &h, const sketch::EShortSetS &h2) {
+        .def("__eq__", [](const EShortSetS &h, const EShortSetS &h2) {
             return h == h2;
-        }).def("__neq__", [](const sketch::EShortSetS &h, const sketch::EShortSetS &h2) {
+        }).def("__neq__", [](const EShortSetS &h, const EShortSetS &h2) {
             return !(h == h2);
-        }).def("write", [](const sketch::EShortSetS &h, std::string path) {
+        }).def("write", [](const EShortSetS &h, std::string path) {
             h.write(path);
-        }).def("to_numpy", [](const sketch::EShortSetS &h) {
+        }).def("to_numpy", [](const EShortSetS &h) {
             return setsketch2np(h);
         })
         .def("max", [](const EShortSetS &h) {return h.max();})

@@ -5,6 +5,7 @@
 #include <cassert>
 #include <utility>
 #include <limits>
+#include <algorithm>
 
 #ifdef __AVX2__
 #include <x86intrin.h>
@@ -269,16 +270,6 @@ template<> struct Schismatic<uint32_t> {
         auto tmpd = div(v);
         return div_t<uint32_t> {tmpd, v - d_ * tmpd};
     }
-};
-template<> struct Schismatic<int32_t>: Schismatic<uint32_t> {
-    using BT = Schismatic<uint32_t>;
-    template<typename... Args>
-        Schismatic<int32_t>(Args &&...args):
-            BT(std::forward<Args>(args)...){}
-};
-template<> struct Schismatic<int64_t>: Schismatic<uint64_t> {
-    template<typename...Args> Schismatic<int64_t>(Args &&...args):
-        Schismatic<uint64_t>(std::forward<Args>(args)...){}
 };
 
 } // namespace schism
