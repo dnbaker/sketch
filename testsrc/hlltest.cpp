@@ -6,8 +6,6 @@
 #include <cinttypes>
 #include "hll.h"
 #include "mh.h"
-#include "hmh.h"
-#include "ccm.h"
 #include "hbb.h"
 #include "kthread.h"
 
@@ -47,9 +45,11 @@ void kt_helper(void *data, long index, int tid) {
  */
 
 int main(int argc, char *argv[]) {
+#ifdef SKETCH_HMH2_H__
     sketch::HyperMinHash mh(10, 16), mh2(12, 16);
     sketch::HyperMinHash mh3(10, 16); mh3 += mh;
     mh.addh(uint64_t(1337));
+#endif
     std::vector<std::uint64_t> vals;
     for(char **p(argv + 1); *p; ++p) vals.push_back(strtoull(*p, 0, 10));
     if(vals.empty()) vals.push_back(1ull<<(BITS+1));
@@ -81,9 +81,11 @@ int main(int argc, char *argv[]) {
         assert(t.est_err() >= /*2. * */std::abs(val - t.report()));
         fprintf(stderr, "Quantity expected: %" PRIu64 ". Quantity estimated: %lf. Error bounds: %lf. Error: %lf. Within bounds? %s. Ertl ML estimate: %lf. Error ertl ML: %lf\n",
                 val, tmf.report(), tmf.est_err(), std::abs(val - tmf.report()), tmf.est_err() >= std::abs(val - tmf.report()) ? "true": "false", ertl_ml_estimate(tmf), std::abs(ertl_ml_estimate(tmf) - val));
+#ifndef VEC_DISABLED__
         hll::VType tmpv = static_cast<uint64_t>(1337);
         t.addh(tmpv);
         tmf.addh(tmpv);
+#endif
         auto mini = t.compress(4);
     }
 	return EXIT_SUCCESS;

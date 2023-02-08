@@ -87,6 +87,7 @@ public:
     }
     template<typename IT>
     hmh_t &perform_merge(const hmh_t &o) {
+#ifndef VEC_DISABLED_H__
         using Space = vec::SIMDTypes<IT>;
         using Type = typename Space::Type;
         auto d = reinterpret_cast<Type *>(data_.data());
@@ -96,6 +97,10 @@ public:
             Space::store(d, Space::max(Space::load(d), Space::load(od)));
             ++d, ++od;
         } while(d < e);
+#else
+        std::transform(reinterpret_cast<IT *>(data_.data()), reinterpret_cast<IT *>(data_[data_.size()]), reinterpret_cast<IT *>(other.data_.data())
+                       reinterpret_cast<IT *>(data_.data()), [](auto x, auto y) {return std::max(x, y);});
+#endif
         return *this;
     }
     hmh_t &operator+=(const hmh_t &o) {
@@ -180,6 +185,7 @@ public:
         return -1;
     }
 
+#ifndef VEC_DISABLED_H__
     template<typename IT, typename Func>
     void __for_each_union_vector(const hmh_t &o, const Func &func) const {
         using Space = vec::SIMDTypes<IT>;
@@ -190,6 +196,7 @@ public:
         while(d < e)
             func(Space::max(Space::load(d++), Space::load(od++)));
     }
+#endif
     template<typename IT, typename Func>
     void __for_each_union_register(const hmh_t &o, const Func &func) const {
         using Space = vec::SIMDTypes<IT>;
@@ -374,8 +381,8 @@ public:
     }
     template<size_t N, typename IT, typename OIT>
     static void __lzrem_func(IT lzc, OIT rem, double &ret) {
-        static constexpr double mri = 1. / ((uint64_t(1) << N) - 1);
-        static constexpr double mrx2 = 2. * ((uint64_t(1) << N) - 1);
+        static constexpr double mri = 1.L / static_cast<long double>((uint64_t(1) << N) - 1);
+        static constexpr double mrx2 = 2.L * static_cast<long double>((uint64_t(1) << N) - 1);
         ret += std::ldexp((mrx2 - rem) * mri,
                            -static_cast<std::make_signed_t<IT>>(lzc));
         // TODO: Better manual intrinsics
@@ -401,20 +408,8 @@ public:
     }
     double union_size(const hmh_t &o) const {
         double ret = 0.;
-#if 0
-        if(data_.size() < sizeof(vec::SIMDTypes<uint64_t>::Type)) {
-#endif
-            for_each_union_lzrem(o, [&](auto lzc, auto rem) {
-                switch(r_) {
-                    case 2: __lzrem_func<2>(lzc, rem, ret); break;
-                    case 10: __lzrem_func<10>(lzc, rem, ret); break;
-                    case 26: __lzrem_func<26>(lzc, rem, ret); break;
-                    case 58: __lzrem_func<58>(lzc, rem, ret); break;
-                    default: __builtin_unreachable(); break;
-                }
-            });
-#if 0
-        } else {
+#ifndef VEC_DISABLED_H__
+        if(data_.size() >= sizeof(vec::SIMDTypes<uint64_t>::Type)) {
             auto maxremi = max_remainder();
             double maxrem = maxremi, mri = 1. / (maxrem), mrx2 = 2. * maxrem;
             switch(lrszm3_) {
@@ -431,8 +426,18 @@ public:
             SHOW_CASES(CASE_U)
                 default: HEDLEY_UNREACHABLE();
             }
+            return mhsum2ret(ret, p_);
         }
 #endif
+        for_each_union_lzrem(o, [&](auto lzc, auto rem) {
+            switch(r_) {
+                case 2: __lzrem_func<2>(lzc, rem, ret); break;
+                case 10: __lzrem_func<10>(lzc, rem, ret); break;
+                case 26: __lzrem_func<26>(lzc, rem, ret); break;
+                case 58: __lzrem_func<58>(lzc, rem, ret); break;
+                default: __builtin_unreachable(); break;
+            }
+        });
         return mhsum2ret(ret, p_);
     }
     double approx_ec(double n, double m, int laziness=1) const {

@@ -13,7 +13,7 @@
 #include <cinttypes>
 #include <cstdio>
 #include <random>
-#include <x86intrin.h>
+#include "sketch/intrinsics.h"
 
 #ifndef CONST_IF
 #  if defined(__cpp_if_constexpr) && __cplusplus >= __cpp_if_constexpr

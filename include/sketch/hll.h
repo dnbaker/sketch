@@ -64,8 +64,10 @@ enum EstimationMethod: uint8_t {
     ERTL_MLE       = 2
 };
 
+#ifndef VEC_DISABLED__
 using Type = typename vec::SIMDTypes<uint64_t>::Type;
 using VType = typename vec::SIMDTypes<uint64_t>::VType;
+#endif
 using hash::WangHash;
 using hash::MurFinHash;
 
@@ -255,6 +257,7 @@ struct parsum_data_t {
 
 
 
+#ifndef VEC_DISABLED__
 union SIMDHolder {
 
 public:
@@ -392,6 +395,7 @@ public:
         }
 #endif
     }
+#ifndef VEC_DISABLED__
     template<typename IT, typename T>
     void inc_counts_by_type(T &arr) const {
         CONST_IF(sizeof(IT) == 1) inc_counts(arr);
@@ -400,6 +404,7 @@ public:
         else CONST_IF(sizeof(IT) == 8) inc_counts64(arr);
         else throw std::runtime_error(std::string("Unsupported type of size: ") + std::to_string(sizeof(IT)));
     }
+#endif
     template<typename T, size_t iternum, size_t niter_left> struct unroller {
         void operator()(const SIMDHolder &ref, T &arr) const {
             ++arr[ref.vals[iternum]];
@@ -437,8 +442,10 @@ public:
 #undef DEC_INC
     static_assert(sizeof(SType) == sizeof(u8arr), "both items in the union must have the same size");
 };
+#endif
 
 struct joint_unroller {
+#ifndef VEC_DISABLED__
     using MType = SIMDHolder::MaskType;
     using SType = SIMDHolder::SType;
     // Woof....
@@ -500,8 +507,29 @@ struct joint_unroller {
         assert((c1.size() & (SIMDHolder::nels - 1)) == 0);
         sum_arrays(reinterpret_cast<const SType *>(&c1[0]), reinterpret_cast<const SType *>(&c2[0]), reinterpret_cast<const SType *>(&*c1.cend()), arrh1, arrh2, arru, arrg1, arrg2, arreq);
     }
+#else
+    template<typename T, typename VectorType>
+    INLINE void sum_arrays(const VectorType &c1, const VectorType &c2, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq) const {
+        #pragma omp simd
+        for(size_t i = 0; i < c1.size(); ++i) {
+            const auto token1 = c1[i];
+            const auto token2 = c2[i];
+            const auto token_max = std::max(token1, token2);
+            const bool gt = (token1 > token2);
+            const bool lt = !gt;
+            const bool eq = (token1 == token2);
+            // Update base counts
+            ++arrh1[token1]; ++arrh2[token2]; ++arru[token_max];
+            // Update gt/eq counts
+            arrg1[token1] += gt;
+            arrg2[token2] += lt;
+            arreq[token_max] += eq;
+        }
+    }
+#endif /* VEC_DISABLED__*/
 };
 
+#ifndef VEC_DISABLED__
 template<typename T>
 inline void inc_counts(T &counts, const SIMDHolder *p, const SIMDHolder *pend) {
     static_assert(std::is_integral<std::decay_t<decltype(counts[0])>>::value, "Counts must be integral.");
@@ -511,6 +539,7 @@ inline void inc_counts(T &counts, const SIMDHolder *p, const SIMDHolder *pend) {
         tmp.inc_counts(counts);
     } while(p < pend);
 }
+
 
 static inline std::array<uint32_t, 64> sum_counts(const SIMDHolder *p, const SIMDHolder *pend) {
     // Should add Contiguous Container requirement.
@@ -531,12 +560,6 @@ inline std::array<uint32_t, 64> sum_counts(const Container &con) {
     return sum_counts(reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
 }
 
-#if 0
-inline std::array<uint32_t, 64> sum_counts(const DefaultCompactVectorType &con) {
-    // TODO: add a check to make sure that it's doing it right
-    return sum_counts(reinterpret_cast<const SIMDHolder *>(con.get()), reinterpret_cast<const SIMDHolder *>(con.get() + con.bytes()));
-}
-#endif
 
 template<typename T, typename Container>
 inline void inc_counts(T &counts, const Container &con) {
@@ -544,10 +567,23 @@ inline void inc_counts(T &counts, const Container &con) {
     return inc_counts(counts, reinterpret_cast<const SIMDHolder *>(&*std::cbegin(con)), reinterpret_cast<const SIMDHolder *>(&*std::cend(con)));
 }
 
+
+#else
+template<typename Container>
+inline std::array<uint32_t, 64> sum_counts(const Container &con) {
+    std::array<uint32_t, 64> ret{0};
+    for(const uint8_t x: ret) {
+        ++ret[x];
+    }
+    return ret;
+}
+#endif
+
 template<typename CoreType>
 void parsum_helper(void *data_, long index, int) {
     parsum_data_t<CoreType> &data(*reinterpret_cast<parsum_data_t<CoreType> *>(data_));
     uint64_t local_counts[64]{0};
+#ifndef VEC_DISABLED__
     SIMDHolder tmp;
     const SIMDHolder *p(reinterpret_cast<const SIMDHolder *>(&data.core_[index * data.pb_])),
                      *pend(reinterpret_cast<const SIMDHolder *>(&data.core_[std::min(data.l_, (index+1) * data.pb_)]));
@@ -555,6 +591,11 @@ void parsum_helper(void *data_, long index, int) {
         tmp = *p++;
         tmp.inc_counts(local_counts);
     } while(p < pend);
+#else
+    for(const uint8_t token: data.core_) {
+        ++local_counts[token];
+    }
+#endif
     for(uint64_t i = 0; i < 64ull; ++i) data.counts_[i] += local_counts[i];
 }
 
@@ -819,10 +860,7 @@ public:
     }
     // Descriptive string.
     std::string desc_string() const {
-        char buf[256];
-        std::sprintf(buf, "Size: %u. nb: %llu. error: %lf. Is calculated: %s. value: %lf. Estimation method: %s\n",
-                     np_, static_cast<long long unsigned int>(m()), relative_error(), is_calculated() ? "true": "false", value_, EST_STRS[estim_]);
-        return buf;
+        return std::string("Size: ") + std::to_string(np_) + ". nb: " + std::to_string(m()) + " error: " + std::to_string(relative_error()) + " , + method: " + EST_STRS[estim_];
     }
 
     INLINE void add(uint64_t hashval) noexcept {
@@ -855,6 +893,7 @@ public:
         }
 #endif
     }
+#ifndef VEC_DISABLED__
     INLINE void addh(VType element) noexcept {
         element = hf_(element.simd_);
         add(element);
@@ -862,6 +901,7 @@ public:
     INLINE void add(VType element) noexcept {
         element.for_each([&](uint64_t &val) {add(val);});
     }
+#endif
     template<typename T, typename Hasher=std::hash<T>>
     INLINE void adds(const T element, const Hasher &hasher) noexcept {
         static_assert(std::is_same<std::decay_t<decltype(hasher(element))>, uint64_t>::value, "Must return 64-bit hash");
@@ -957,6 +997,7 @@ public:
 
     hllbase_t &operator+=(const hllbase_t &other) noexcept {
         PREC_REQ(np_ == other.np_, "mismatched sketch sizes.");
+#ifndef VEC_DISABLED__
         unsigned i;
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
         if(m() >= sizeof(Type)) {
@@ -986,6 +1027,9 @@ public:
                 *els = std::max(*els, *oels), ++els, ++oels;
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
         }
+#endif
+        std::transform(core_.begin(), core_.end(), other.core_.begin(), core_.begin(), [](auto x, auto y) {return std::max(x, y);});
+#else /*ifndef VEC_DISABLED__ */
 #endif
         not_ready();
         return *this;
@@ -1063,10 +1107,9 @@ public:
 #define CR(fp, dst, len) \
     do {\
         if(static_cast<uint64_t>(gzread(fp, dst, len)) != len) {\
-            throw ZlibError(std::string(buf, buf + std::sprintf(buf, "[E:%s:%d:%s] Error reading from file\n", __FILE__, __LINE__, __PRETTY_FUNCTION__))); \
+            throw ZlibError(std::string("[E:") + __FILE__ + ':' + std::to_string(__LINE__) + ':' + __PRETTY_FUNCTION__ + "] Error reading from file");\
         }\
     } while(0)
-        char buf[512];
         uint32_t bf[4];
         CR(fp, bf, sizeof(bf));
         estim_  = static_cast<EstimationMethod>(bf[1]);
@@ -1128,12 +1171,18 @@ public:
             std::array<uint32_t, 64> counts{0};
             // We can do this because we use an aligned allocator.
             // We also have found that wider vectors than SSE2 don't matter
+#if __SSE2__
             const __m128i *p1(reinterpret_cast<const __m128i *>(data())), *p2(reinterpret_cast<const __m128i *>(other.data()));
             const __m128i *const pe(reinterpret_cast<const __m128i *>(&core_[core_.size()]));
             for(__m128i tmp;p1 < pe;) {
                 tmp = _mm_max_epu8(*p1++, *p2++);
                 for(size_t i = 0; i < sizeof(tmp);++counts[reinterpret_cast<uint8_t *>(&tmp)[i++]]);
             }
+#else
+            for(size_t i = 0; i < core_.size(); ++i) {
+                ++counts[std::max(core_[i], other.core_[i])];
+            }
+#endif
             return detail::calculate_estimate(counts, get_estim(), m(), p(), alpha());
         }
         const auto full_counts = ertl_joint(*this, other);
@@ -1183,7 +1232,11 @@ public:
     }
     size_t size() const {return size_t(m());}
     static constexpr unsigned min_size() {
+#ifndef VEC_DISABLED__
         return ilog2(sizeof(detail::SIMDHolder));
+#else
+        return 1;
+#endif
     }
 #if LZ_COUNTER
     ~hllbase_t() {
@@ -1283,6 +1336,7 @@ public:
             }
         }
     }
+#if 0
     double uest_UNSTABLE(const shllbase_t &o) const {
         PREC_REQ(this->size() == o.size(), "must be same size");
         double cest = cest_, s = s_;;
@@ -1298,6 +1352,7 @@ public:
         }
         return cest;
     }
+#endif
     using final_type = shllbase_t;
 };
 
@@ -1385,8 +1440,11 @@ public:
     // This only works for hlls using 64-bit integers.
     // Looking ahead,consider templating so that the double version might be helpful.
 
+#ifndef VEC_DISABLED__
     using Space = vec::SIMDTypes<uint64_t>;
+#endif
     bool may_contain(uint64_t element) const {
+#ifndef VEC_DISABLED__
         unsigned k = 0;
         if(size() >= Space::COUNT) {
             if(size() & (size() - 1)) throw NotImplementedError("supporting a non-power of two.");
@@ -1398,13 +1456,15 @@ public:
                 for(unsigned i(0); i < Space::COUNT;) if(!hlls_[k++].may_contain(key.arr_[i++])) return false;
             } while(sptr < eptr);
             return true;
-        } else { // if size() >= Space::COUNT
-            for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(WangHash()(element ^ seeds_[i]))) return false;
-            return true;
         }
+#endif
+        // if size() >= Space::COUNT
+        for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(WangHash()(element ^ seeds_[i]))) return false;
+        return true;
     }
     void addh(uint64_t val) {
         unsigned k = 0;
+#ifndef VEC_DISABLED__
         if(size() >= Space::COUNT) {
             if(size() & (size() - 1)) throw NotImplementedError("supporting a non-power of two.");
             const Type *sptr = reinterpret_cast<const Type *>(&seeds_[0]);
@@ -1416,14 +1476,15 @@ public:
                 for(unsigned i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
                 assert(k <= size());
             } while(sptr < eptr);
-        } else while(k < size()) hlls_[k].add(WangHash()(val ^ seeds_[k])), ++k;
+        }
+#endif
+        while(k < size()) hlls_[k].add(WangHash()(val ^ seeds_[k])), ++k;
     }
     double creport() const {
         if(is_calculated_) return value_;
         double ret(hlls_[0].creport());
         for(size_t i(1); i < size(); ret += hlls_[i++].creport());
         ret /= static_cast<double>(size());
-        value_ = ret;
         return value_ = ret;
     }
     hlfbase_t &operator+=(const hlfbase_t &other) {
@@ -1485,7 +1546,15 @@ public:
     double chunk_report() const {
         if(HEDLEY_LIKELY((size() & (size() - 1)) == 0)) {
             std::array<uint32_t, 64> counts{0};
-            for(const auto &hll: hlls_) detail::inc_counts(counts, hll.core());
+            for(const auto &hll: hlls_) {
+#ifndef VEC_DISABLED__
+                detail::inc_counts(counts, hll.core());
+#else
+                for(const uint8_t val: hll.core()) {
+                    ++counts[val];
+                }
+#endif
+            }
             const auto diff = (sizeof(uint32_t) * CHAR_BIT - clz(uint32_t(size())) - 1);
             const auto new_p = hlls_[0].p() + diff;
             const auto new_m = (1ull << new_p);
@@ -1502,6 +1571,7 @@ using hlf_t = hlfbase_t<>;
 
 } // namespace hll
 
+#ifndef VEC_DISABLED__
 namespace whll {
 using common::Allocator;
 struct wh119_t {
@@ -1565,7 +1635,7 @@ struct wh119_t {
     wh119_t &operator+=(const wh119_t &o) {
         PREC_REQ(size() == o.size(), "mismatched sketch sizes.");
         unsigned i;
-#if HAS_AVX_512 || __AVX2__ || __SSE2__
+#if !defined(VEC_DISABLED__) && (HAS_AVX_512 || __AVX2__ || __SSE2__)
         if(m() >= sizeof(Type)) {
 #if HAS_AVX_512 && __AVX512BW__
             __m512i *els(reinterpret_cast<__m512i *>(core_.data()));
@@ -1585,11 +1655,10 @@ struct wh119_t {
 #endif /* #if (HAS_AVX_512 && __AVX512BW__) || __AVX2__ || true */
 
             if(m() < sizeof(Type)) for(;i < m(); ++i) core_[i] = std::max(core_[i], o.core_[i]);
-        } else {
-#endif /* #if HAS_AVX_512 || __AVX2__ || __SSE2__ */
-            std::transform(core_.data(), core_.data() + core_.size(), o.core_.data(), core_.data(), [](auto x, auto y) {return std::max(x, y);});
-#if HAS_AVX_512 || __AVX2__ || __SSE2__
+            return *this;
         }
+#else /* #if HAS_AVX_512 || __AVX2__ || __SSE2__ */
+        std::transform(core_.data(), core_.data() + core_.size(), o.core_.data(), core_.data(), [](auto x, auto y) {return std::max(x, y);});
 #endif
         return *this;
     }
@@ -1658,6 +1727,7 @@ struct wh119_t {
     }
 };
 } // whll
+#endif /*ifndef VEC_DISABLED__ */
 } // namespace sketch
 
 #endif // #ifndef HLL_H_

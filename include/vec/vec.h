@@ -6,7 +6,7 @@
 #else
 #    define NO_SLEEF
 #endif
-#include "x86intrin.h"
+#include "sketch/intrinsics.h"
 #include <cmath>
 #include <iterator>
 #include <type_traits>
@@ -75,6 +75,8 @@
 
 
 namespace vec {
+
+#ifndef __aarch64__
 
 using std::uint64_t;
 #ifndef NO_SLEEF
@@ -1002,7 +1004,12 @@ void memblockset(void *dest, T val, SizeType nbytes) {
 #undef DO_LOOP_
 }
 
+#else
+#define VEC_DISABLED__
+#endif /*ifndef __aarch64__ */
+
 } // namespace vec
+
 #ifndef NO_SLEEF
 #undef OP
 #undef SLEEF_OP
