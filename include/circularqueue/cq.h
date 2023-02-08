@@ -15,6 +15,35 @@
 #include <algorithm>
 
 namespace circ {
+template<typename T, typename SizeType> class circular_iterator;
+template<typename T, typename SizeType> class const_circular_iterator;
+}
+
+namespace std {
+template<typename T, typename SizeType>
+struct iterator_traits<circ::circular_iterator<T, SizeType>> {
+    using difference_type = std::ptrdiff_t;
+    using reference_type = T &;
+    using pointer        = T *;
+    using value_type = T;
+    using reference = T&;
+    using const_reference = const T&;
+    struct iterator_category: public forward_iterator_tag {};
+};
+
+template<typename T, typename SizeType>
+struct iterator_traits<circ::const_circular_iterator<T, SizeType>> {
+    using difference_type = std::ptrdiff_t;
+    using reference_type = T &;
+    using reference = T&;
+    using const_reference = const T&;
+    using pointer        = T *;
+    using value_type = T;
+    struct iterator_category: public forward_iterator_tag {};
+};
+} // namespace std
+
+namespace circ {
 using std::size_t;
 using std::uint64_t;
 using std::uint32_t;
@@ -50,6 +79,8 @@ class circular_iterator {
     deque_type &ref() {return *ref_;}
     const deque_type &ref() const {return *ref_;}
     SizeType           pos_;
+    using reference = T&;
+    using const_reference = const T&;
 public:
     circular_iterator(deque_type &reff, SizeType pos): ref_(std::addressof(reff)), pos_(pos) {}
     circular_iterator(const circular_iterator &other): ref_(other.ref_), pos_(other.pos_) {}
@@ -413,24 +444,5 @@ public:
 };
 
 } // namespace circ
-namespace std {
-template<typename T, typename SizeType>
-struct iterator_traits<circ::circular_iterator<T, SizeType>> {
-    using difference_type = std::ptrdiff_t;
-    using reference_type = T &;
-    using pointer        = T *;
-    using value_type = T;
-    struct iterator_category: public forward_iterator_tag {};
-};
-
-template<typename T, typename SizeType>
-struct iterator_traits<circ::const_circular_iterator<T, SizeType>> {
-    using difference_type = std::ptrdiff_t;
-    using reference_type = T &;
-    using pointer        = T *;
-    using value_type = T;
-    struct iterator_category: public forward_iterator_tag {};
-};
-} // namespace std
 
 #endif /* #ifndef CIRCULAR_QUEUE_H__ */

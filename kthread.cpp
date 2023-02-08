@@ -2,6 +2,18 @@
 #include <stdlib.h>
 #include <limits.h>
 
+// Hack around aarch64 undefined symbols using clang. M1 has a lot of incompatibilities.
+#ifdef __aarch64__
+#include <atomic>
+
+template<typename X, typename Y>
+static inline X sync_fetch_and_add(X* x, Y y) {
+    using PType = std::atomic<X>*;
+    return std::atomic_fetch_add(reinterpret_cast<PType>(x), static_cast<X>(y));
+}
+#define __sync_fetch_and_add(x, y) sync_fetch_and_add(x, y)
+#endif
+
 /************
  * kt_for() *
  ************/
@@ -27,7 +39,7 @@ static inline long steal_work(kt_for_t *t)
 	long k, min = LONG_MAX;
 	for (i = 0; i < t->n_threads; ++i)
 		if (min > t->w[i].i) min = t->w[i].i, min_i = i;
-	k = __sync_fetch_and_add(&t->w[min_i].i, t->n_threads);
+	k = __sync_fetch_and_add(&t->w[min_i].i, (long)t->n_threads);
 	return k >= t->n? -1 : k;
 }
 
@@ -36,7 +48,7 @@ static void *ktf_worker(void *data)
 	ktf_worker_t *w = (ktf_worker_t*)data;
 	long i;
 	for (;;) {
-		i = __sync_fetch_and_add(&w->i, w->t->n_threads);
+		i = __sync_fetch_and_add(&w->i, (long)w->t->n_threads);
 		if (i >= w->t->n) break;
 		w->t->func(w->t->data, i, w - w->t->w);
 	}
@@ -93,7 +105,7 @@ static inline long kt_fp_steal_work(kt_forpool_t *t)
 	long k, min = LONG_MAX;
 	for (i = 0; i < t->n_threads; ++i)
 		if (min > t->w[i].i) min = t->w[i].i, min_i = i;
-	k = __sync_fetch_and_add(&t->w[min_i].i, t->n_threads);
+	k = __sync_fetch_and_add(&t->w[min_i].i, (long)t->n_threads);
 	return k >= t->n? -1 : k;
 }
 
@@ -113,7 +125,7 @@ static void *kt_fp_worker(void *data)
 		pthread_mutex_unlock(&fp->mutex);
 		if (action < 0) break;
 		for (;;) { /* process jobs allocated to this worker */
-			i = __sync_fetch_and_add(&w->i, fp->n_threads);
+			i = __sync_fetch_and_add(&w->i, (long)fp->n_threads);
 			if (i >= fp->n) break;
 			fp->func(fp->data, i, w - fp->w);
 		}

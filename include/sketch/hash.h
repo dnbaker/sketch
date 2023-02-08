@@ -21,7 +21,7 @@ using std::uint64_t;
 using std::uint32_t;
 using std::size_t;
 
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
 using Type  = typename vec::SIMDTypes<uint64_t>::Type;
 using VType = typename vec::SIMDTypes<uint64_t>::VType;
 using Space = vec::SIMDTypes<uint64_t>;
@@ -68,7 +68,7 @@ struct WangHash {
         return key;
     }
     INLINE auto operator()(int32_t key) const {return operator()(uint32_t(key));}
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     INLINE Type operator()(Type element) const {
         VType key = Space::add(Space::slli(element, 21), ~element); // key = (~key) + (key << 21);
         key = Space::srli(key.simd_, 24) ^ key.simd_; //key ^ (key >> 24)
@@ -342,7 +342,7 @@ public:
     uint64_t operator()(uint64_t val) const {
 		return siam::CWtrick64(val, coeffs_);
     }
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     Type operator()(VType val) const {
         throw std::runtime_error("Not implemented");
         return val.simd_;
@@ -365,7 +365,7 @@ public:
     uint64_t operator()(uint64_t val) const {
 		return nosiam::i61hash(val, coeffs_);
     }
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     Type operator()(VType val) const {
         throw std::runtime_error("Not implemented");
         return val.simd_;
@@ -393,7 +393,7 @@ struct HasherSet {
 };
 template<typename Hasher=WangHash>
 struct XORSeedHasherSet {
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     static constexpr size_t ALN = sizeof(vec::SIMDTypes<uint64_t>::VType);
 #else
     static constexpr size_t ALN = 16;
@@ -412,7 +412,7 @@ struct XORSeedHasherSet {
     uint64_t operator()(uint64_t v, unsigned ind) const {
         return hasher_(v ^ seeds_[ind]);
     }
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     fixed::vector<uint64_t> operator()(uint64_t v) const {
         using VT = typename vec::SIMDTypes<uint64_t>::VType;
         VT broadcast = vec::SIMDTypes<uint64_t>::set1(v);
@@ -473,7 +473,7 @@ struct MurFinHash {
 #ifdef DUMMY_INVERSE
     INLINE uint64_t inverse(uint64_t key) const {return this->operator()(key);}
 #endif
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     INLINE Type operator()(Type key) const {
         return this->operator()(*(reinterpret_cast<VType *>(&key)));
     }
@@ -490,7 +490,7 @@ struct MurFinHash {
         return key;
     }
 #endif
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     INLINE Type operator()(VType key) const {
         key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
         key.for_each([](auto &x) {x *= C1;});
@@ -511,7 +511,7 @@ namespace op {
 template<typename T>
 struct multiplies {
     T operator()(T x, T y) const { return x * y;}
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     VType operator()(VType x, VType y) const {
 #if HAS_AVX_512
         return Space::mullo(x.simd_, y.simd_);
@@ -528,14 +528,14 @@ struct multiplies {
 template<typename T>
 struct plus {
     T operator()(T x, T y) const { return x + y;}
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     VType operator()(VType x, VType y) const { return Space::add(x.simd_, y.simd_);}
 #endif
 };
 template<typename T>
 struct bit_xor {
     T operator()(T x, T y) const { return x ^ y;}
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     VType operator()(VType x, VType y) const { return Space::xor_fn(x.simd_, y.simd_);}
 #endif
 };
@@ -744,7 +744,7 @@ struct InvH {
         h = op(h, seed_);
         return h;
     }
-#ifdef _VEC_H__
+#ifndef VEC_DISABLED__
     INLINE VType inverse(VType hv) const {
         hv = iop(hv.simd_, Space::set1(inverse_));
         return hv;
