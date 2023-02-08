@@ -102,20 +102,26 @@ struct wd_t {
     using IT = DefIT<FT>;
     static_assert(std::is_integral<IT>::value || sizeof(FT) > 8, "Sanity check");
 
-    union ITFTU {
-        IT i_; FT f_;
-        constexpr ITFTU(): i_(0) {}
-        constexpr ITFTU(FT x): f_(x) {}
-        constexpr ITFTU(IT i): i_(i) {}
-    };
-    static constexpr IT ft2it(FT val=std::numeric_limits<FT>::max()) {return ITFTU(val).i_;}
-    static constexpr FT it2ft(IT val) {return ITFTU(val).f_;}
+
+    static IT ft2it(FT val) noexcept {
+        IT ret = 0;
+        std::memcpy(&ret, &val, sizeof(FT));
+        return ret;
+     }
+    static constexpr IT ft2it() noexcept {
+        return maxv;
+    }
+    static FT it2ft(IT val) noexcept {
+        FT ret = 0;
+        std::memcpy(&ret, &val, sizeof(FT));
+        return ret;
+    }
     template<typename OIT, typename=std::enable_if_t<std::is_integral<OIT>::value || std::is_same<__uint128_t, OIT>::value>>
-    static constexpr FT cvt(OIT val) {return it2ft(val);}
+    static FT cvt(OIT val) noexcept {return it2ft(val);}
     template<typename OFT, typename=std::enable_if_t<std::is_floating_point<OFT>::value>>
-    static constexpr IT cvt(OFT val) {return ft2it(val);}
+    static IT cvt(OFT val) noexcept {return ft2it(val);}
     static constexpr FT maxv = std::numeric_limits<FT>::max();
-    static const IT maxi = cvt(maxv);
+    static constexpr IT maxi = cvt(maxv);
     using IntType = IT;
 };
 
@@ -485,7 +491,7 @@ static inline FT compute_truncexp_lambda(size_t m) {
     return static_cast<FT>(std::log1p(1.L / (m - size_t(1))));
 }
 template<typename FT=long double>
-static inline std::array<FT, 5> compute_truncexp_constants(size_t m) {
+static inline std::array<FT, 5> compute_truncexp_constants(size_t m) noexcept {
     const long double lambda = compute_truncexp_lambda<long double>(m);
     const long double c1 = (std::exp(lambda) - 1.L) / lambda;
     const long double c2 = std::log(2.L / (1.L + std::exp(-lambda))) / lambda;
@@ -494,42 +500,43 @@ static inline std::array<FT, 5> compute_truncexp_constants(size_t m) {
     return std::array<FT, 5>{FT(lambda), FT(c1), FT(c2), FT(c3), FT(c4)};
 }
 
+template<typename FT> INLINE FT truncexp_update(uint64_t& state) noexcept {
+    return static_cast<std::common_type_t<FT, double>>(0x1p-64) * wy::wyhash64_stateless(&state);
+}
 template<typename FT>
-static INLINE FT truncexpsamplestepped(uint64_t rngstate, const FT lambda, const FT c1, const FT c2, const FT c3, const FT c4) {
+static INLINE FT truncexpsamplestepped(uint64_t rngstate, const FT lambda, const FT c1, const FT c2, const FT c3, const FT c4) noexcept {
     // Func should update the x and return the random value sampled
-    //uint64_t rngstate = wy::wyhash64_stateless(&src);
     static constexpr FT one = static_cast<FT>(1);
     FT x = (0x1p-64 * rngstate) * c1;
-    if(x < one) goto end;
-    for(;;) {
-        auto func = [&](uint64_t &x) -> FT __attribute__((always_inline)) {return static_cast<std::common_type_t<FT, double>>(0x1p-64) * wy::wyhash64_stateless(&x);};
-        if((x = func(rngstate)) < c2) break;
-        FT yhat = static_cast<FT>(0.5) * func(rngstate);
-        if(const FT one_minus_x = one - x;yhat > one_minus_x) {
-            x = one_minus_x; yhat = one - yhat;
+    if(x >= one) {
+        for(;;) {
+            if((x = truncexp_update<FT>(rngstate)) < c2) break;
+            FT yhat = static_cast<FT>(0.5) * truncexp_update<FT>(rngstate);
+            if(const FT one_minus_x = one - x;yhat > one_minus_x) {
+                x = one_minus_x; yhat = one - yhat;
+            }
+            const FT one_minus_x = one - x;
+            if(x <= c3 * (one - yhat) || (yhat * c1 <= one_minus_x)) break;
+            if(std::fma(yhat, c4, one) <= std::exp(lambda * one_minus_x)) break;
         }
-        const FT one_minus_x = one - x;
-        if(x <= c3 * (one - yhat) || (yhat * c1 <= one_minus_x)) break;
-        if(std::fma(yhat, c4, one) <= std::exp(lambda * one_minus_x)) break;
     }
-    end:
     return x;
 }
 template<typename FT>
-static INLINE FT truncexpsample(const uint64_t &src, const FT lambda, const FT c1, const FT c2, const FT c3, const FT c4) {
+static INLINE FT truncexpsample(const uint64_t &src, const FT lambda, const FT c1, const FT c2, const FT c3, const FT c4) noexcept {
     uint64_t src0(src);
     return truncexpsamplestepped(wy::wyhash64_stateless(&src0), lambda, c1, c2, c3, c4);
 }
 template<typename FT>
-static INLINE FT truncexpsample(uint64_t &src, const FT lambda, const FT c1, const FT c2, const FT c3, const FT c4) {
+static INLINE FT truncexpsample(uint64_t &src, const FT lambda, const FT c1, const FT c2, const FT c3, const FT c4) noexcept {
     return truncexpsamplestepped(wy::wyhash64_stateless(&src), lambda, c1, c2, c3, c4);
 }
 template<typename FT>
-static INLINE FT truncexpsample(const uint64_t &rngstate, const std::array<FT, 5> &c) {
+static INLINE FT truncexpsample(const uint64_t &rngstate, const std::array<FT, 5> &c) noexcept {
     return truncexpsample(rngstate, c[0], c[1], c[2], c[3], c[4]);
 }
 template<typename FT>
-static INLINE FT truncexpsample(uint64_t &rngstate, const std::array<FT, 5> &c) {
+static INLINE FT truncexpsample(uint64_t &rngstate, const std::array<FT, 5> &c) noexcept {
     return truncexpsample(rngstate, c[0], c[1], c[2], c[3], c[4]);
 }
 

@@ -10,11 +10,11 @@
 #include <vector>
 #include <memory>
 
-#include <x86intrin.h>
 
 #include "aesctr/wy.h"
 #include "sketch/sseutil.h"
 #include "sketch/div.h"
+#include "sketch/intrinsics.h"
 #include "sketch/macros.h"
 
 #ifndef INLINE

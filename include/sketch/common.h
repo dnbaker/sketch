@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <ostream>
 #include <random>
@@ -118,7 +119,6 @@ AVX
 SSE
 #else
 Normal
-#pragma message("Note: no SIMD available, using scalar values")
 #endif
      ; // TODO: extend for POWER9 ISA
 
@@ -137,12 +137,17 @@ using Allocator = sse::AlignedAllocator<ValueType, AllocatorAlignment>;
 #endif
 
 
-struct identity {
+#if __cplusplus >= 202002L
+using std::identity;
+#else
+struct identity
+{
     template<typename T>
     constexpr decltype(auto) operator()(T &&t) const {
         return std::forward<T>(t);
     }
 };
+#endif
 
 template<typename I1, typename I2, typename Func=identity>
 double geomean(I1 beg, I2 end, const Func &func=Func()) {

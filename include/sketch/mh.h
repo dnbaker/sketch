@@ -21,7 +21,9 @@
 
 namespace sketch {
 
+#ifndef VEC_DISABLED__
 using Space = vec::SIMDTypes<uint64_t>;
+#endif
 
 using hash::WangHash;
 inline namespace minhash {
@@ -72,7 +74,9 @@ public:
     }
     size_t nseeds() const {return this->nvals() * sizeof(uint64_t) / sizeof(T);}
     size_t nhashes_per_seed() const {return sizeof(uint64_t) / sizeof(T);}
+#ifndef VEC_DISABLED__
     size_t nhashes_per_vector() const {return sizeof(uint64_t) / sizeof(Space::Type);}
+#endif
     void addh(T val) {
         throw NotImplementedError();
         // Hash stuff.
@@ -1110,11 +1114,11 @@ public:
             }
         } else {
             for(const auto &pair: x) {
-                static constexpr size_t MUL = sizeof(typename Space::Type) / sizeof(Signature);
                 const size_t ind = pair.index();
                 // Elementwise minimum between feature coordinates
                 assert(mintimes.size() == this->nh_ * this->nd_);
-#if __AVX2__ || __SSE2__
+#if !defined(VEC_DISABLED__) && (__AVX2__ || __SSE2__)
+                static constexpr size_t MUL = sizeof(typename Space::Type) / sizeof(Signature);
                 unsigned int i;
                 auto retp = reinterpret_cast<typename Space::Type *>(ret);
                 auto srcp = reinterpret_cast<const typename Space::Type *>(&mintimes[ind * this->nh_]);

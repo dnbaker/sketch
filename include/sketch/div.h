@@ -7,9 +7,7 @@
 #include <limits>
 #include <algorithm>
 
-#ifdef __AVX2__
-#include <x86intrin.h>
-#endif
+#include "sketch/intrinsics.h"
 
 #undef INLINE
 #if __GNUC__ || __clang__

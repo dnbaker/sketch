@@ -6,13 +6,22 @@ DBG=-DNDEBUG
 else
 DBG=
 endif
+
+
+UNAME_P := $(shell uname -p)
+ifeq ($(UNAME_P),arm)
+	TARGET_FLAG=-target arm64-apple-macos11 -mmacosx-version-min=11.0
+else
+    TARGET_FLAG=-march=native
+endif
+
 WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
 		 -pedantic -Wunused-variable\
         -Wno-cast-align
 
-FLAGS=-O3 -funroll-loops -pipe -march=native -Iinclude/sketch -I. -Iinclude/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
+FLAGS=-O3 -funroll-loops -pipe $(TARGET_FLAG) -Iinclude/sketch -I. -Iinclude/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing
 
 CXXFLAGS=$(FLAGS) -Wreorder  \
@@ -40,7 +49,7 @@ STD?= -std=c++17
 
 #CCBIN?=-ccbin=clang++
 
-GPUFLAGS= $(CCBIN) -O3 -std=c++14 -Iinclude -I. -Xcompiler -march=native -Xcompiler -fopenmp -Iinclude/sketch \
+GPUFLAGS= $(CCBIN) -O3 -std=c++14 -Iinclude -I. -Xcompiler $(TARGET_FLAG) -Xcompiler -fopenmp -Iinclude/sketch \
 		-lz
 
 INCLUDES=-I`$(PYCONF) --includes` -Ipybind11/include
@@ -69,6 +78,10 @@ hpython: pybbmh.cpython.so
 
 %.o: %.c
 	$(CC) -c $(FLAGS)	$< -o $@
+
+kthread.o: kthread.cpp
+	$(CXX) -c $(CXXFLAGS) -std=c++17 $< -o $@
+
 
 %: examples/%.cpp kthread.o $(HEADERS)
 	$(CXX) $(CXXFLAGS)	$(STD) -Wno-unused-parameter -pthread kthread.o $< -o $@ -lz # $(SAN)

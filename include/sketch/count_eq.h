@@ -1,7 +1,7 @@
 #ifndef SKETCH_COUNT_EQ_H__
 #define SKETCH_COUNT_EQ_H__
-#include <x86intrin.h>
 #include <sys/mman.h>
+#include "sketch/intrinsics.h"
 #include "sketch/common.h"
 
 namespace sketch {namespace eq {
@@ -831,7 +831,6 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_shorts(const uint16_t *co
     return std::make_pair(lhgt, rhgt);
 }
 static inline std::pair<uint64_t, uint64_t> count_gtlt_words(const uint32_t *const SK_RESTRICT lhs, const uint32_t *const SK_RESTRICT rhs, size_t n) {
-    std::pair<uint64_t, uint64_t> ret{0, 0};
 #if __AVX512F__
     if(reinterpret_cast<uint64_t>(lhs) % 64 == 0 && reinterpret_cast<uint64_t>(rhs) % 64 == 0) return count_gtlt_words_aligned(lhs, rhs, n);
 #elif __AVX2__
@@ -906,7 +905,6 @@ static constexpr float from_unsigned(unsigned x) {
     return tmp.f;
 }
 static inline std::pair<uint64_t, uint64_t> count_gtlt_words_aligned(const uint32_t *const SK_RESTRICT lhs, const uint32_t *const SK_RESTRICT rhs, size_t n) {
-    std::pair<uint64_t, uint64_t> ret{0, 0};
     uint64_t lhgt = 0, rhgt = 0;
 #if __AVX512F__
     const size_t nper = sizeof(__m512) / sizeof(uint16_t);

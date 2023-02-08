@@ -2,7 +2,7 @@
 #define SKETCH_INTEGRAL_H
 #include "./macros.h"
 #include <cstring>
-#include "x86intrin.h"
+#include "sketch/intrinsics.h"
 #include <cstdint>
 #include <climits>
 #include <limits>
