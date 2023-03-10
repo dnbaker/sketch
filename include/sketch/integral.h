@@ -336,7 +336,7 @@ INLINE __m128i popcnt_fn(__m128i val) noexcept {
 #endif
 
 #ifdef _VEC_H__
-template<> INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::VType val) noexcept {
+INLINE auto popcnt_fn(typename vec::SIMDTypes<uint64_t>::VType val) noexcept {
     return popcnt_fn(val.simd_);
 }
 #endif

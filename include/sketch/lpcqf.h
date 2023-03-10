@@ -371,12 +371,12 @@ public:
         if constexpr(countbits == 16) {
             return float_to_half(float(val));
         } else if constexpr(countbits == 32) {
-            uint32_t ret;
+            uint32_t ret{0};
             float t = val;
             std::memcpy(&ret, &t, sizeof(ret));
             return ret;
         } else if constexpr(countbits == 64) {
-            uint64_t ret;
+            uint64_t ret{0};
             std::memcpy(&ret, &val, sizeof(val));
             return ret;
         } else {throw std::runtime_error("Should not happen."); return T(0);}
@@ -592,7 +592,7 @@ public:
         key = _mm256_add_epi64(_mm256_slli_epi64(key, 31), key);
         return key;
     }
-    static INLINE __m256i hashrem(__m256i el) {
+    INLINE __m256i hashrem(__m256i el) {
         return rem(hash(el));
     }
     INLINE auto rem(__m256i el) {
@@ -636,7 +636,7 @@ public:
             return ret;
         }
     }
-    static INLINE auto hashrem(__m512i el) {
+    INLINE auto hashrem(__m512i el) {
         return rem(hash(el));
     }
 #endif
