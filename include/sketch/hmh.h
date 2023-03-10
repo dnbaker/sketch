@@ -324,7 +324,7 @@ public:
                     assert(r_ == 58);
                 }
 #else
-#error("sse2+ required")
+            throw std::runtime_error("HMH is only supported on x86-64");
 #endif
             };
             auto ptr = reinterpret_cast<const SIMDHolder *>(data_.data());

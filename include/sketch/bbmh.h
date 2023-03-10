@@ -173,6 +173,7 @@ struct phll_t {
     }
     INLINE double union_size(const phll_t &o) const {
         std::array<uint32_t, 16> counts{0};
+#ifndef VEC_DISABLED__
         if(size() < sizeof(Space::COUNT)) {
             for(size_t i = 0; i < core_.size(); ++i) {
                 ++counts[std::max(core_[i] >> 4, o.core_[i] >> 4)];
@@ -198,8 +199,13 @@ struct phll_t {
 #endif
             }
         }
+#else /* VEC_DISABLED__ */
+       for(size_t i = 0; i < core_.size(); ++i) {
+           ++counts[std::max(core_[i] >> 4, o.core_[i] >> 4)];
+           ++counts[std::max(core_[i] & 0xFu, o.core_[i] & 0xFu)];
+       }
+#endif
         return register_estimate(counts);
-
     }
     double harmonic_mean_estimate() const {return harmonic_mean_estimate(get_counts());}
     template<typename C>
@@ -214,23 +220,15 @@ struct phll_t {
     }
     template<typename C>
     double register_estimate(const C &counts) const {
-#if 0
-        return harmonic_mean_estimate(counts);
-#else
         double est = harmonic_mean_estimate(counts);
         est = est / (0.2 * std::log(est) - 0.5);
         return est;
-#endif
     }
     phll_t &operator+=(const phll_t &o) {
-        using hll::detail::SIMDHolder;
         PREC_REQ(size() == o.size(), "must have matching sizes");
-        if(size() < sizeof(Space::COUNT)) {
-            for(size_t i = 0; i < core_.size(); ++i) {
-                core_[i] = (std::max(core_[i] >> 4, o.core_[i] >> 4) << 4) |
-                            std::max(core_[i] & 0xFu, o.core_[i] & 0xFu);
-            }
-        } else {
+#ifndef VEC_DISABLED__
+        using hll::detail::SIMDHolder;
+        if(size() >= sizeof(Space::COUNT)) {
             const Space::Type *ptr = static_cast<const Space::Type *>(static_cast<const void *>(core_.data())),
                                *optr = static_cast<const Space::Type *>(static_cast<const void *>(o.core_.data()));
             const auto lmask = Space::set1(0x0F0F0F0F0F0F0F0FULL), umask = Space::set1(0xF0F0F0F0F0F0F0F0ULL);
@@ -244,6 +242,12 @@ struct phll_t {
                 Space::store(reinterpret_cast<Space::Type *>(core_.data() + i * Space::COUNT),
                              getbits(lmask) | getbits(umask));
             }
+            return *this;
+        }
+#endif
+        for(size_t i = 0; i < core_.size(); ++i) {
+            core_[i] = (std::max(core_[i] >> 4, o.core_[i] >> 4) << 4) |
+                        std::max(core_[i] & 0xFu, o.core_[i] & 0xFu);
         }
         return *this;
     }
@@ -401,9 +405,11 @@ public:
                 sum = popcount(match);
                 break;
             }
+#if __SSE2__
             case 7:
                 sum = detail::matching_bits(reinterpret_cast<const __m128i *>(p1), reinterpret_cast<const __m128i *>(p2), b_);
                 break;
+#endif
 #if __AVX2__
             case 8: {
                 sum = common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_));
@@ -441,7 +447,8 @@ public:
                 break;
             }
 #  endif /* avx512 or avx2 */
-#else /* assume SSE2 */
+#elif __SSE2__
+    /* assume SSE2 */
             default: {
                 // Process each 'b' remainder block in
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
@@ -493,7 +500,7 @@ public:
             p1 = reinterpret_cast<const uint64_t *>(vp1);
             p2 = reinterpret_cast<const uint64_t *>(vp2);
         }
-#else
+#elif __SSE2__
         const __m128i *vp1 = reinterpret_cast<const __m128i *>(pe);
         const __m128i *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
         while(vp1 + b_ <= reinterpret_cast<const __m128i *>(pf)) {
@@ -901,7 +908,7 @@ public:
     {
         if(b_ + p_ > sizeof(T) * CHAR_BIT) {
             char buf[512];
-            std::sprintf(buf, "[E:%s:%s:%d] Width of type (%zu) is insufficient for selected p/b parameters (%d/%d)",
+            std::snprintf(buf, 511, "[E:%s:%s:%d] Width of type (%zu) is insufficient for selected p/b parameters (%d/%d)",
                          __FILE__, __PRETTY_FUNCTION__, __LINE__, sizeof(T) * CHAR_BIT, int(b_), int(p_));
             throw std::runtime_error(buf);
         }
@@ -1159,6 +1166,7 @@ public:
     double wh_base() const {
         return std::pow((long double)(1uL << (64 - p_)), 1.L/254);
     }
+#ifndef VEC_DISABLED__
     whll::wh119_t make_whll() const {
         long double base = wh_base();
         std::vector<uint8_t, Allocator<uint8_t>> retvec(core_.size());
@@ -1172,6 +1180,7 @@ public:
         }
         return whll::wh119_t(retvec, base);
     }
+#endif
     auto make_hll() const {
         hll::hllbase_t<Hasher> ret(p_);
         const auto ptr = ret.mutable_core().data();
@@ -1198,6 +1207,7 @@ public:
 };
 
 
+#ifndef VEC_DISABLED__
 template<typename HashStruct=WangHash>
 class WideHyperLogLogHasher: public BBitMinHasher<uint64_t, HashStruct> {
 public:
@@ -1211,6 +1221,7 @@ public:
         return finalize().cardinality_estimate();
     }
 };
+#endif
 template<typename HashStruct=WangHash>
 class Packed16HyperLogLogHasher: public BBitMinHasher<uint64_t, HashStruct> {
 public:
@@ -1371,6 +1382,7 @@ public:
         return ret;
     }
     uint64_t popcnt() const {
+#ifndef VEC_DISABLED__
         Space::VType tmp;
         const Type *op(reinterpret_cast<const Type *>(&core_[0])),
                    *ep(reinterpret_cast<const Type *>(&core_[core_.size()]));
@@ -1378,6 +1390,9 @@ public:
         while(op < ep)
             sum = Space::add(sum, popcnt_fn(*op++));
         return sum_of_u64s(sum);
+#else
+        return std::accumulate(core_.begin(), core_.end(), uint64_t(0), [](auto sum, auto newv) {return sum += popcount(newv);});
+#endif
     }
 #if HAS_AVX_512
     template<typename Func1, typename Func2>
@@ -1413,7 +1428,7 @@ public:
         while(vp1 != vpe) sum = _mm256_add_epi64(f1(*vp1++, *vp2++), sum);
         return sum_of_u64s(sum);
     }
-#else
+#elif __SSE2__
     template<typename Func1, typename Func2>
     uint64_t equal_bblocks_sub(const uint64_t *p1, const uint64_t *pe, const uint64_t *p2, const Func1 &f1, const Func2 &f2) const {
         using VT = __m128i;
@@ -1429,6 +1444,11 @@ public:
             sum += f2(*p1++, *p2++);
         return sum;
     }
+#else
+    template<typename Func1, typename Func2>
+    uint64_t equal_bblocks_sub(const uint64_t *p1, const uint64_t *pe, const uint64_t *p2, const Func1 &f1, const Func2 &f2) const {
+        return std::inner_product(p1, pe, p2, uint64_t(0), std::plus<>{}, [&f2](const auto x, const auto y) {return f2(x, y);});
+    }
 #endif
     uint64_t equal_bblocks(const FinalBBitMinHash &o) const {
         switch(b_) {
@@ -1439,6 +1459,7 @@ public:
             case 64: return eq::count_eq_longs(core_.data(), o.core_.data(), core_.size());
             default: ;
         }
+        uint64_t sum;
         assert(o.core_.size() == core_.size());
         const value_type *p1 = core_.data(), *pe = core_.data() + core_.size(), *p2 = o.core_.data();
         assert(b_ <= 64); // b_ > 64 not yet supported, though it could be done with a larger hash
@@ -1447,19 +1468,24 @@ public:
             case 6: {
                 auto match = ~(*p1++ ^ *p2++);
                 while(p1 != pe) match &= ~(*p1++ ^ *p2++);
-                return popcount(match);
+                sum = popcount(match);
+                break;
             }
+#if __SSE2__
             case 7: {
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
                 __m128i match = ~(*vp1++ ^ *vp2++);
                 while(vp1 != vpe)
                     match &= ~(*vp1++ ^ *vp2++);
-                return popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
+                sum = popcount(common::vatpos(match, 0)) + popcount(common::vatpos(match, 1));
+                break;
             }
+#endif
+
 #if __AVX2__
-            case 8: return common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_));
+            case 8: sum = common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_)); break;
 #  if HAS_AVX_512
-            case 9: return common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_));
+            case 9: sum = common::sum_of_u64s(detail::matching_bits(reinterpret_cast<const __m512i *>(p1), reinterpret_cast<const __m512i *>(p2), b_)); break;
             default: {
                 // Process each 'b' remainder block in
                 const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2);
@@ -1470,26 +1496,28 @@ public:
                     sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
                 }
                 assert((value_type*)vp1 == &core_[core_.size()]);
-                return common::sum_of_u64s(sum);
+                sum = common::sum_of_u64s(sum);
+                break;
             }
 #    else /* has avx2 not not 512 */
             default: {
                 const __m256i *vp1 = reinterpret_cast<const __m256i *>(p1), *vp2 = reinterpret_cast<const __m256i *>(p2);
-                auto sum = detail::matching_bits(vp1, vp2, b_);
+                auto local_sum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < 1ull << (p_ - 8u); ++i) {
                     vp1 += b_;
                     vp2 += b_;
-                    sum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
+                    local_sum = _mm256_add_epi64(detail::matching_bits(vp1, vp2, b_), local_sum);
                     assert(vp1 <= reinterpret_cast<const __m256i *>(pe));
                 }
 #ifndef NDEBUG
                 auto fptr = (value_type*)(reinterpret_cast<const __m256i *>(p1) + (size_t(b_) << (p_ - 8u)));
                 assert(fptr == (p1 + core_.size()) || !std::fprintf(stderr, "fptr: %p. optr: %p\n", static_cast<const void *>(fptr), static_cast<const void *>(p1 + core_.size())));
 #endif
-                return common::sum_of_u64s(sum);
+                sum = common::sum_of_u64s(local_sum);
+                break;
             }
 #  endif /* avx512 or avx2 */
-#else /* assume SSE2 */
+#elif __SSE2__ /* assume SSE2 */
             default: {
                 // Process each 'b' remainder block in
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
@@ -1497,19 +1525,31 @@ public:
                 auto notincxor = [&](){return ~(*vp1++ ^ *vp2++);};
                 __m128i match = notincxor();
                 for(unsigned b = b_; --b;match &= notincxor());
-                auto sum = popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
+                sum = popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
                 while(vp1 != vpe) {
                     match = ~(*vp1++ ^ *vp2++);
                     for(unsigned b = b_; --b; match &= notincxor());
                     sum += popcount(*(const uint64_t *)&match) + popcount(((const uint64_t *)&match)[1]);
                 }
-                return sum;
+                break;
+            }
+#else
+            default: {
+                sum = 0;
+                while(p1 != pe) {
+                    uint64_t match = *p1++ ^ *p2++;
+                    for(unsigned b = b_; --b;) {
+                        match &= ~(*p1++ ^ *p2++);
+                    }
+                    sum += popcount(match);
+                }
             }
 #endif
         }
+        return sum;
     }
     double frac_equal(const FinalBBitMinHash &o) const {
-        auto num = equal_bblocks(o);
+        const auto num = equal_bblocks(o);
         return std::ldexp(num, -int(p_));
     }
     uint64_t nmin() const {
@@ -1625,7 +1665,9 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
                     setnthbit(ptr, i, getnthbit(core_ref[i], _b));
             }
             break;
+#if __SSE2__
         SET_CASE(7, __m128i, p_);
+#endif
 #if __AVX2__
         SET_CASE(8, __m256i, p_);
 #if HAS_AVX_512
@@ -1635,8 +1677,23 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
 #else
         DEFAULT_SET_CASE(8u, __m256i, p_);
 #endif
-#else /* no avx2 or 512 */
+#elif __SSE2__ /* no avx2 or 512 */
         DEFAULT_SET_CASE(7u, __m128i, p_);
+#else
+        default: {
+            const size_t n = (1ull << (p_ - 6));
+            for(size_t i = 0; i < n; ++i) {
+                static constexpr size_t ratio = sizeof(uint64_t) / sizeof(FinalType);
+                static constexpr size_t bits_per_vector = sizeof(uint64_t) * CHAR_BIT;
+                auto main_ptr = ret.core_.data() + i * ratio * b;
+                auto core_ptr = core_ref.data() + i * bits_per_vector;
+                for(size_t _b = 0; _b < b; ++_b) {
+                    auto ptr = main_ptr + (_b * ratio);
+                    for(size_t i = 0; i < bits_per_vector; ++i)
+                        setnthbit(ptr, i, getnthbit(core_ptr[i], _b));
+                }
+            }
+        }
 #endif
         }
     }
@@ -1672,7 +1729,9 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
                     for(size_t i = 0; i < 64u; ++i)
                         ret.core_.operator[](i / (sizeof(T) * CHAR_BIT) * b + _b) |= (core_ref[i] & (FinalType(1) << _b)) << (i % (sizeof(FinalType) * CHAR_BIT));
             break;
+#if __SSE2__
         SET_CASE(7, __m128i, l2szfloor);
+#endif
 #if __AVX2__
         SET_CASE(8, __m256i, l2szfloor);
 #  if HAS_AVX_512
@@ -1682,8 +1741,24 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
 #  else
         DEFAULT_SET_CASE(8u, __m256i, l2szfloor);
 #  endif
-#else /* no avx2 or 512 */
+#elif __SSE2__ /* no avx2 or 512 */
         DEFAULT_SET_CASE(7u, __m128i, l2szfloor);
+#else
+        default: {
+            const size_t n = core_ref.size();
+            for(size_t i = 0; i < n; ++i) {
+                static constexpr size_t ratio = sizeof(uint64_t) / sizeof(FinalType);
+                static constexpr size_t bits_per_vector = sizeof(uint64_t) * CHAR_BIT;
+                auto main_ptr = ret.core_.data() + i * ratio * b;
+                auto core_ptr = core_ref.data() + i * bits_per_vector;
+                for(size_t _b = 0; _b < b; ++_b) {
+                    auto ptr = main_ptr + (_b * ratio);
+                    for(size_t i = 0; i < bits_per_vector; ++i)
+                        setnthbit(ptr, i, getnthbit(core_ptr[i], _b));
+                }
+            }
+            return ret;
+        }
 #endif
         }
         if(pow2 != core_ref.size()) {
@@ -1704,8 +1779,10 @@ FinalDivBBitMinHash div_bbit_finalize(uint32_t b, const std::vector<T, Allocator
             LEFTOVERS(__m512i)
 #elif __AVX2__
             LEFTOVERS(__m256i)
-#else
+#elif __SSE2__
             LEFTOVERS(__m128i)
+#else
+            size_t ind = 0;
 #endif
             while(ind < core_ref.size()) {
                 auto core_ptr = core_ref.data() + ind;
@@ -1818,6 +1895,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 }
                 break;
             }
+#if __SSE2__
             case 7: {
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
                 __m128i match = ~(*vp1++ ^ *vp2++);
@@ -1843,6 +1921,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 }
                 break;
             }
+#endif
 #if __AVX2__
             case 8: {
                 auto bv = detail::sbit_accum(reinterpret_cast<const __m256i *>(p1), reinterpret_cast<const __m256i *>(p2), b_);
@@ -1964,7 +2043,7 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 break;
             }
 #  endif /* avx512 or avx2 */
-#else /* assume SSE2 */
+#elif __SSE2__ /* assume SSE2 */
             default: {
                 // Process each 'b' remainder block in
                 const __m128i *vp1 = reinterpret_cast<const __m128i *>(p1), *vp2 = reinterpret_cast<const __m128i *>(p2), *vpe = reinterpret_cast<const __m128i *>(pe);
@@ -2012,6 +2091,8 @@ struct FinalCountingBBitMinHash: public FinalBBitMinHash {
                 sum = lsum;
                 break;
             }
+#else
+        throw std::runtime_error("Not implemented: FinalCountingBBitMinHash on non-x86 backends.");
 #endif
         } // switch(l2szfloor)
         HistResult ret{total_sum, cached_sum_ + o.cached_sum_ - total_sum, sum, core_.size() * sizeof(core_[0]) * sizeof(char)};

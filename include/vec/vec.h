@@ -16,6 +16,14 @@
 #include "blaze/Math.h"
 #endif
 
+#ifdef __aarch64__
+
+#ifndef VEC_DISABLED__
+#define VEC_DISABLED__
+#endif
+
+#endif
+
 #ifndef VEC_FALLTHROUGH
 #  if __cplusplus >= __has_cpp_attribute(fallthrough)
 #    define VEC_FALLTHROUGH [[fallthrough]];
@@ -76,8 +84,7 @@
 
 namespace vec {
 
-#ifndef __aarch64__
-
+#ifndef VEC_DISABLED__
 using std::uint64_t;
 #ifndef NO_SLEEF
 namespace scalar {
@@ -1004,8 +1011,6 @@ void memblockset(void *dest, T val, SizeType nbytes) {
 #undef DO_LOOP_
 }
 
-#else
-#define VEC_DISABLED__
 #endif /*ifndef __aarch64__ */
 
 } // namespace vec

@@ -92,7 +92,6 @@ int main(int argc, char *argv[]) {
     verify_correctness();
     verify_popcount();
     ICWSampler<float, uint64_t> sampler(1024);
-    static_assert(sizeof(schism::Schismatic<int32_t>) == sizeof(schism::Schismatic<uint32_t>), "wrong size!");
     const unsigned long long niter = argc == 1 ? 5000000uLL: std::strtoull(argv[1], nullptr, 10);
 
     for(size_t i = 7; i < 15; i += 2) {
