@@ -15,6 +15,10 @@
 #include "xxHash/xxh3.h"
 #include "macros.h"
 
+#ifndef VEC_DISABLED__
+#include "vec/vec.h"
+#endif
+
 namespace sketch {
 inline namespace hash {
 using std::uint64_t;

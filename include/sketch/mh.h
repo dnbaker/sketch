@@ -690,7 +690,8 @@ public:
                 if(++i2 == e2) break;
             } else {
                 denom += std::max(i1->second, i2->second);
-                if( (++i1 == e1) | (++i2 == e2)) break;
+                ++i1; ++i2;
+                if( (i1 == e1) || (i2 == e2)) break;
             }
         }
         return denom;
