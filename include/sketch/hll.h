@@ -256,8 +256,13 @@ struct parsum_data_t {
 };
 
 
+#ifdef VEC_DISABLED__
+#pragma message("vec disabled bro")
+#else
+#pragma message("vec not disabled bro")
+#endif
 
-#ifndef VEC_DISABLED__
+#if !defined(VEC_DISABLED__) && !defined(__aarch64__)
 union SIMDHolder {
 
 public:

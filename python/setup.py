@@ -1,10 +1,13 @@
 from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
+import os
 import subprocess
 import sys
 import setuptools
 
 
+is_on_arm = "arm" in subprocess.check_output(
+    "uname -p", shell=True).decode('utf-8').strip()
 
 
 class get_pybind_include(object):
@@ -20,29 +23,43 @@ class get_pybind_include(object):
         import pybind11
         return pybind11.get_include(self.user)
 
-extra_compile_args = ['-march=native',
+
+print(is_on_arm)
+march_flag = "-march=native" if not is_on_arm else "-mcpu=apple-m1"
+
+gomplink_flag = "-lgomp" if "clang" not in os.environ.get(
+    'CC', '') else "-lomp"
+
+openmp_flag = ["-fopenmp",
+               gomplink_flag] if os.environ.get("NO_OMP") is None else []
+print(openmp_flag)
+
+extra_compile_args = [march_flag,
                       '-Wno-char-subscripts', '-Wno-unused-function',
                       '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv',
-                      '-lz', '-fopenmp', '-lgomp', '-DNDEBUG',
-                      '-DBLAZE_SHARED_MEMORY_PARALLELIZATION=0', "-O3"]
+                      '-lz', '-DNDEBUG',
+                      '-DBLAZE_SHARED_MEMORY_PARALLELIZATION=0', "-O3"] + openmp_flag
 
-include_dirs=[
+include_dirs = [
     # Path to pybind11 headers
     get_pybind_include(),
     get_pybind_include(user=True),
-   "../",
-   "../libpopcnt",
-   "../include",
-   "../include/vec",
-   "../include/blaze",
-   "../..",
-   "../pybind11/include"
+    "../",
+    "../libpopcnt",
+    "../include",
+    "../include/vec",
+    "../include/blaze",
+    "../..",
+    "../pybind11/include"
 ]
 
-__version__ = subprocess.check_output(["git", "describe", "--abbrev=4"]).decode().strip().split('-')[0]
+__version__ = subprocess.check_output(
+    ["git", "describe", "--abbrev=4"]).decode().strip().split('-')[0]
+
 
 def make_namepair(name):
     return ('sketch_' + name, name + ".cpp")
+
 
 def make_module(namecppf):
     name, cppf = namecppf
@@ -54,7 +71,9 @@ def make_module(namecppf):
         extra_compile_args=extra_compile_args
     )
 
-ext_modules = list(map(make_module, map(make_namepair, ('hll', 'bbmh', 'util', 'bf', 'hmh', 'ss', 'lsh'))))
+
+ext_modules = list(map(make_module, map(
+    make_namepair, ('hll', 'bbmh', 'util', 'bf', 'hmh', 'ss', 'lsh'))))
 
 '''
 ext_modules = [
@@ -83,7 +102,6 @@ ext_modules = [
 '''
 
 
-
 # As of Python 3.6, CCompiler has a `has_flag` method.
 # cf http://bugs.python.org/issue26689
 def has_flag(compiler, flagname):
@@ -107,13 +125,15 @@ def cpp_flag(compiler):
     flags = ['-std=c++2a', '-std=c++17', '-std=c++14', '-std=c++11']
 
     for flag in flags:
-        if has_flag(compiler, flag): return flag
+        if has_flag(compiler, flag):
+            return flag
 
     raise RuntimeError('Unsupported compiler -- at least C++11 support '
                        'is needed!')
 
 
-extra_link_opts = ["-lgomp", "-lz"]
+extra_link_opts = [gomplink_flag, "-lz"] if openmp_flag else ["-lz"]
+
 
 class BuildExt(build_ext):
     """A custom build extension for adding compiler-specific options."""
@@ -127,8 +147,8 @@ class BuildExt(build_ext):
     }
 
     if sys.platform == 'darwin':
-        darwin_opts = ['-mmacosx-version-min=10.7']# , '-libstd=libc++']
-        # darwin_opts = []
+        # darwin_opts = ['-mmacosx-version-min=10.7']# , '-libstd=libc++']
+        darwin_opts = []
         c_opts['unix'] += darwin_opts
         l_opts['unix'] += darwin_opts
 
@@ -137,17 +157,20 @@ class BuildExt(build_ext):
         opts = self.c_opts.get(ct, [])
         link_opts = self.l_opts.get(ct, [])
         if ct == 'unix':
-            opts.append('-DVERSION_INFO="%s"' % self.distribution.get_version())
+            opts.append('-DVERSION_INFO="%s"' %
+                        self.distribution.get_version())
             opts.append(cpp_flag(self.compiler))
             if has_flag(self.compiler, '-fvisibility=hidden'):
                 opts.append('-fvisibility=hidden')
         elif ct == 'msvc':
-            opts.append('/DVERSION_INFO=\\"%s\\"' % self.distribution.get_version())
+            opts.append('/DVERSION_INFO=\\"%s\\"' %
+                        self.distribution.get_version())
         for ext in self.extensions:
             ext.extra_compile_args = opts
             ext.extra_compile_args += extra_compile_args
             ext.extra_link_args = link_opts + extra_link_opts
         build_ext.build_extensions(self)
+
 
 setup(
     name='sketch',

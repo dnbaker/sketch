@@ -522,7 +522,10 @@ public:
     }
     const std::vector<uint64_t> &ids() const {return ids_;}
     const std::vector<uint32_t> &idcounts() const {return idcounts_;}
-    double union_size(const CSetSketch<FT> &o);
+    double union_size(const CSetSketch<FT> &o) const {
+        auto triple = alpha_beta_mu(o);
+        return std::get<2>(triple);
+    }
     auto alpha_beta(const CSetSketch<FT> &o) const {
         auto gtlt = eq::count_gtlt(data(), o.data(), m_);
         return std::pair<double, double>{double(gtlt.first) / m_, double(gtlt.second) / m_};

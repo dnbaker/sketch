@@ -254,8 +254,8 @@ public:
     }
 };
 template<> struct Schismatic<uint32_t> {
-    const uint32_t d_;
-    const uint64_t M_;
+    uint32_t d_;
+    uint64_t M_;
     Schismatic(uint32_t d): d_(d), M_(computeM_u32(d)) {}
     auto d() const {return d_;}
     INLINE uint32_t div(uint32_t v) const {return fastdiv_u32(v, M_);}
