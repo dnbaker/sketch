@@ -10,6 +10,11 @@
 #include "sketch/bf.h"
 #include "sketch/setsketch.h"
 #include <omp.h>
+
+#ifndef VEC_DISABLED__
+#include "sketch/hmh.h"
+#endif
+
 namespace py = pybind11;
 using namespace sketch;
 using namespace hll;
