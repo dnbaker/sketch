@@ -9,6 +9,7 @@
 #include "sketch/div.h"
 #include "sketch/flog.h"
 #include "sketch/kahan.h"
+#include "sketch/hash.h"
 #include "xxHash/xxh3.h"
 #include "flat_hash_map/flat_hash_map.hpp"
 
@@ -698,6 +699,193 @@ struct pmh3_t: public pmh2_t<FT, IdxT> {
     }
 };
 template<typename FT, typename IdxT> using ProbMinHash = pmh3_t<FT, IdxT>;
+
+template<typename T, int64_t N, int64_t NUM=1, int64_t DENOM=1>
+static constexpr std::array<T, N> generate_power_lut() {
+    const long double MUL = static_cast<long double>(NUM) / DENOM;
+    std::array<T, N> ret{};
+    long double current = MUL;
+    for(int32_t i = 1; i < N; ++i) {
+        ret[i] = current;
+        current *= MUL;
+    }
+    return ret;
+}
+
+template<typename T, int64_t N>
+static constexpr std::array<T, N> generate_poisson_cdf() {
+    std::array<T, N> ret{};
+    long double pdf = 0.367879441171442321610162567991L;
+    long double cdf = pdf;
+    for(int64_t i = 0; i < N; i++) {
+        ret[i] = cdf;
+        pdf = pdf/(i + 1);
+        cdf += pdf;
+    }
+    return ret;
+}
+
+
+// Based on dartminhash https://github.com/tobc/dartminhash
+// Advantages: fast weighted sketching [up to 64x faster, typically 16-30x than bagminhash]
+// Disadvantages: not streaming. Needs up-front total weight calculation to select RHO value.
+//                Additionally, it is a Las Vegas algorithm; IE, it is repeated until success.
+//                This means there is no way around iterating through the data multiple times.
+template<typename Hash=hash::CEHasher>
+class DartHash {
+
+    uint64_t t;
+    // Seeds
+    uint64_t T_nu, T_rho, T_w, T_r;
+    uint64_t T_i, T_p, T_q, F, M;
+    // Hasher
+    const Hash hasher;
+
+    // Compile-time generate to simplify.
+    // Standard double precision ranges from around +-2^1024.
+    static constexpr std::array<double, 1024> powers_of_two = generate_power_lut<double, 1024, 2LL, 1LL>();
+    static constexpr std::array<double, 1024> negative_powers_of_two = generate_power_lut<double, 1024, 1LL, 2LL>();
+    static constexpr std::array<double, 128> poisson_cdf = generate_poisson_cdf<double, 128>();
+
+
+    uint64_t hash(const uint64_t seed, const uint64_t seed2) const noexcept {
+        return hasher(hasher(seed) ^ seed2);
+    }
+
+public:
+    template<typename...Args>
+    DartHash(uint64_t seed, uint64_t t, Args &&...args) : t(t), hasher(std::forward<Args>(args)...) {
+        wy::WyRand rng(seed);
+        T_nu = rng();
+        T_rho = rng();
+        T_r = rng();
+        T_i = rng();
+        T_p = rng();
+        T_q = rng();
+        F = rng();
+        M = rng();
+    }
+
+    std::vector<std::pair<uint64_t, double>> operator()(const std::vector<std::pair<uint64_t, double>>& x, double weight_sum=-1., const double theta = 1.0) const {
+        std::vector<std::pair<uint64_t, double>> darts;
+        darts.reserve(2*t);
+        if(weight_sum < 0) {
+            weight_sum = std::accumulate(std::cbegin(x), std::cend(x), 1e-40, [](double sum, const auto& pair) {return sum += pair.second;});
+        }
+        const double max_rank = theta / weight_sum; // Add 1e-40 to the weight sum to avoid dividing by 0.
+        const double t_inv = 1.0/t;
+        const int32_t RHO = (int32_t)std::floor(std::log2(1.0 + max_rank));
+
+        for(const std::pair<uint64_t, double>& element : x) {
+            uint64_t i = element.first;
+            double xi = element.second;
+            uint64_t i_hash = hash(T_i, i);
+            const int32_t NU = std::floor(std::log2(1.0 + t*xi));
+            for(int32_t nu = 0; nu <= NU; nu++) {
+                uint64_t nu_hash = hash(T_nu, nu);
+                for(int32_t rho = 0; rho <= RHO; rho++) {
+                    uint64_t region_hash = nu_hash ^ hash(T_rho, rho);
+                    const double two_nu = powers_of_two[nu];
+                    const double two_rho = powers_of_two[rho];
+                    const double W = (two_nu - 1)*t_inv;
+                    const double R = two_rho - 1;
+                    const double delta_nu = two_nu*t_inv*negative_powers_of_two[rho];
+                    const double delta_rho = two_rho*negative_powers_of_two[nu];
+                    double w0 = W;
+                    double w0_carry = 0.;
+                    uint32_t w_max = (1ul << std::min(rho, 31));
+                    for(uint32_t w = 0; w < w_max; w++) {
+                        if(xi < w0) break;
+                        const uint64_t w_hash = hash(T_w, w);
+                        double r0 = R;
+                        double r0_carry = 0.;
+                        uint32_t r_max = 1ul << std::min(31, nu);
+                        for(uint32_t r = 0; r < r_max; r++) {
+                            if(max_rank < r0) break;
+                            // Get area fingerprint to speed up subsequent hashing
+                            const uint64_t area_hash = w_hash ^ hash(T_r, r);
+                            const uint64_t z = i_hash ^ region_hash ^ area_hash;
+
+                            // Draw from Poisson distribution
+                            const double p_z = 0x1p-64 * hash(T_p, z);
+                            const uint8_t p = std::find_if_not(poisson_cdf.begin(), poisson_cdf.end(), [p_z](const auto x) {return p_z > x;}) - poisson_cdf.begin();
+
+                            uint64_t q = 0;
+                            while(q < p) {
+                                // Layer the q-values over z to create a unique key with a strong hash value
+                                const uint64_t z_q = z ^ (q << 56) ^ (q << 48) ^ (q << 40) ^ (q << 32) ^ (q << 24) ^ (q << 16) ^ (q << 8) ^ q;
+                                const uint64_t uniform_weight_hash = hash(T_q, z_q);
+                                const double first_weight_rank = (uniform_weight_hash >> 32) * 0x1p-32;
+                                const double second_weight_rank = (uniform_weight_hash & 0xFFFFFFFF) * 0x1p-32;
+                                const double weight = std::fma(delta_nu, first_weight_rank, w0);
+                                const double rank = std::fma(delta_rho, second_weight_rank, r0);
+                                if(weight < xi && rank < max_rank) {
+                                    darts.push_back({hash(F, z_q), rank});
+                                }
+                                q++;
+                            }
+
+                            r0 += delta_rho;
+
+                            kahan::update(r0, r0_carry, delta_rho);
+                        }
+                        kahan::update(w0, w0_carry, delta_nu);
+                    }
+                }
+            }
+        }
+        return darts;
+    }
+
+
+    // Convert the t darts to k minhashes by hashing the darts to k buckets and keeping the minimum from each bucket
+    std::vector<std::pair<uint64_t, double>> minhash(const std::vector<std::pair<uint64_t, double>>& x, uint64_t k) {
+        auto darts = (*this)(x);
+        std::vector<std::pair<uint64_t, double>> minhashes(k, {0, std::numeric_limits<double>::max()});
+        for(auto& dart : darts) {
+            uint64_t j = M(dart.first) % k;
+            if(dart.second < minhashes[j].second) {
+                minhashes[j] = dart;
+            }
+        }
+        return minhashes;
+    }
+};
+
+template<typename RNG=wy::WyRand<>>
+class DartMinHash {
+    const uint64_t size_;
+    const uint64_t seed_;
+    DartHash<RNG> D;
+
+public:
+    // Set t = k ln(k) + 2k so the probability of failing on the first run is at most exp(-2)
+    DartMinHash(const uint64_t seed, const int64_t size) : size_(size), seed_(seed), D(seed, std::ceil(size*std::log(size) + 2*size)) {};
+
+    std::vector<std::pair<uint64_t, double>> operator()(const std::vector<std::pair<uint64_t, double>>& x) {
+        bool all_minhashed = false;
+        double theta = 1.0;
+        std::vector<std::pair<uint64_t, double>> minhashes(size_, {0, std::numeric_limits<double>::max()});
+        schism::Schismatic<uint64_t> div(size_);
+        while(!all_minhashed) {
+            std::vector<bool> minhashed(size_, false);
+            auto darts = D(x, theta);
+            // Place darts into buckets
+            for(auto& dart : darts) {
+                uint64_t j = div.mod(T(dart.first));
+                minhashed[j] = true;
+                if(dart.second < minhashes[j].second) {
+                    minhashes[j] = dart;
+                }
+            }
+            // Verify whether all minhashes were computed
+            all_minhashed = std::accumulate(minhashed.begin(), minhashed.end(), true, std::logical_and<>{});
+
+            theta = theta + 0.5;
+        }
+        return minhashes;
+    }
+};
 
 
 } // namespace wmh

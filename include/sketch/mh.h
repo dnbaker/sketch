@@ -340,9 +340,8 @@ struct FinalRMinHash {
         return double(std::numeric_limits<T>::max()) / (mv) * this->size();
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
-        // KMV estimate
-        double sum = (std::numeric_limits<T>::max() / double(this->max_element()) * first.size());
-        return sum;
+        // KMV (kth-minimum value) estimate
+        return (static_cast<double>(std::numeric_limits<T>::max()) / double(this->max_element()) * first.size());
     }
     void sum() const {
         lsum_ = std::accumulate(this->first.begin(), this->first.end(), size_t(0));
