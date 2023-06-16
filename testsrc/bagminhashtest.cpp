@@ -1,4 +1,5 @@
 //#define STEP_COUNT
+#define NO_BLAZE
 #include "bmh.h"
 #include <cassert>
 #include <cinttypes>
