@@ -1,5 +1,6 @@
 #ifndef LP_CQF_H__
 #define LP_CQF_H__
+#include <array>
 #include <cassert>
 #include <climits>
 #include <cmath>

@@ -2,6 +2,7 @@
 
 PYBIND11_MODULE(sketch_hmh, m) {
     m.doc() = "HyperMinHash support";
+#ifndef VEC_DISABLED__
     py::class_<sketch::HyperMinHash> (m, "hmh")
         .def(py::init<unsigned, unsigned>(), py::arg("p"), py::arg("rsize") = 8)
         .def(py::init<std::string>(), py::arg("path"))
@@ -47,4 +48,5 @@ PYBIND11_MODULE(sketch_hmh, m) {
          return ret;
      }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers")
     .def("union_size", [](const sketch::HyperMinHash &h1, const sketch::HyperMinHash &h2) {return h1.union_size(h2);}, "Calculate union size");
+#endif
 } // pybind11 module

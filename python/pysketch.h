@@ -1,12 +1,20 @@
 #ifndef PYSKETCH_H__
 #define PYSKETCH_H__
+#if __aarch64__
+#define VEC_DISABLED__
+#endif
+
 #include "pybind11/pybind11.h"
 #include "pybind11/numpy.h"
 #include "sketch/bbmh.h"
 #include "sketch/bf.h"
-#include "sketch/hmh.h"
 #include "sketch/setsketch.h"
 #include <omp.h>
+
+#ifndef VEC_DISABLED__
+#include "sketch/hmh.h"
+#endif
+
 namespace py = pybind11;
 using namespace sketch;
 using namespace hll;
@@ -29,7 +37,9 @@ struct AsymmetricCmpFunc {
 #define TRY_APPLY(sketch) \
         do {if(py::isinstance<sketch>(first_item)) return apply_sketch<Func, sketch>(l, func);} while(0)
         TRY_APPLY(hll_t);
+#ifndef VEC_DISABLED__
         TRY_APPLY(sketch::HyperMinHash);
+#endif
         TRY_APPLY(sketch::bf_t);
         TRY_APPLY(sketch::CSetSketch<double>);
         throw std::runtime_error("Unsupported type");
@@ -64,7 +74,9 @@ struct CmpFunc {
         py::handle first_item = l[0];
         TRY_APPLY(hll_t);
         TRY_APPLY(mh::BBitMinHasher<uint64_t>);
+#ifndef VEC_DISABLED__
         TRY_APPLY(sketch::HyperMinHash);
+#endif
         TRY_APPLY(mh::FinalBBitMinHash);
         TRY_APPLY(bf_t);
         TRY_APPLY(sketch::CSetSketch<double>);

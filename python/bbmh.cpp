@@ -22,7 +22,7 @@ PYBIND11_MODULE(sketch_bbmh, m) {
         })
         .def("__str__", [](const mh::FinalBBitMinHash &o) {
             char buf[256];
-            int l = std::sprintf(buf, "FinalBBitMinHash{.p=%d,.b=%d,card=%g}", o.p_, o.b_, o.est_cardinality_);
+            int l = std::snprintf(buf, 255, "FinalBBitMinHash{.p=%d,.b=%d,card=%g}", o.p_, o.b_, o.est_cardinality_);
             return std::string(buf, l);
         })
         .def("__eq__", [](const sketch::mh::FinalBBitMinHash &h, const sketch::mh::FinalBBitMinHash &h2) {
@@ -58,7 +58,7 @@ PYBIND11_MODULE(sketch_bbmh, m) {
             "Compress an b-bit minhash sketch from a previous prefix length to a smaller one.")
         .def("__str__", [](const mh::BBitMinHasher<uint64_t> &lh) {
             char buf[256];
-            return std::string(buf, std::sprintf(buf, "BBitMinHasher{.p=%d,.b=%d}", lh.getp(), lh.getb()));
+            return std::string(buf, std::snprintf(buf, 255, "BBitMinHasher{.p=%d,.b=%d}", lh.getp(), lh.getb()));
         })
         .def("__ior__", [](mh::BBitMinHasher<uint64_t> &lh, const mh::BBitMinHasher<uint64_t> &rh) {lh += rh; return lh;})
         .def("__or__", [](const mh::BBitMinHasher<uint64_t> &lh, const mh::BBitMinHasher<uint64_t> &rh) {return lh + rh;})
@@ -67,7 +67,6 @@ PYBIND11_MODULE(sketch_bbmh, m) {
         }).def("__neq__", [](const sketch::mh::BBitMinHasher<uint64_t> &h, const sketch::mh::BBitMinHasher<uint64_t> &h2) {
             return h != h2;
         });
-        //.def("sprintf", &mh::BBitMinHasher<uint64_t>::sprintf)
         //.def("union", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1 + h2;})
         //.def("union_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.union_size(h2);})
 

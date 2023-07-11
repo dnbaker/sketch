@@ -12,7 +12,9 @@ namespace sketch {
 namespace bf {
 using namespace hash;
 
+#ifndef VEC_DISABLED__
 using Space = vec::SIMDTypes<uint64_t>;
+#endif
 
 
 // TODO: add a compact, 6-bit version
@@ -185,9 +187,12 @@ public:
     uint64_t popcnt_manual() const {
         return std::accumulate(core_.cbegin() + 1, core_.cend(), popcount(core_[0]), [](auto a, auto b) {return a + popcount(b);});
     }
+#ifndef VEC_DISABLED__
     using VType = vec::SIMDTypes<uint64_t>::VType;
     using Type = vec::SIMDTypes<uint64_t>::Type;
+#endif
     uint64_t popcnt() const { // Number of set bits
+#ifndef VEC_DISABLED__
         VType tmp;
         const Type *op(reinterpret_cast<const Type *>(data())),
                    *ep(reinterpret_cast<const Type *>(&core_[core_.size()]));
@@ -195,18 +200,28 @@ public:
         while(op < ep)
             sum = Space::add(sum, popcnt_fn(*op++));
         return sum_of_u64s(sum);
+#else
+        return popcnt_manual();
+#endif
     }
+    static constexpr bool VecIsDisabled =
+#ifndef VEC_DISABLED__
+    true;
+#else
+    false;
+#endif
     void halve() {
-        if(np_ < 17) {
+        if((np_ < 17) || VecIsDisabled) {
             for(auto it(core_.begin()), hit(it + (core_.size() >> 1)), eit = core_.end(); hit != eit; *it++ |= *hit++);
-            return;
         }
+#ifndef VEC_DISABLED__
         VType *s = reinterpret_cast<VType *>(core_.data()), *hp = reinterpret_cast<VType *>(core_.data() + (core_.size() >> 1));
         const VType *const end = reinterpret_cast<const VType *>(&core_[core_.size()]);
         while(hp != end) {
             *s = Space::or_fn(s->simd_, hp->simd_);
             ++s, ++hp;// Consider going backwards?
         }
+#endif
         core_.resize(core_.size()>>1);
         core_.shrink_to_fit();
     }
@@ -218,6 +233,7 @@ public:
 
     unsigned intersection_count(const bfbase_t &other) const {
         PREC_REQ(same_params(other), "Can't compare different-sized bloom filters.");
+#ifndef VEC_DISABLED__
         auto &oc = other.core_;
         VType tmp;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
@@ -241,11 +257,16 @@ public:
             sum = Space::add(popcnt_fn(tmp.simd_), sum);
         }
         return sum_of_u64s(sum);
+#else
+        return std::inner_product(core_.begin(), core_.end(), other.core_.begin(), uint64_t(0),
+                                  std::plus<>{}, [](auto x, auto y) noexcept {return popcount(x & y);});
+#endif
     }
 
     double union_size(const bfbase_t &other) const {
         PREC_REQ(same_params(other), "Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
+#ifndef VEC_DISABLED__
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         VType l1 = *op++, l2 = *tc++;
         Space::Type sumu = popcnt_fn(Space::or_fn(l1.simd_, l2.simd_));
@@ -266,9 +287,14 @@ public:
             PERFORM_ITER
         }
         uint64_t usumu = sum_of_u64s(sumu);
+#else
+        uint64_t usumu = std::inner_product(core_.begin(), core_.end(), oc.begin(), uint64_t(0),
+                                            std::plus<>{}, [](auto x, auto y) noexcept {return popcount(x | y);});
+#endif
         const int ldv = -(int32_t(np_) + OFFSET);
         return std::log1p(-std::ldexp(usumu, ldv)) / ((nh_) * std::log1p(std::ldexp(-1., ldv)));
     }
+#ifndef VEC_DISABLED__
     double setbit_jaccard_index(const bfbase_t &other) const {
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
@@ -298,8 +324,10 @@ public:
         uint64_t usumu = sum_of_u64s(sumu);
         return static_cast<double>(usum1 + usum2 - usumu) / usumu;
     }
+#endif
     INLINE std::array<double, 3> full_set_comparison(const bfbase_t &o) const {
         PREC_REQ(m() == o.m(), "Same size required.");
+#ifndef VEC_DISABLED__
         auto &oc = o.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         VType l1 = *op++, l2 = *tc++;
@@ -323,6 +351,16 @@ public:
         double usum1 = sum_of_u64s(sum1);
         double usum2 = sum_of_u64s(sum2);
         double usumu = sum_of_u64s(sumu);
+#else
+        uint64_t usum1{0}, usum2{0}, usumu{0};
+        for(size_t i = 0; i < core_.size(); ++i) {
+            auto xi = core_[i];
+            auto yi = o.core_[i];
+            usum1 += popcount(xi);
+            usum2 += popcount(yi);
+            usumu += popcount(xi | yi);
+        }
+#endif
         const auto div = double(m()) / nh_;
         const auto nminv = -1. / m();
         double set1_est = -std::log1p(usum1 * nminv) * div;
@@ -342,6 +380,7 @@ public:
     }
     double jaccard_index(const bfbase_t &other) const {
         if(other.m() != m()) throw std::runtime_error("Can't compare different-sized bloom filters.");
+#ifndef VEC_DISABLED__
         auto &oc = other.core_;
         const Type *op(reinterpret_cast<const Type *>(oc.data())), *tc(reinterpret_cast<const Type *>(core_.data()));
         VType l1 = *op++, l2 = *tc++;
@@ -365,9 +404,15 @@ public:
         double usum1 = sum_of_u64s(sum1);
         double usum2 = sum_of_u64s(sum2);
         double usumu = sum_of_u64s(sumu);
-#if VERBOSE_AF
-        std::fprintf(stderr, "sum1: %" PRIu64 ". sum2: %" PRIu64 ". sumu: %" PRIu64 ".\n",
-                     usum1, usum2, usumu);
+#else
+        uint64_t usum1{0}, usum2{0}, usumu{0};
+        for(size_t i = 0; i < core_.size(); ++i) {
+            auto xi = core_[i];
+            auto yi = other.core_[i];
+            usum1 += popcount(xi);
+            usum2 += popcount(yi);
+            usumu += popcount(xi | yi);
+        }
 #endif
         const auto div = double(m()) / nh_;
         const auto nminv = -1. / m();
@@ -468,9 +513,10 @@ public:
     bfbase_t &operator&=(const bfbase_t &other) {
         if(!same_params(other)) {
             char buf[256];
-            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
+            snprintf(buf, 255, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
             throw std::runtime_error(buf);
         }
+#ifndef VEC_DISABLED__
         unsigned i;
         VType *els(reinterpret_cast<VType *>(core_.data()));
         const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
@@ -488,16 +534,20 @@ public:
         } else
             for(i = 0; i < (core_.size() / Space::COUNT);
                 els[i].simd_ = Space::and_fn(els[i].simd_, oels[i].simd_), ++i);
+#else
+        std::transform(core_.begin(), core_.end(), other.core_.begin(), core_.begin(), [](auto x, auto y) {return x & y;});
+#endif
         return *this;
     }
 
     bfbase_t &operator^=(const bfbase_t &other) {
         if(!same_params(other)) {
             char buf[256];
-            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
+            snprintf(buf, 255, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
             throw std::runtime_error(buf);
         }
         unsigned i;
+#ifndef VEC_DISABLED__
         VType *els(reinterpret_cast<VType *>(core_.data()));
         const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
         if(core_.size() / Space::COUNT >= 8) {
@@ -509,15 +559,19 @@ public:
         } else
             for(i = 0; i < (core_.size() / Space::COUNT); ++i)
                 els[i].simd_ = Space::xor_fn(els[i].simd_, oels[i].simd_);
+#else
+        std::transform(core_.begin(), core_.end(), other.core_.begin(), core_.begin(), [](auto x, auto y) {return x ^ y;});
+#endif
         return *this;
     }
 
     bfbase_t &operator|=(const bfbase_t &other) {
         if(!same_params(other)) {
             char buf[256];
-            sprintf(buf, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
+            snprintf(buf, 255, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
             throw std::runtime_error(buf);
         }
+#ifndef VEC_DISABLED__
         unsigned i;
         VType *els(reinterpret_cast<VType *>(core_.data()));
         const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
@@ -535,6 +589,9 @@ public:
         } else
             for(i = 0; i < (core_.size() / Space::COUNT); ++i)
                 els[i].simd_ = Space::or_fn(els[i].simd_, oels[i].simd_);
+#else
+        std::transform(core_.begin(), core_.end(), other.core_.begin(), core_.begin(), [](auto x, auto y) {return x | y;});
+#endif
         return *this;
     }
 #define DEFOP(opchar)\
@@ -564,23 +621,23 @@ public:
         unsigned nleft = nh_;
         assert(p() < sizeof(lut::nhashesper64bitword));
         unsigned npw = lut::nhashesper64bitword[p()];
-        unsigned npersimd = Space::COUNT * npw;
         const auto shift = p();
+        const uint64_t *sptr = seeds_.data();
+#ifndef VEC_DISABLED__
+        unsigned npersimd = Space::COUNT * npw;
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
-        const uint64_t *sptr;
         while(nleft > npersimd) {
             VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {ret &= all_set(val, npw, shift);});
-            if(!ret) goto f;
+            if(!ret) return ret;
             nleft -= npersimd;
         }
         sptr = reinterpret_cast<const uint64_t *>(seedptr);
+#endif
         while(nleft) {
-            if((ret &= all_set(hf_(val ^ *sptr++), std::min(npw, nleft), shift)) == 0) goto f;
+            if((ret &= all_set(hf_(val ^ *sptr++), std::min(npw, nleft), shift)) == 0) return ret;
             nleft -= std::min(npw, nleft);
-            assert(sptr <= &seeds_[seeds_.size()]);
         }
-        f:
         return ret;
     }
     bool may_contain_and_addh(uint64_t val) {
@@ -588,16 +645,18 @@ public:
         unsigned nleft = nh_;
         assert(p() < sizeof(lut::nhashesper64bitword));
         unsigned npw = lut::nhashesper64bitword[p()];
-        unsigned npersimd = Space::COUNT * npw;
         const auto shift = p();
+        const uint64_t *sptr = seeds_.data();
+#ifndef VEC_DISABLED__
+        unsigned npersimd = Space::COUNT * npw;
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
-        const uint64_t *sptr;
         while(nleft > npersimd) {
             VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
             v.for_each([&](const uint64_t &val) {ret &= all_set_and_set1(val, npw, shift);});
             nleft -= npersimd;
         }
         sptr = reinterpret_cast<const uint64_t *>(seedptr);
+#endif
         while(nleft) {
             ret &= all_set_and_set1(hf_(val ^ *sptr++), std::min(npw, nleft), shift);
             nleft -= std::min(npw, nleft);
@@ -615,8 +674,11 @@ public:
         std::fprintf(stderr, "nvals: %zu. nvals. Resize size: %zu\n", nvals, (nvals >> 6) + ((nvals & 0x63u) != 0));
 #endif
         ret.resize((nvals >> 6) + ((nvals & 0x63u) != 0), UINT64_C(-1));
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()], npersimd = Space::COUNT * npw;
+        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()];
         const auto shift = p();
+        const uint64_t *sptr = seeds_.data();
+#ifndef VEC_DISABLED__
+        unsigned npersimd = Space::COUNT * npw;
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         VType seed, v;
         while(nleft > npersimd) {
@@ -629,7 +691,8 @@ public:
             }
             nleft -= npersimd;
         }
-        const uint64_t *sptr = reinterpret_cast<const uint64_t *>(seedptr);
+        sptr = reinterpret_cast<const uint64_t *>(seedptr);
+#endif
         while(nleft) {
             uint64_t hv, seed = *sptr++;
             for(unsigned i(0); i < nvals; ++i) {

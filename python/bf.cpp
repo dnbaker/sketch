@@ -1,9 +1,12 @@
+#ifndef VEC_DISABLED__
+
 #include "python/pysketch.h"
 using sketch::bf_t;
 
 std::string bf2str(const bf_t &h) {
     return std::string("BloomFilter{.p=") + std::to_string(h.p()) + ",.nhashes=" + std::to_string(h.nhashes()) + '}';
 }
+
 
 PYBIND11_MODULE(sketch_bf, m) {
     m.doc() = "Bloom Filter support"; // optional module docstring
@@ -65,3 +68,4 @@ PYBIND11_MODULE(sketch_bf, m) {
          return ret;
      }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of (unhashed) 64-bit integers", py::arg("a"), py::arg("ss") = 10, py::arg("nhashes") = 4);
 } // pybind11 module
+#endif
