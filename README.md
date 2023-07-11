@@ -9,7 +9,7 @@ Documentation for the Python interface is available [here](https://sketch.readth
 
 ## Dependencies
 
-We directly include blaze-lib, libpopcnt, compact\_vector, ska::flat\_hash\_map, and xxHash for various utilities.
+We directly include blaze-lib, libpopcnt, [compact_vector](https://github.com/gmarcais/compact_vector), ska::flat\_hash\_map, and xxHash for various utilities.
 We also have two submodules:
 
 * pybind11, only used for python bindings.
