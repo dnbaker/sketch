@@ -24,7 +24,6 @@ class get_pybind_include(object):
         return pybind11.get_include(self.user)
 
 
-print(is_on_arm)
 march_flag = "-march=native" if not is_on_arm else "-mcpu=apple-m1"
 
 gomplink_flag = "-lgomp" if "clang" not in os.environ.get(
@@ -32,7 +31,6 @@ gomplink_flag = "-lgomp" if "clang" not in os.environ.get(
 
 openmp_flag = ["-fopenmp",
                gomplink_flag] if os.environ.get("NO_OMP") is None else []
-print(openmp_flag)
 
 extra_compile_args = [march_flag,
                       '-Wno-char-subscripts', '-Wno-unused-function',
