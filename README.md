@@ -7,6 +7,16 @@ All have been accelerated with SIMD parallelism where possible, most are composa
 
 Documentation for the Python interface is available [here](https://sketch.readthedocs.io/en/latest/).
 
+## Dependencies
+
+We directly include blaze-lib, libpopcnt, compact\_vector, ska::flat\_hash\_map, and xxHash for various utilities.
+We also have two submodules:
+
+* pybind11, only used for python bindings.
+* SLEEF for vectorized math, incorporated with vec.h. It's optionally used (disabled by defining `-DNO_SLEEF=1/#define NO_SLEEF 1`) and only applicable to using rnla.h through blaze-lib.
+
+You can ignore both for most use cases.
+
 ## Contents
 1. HyperLogLog Implementation [hll.h]
     1. `hll_t`/`hllbase_t<HashStruct>`
