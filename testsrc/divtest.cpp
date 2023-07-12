@@ -64,7 +64,7 @@ int main() {
         std::fprintf(stderr, "input: %zu. power of two: %zu. div: %zu.\n", j, p1.nelem(), p2.nelem());
     }
     std::mt19937 mt;
-    for(const auto sz0: {0, 1}) {
+    for(int round = 0; round < 2; ++round) {
         const uint32_t sz = mt();
         schism::Schismatic<uint32_t> sm(sz);
         __m256i vals;
