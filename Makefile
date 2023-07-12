@@ -43,7 +43,7 @@ NVCC?=nvcc
 EX=$(patsubst testsrc/%.cpp,%,$(wildcard testsrc/*.cpp))
 all: $(EX)
 setup_tests: $(EX) lztest
-	echo $(EX) lztest > tmpfiles.txt
+	echo $(EX) lztest | tr ' ' '\n' > tmpfiles.txt
 
 STD?= -std=c++17
 

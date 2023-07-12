@@ -775,7 +775,7 @@ public:
             uint64_t t;
             // nloops is guaranteed to be at least one because otherwise v would have heen 0
             auto dofunc = [&]() {
-                t = v & -v; func(index + ctz(v)); v ^= t; assert(v);
+                t = v & -v; func(index + ctz(v)); v ^= t;
             };
             switch(nnz % 8u) {
                 case 0:

@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
     for(auto x: {&ao, &bo, &so})
         for(auto &y: *x)
             y = wygen();
-    size_t ss = 16;
+    const size_t ss = 16;
     hll_t ha(ss), hb(ss), hi(ss);
     BBitMinHasher<uint64_t> ph1(ss, 8), ph2(ss, 8);
     for(const auto v: ao) {
@@ -42,8 +42,9 @@ int main(int argc, char *argv[]) {
     double expected_ci = double(shared_size) / (shared_size + base_size);
     double ci = ha.containment_index(hb);
     double fhci = fh1.containment_index(fh2);
-    //std::fprintf(stderr, "full cmps hll CI: %lf\n", full_cmps_hll[2] / (full_cmps_hll[0] + full_cmps_hll[2]));
-    //std::fprintf(stderr, "full cmps bbmh CI: %lf\n", full_cmps_bbmh[2] / (full_cmps_bbmh[0] + full_cmps_bbmh[2]));
+    std::fprintf(stderr, "Expected: %lf\n", expected_ci);
+    std::fprintf(stderr, "full cmps hll CI: %lf\n", full_cmps_hll[2] / (full_cmps_hll[0] + full_cmps_hll[2]));
+    std::fprintf(stderr, "full cmps bbmh CI: %lf, manual %lf\n", full_cmps_bbmh[2] / (full_cmps_bbmh[0] + full_cmps_bbmh[2]), fhci);
     assert(full_cmps_bbmh[2] / (full_cmps_bbmh[0] + full_cmps_bbmh[2]) / fhci - 1. < 1e-40);
     assert(full_cmps_hll[2] / (full_cmps_hll[0] + full_cmps_hll[2]) / ci - 1. < 1e-40);
     //std::fprintf(stderr, "CI with bbmh: %lf\n", fhci);

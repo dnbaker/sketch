@@ -6,6 +6,7 @@ make setup_tests -j8
 
 while read line
 do
+  echo ./$line
   ./$line
 done < tmpfiles.txt
 rm tmpfiles.txt
