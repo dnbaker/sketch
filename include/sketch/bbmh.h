@@ -361,8 +361,8 @@ public:
         return std::max(0., frac / (1. - b2pow));
     }
     double containment_index(const FinalDivBBitMinHash &o) const {
-        double ji = jaccard_index(o);
-        double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
+        const double ji = jaccard_index(o);
+        const double is = (est_cardinality_ + o.est_cardinality_) * ji / (1. + ji);
         return is / est_cardinality_;
     }
     double intersection_size(const FinalDivBBitMinHash &o) const {
@@ -1623,9 +1623,6 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
     size_t ndef;
     double cest = -1.;
     if((ndef = std::count_if(core_.begin(), core_.end(), [](auto x) {return x == detail::default_val<T>();}))) {
-#ifndef NDEBUG
-        std::fprintf(stderr, "requires densification: %zu/%zu need to be densified\n", ndef, core_.size());
-#endif
         tmp = core_;
         cest = detail::harmonic_cardinality_estimate_impl(tmp);
         std::replace(tmp.begin(), tmp.end(), std::numeric_limits<T>::max() >> p_, detail::default_val<T>());

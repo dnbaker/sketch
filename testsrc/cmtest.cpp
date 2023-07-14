@@ -26,5 +26,5 @@ int main() {
     for(auto &c: cmf.second)
         c = 2;
     assert(c.count == cmf.intersection_size(cmf2)); // Make sure intersection size is still the same
-    std::fprintf(stderr, "%llu, %llu\n", c.count, cm.union_size(cm2));
+    std::fprintf(stderr, "%llu, %llu\n", (unsigned long long)c.count, (unsigned long long)cm.union_size(cm2));
 }

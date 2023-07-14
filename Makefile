@@ -19,9 +19,9 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
 		 -pedantic -Wunused-variable\
-        -Wno-cast-align
+        -Wno-cast-align -Wno-sign-compare
 
-FLAGS=-O3 -funroll-loops -pipe $(TARGET_FLAG) -Iinclude/sketch -I. -Iinclude/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
+FLAGS=-O0 -funroll-loops -pipe $(TARGET_FLAG) -Iinclude/sketch -I. -Iinclude/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing
 
 CXXFLAGS=$(FLAGS) -Wreorder  \
@@ -70,7 +70,7 @@ hpython: pybbmh.cpython.so
 	$(PYTHON) -c "import subprocess;import site; subprocess.check_call('cp pybbmh.py "*`$(PYCONF) --extension-suffix`" %s' % site.getsitepackages()[0], shell=True)"
 
 %.cpython.so: %.cpp
-	$(CXX) $(UNDEFSTR) $(INCLUDES) -fopenmp -O3 -Wall $(CXXFLAGS) -shared $(STD) -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \
+	$(CXX) $(UNDEFSTR) $(INCLUDES) -fopenmp -Wall $(CXXFLAGS) -O2 -shared $(STD) -fPIC `python3 -m pybind11 --includes` $< -o $*$(SUF) -lz && \
     ln -fs $*$(SUF) $@
 
 %.o: %.cpp

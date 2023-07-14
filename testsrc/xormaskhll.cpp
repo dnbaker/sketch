@@ -1,3 +1,4 @@
+#define NO_BLAZE
 #include "hll.h"
 #include "hash.h"
 

@@ -109,9 +109,17 @@ public:
         AbstractMinHash<T, Cmp>(sketch_size), hf_(std::move(hf)), cmp_(std::move(cmp))
     {
     }
+    void show() {
+        std::fprintf(stderr, "%zu mins\n", minimizers_.size());
+        for(const auto x: minimizers_) {
+            std::fprintf(stderr, "%zu\n", size_t(x));
+        }
+    }
     RangeMinHash(std::string) {throw NotImplementedError("");}
     double cardinality_estimate() const {
-        return double(std::numeric_limits<T>::max()) / this->max_element() * minimizers_.size();
+        const double result = (std::numeric_limits<T>::max()) / this->max_element() * minimizers_.size();
+        std::fprintf(stderr, "max: %zu. res: %g.  min: %g\n", size_t(this->max_element()), result, double(*this->rbegin()));
+        return result;
     }
     RangeMinHash(gzFile fp) {
         if(!fp) throw std::runtime_error("Null file handle!");
@@ -126,7 +134,8 @@ public:
         return ret;
     }
     RangeMinHash &operator+=(const RangeMinHash &o) {
-        minimizers_.insert(o.begin(), o.end());
+        for(auto x: o) {minimizers_.insert(x);}
+        // minimizers_.insert(o.begin(), o.end());
         while(minimizers_.size() > this->ss_)
             minimizers_.erase(minimizers_.begin());
         return *this;
@@ -334,10 +343,12 @@ struct FinalRMinHash {
             }
             ++n_in_sketch;
         }
-        mv = *i1 < *i2 ? *i1: *i2;
         // TODO: test after refactoring
         assert(i1 < this->rend());
-        return double(std::numeric_limits<T>::max()) / (mv) * this->size();
+        mv = *i1 < *i2 ? *i1: *i2;
+        const double est = double(std::numeric_limits<T>::max()) / mv * this->size();
+        std::fprintf(stderr, "mv: %zu. est: %g\n", size_t(mv), est);
+        return est;
     }
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         // KMV (kth-minimum value) estimate
