@@ -22,7 +22,7 @@ int main() {
     sketch::IndykSketcher<double> is(9, 50, D, 1377);
     //size_t ntables, size_t destdim, uint64_t sourcedim=0,
     auto n = is.norm(init_1);
-    // std::fprintf(stderr, "Indyk-sketched norm: %g\n", n);
+    std::fprintf(stderr, "Indyk-sketched norm: %g\n", n);
     wy::WyHash<uint64_t, 8> gen;
     double reall1sum = 0.;
     std::normal_distribution<double> dist;
@@ -41,6 +41,6 @@ int main() {
         std::swap(nl, nr);
     }
     auto us = is2.union_size(is3);
-    // std::fprintf(stderr, "us: %f. n1 %f, n2 %f. expected: %zu. %% diff: %f\n", us, is2.pnorm(), is3.pnorm(), sn * 19, fracdiff(us, is2.pnorm() + is3.pnorm()) * 100.);
+    std::fprintf(stderr, "us: %f. n1 %f, n2 %f. expected: %zu. %% diff: %f\n", us, is2.pnorm(), is3.pnorm(), sn * 19, fracdiff(us, is2.pnorm() + is3.pnorm()) * 100.);
     auto diff = is2 - is3;
 }

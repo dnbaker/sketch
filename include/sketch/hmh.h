@@ -289,8 +289,12 @@ public:
     template<typename IT> IT access(size_t index) const {
         return reinterpret_cast<const IT *>(data_.data())[index];
     }
+#ifndef _mm512_srli_epi16
 #define _mm512_srli_epi16(mm, Imm) _mm512_and_si512(_mm512_set1_epi16(0xFFFFu >> Imm), _mm512_srli_epi32(mm, Imm))
+#endif
+#ifndef _mm512_srli_epi8
 #define _mm512_srli_epi8(mm, Imm) _mm512_and_si512(_mm512_set1_epi8(0xFFu >> Imm), _mm512_srli_epi32(mm, Imm))
+#endif
     template<typename IT>
     std::array<uint32_t, 64> sum_counts() const {
         using hll::detail::SIMDHolder;

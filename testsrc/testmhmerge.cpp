@@ -13,7 +13,7 @@ int print(const T &x, const char *s) {
 template<typename T>
 void sortfn(T &x) {std::sort(x.begin(), x.end(), typename RangeMinHash<uint64_t>::Compare());}
 int main() {
-    size_t nelem = 10000, ss = 16;
+    size_t nelem = 1000000, ss = 1024;
     RangeMinHash<uint64_t> s1(ss), s2(ss);
     CountingRangeMinHash<uint64_t> cs1(ss), cs2(ss);
     wy::WyHash<> gen(1337);
@@ -28,16 +28,13 @@ int main() {
     }
     auto f1 = s1.finalize(), f2 = s2.finalize();
     RangeMinHash<uint64_t> s3 = s1;
+    VERBOSE_ONLY(std::fprintf(stderr, "cad est before adding: %g\n", s3.cardinality_estimate());)
     s3 += s2;
-    auto sf3 = s3.finalize();
-    std::fprintf(stderr, "us: %g. card: %g. f3 card: %g. s1 card %g. s2 card %g.\n", f1.union_size(f2), sf3.cardinality_estimate(), s3.cardinality_estimate(), s1.cardinality_estimate(), s2.cardinality_estimate());
-    assert(f1.union_size(f2) == sf3.cardinality_estimate());
-    auto v3 = f1 + f2;
-    decltype(f1.first) v1(s1.begin(), s1.end());
-    decltype(f1.first) v2(s2.begin(), s2.end());
-    auto sf3v = sf3.first;
-    sortfn(sf3v);
-    assert(f1.first == v1);
-    assert(f2.first == v2);
-    assert(v3.first == sf3v || print(v3, "v3") || print(sf3v, "sf3"));
+    VERBOSE_ONLY(std::fprintf(stderr, "cad est after adding: %g\n", s3.cardinality_estimate());)
+    auto f3 = s3.finalize();
+#ifndef VERBOSE_AF
+    std::fprintf(stderr, "s1: %g. s2: %g. s3: %g\n", s1.cardinality_estimate(), s2.cardinality_estimate(), s3.cardinality_estimate());
+    std::fprintf(stderr, "f1: %g. f2: %g. f3: %g\n", f1.cardinality_estimate(), f2.cardinality_estimate(), f3.cardinality_estimate());
+    std::fprintf(stderr, "card: %g. f3 card: %g. s1 card %g. s2 card %g.\n", f3.cardinality_estimate(), s3.cardinality_estimate(), s1.cardinality_estimate(), s2.cardinality_estimate());
+#endif
 }

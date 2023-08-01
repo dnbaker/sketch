@@ -73,8 +73,10 @@ void verify_popcount() {
     b2.addh(4);
     b2.addh(17);
     auto f1 = b1.cfinalize(), f2 = b2.cfinalize();
+VERBOSE_ONLY(
     std::fprintf(stderr, "f1 popcount: %" PRIu64 "\n", f1.popcnt());
     std::fprintf(stderr, "f2 popcount: %" PRIu64 "\n", f2.popcnt());
+)
 #if 0
     b1.show();
     b2.show();
@@ -82,9 +84,9 @@ void verify_popcount() {
     auto b3 = b1 + b2;
     //b3.show();
     auto f3 = b3.finalize();
-    std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());
+    VERBOSE_ONLY(std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());)
     auto neqb12 = f1.equal_bblocks(f2);
-    std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(neqb12), size_t(f1.equal_bblocks(f1)));
+    VERBOSE_ONLY(std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(neqb12), size_t(f1.equal_bblocks(f1)));)
 }
 
 int main(int argc, char *argv[]) {
@@ -154,7 +156,8 @@ int main(int argc, char *argv[]) {
             b2.densify();
             auto est = (b1 + b2).cardinality_estimate();
             auto usest = b1.union_size(b2);
-            std::fprintf(stderr, "union est by union: %f. by union_size: %f. difference: %12e\n", est, usest, (est - usest));
+            VERBOSE_ONLY(std::fprintf(stderr, "union est by union: %f. by union_size: %f. difference: %12e\n", est, usest, (est - usest));)
+            assert(std::abs(est - usest) < 1e-6);
             assert(est == usest);
             auto f1 = b1.finalize(), f2 = b2.finalize(), f3 = b3.finalize();
             assert(i <= 9 || std::abs(est - niter) < niter * .1 || !std::fprintf(stderr, "est: %lf. niter: %zu\n", est, size_t(niter)));
@@ -165,10 +168,10 @@ int main(int argc, char *argv[]) {
             auto smh1 = smhp2.finalize(16), smh2 = smhp21.finalize(16);
             auto smhd1 = smhdp.finalize(16), smhd2 = smhdp1.finalize(16);
             auto smh1ji = smh1.jaccard_index(smh1);
-            std::fprintf(stderr, "smh1ji: %g\n", smh1ji);
+            VERBOSE_ONLY(std::fprintf(stderr, "smh1ji: %g\n", smh1ji);)
             assert(smh1ji == 1.);
             auto pji = smh1.jaccard_index(smh2);
-            std::fprintf(stderr, "estimate: %f. nmin: %u. b: %u\n", pji, 1u << i, b);
+            VERBOSE_ONLY(std::fprintf(stderr, "estimate: %f. nmin: %u. b: %u\n", pji, 1u << i, b);)
             if(std::abs(pji - .5)  > 0.05) {
                 std::fprintf(stderr, "original (no b-bit): %f\n", b1.jaccard_index(b2));
                 std::fprintf(stderr, ">.05 error: estimate: %f. nmin: %u. b: %u. %f%% error\n", pji, 1u << i, b, std::abs(pji - .5) / .5 * 100);

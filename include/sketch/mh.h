@@ -118,7 +118,6 @@ public:
     RangeMinHash(std::string) {throw NotImplementedError("");}
     double cardinality_estimate() const {
         const double result = (std::numeric_limits<T>::max()) / this->max_element() * minimizers_.size();
-        std::fprintf(stderr, "max: %zu. res: %g.  min: %g\n", size_t(this->max_element()), result, double(*this->rbegin()));
         return result;
     }
     RangeMinHash(gzFile fp) {
@@ -134,10 +133,10 @@ public:
         return ret;
     }
     RangeMinHash &operator+=(const RangeMinHash &o) {
-        for(auto x: o) {minimizers_.insert(x);}
-        // minimizers_.insert(o.begin(), o.end());
-        while(minimizers_.size() > this->ss_)
+        minimizers_.insert(o.begin(), o.end());
+        while(minimizers_.size() > this->ss_) {
             minimizers_.erase(minimizers_.begin());
+        }
         return *this;
     }
     RangeMinHash operator+(const RangeMinHash &o) const {
@@ -231,8 +230,6 @@ public:
     void free() {clear();}
     final_type cfinalize() const {
         std::vector<T> reta(minimizers_.begin(), minimizers_.end());
-        if(reta.size() < this->ss_)
-            reta.insert(reta.end(), this->ss_ - reta.size(), std::numeric_limits<uint64_t>::max());
         return final_type(std::move(reta));
     }
     final_type finalize() & {
@@ -329,27 +326,36 @@ struct FinalRMinHash {
         tmp += o;
         return tmp;
     }
+    /*
     double union_size(const FinalRMinHash &o) const {
+        std::vector<T> total(o.begin(), o.end());
+        total.insert(total.end(), begin(), end());
+        std::sort(total.begin(), total.end());
+        total.resize(std::min(o.size(), size()));
+        const size_t maxv = total.back();
+        return (double(std::numeric_limits<T>::max()) / maxv) * this->size();
         PREC_REQ(this->size() == o.size(), "Non-matching parameters for FinalRMinHash comparison");
         size_t n_in_sketch = 0;
         auto i1 = this->rbegin(), i2 = o.rbegin();
-        T mv;
         while(n_in_sketch < first.size() - 1) {
             // Easier to branch-predict:  http://www.vldb.org/pvldb/vol8/p293-inoue.pdf
-            if(*i1 != *i2) ++i1, ++i2;
-            else {
-                const int c = *i1 < *i2;
-                i2 += !c; i1 += c;
+            if(*i1 == *i2) {
+                ++i1, ++i2;
+            } else if(*i1 < *i2) {
+                ++i1;
+            } else {
+                ++i2;
             }
             ++n_in_sketch;
         }
         // TODO: test after refactoring
         assert(i1 < this->rend());
-        mv = *i1 < *i2 ? *i1: *i2;
+        const size_t mv = std::min(*i1, *i2);
         const double est = double(std::numeric_limits<T>::max()) / mv * this->size();
-        std::fprintf(stderr, "mv: %zu. est: %g\n", size_t(mv), est);
+        std::fprintf(stderr, "mv: %zu. est: %g. Expected maxv %zu\n", size_t(mv), est, maxv);
         return est;
     }
+    */
     double cardinality_estimate(MHCardinalityMode mode=ARITHMETIC_MEAN) const {
         // KMV (kth-minimum value) estimate
         return (static_cast<double>(std::numeric_limits<T>::max()) / double(this->max_element()) * first.size());
@@ -410,20 +416,16 @@ struct FinalRMinHash {
     void free() {
         decltype(first) tmp; std::swap(tmp, first);
     }
-    template<typename Alloc>
-    FinalRMinHash(const std::vector<T, Alloc> &ofirst): first(ofirst.size()) {std::copy(ofirst.begin(), ofirst.end(), first.begin()); sort();}
     template<typename It>
-    FinalRMinHash(It start, It end): first(std::distance(start, end)) {
-        std::copy(start, end, first.begin());
+    FinalRMinHash(It start, It end) {
+        std::copy(start, end, std::back_inserter(first));
         sort();
     }
-    template<typename Alloc, typename=std::enable_if_t<std::is_same<Alloc, allocator>::value>>
-    FinalRMinHash(std::vector<T, Alloc> &&ofirst): first(std::move(ofirst)) {
-        sort();
-    }
+    template<typename Alloc>
+    FinalRMinHash(const std::vector<T, Alloc> &ofirst): FinalRMinHash(ofirst.begin(), ofirst.end()) {}
     template<typename Hasher, bool is_bottom>
     FinalRMinHash(const BottomKHasher<Hasher, T, is_bottom> &bk): FinalRMinHash(bk.mpq_.getq().begin(), bk.mpq_.getq().end()) {}
-    FinalRMinHash(FinalRMinHash &&o): first(std::move(o.first)) {sort();}
+    FinalRMinHash(FinalRMinHash &&o) = default;
     ssize_t read(gzFile fp) {
         uint64_t sz;
         if(gzread(fp, &sz, sizeof(sz)) != sizeof(sz)) throw ZlibError("Failed to read");
@@ -464,7 +466,7 @@ protected:
     FinalRMinHash() {}
     FinalRMinHash &operator=(const FinalRMinHash &o) = default;
     void sort() {
-        common::sort::default_sort(this->first.begin(), this->first.end());
+        std::sort(this->first.begin(), this->first.end());
     }
 };
 
