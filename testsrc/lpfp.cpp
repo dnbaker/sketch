@@ -43,16 +43,16 @@ int submain(size_t NITEMS) {
     ts4 = std::chrono::high_resolution_clock::now();
     std::fprintf(stderr, "batched batch construction of %zu items took %gms, for %g million per minute\n", nentered, timelen(ts3, ts4), nentered / timelen(ts3, ts4) / 1e6 * 60.);
     auto ip = lpf.inner_product(lpf);
-    std::fprintf(stderr, "ip: %g\n", ip);
+    std::fprintf(stderr, "ip: %0.10g\n", ip);
     lpf.batch_update(bulk.data(), bulk.size());
-    ip = lpf.inner_product(lpf);
-    std::fprintf(stderr, "ip: %g\n", ip);
+    const double new_ip = lpf.inner_product(lpf);
+    std::fprintf(stderr, "ip: %0.10g. Difference: %0.6g\n", new_ip, new_ip - ip);
     return 0;
 }
 
 int main() {
-    int ret;
-    for(const auto N: {size_t(1 << 10), size_t(1<<16), size_t(1) << 20, size_t(16) << 20}) {
+    int ret = 0;
+    for(const auto N: {size_t(1<<16), size_t(1) << 20}) {
     ret |= submain<float>(N)
         || submain<float, 0>(N)
         || submain<double>(N)

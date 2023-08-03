@@ -372,9 +372,7 @@ public:
                     tx(st * this->destdim() + ind, sind) = dist_(gen);
                 }
             }
-#if !NDEBUG
-            std::fprintf(stderr, "nonzeros: %zu. total: %zu\n", tx.nonZeros(), tx.rows() * tx.columns());
-#endif
+            VERBOSE_ONLY(std::fprintf(stderr, "nonzeros: %zu. total: %zu\n", tx.nonZeros(), tx.rows() * tx.columns());)
         }
     }
     PStableSketcher(const PStableSketcher &o): super(o.ntables(), o.destdim()), seed_(o.seed_), dist_(o.dist_), dense_(o.dense_) {

@@ -76,11 +76,20 @@ static constexpr const char *JESTIM_STRINGS []
     "ORIGINAL", "ERTL_IMPROVED", "ERTL_MLE", "ERTL_JOINT_MLE"
 };
 enum JointEstimationMethod: uint8_t {
-    //ORIGINAL       = 0,
-    //ERTL_IMPROVED  = 1, // Improved but biased method
-    //ERTL_MLE       = 2, // element-wise max, followed by MLE
-    ERTL_JOINT_MLE = 3  // Ertl special version
+    J_ORIGINAL       = ORIGINAL,
+    J_ERTL_IMPROVED  = ERTL_IMPROVED, // Improved but biased method
+    J_ERTL_MLE       = ERTL_MLE, // element-wise max, followed by MLE
+    ERTL_JOINT_MLE = 3, // Ertl special version
+    J_ERTL_JOINT_MLE = ERTL_JOINT_MLE,
 };
+
+static inline std::string to_string(JointEstimationMethod est) {
+    switch(est) {case J_ORIGINAL: return "Original"; case J_ERTL_IMPROVED: return "Improved"; case J_ERTL_MLE: return "MLE"; case J_ERTL_JOINT_MLE: return "JMLE"; default: return "UNKNOWN";};
+}
+static inline std::string to_string(EstimationMethod est) {
+    return to_string(static_cast<JointEstimationMethod>(est));
+}
+
 
 static const char *EST_STRS [] {
     "original",
@@ -200,17 +209,17 @@ static constexpr double TWO_POW_32 = 1ull << 32;
 
 template<typename CountArrType>
 static double calculate_estimate(const CountArrType &counts,
-                                 EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) noexcept {
+                                 JointEstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) noexcept {
     assert(estim <= 3);
 #if ENABLE_COMPUTED_GOTO
-    static constexpr void *arr [] {&&ORREST, &&ERTL_IMPROVED_EST, &&ERTL_MLE_EST};
+    static constexpr void *arr [] {&&ORREST, &&ERTL_IMPROVED_EST, &&ERTL_MLE_EST, &&ERTL_JOINT_MLE_EST};
     goto *arr[estim];
     ORREST: {
 #else
     switch(estim) {
-        case ORIGINAL: {
+        case J_ORIGINAL: {
 #endif
-        assert(estim != ERTL_MLE);
+        assert(estim != static_cast<JointEstimationMethod>(ERTL_MLE));
         double sum = counts[0];
         for(unsigned i = 1; i < 64 - p + 1; ++i) if(counts[i]) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         //for(unsigned i = 1; i < 64 - p + 1; ++i) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
@@ -228,10 +237,11 @@ static double calculate_estimate(const CountArrType &counts,
         return value;
     }
 #if ENABLE_COMPUTED_GOTO
-    ERTL_IMPROVED_EST: {
+    ERTL_IMPROVED_EST:
 #else
-        case ERTL_IMPROVED: {
+        case J_ERTL_IMPROVED:
 #endif
+    {
         static const double divinv = 1. / (2.L*std::log(2.L));
         double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p + 1]))/static_cast<double>(m));
         for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
@@ -239,12 +249,23 @@ static double calculate_estimate(const CountArrType &counts,
         return m * divinv * m / z;
     }
 #if ENABLE_COMPUTED_GOTO
-    ERTL_MLE_EST: return ertl_ml_estimate(counts, p, 64 - p, relerr);
+    ERTL_MLE_EST:
+    ERTL_JOINT_MLE_EST:
 #else
-    case ERTL_MLE: return ertl_ml_estimate(counts, p, 64 - p, relerr);
-    default: HEDLEY_UNREACHABLE();
-    }
+    case J_ERTL_MLE:
+    case J_ERTL_JOINT_MLE:
 #endif
+        return ertl_ml_estimate(counts, p, 64 - p, relerr);
+    default:
+        std::fprintf(stderr, "Unknown estimation method.\n");
+        HEDLEY_UNREACHABLE();
+    }
+}
+
+template<typename CountArrType>
+static double calculate_estimate(const CountArrType &counts,
+                                 EstimationMethod estim, uint64_t m, uint32_t p, double alpha, double relerr=1e-2) noexcept {
+    return calculate_estimate(counts, static_cast<JointEstimationMethod>(estim), m, p, alpha, relerr);
 }
 
 template<typename CoreType>
@@ -696,7 +717,7 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     const double cAX = h1.get_is_ready() ? h1.creport() : ertl_ml_estimate(c1, h1.p(), h1.q());
     const double cBX = h2.get_is_ready() ? h2.creport() : ertl_ml_estimate(c2, h2.p(), h2.q());
     const double cABX = ertl_ml_estimate(cu, h1.p(), h1.q());
-    // std::fprintf(stderr, "Made initials: %lf, %lf, %lf\n", cAX, cBX, cABX);
+    std::fprintf(stderr, "Made initials: %lf, %lf, %lf\n", cAX, cBX, cABX);
     std::array<uint32_t, 64> countsAXBhalf;
     std::array<uint32_t, 64> countsBXAhalf;
     countsAXBhalf[q] = h1.m();

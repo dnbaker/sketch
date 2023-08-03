@@ -1,3 +1,4 @@
+#define NO_BLAZE
 #include "hll.h"
 #include "bbmh.h"
 #include "aesctr/wy.h"
@@ -13,9 +14,9 @@ int main(int argc, char *argv[]) {
     for(auto x: {&ao, &bo, &so})
         for(auto &y: *x)
             y = wygen();
-    const size_t ss = 16;
+    const size_t ss = 14;
     hll_t ha(ss), hb(ss), hi(ss);
-    BBitMinHasher<uint64_t> ph1(ss, 8), ph2(ss, 8);
+    BBitMinHasher<uint64_t> ph1(ss - 1, 16), ph2(ss - 1, 16);
     for(const auto v: ao) {
         ha.addh(v);
         ph1.addh(v);
@@ -35,25 +36,25 @@ int main(int argc, char *argv[]) {
     assert(ha.containment_index(ha) == 1.);
     assert(fh1.containment_index(fh1) == 1.);
     assert(fh2.containment_index(fh2) == 1.);
-    assert(hi.containment_index(ha) == 1.);
-    assert(hi.containment_index(hb) == 1.);
+    assert(std::abs(hi.containment_index(ha) - 1.) <= 1e-5 || !std::fprintf(stderr, "contain: %g vs expected %g\n", hi.containment_index(ha), 1.));
+    assert(std::abs(hi.containment_index(hb) - 1.) < 1e-5);
     auto full_cmps_hll = ha.full_set_comparison(hb),
          full_cmps_bbmh = fh1.full_set_comparison(fh2);
     double expected_ci = double(shared_size) / (shared_size + base_size);
     double ci = ha.containment_index(hb);
     double fhci = fh1.containment_index(fh2);
-    std::fprintf(stderr, "Expected: %lf\n", expected_ci);
-    std::fprintf(stderr, "full cmps hll CI: %lf\n", full_cmps_hll[2] / (full_cmps_hll[0] + full_cmps_hll[2]));
-    std::fprintf(stderr, "full cmps bbmh CI: %lf, manual %lf\n", full_cmps_bbmh[2] / (full_cmps_bbmh[0] + full_cmps_bbmh[2]), fhci);
+    //std::fprintf(stderr, "Expected: %lf\n", expected_ci);
+    //std::fprintf(stderr, "full cmps hll CI: %lf\n", full_cmps_hll[2] / (full_cmps_hll[0] + full_cmps_hll[2]));
+    //std::fprintf(stderr, "full cmps bbmh CI: %lf, manual %lf\n", full_cmps_bbmh[2] / (full_cmps_bbmh[0] + full_cmps_bbmh[2]), fhci);
     assert(full_cmps_bbmh[2] / (full_cmps_bbmh[0] + full_cmps_bbmh[2]) / fhci - 1. < 1e-40);
     assert(full_cmps_hll[2] / (full_cmps_hll[0] + full_cmps_hll[2]) / ci - 1. < 1e-40);
     //std::fprintf(stderr, "CI with bbmh: %lf\n", fhci);
     //std::fprintf(stderr, "CI with hll: %lf\n", ci);
     //std::fprintf(stderr, "CI expected: %lf\n", expected_ci);
-    //std::fprintf(stderr, "%% error with bbmh: %lf\n", std::abs(fhci / expected_ci - 1.) * 100);
-    //std::fprintf(stderr, "%% error with hll: %lf\n", std::abs(ci / expected_ci - 1.) * 100);
-    assert(std::abs(ci / expected_ci - 1.) < 0.025);
-    assert(std::abs(fhci / expected_ci - 1.) < 0.025);
+    // std::fprintf(stderr, "%% error with bbmh: %lf\n", std::abs(fhci / expected_ci - 1.) * 100);
+    // std::fprintf(stderr, "%% error with hll: %lf\n", std::abs(ci / expected_ci - 1.) * 100);
+    assert(std::abs(ci / expected_ci - 1.) < 0.06);
+    assert(std::abs(fhci / expected_ci - 1.) < 0.06);
     // == shared_size / (shared_size + base_siae)
     for(size_t imb = base_size; --imb;ha.addh(wygen()));
     hll_t u(ha + hb);

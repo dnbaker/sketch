@@ -29,7 +29,7 @@ __m256i mod256_man(__m256i x, uint32_t d) {
 
 
 int main() {
-    size_t maxn = 10000000;
+    size_t maxn = 1000000;
     for(size_t i = 10; i < maxn; i *= 10) {
         schism::Schismatic<uint64_t> div_(i);
         for(size_t j = 10000; j < 1200000; j += (std::rand() & 0xFFFU)) {
@@ -86,32 +86,11 @@ int main() {
         auto t1 = std::chrono::high_resolution_clock::now();
         for(size_t i = 0; i < nitems; doNotOptimizeAway(sm.mod(u32vals[i++])));
         auto t2 = std::chrono::high_resolution_clock::now();
-        for(size_t i = 0; i < nitems / 8; ++i) {
-            doNotOptimizeAway(
-            sm.mod(_mm256_load_si256((const __m256i *)&u32vals[i * 8]))
-            );
-        }
-        auto t4 = std::chrono::high_resolution_clock::now();
-        for(size_t i = 0; i < nitems; i += 8) {
-            //doNotOptimizeAway(u32vals[i] %= sz);
-            doNotOptimizeAway(mod256_man(_mm256_load_si256((const __m256i *)&u32vals[i]), sz));
-        }
-        auto t6 = std::chrono::high_resolution_clock::now();
-        for(size_t i = 0; i < nitems; i += 8) {
-            //doNotOptimizeAway(u32vals[i] %= sz);
-            doNotOptimizeAway(mod256_div(_mm256_load_si256((const __m256i *)&u32vals[i]), sm));
-        }
-        auto t7 = std::chrono::high_resolution_clock::now();
-        auto ts1 = std::chrono::duration<double, std::milli>(t2 - t1).count();
-        auto ts2 = std::chrono::duration<double, std::milli>(t4 - t2).count();
-        auto ts3 = std::chrono::duration<double, std::milli>(t6 - t4).count();
-        auto ts4 = std::chrono::duration<double, std::milli>(t7 - t6).count();
-        //auto ts3 = std::chrono::duration<double, std::milli>(t6 - t5).count();
-        std::fprintf(stderr, "[%d] Time for serial: %g. Time for SIMD: %g. Time for serial compiler %g. Time for serial div: %g\n", sz, ts1, ts2, ts3, ts4);
-        t7 = std::chrono::high_resolution_clock::now();
+        auto ts3 = std::chrono::duration<double, std::milli>(t2 - t1).count();
+        std::fprintf(stderr, "[%u] %gms for \n", sz, ts3);
         for(size_t i = 0; i < nitems; doNotOptimizeAway(u32vals[i++] % sz));
-        auto t8 = std::chrono::high_resolution_clock::now();
-        auto ts5 = std::chrono::duration<double, std::milli>(t8 - t7).count();
-        std::fprintf(stderr, "[%d] %gms for \n", sz, ts5);
+        auto t3 = std::chrono::high_resolution_clock::now();
+        auto ts5 = std::chrono::duration<double, std::milli>(t3 - t2).count();
+        std::fprintf(stderr, "[%u] %gms for \n", sz, ts5);
     }
 }
