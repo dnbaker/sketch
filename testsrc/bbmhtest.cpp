@@ -85,8 +85,7 @@ VERBOSE_ONLY(
     //b3.show();
     auto f3 = b3.finalize();
     VERBOSE_ONLY(std::fprintf(stderr, "f3 popcount: %" PRIu64 "\n", f3.popcnt());)
-    auto neqb12 = f1.equal_bblocks(f2);
-    VERBOSE_ONLY(std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(neqb12), size_t(f1.equal_bblocks(f1)));)
+    VERBOSE_ONLY(std::fprintf(stderr, "eqb: %zu. With itself: %zu\n", size_t(f1.equal_bblocks(f2)), size_t(f1.equal_bblocks(f1)));)
 }
 
 int main(int argc, char *argv[]) {

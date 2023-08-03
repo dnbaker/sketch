@@ -21,7 +21,7 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -pedantic -Wunused-variable\
         -Wno-cast-align -Wno-sign-compare
 
-FLAGS=-O0 -funroll-loops -pipe $(TARGET_FLAG) -Iinclude/sketch -I. -Iinclude/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
+FLAGS=-O2 -funroll-loops -pipe $(TARGET_FLAG) -Iinclude/sketch -I. -Iinclude/blaze -Ivec -Ipybind11/include -Iinclude -fpic -Wall $(WARNINGS) \
      -fno-strict-aliasing
 
 CXXFLAGS=$(FLAGS) -Wreorder  \
@@ -49,7 +49,7 @@ STD?= -std=c++17
 
 #CCBIN?=-ccbin=clang++
 
-GPUFLAGS= $(CCBIN) -O3 -std=c++14 -Iinclude -I. -Xcompiler $(TARGET_FLAG) -Xcompiler -fopenmp -Iinclude/sketch \
+GPUFLAGS= $(CCBIN) -O2 -std=c++14 -Iinclude -I. -Xcompiler $(TARGET_FLAG) -Xcompiler -fopenmp -Iinclude/sketch \
 		-lz
 
 INCLUDES=-I`$(PYCONF) --includes` -Ipybind11/include

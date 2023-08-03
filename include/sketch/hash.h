@@ -737,7 +737,7 @@ struct InvH {
     const InverseOperation iop;
 
     InvH(uint64_t seed):
-            seed_(seed | std::is_same<Operation, op::multiplies<uint64_t>>::value),
+            seed_(seed | std::is_same<Operation, op::multiplies<uint64_t>>::value), // Ensures that the seed is odd if multiplies, as an odd number is needed for reversibility.
             inverse_(multinv::Inverse64<Operation>()(seed_)), op(), iop() {}
     // To ensure that it is actually reversible.
     INLINE uint64_t inverse(uint64_t hv) const {
@@ -901,8 +901,9 @@ struct XorMultiply: public FusedReversible<InvXor, InvMul > {
 struct MultiplyAdd: public FusedReversible<InvMul, InvAdd> {
     MultiplyAdd(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible<InvMul, InvAdd>(seed1 | 1, seed2 | 1) {}
 };
-struct MultiplyAddXor: public FusedReversible3<InvMul,InvAdd,InvXor> {
-    MultiplyAddXor(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvAdd,InvXor>(seed1 | 1, seed2 | 1) {}
+struct MultiplyAddXor: public FusedReversible3<InvAdd,InvMul,InvXor> {
+    using base = FusedReversible3<InvAdd,InvMul,InvXor>;
+    MultiplyAddXor(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): base(seed1 | 1, seed2 | 1) {}
 };
 template<size_t shift>
 struct MultiplyAddXoRot: public FusedReversible3<InvMul,InvXor,RotN<shift>> {
