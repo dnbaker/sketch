@@ -51,8 +51,7 @@ include_dirs = [
     "../pybind11/include"
 ]
 
-__version__ = subprocess.check_output(
-    ["git", "describe", "--abbrev=4"]).decode().strip().split('-')[0]
+__version__ = "0.19.0"
 
 
 def make_namepair(name):
