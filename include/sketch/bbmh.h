@@ -1017,12 +1017,12 @@ public:
     }
     double intersection_size(const BBitMinHasher &o) const {
         const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);
-        auto f = [numinv](const auto v) {return v * numinv;};
         long double tmp = 0.;
         size_t nshared = 0;
         for(size_t i = 0; i < core_.size(); ++i) {
-            auto v = std::min(core_[i], o.core_[i]);
-            tmp += f(v != detail::default_val<T>() ? v: (std::numeric_limits<T>::max() >> p_));
+            const auto v = std::min(core_[i], o.core_[i]);
+            const long double inc = v != detail::default_val<T>() ? v: (std::numeric_limits<T>::max() >> p_);
+            tmp = std::fma(numinv, inc, tmp);
             nshared += core_[i] == o.core_[i];
         }
         return nshared * std::pow(core_.size(), 2) / (tmp * core_.size());
@@ -1031,11 +1031,16 @@ public:
     double union_size(const BBitMinHasher &o) const {
         //auto it = core_.begin(), oit = o.core_.begin();
         const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);
-        auto f = [numinv](const auto v) {return v * numinv;};
         long double tmp = 0.;
+        // TODO: refactor this as a std::inner_product
         for(size_t i = 0; i < core_.size(); ++i) {
-            auto v = std::min(core_[i], o.core_[i]);
+            const auto v = std::min(core_[i], o.core_[i]);
+            /*
+            auto f = [numinv](const auto v) {return v * numinv;};
             tmp += f(v != detail::default_val<T>() ? v: (std::numeric_limits<T>::max() >> p_));
+            */
+            const long double inc = v != detail::default_val<T>() ? v: (std::numeric_limits<T>::max() >> p_);
+            tmp = std::fma(numinv, inc, tmp);
         }
         return std::pow(core_.size(), 2) / tmp;
     }
@@ -1079,7 +1084,7 @@ public:
                 ++arr[v == detail::default_val<T>() ? 0: integral::clz(v) - diff];
             return hll::detail::ertl_ml_estimate(arr, p_, sizeof(T) * CHAR_BIT - p_, 0);
         }
-        default: HEDLEY_UNREACHABLE(); // IMPOCEROUS
+        default: throw std::runtime_error("Invalid MinHash cardinality method.");
         }
         return sum;
     }
@@ -1306,7 +1311,7 @@ public:
     uint32_t b_, p_;
     std::vector<value_type, Allocator<value_type>> core_;
     FinalBBitMinHash(unsigned p, unsigned b, double est): est_cardinality_(est), b_(b), p_(p),
-        core_(((value_type(b) << p) + 63u) >> 6)
+        core_(((value_type(b) << p) + 63u) >> 6) // Round up to the number of registers needed: divide by 64, add 63 to ensure.
     {
 #if VERBOSE_AF
         std::fprintf(stderr, "Initializing finalbb with %u for b and %u for p. Number of u64s: %zu. Total nbits: %zu\n", b, p, core_.size(), core_.size() * 64);
@@ -1316,10 +1321,10 @@ public:
         decltype(core_) tmp;
         std::swap(tmp, core_);
     }
-    bool operator==(const FinalBBitMinHash &o) const {
+    bool operator==(const FinalBBitMinHash &o) const noexcept {
         return b_ == o.b_ && p_ == o.p_ && std::equal(core_.data(), core_.data() + core_.size(), o.core_.data());
     }
-    bool operator!=(const FinalBBitMinHash &o) const {
+    bool operator!=(const FinalBBitMinHash &o) const noexcept {
         return !operator==(o);
     }
     FinalBBitMinHash(const std::string &path): FinalBBitMinHash(path.data()) {}
@@ -1329,8 +1334,8 @@ public:
     FinalBBitMinHash(gzFile fp): est_cardinality_(0), b_(0), p_(0) {
         read(fp);
     }
-    double cardinality_estimate() const {return est_cardinality_;}
-    size_t nblocks() const {
+    double cardinality_estimate() const noexcept {return est_cardinality_;}
+    size_t nblocks() const noexcept {
         return size_t(1) << p_;
     }
     std::pair<value_type *, size_t> view() {return {core_.data(), core_.size()};}
@@ -1338,15 +1343,16 @@ public:
     FinalBBitMinHash(FinalBBitMinHash &&o) = default;
     FinalBBitMinHash(const FinalBBitMinHash &o) = default;
     template<typename T, typename Hasher=WangHash>
-    FinalBBitMinHash(BBitMinHasher<T, Hasher> &&o): FinalBBitMinHash(std::move(o.finalize())) {
+    FinalBBitMinHash(BBitMinHasher<T, Hasher> &&o) noexcept
+        : FinalBBitMinHash(std::move(o.finalize())) {
         o.free();
     }
     template<typename T, typename Hasher=WangHash>
     FinalBBitMinHash(const BBitMinHasher<T, Hasher> &o): FinalBBitMinHash(std::move(o.finalize())) {}
-    double r() const {
+    double r() const noexcept {
         return std::ldexp(est_cardinality_, -int(sizeof(value_type) * CHAR_BIT - p_));
     }
-    double ab() const {
+    double ab() const noexcept {
         const auto _r = r();
         auto rm1 = 1. - _r;
         auto rm1p = std::pow(rm1, std::ldexp(1., b_) - 1);
