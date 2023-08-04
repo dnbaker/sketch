@@ -2103,10 +2103,6 @@ FinalCountingBBitMinHash<CountingType> CountingBBitMinHasher<T, CountingType, Ha
     return FinalCountingBBitMinHash<CountingType>(std::move(bbm), this->counters_);
 }
 
-template<typename T>
-decltype(auto) intersection_size(const T &x, const T &y) {
-    return x.intersection_size(y);
-}
 
 } // minhash
 namespace mh = minhash;

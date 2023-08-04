@@ -2,7 +2,7 @@
 set -e
 set -o pipefail
 
-make setup_tests -j8
+make setup_tests -j2
 
 while read line
 do

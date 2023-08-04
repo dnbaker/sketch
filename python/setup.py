@@ -29,14 +29,15 @@ march_flag = "-march=native" if not is_on_arm else "-mcpu=apple-m1"
 gomplink_flag = "-lgomp" if "clang" not in os.environ.get(
     'CC', '') else "-lomp"
 
-openmp_flag = ["-fopenmp",
-               gomplink_flag] if os.environ.get("NO_OMP") is None else []
+openmp_flag = []
+if os.environ.get("NO_OMP"):
+    openmp_flag += ["-fopenmp", gomplink_flag]
 
 extra_compile_args = [march_flag,
                       '-Wno-char-subscripts', '-Wno-unused-function',
                       '-Wno-strict-aliasing', '-Wno-ignored-attributes', '-fno-wrapv',
                       '-lz', '-DNDEBUG',
-                      '-DBLAZE_SHARED_MEMORY_PARALLELIZATION=0', "-O3"] + openmp_flag
+                      '-DBLAZE_SHARED_MEMORY_PARALLELIZATION=0', "-O2"] + openmp_flag
 
 include_dirs = [
     # Path to pybind11 headers
@@ -119,7 +120,7 @@ def cpp_flag(compiler):
     """Return the -std=c++[11/14/17] compiler flag.
     The newer version is prefered over c++11 (when it is available).
     """
-    flags = ['-std=c++2a', '-std=c++17', '-std=c++14', '-std=c++11']
+    flags = ['-std=c++20', '-std=c++2a', '-std=c++17', '-std=c++14', '-std=c++11']
 
     for flag in flags:
         if has_flag(compiler, flag):
@@ -170,12 +171,12 @@ class BuildExt(build_ext):
 
 
 setup(
-    name='sketch',
+    name='sketch_ds',
     version=__version__,
     author='Daniel Baker',
     author_email='dnb@cs.jhu.edu',
     url='https://github.com/dnbaker/sketch',
-    description='A python module for constructing and comparing sketches',
+    description='A python module for constructing and comparing sketch data structures',
     long_description='',
     ext_modules=ext_modules,
     install_requires=['pybind11>=2.4'],
