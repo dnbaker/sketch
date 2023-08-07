@@ -911,9 +911,12 @@ private:
     fy::LazyShuffler ls_;
 
     bool sub_update(const uint64_t pos, const FT value, const uint64_t element_idx) {
-        auto start = l_ * pos, stop = start + l_ - 1;
-        if(value >= vals[stop]) return false;
-        uint64_t ix;
+        const auto start = l_ * pos;
+        const auto stop = start + l_ - 1;
+        if(value >= vals[stop]) {
+            return false;
+        }
+        uint64_t ix = stop;
         for(ix = stop;ix > start && value < vals[ix - 1]; --ix) {
             vals[ix] = vals[ix - 1];
             indices[ix] = indices[ix - 1];
@@ -933,18 +936,32 @@ private:
         rng ^= it->second;
         uint64_t rv = wy::wyhash64_stateless(&rng); // RNG with both item and count
 
-        FT f = std::log((rv >> 12) * 2.220446049250313e-16);
+        FT f = -std::log(rv * 0x1p-64);
         ls_.reset();
         ls_.seed(rv);
         uint32_t n = 0;
-        for(;f < mvt.max();) {
-            uint32_t idx = ls_.step();
-            if(sub_update(idx, f, item_index) && f >= mvt.max()) break;
-            if(++n == m_) break;
-            const FT inc = std::log((wy::wyhash64_stateless(&rng) >> 12) * 2.220446049250313e-16)
-                 * (m_ / (m_ - n));
+        for(;;) {
+            const uint32_t idx = ls_.step();
+            sub_update(idx, f, item_index);
+            if(f >= mvt.max()) {
+                std::fprintf(stderr, "f: %g. max: %g\n", f, mvt.max());
+                break;
+            }
+            if(n == m_ + 1) {
+                // This should never happen
+                std::fprintf(stderr, "n = m * 2: %u/%u\n", n, int(m_));
+                std::exit(1);
+                throw std::runtime_error("Failed to update sketch properly.\n");
+                break;
+            }
+            ++n;
+            const uint64_t rv = wy::wyhash64_stateless(&rng);
+            const double rd = (rv + 1) * 0x1p-64;
+            const FT inc = -std::log(rd) * (static_cast<double>(m_) / (m_ - n));
             kahan::update(f, carry, inc);
-            // Sample from exponential distribution, then divide by number
+            if(f >= mvt.max()) {
+                break;
+            }
         }
     }
 public:
@@ -959,8 +976,9 @@ public:
     template<typename T>
     std::vector<uint64_t> hash(const T *ptr, size_t n) {
         reset();
-        for(size_t i = 0; i < n; ++i)
+        for(size_t i = 0; i < n; ++i) {
             update(ptr[i], i);
+        }
         return finalize(ptr);
     }
     template<typename T, typename Traits, typename Alloc>
@@ -975,17 +993,20 @@ public:
 
     template<typename T>
     std::vector<uint64_t> finalize(const T *data) const {
+        assert(indices.size() == m_ * l_);
+        if(*std::max_element(indices.begin(), indices.end()) == std::numeric_limits<uint64_t>::max()) {
+            throw std::runtime_error("Cannot complete an OrderMinHash with infinite indexes selected. This is either a bug or you are finalizing an item built from an empty string.");
+        }
         std::vector<uint64_t> ret(m_);
-        std::unique_ptr<T[]> up(new T[l_]);
-        auto p = up.get();
+        std::vector<T> up(l_);
         XXH3_state_t state;
         for(size_t i = 0; i < m_; ++i) {
             auto indptr = &indices[l_ * i];
-            std::copy(indptr, indptr + l_, p);
-            std::sort(p, p + l_);
+            std::copy(indptr, indptr + l_, up.begin());
+            std::sort(up.begin(), up.end());
             XXH3_64bits_reset(&state);
             for(size_t j = 0; j < l_; ++j) {
-                XXH3_64bits_update(&state, data + p[j], sizeof(T));
+                XXH3_64bits_update(&state, data + up[j], sizeof(T));
             }
             ret[i] = XXH3_64bits_digest(&state);
         }
@@ -994,7 +1015,7 @@ public:
 
     void reset() {
         std::fill(vals.begin(), vals.end(), std::numeric_limits<FT>::max());
-        std::fill(indices.begin(), indices.end(), std::numeric_limits<FT>::max());
+        std::fill(indices.begin(), indices.end(), std::numeric_limits<uint64_t>::max());
         mvt.reset();
         counter.clear();
     }

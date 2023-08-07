@@ -48,20 +48,22 @@ struct AsymmetricCmpFunc {
     template<typename Func, typename Sketch>
     static py::array_t<float> apply_sketch(py::list l, const Func &func) {
         std::vector<Sketch *> ptrs(l.size(), nullptr);
-        size_t i = 0;
-        for(py::handle ob: l) {
+        std::transform(l.begin(), l.end(), ptrs.begin(), [](py::handle ob) {
             auto lp = ob.cast<Sketch *>();
             if(!lp) throw std::runtime_error("Failed to cast to Sketch *");
-            ptrs[i++] = lp;
-        }
-        const size_t lsz = l.size();
+            return lp;
+        });
+        const int64_t lsz = l.size();
         py::array_t<float> ret({lsz, lsz});
-        float *ptr = static_cast<float *>(ret.request().ptr);
-        for(size_t i = 0; i < lsz; ++i) {
+        float *const ptr = static_cast<float *>(ret.request().ptr);
+        for(int64_t i = 0; i < lsz; ++i) {
+            const int64_t i_offset = i * lsz;
+            const Sketch& i_sketch = *ptrs[i];
             OMP_PFOR
-            for(size_t j = 0; j < lsz; ++j) {
-			    ptr[i * lsz + j] = func(*ptrs[i], *ptrs[j]);
-			    ptr[j * lsz + i] = func(*ptrs[j], *ptrs[i]);
+            for(int64_t j = 0; j < lsz; ++j) {
+                const Sketch& j_sketch = *ptrs[j];
+			    ptr[i_offset + j] = func(i_sketch, j_sketch);
+			    ptr[j * lsz + i] = func(j_sketch, i_sketch);
             }
         }
         return ret;
@@ -84,12 +86,12 @@ struct CmpFunc {
         throw std::runtime_error("Unsupported type");
         HEDLEY_UNREACHABLE();
     }
-    template<typename Func, typename SketchType=hll_t>
+    template<typename Func, typename Sketch=hll_t>
     static py::array_t<float> apply_sketch(py::list l, const Func &func) {
-        std::vector<SketchType *> ptrs(l.size(), nullptr);
+        std::vector<Sketch *> ptrs(l.size(), nullptr);
         size_t i = 0;
         for(py::handle ob: l) {
-            auto lp = ob.cast<SketchType *>();
+            auto lp = ob.cast<Sketch *>();
             if(!lp) throw std::runtime_error("Failed to coerce to HLL");
             ptrs[i++] = lp;
         }
@@ -97,11 +99,13 @@ struct CmpFunc {
         py::array_t<float> ret(nc2);
         float *ptr = static_cast<float *>(ret.request().ptr);
         for(size_t i = 0; i < lsz; ++i) {
-            const auto lhp = ptrs[i];
+            const Sketch& lhr = *ptrs[i];
             OMP_PFOR
             for(size_t j = i + 1; j < lsz; ++j) {
-                size_t access_index = ((i * (lsz * 2 - i - 1)) / 2 + j - (i + 1));
-			    ptr[access_index] = func(*lhp, *ptrs[j]);
+                const size_t access_index = ((i * (lsz * 2 - i - 1)) / 2 + j - (i + 1));
+                float& destination = ptr[access_index];
+                const Sketch& rhr = *ptrs[i];
+                destination = func(lhr, rhr);
             }
         }
         return ret;

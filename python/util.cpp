@@ -13,30 +13,27 @@ struct dumbrange {
 template<typename T>
 inline dumbrange<T> make_dumbrange(T beg, T end) {return dumbrange<T>(beg, end);}
 
-inline uint64_t xxhash(py::str x, uint64_t seed) {
+inline uint64_t xxhash(py::str x, const uint64_t seed) {
     Py_ssize_t sz;
-    auto cstr = PyUnicode_AsUTF8AndSize(x.ptr(), &sz);
+    const char*const cstr = PyUnicode_AsUTF8AndSize(x.ptr(), &sz);
     if(!cstr) throw std::invalid_argument("hash has no c string?");
     return XXH3_64bits_withSeed(static_cast<const void *>(cstr), sz, seed);
 }
 
-XXH3_state_t fromseed(uint64_t seed) {
+XXH3_state_t fromseed(const uint64_t seed) {
     XXH3_state_t state;
-    if(seed)
-        XXH3_64bits_reset_withSeed(&state, seed);
-    else
-        XXH3_64bits_reset(&state);
+    XXH3_64bits_reset_withSeed(&state, seed);
     return state;
 }
 
 inline uint64_t xxhash(py::str x) {
     Py_ssize_t sz;
-    auto cstr = PyUnicode_AsUTF8AndSize(x.ptr(), &sz);
+    const char* const cstr = PyUnicode_AsUTF8AndSize(x.ptr(), &sz);
     if(!cstr) throw std::invalid_argument("hash has no c string?");
     return XXH3_64bits(static_cast<const void *>(cstr), sz);
 }
 
-inline uint64_t xxhash(py::list x, uint64_t seed=0) {
+inline uint64_t xxhash(py::list x, const uint64_t seed=0) {
     XXH3_state_t state = fromseed(seed);
     Py_ssize_t sz;
     for(auto obj: x) {
@@ -47,8 +44,8 @@ inline uint64_t xxhash(py::list x, uint64_t seed=0) {
     return XXH3_64bits_digest(&state);
 }
 
-py::array_t<uint64_t> xxhash_ngrams(py::list x, Py_ssize_t n, uint64_t seed) {
-    auto lx = len(x);
+py::array_t<uint64_t> xxhash_ngrams(py::list x, const Py_ssize_t n, const uint64_t seed) {
+    const auto lx = len(x);
     py::array_t<uint64_t> ret(std::max(Py_ssize_t(lx - n + 1), Py_ssize_t(0)));
     if(!ret.size()) {
         return ret;
@@ -180,7 +177,7 @@ PYBIND11_MODULE(sketch_util, m) {
         return sketch::eq::count_eq(lhs.data(), rhs.data(), lhs.size());\
     }, py::arg("lhs"), py::arg("rhs"))\
     .def("ccount_eq", [](py::array_t<TYPE, py::array::c_style> &lhs, py::array_t<TYPE, py::array::c_style> &rhs, py::int_ nthreads) {\
-        {py::ssize_t nt = nthreads.cast<py::ssize_t>(); OMP_ONLY(if(nt >= 1) omp_set_num_threads(nt);)}\
+        OMP_ONLY({py::ssize_t nt = nthreads.cast<py::ssize_t>(); if(nt >= 1) omp_set_num_threads(nt);})\
         py::buffer_info lhi = lhs.request(), rhi = rhs.request(), retinf;\
         py::object retarr = py::none();\
         if(lhi.shape.at(1) != rhi.shape.at(1)) throw std::invalid_argument("Mismatched sizes");\

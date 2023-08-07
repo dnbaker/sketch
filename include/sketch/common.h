@@ -100,6 +100,11 @@ inline double jaccard_index(BloomType &h1, BloomType &h2) {
     return h1.jaccard_index(h2);
 }
 
+template<typename T>
+decltype(auto) intersection_size(const T &x, const T &y) {
+    return x.intersection_size(y);
+}
+
 using std::uint64_t;
 using std::uint32_t;
 using std::uint16_t;

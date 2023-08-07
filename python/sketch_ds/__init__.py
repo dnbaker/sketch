@@ -5,11 +5,18 @@ import sketch_bf as bf
 import sketch_hmh as hmh
 import sketch_ss as setsketch
 import sketch_lsh as lsh
+from .sketch_test import all_tests
 from collections import namedtuple
 
 from sketch_util import *
 
 SetSketchParams = namedtuple("SetSketchParams", 'a, b')
+
+
+def test():
+    for test in all_tests:
+        test()
+
 
 def optimal_ab(maxv, minv, *, q):
     '''

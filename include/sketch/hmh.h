@@ -189,12 +189,13 @@ public:
     template<typename IT, typename Func>
     void __for_each_union_vector(const hmh_t &o, const Func &func) const {
         using Space = vec::SIMDTypes<IT>;
-        auto d  = reinterpret_cast<const typename Space::Type *>(data_.data()),
-             e  = d + ((num_registers() / Space::COUNT) * Space::COUNT);
+        auto d = reinterpret_cast<const typename Space::Type *>(data_.data());
+        const auto e  = d + ((num_registers() / Space::COUNT) * Space::COUNT);
         auto od = reinterpret_cast<const typename Space::Type *>(o.data_.data());
-        SK_UNROLL_8
-        while(d < e)
-            func(Space::max(Space::load(d++), Space::load(od++)));
+        while(d != e) {
+            func(Space::max(Space::load(d), Space::load(od)));
+            ++d, ++od;
+        }
     }
 #endif
     template<typename IT, typename Func>
@@ -414,16 +415,18 @@ public:
         double ret = 0.;
 #ifndef VEC_DISABLED_H__
         if(data_.size() >= sizeof(vec::SIMDTypes<uint64_t>::Type)) {
-            auto maxremi = max_remainder();
-            double maxrem = maxremi, mri = 1. / (maxrem), mrx2 = 2. * maxrem;
+            const uint64_t maxremi = max_remainder();
+            const double maxrem = maxremi;
+            const double mri = 1. / (maxrem);
+            const double mrx2 = 2. * maxrem;
             switch(lrszm3_) {
 #undef CASE_U
 #define CASE_U(type, i, rshift) case i: \
-            __for_each_union_vector<type>(o, [&](auto v) { \
+            __for_each_union_vector<type>(o, [&](const auto v) noexcept { \
                 using Space = vec::SIMDTypes<type>;\
                 using VType = Space::VType;\
-                auto lzcs = VType(Space::srli(v, rshift));\
-                auto rems = Space::and_fn(v, Space::set1(maxremi));\
+                const auto lzcs = VType(Space::srli(v, rshift));\
+                const auto rems = Space::and_fn(v, Space::set1(maxremi));\
                 for(unsigned j = 0; j < sizeof(VType) / sizeof(type); ++j) \
                     ret += mrx2 - double(((const type *)&rems)[j]) * mri * INVPOWERSOFTWO[((const type *)&lzcs)[j]];\
             }); break
@@ -433,7 +436,7 @@ public:
             return mhsum2ret(ret, p_);
         }
 #endif
-        for_each_union_lzrem(o, [&](auto lzc, auto rem) {
+        for_each_union_lzrem(o, [&](const auto lzc, const auto rem) noexcept {
             switch(r_) {
                 case 2: __lzrem_func<2>(lzc, rem, ret); break;
                 case 10: __lzrem_func<10>(lzc, rem, ret); break;

@@ -263,6 +263,10 @@ public:
 #endif
     }
 
+    double intersection_size(const bfbase_t& other) const {
+        return intersection_count(other);
+    }
+
     double union_size(const bfbase_t &other) const {
         PREC_REQ(same_params(other), "Can't compare different-sized bloom filters.");
         auto &oc = other.core_;
@@ -818,20 +822,6 @@ sparsebf_t<T, Alloc>::sparsebf_t(const bfbase_t<Hash> &dense): core_(dense.templ
 }
 
 using bf_t = bfbase_t<>;
-
-// Returns the size of the set intersection
-template<typename BloomType>
-inline double intersection_size(BloomType &, BloomType &) {
-    throw std::runtime_error("NotImplementedError");
-    return 0.;
-}
-
-
-template<typename BloomType>
-static inline double intersection_size(const BloomType &, const BloomType &) {
-    throw std::runtime_error("NotImplementedError");
-    return 0.;
-}
 
 #undef REPEAT_7
 #undef REPEAT_8
