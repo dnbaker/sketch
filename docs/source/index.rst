@@ -27,8 +27,8 @@ One-line installation::
 
 At this point, you will simply import sketch from python::
 
-    import sketch
-    HLL = sketch.hll.hll
+    import sketch_ds
+    HLL = sketch_ds.hll.hll
     h = HLL(10)
     for i in range(10000): h.addh(i)
     print("Estimated cardinality: %f" % h.report())
@@ -56,22 +56,22 @@ Features
 Modules
 ========
 There are separate modules for each sketch structure for which there are bindings.
- * sketch.hll, providing HyperLogLog and comparison, and serialization functions
- * sketch.bf, providing Bloom Filters and comparison, and serialization functions
- * sketch.bbmh, providing b-bit minhash implementation + comparison, and serialization functions
- * sketch.setsketch, providing set sketch + comparison, and serialization functions
+ * sketch_ds.hll, providing HyperLogLog and comparison, and serialization functions
+ * sketch_ds.bf, providing Bloom Filters and comparison, and serialization functions
+ * sketch_ds.bbmh, providing b-bit minhash implementation + comparison, and serialization functions
+ * sketch_ds.setsketch, providing set sketch + comparison, and serialization functions
 
 
 For each of these, the module provides construction - either taking parameters or a path to a file.
 Each of these can be written to and read from a file with .write() and a constructor.
 
 They can be compared with each other with member functions, or you can calculate comparison matrices via
-**sketch.util.jaccard\_matrix**, **sketch.util.containment\_matrix**, **sketch.util.union\_size\_matrix**, **sketch.util.intersection_matrix**, all of which are in the util module.
+**sketch_ds.util.jaccard\_matrix**, **sketch_ds.util.containment\_matrix**, **sketch_ds.util.union\_size\_matrix**, **sketch_ds.util.intersection_matrix**, all of which are in the util module.
 
 Additionally, there are utilities for pairwise distance calculation in the `util` module.
 
 
-Additional utilities: sketch.util
+Additional utilities: sketch_ds.util
 =====================
 
 * fastdiv/fastmod:

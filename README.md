@@ -118,15 +118,17 @@ By default, updates to the hyperloglog structure to occur using atomic operation
 ## Python bindings
 Python bindings are available via pybind11. Simply `cd python && python setup.py install`.
 
+The package has been renamed to `sketch_ds` as of v0.19
+
 Utilities include:
     1. Sketching/serialization for sketch data structures
-        1. Supported: sketch.bbmh.BBitMinHasher, sketch.bf.bf, sketch.hmh.hmh, sketch.hll.hll
+        1. Supported: sketch_ds.bbmh.BBitMinHasher, sketch_ds.bf.bf, sketch_ds.hmh.hmh, sketch_ds.hll.hll
     2. shs\_isz, which computes the intersection size of sorted hash sets.
         1. Supported: {uint,int}{32,64}, float32, float64
     3. fastmod/fastdiv, which uses the fast modulo reduction to do faster division/mod than numpy.
         1. Supportd: {uint,int}{32,64}
     4. matrix generation functions - taking a list of sketches and creating the similarity function matrix.
-        1. Supported: sketch.bbmh.BBitMinHasher, sketch.bf.bf, sketch.hmh.hmh, sketch.hll.hll
+        1. Supported: sketch_ds.bbmh.BBitMinHasher, sketch_ds.bf.bf, sketch_ds.hmh.hmh, sketch_ds.hll.hll
         2. Types: "jaccard_matrix", "intersection_matrix", "containment_matrix", "union_size_matrix", "symmetric_containment_matrix"
         3. Returns a compressed distance matrix.
     5. ccount\_eq, pcount\_eq compute the number of identical registers between integral registers.
