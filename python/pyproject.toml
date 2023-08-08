@@ -1,0 +1,23 @@
+[project]
+name = "sketch_ds"
+version = "0.19.0"
+authors = [
+  { name="Daniel Baker", email="dnb@cs.jhu.edu" },
+]
+description = "A Python module for constructing and comparing sketch data structures"
+readme = "README.md"
+requires-python = ">=3.5"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/dnbaker/sketch"
+"Bug Tracker" = "https://github.com/dnbaker/sketch/issues"
+
+[build-system]
+# Minimum requirements for the build system to execute.
+requires = ["setuptools", "wheel", "pybind11>=2.4"]  # PEP 508 specifications.
+build-backend = "setuptools.build_meta"
