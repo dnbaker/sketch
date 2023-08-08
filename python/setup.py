@@ -9,6 +9,7 @@ import setuptools
 is_on_arm = "arm" in subprocess.check_output(
     "uname -p", shell=True).decode('utf-8').strip()
 
+CWD = os.environ["SKETCH_DS"]
 
 class get_pybind_include(object):
     """Helper class to determine the pybind11 include path
@@ -43,13 +44,15 @@ include_dirs = [
     # Path to pybind11 headers
     get_pybind_include(),
     get_pybind_include(user=True),
-    "../",
-    "../libpopcnt",
-    "../include",
-    "../include/vec",
-    "../include/blaze",
-    "../..",
-    "../pybind11/include"
+    CWD + "/../",
+    CWD + "/../libpopcnt",
+    CWD + "/../include",
+    CWD + "/./include",
+    CWD + "/../include/vec",
+    CWD + "/../include/blaze",
+    CWD + "/../..",
+    CWD + "/../pybind11/include",
+    CWD
 ]
 
 __version__ = "0.19.0"
@@ -151,6 +154,7 @@ class BuildExt(build_ext):
         l_opts['unix'] += darwin_opts
 
     def build_extensions(self):
+        print(os.getcwd(), " is PWD during building", file=sys.stderr)
         ct = self.compiler.compiler_type
         opts = self.c_opts.get(ct, [])
         link_opts = self.l_opts.get(ct, [])
@@ -169,6 +173,8 @@ class BuildExt(build_ext):
             ext.extra_link_args = link_opts + extra_link_opts
         build_ext.build_extensions(self)
 
+print(os.getcwd(), " is PWD", file=sys.stderr)
+
 
 setup(
     name='sketch_ds',
@@ -179,8 +185,6 @@ setup(
     description='A python module for constructing and comparing sketch data structures',
     long_description='',
     ext_modules=ext_modules,
-    install_requires=['pybind11>=2.4'],
-    setup_requires=['pybind11>=2.4'],
     cmdclass={'build_ext': BuildExt},
     zip_safe=False,
     packages=find_packages()
