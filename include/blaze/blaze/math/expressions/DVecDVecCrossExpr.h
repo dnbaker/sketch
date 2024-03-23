@@ -463,7 +463,7 @@ class DVecDVecCrossExpr
    // \param index Access index. The index has to be in the range \f$[0..N-1]\f$.
    // \return Reference to the accessed values.
    */
-   BLAZE_ALWAYS_INLINE auto load( size_t index ) const noexcept {
+   BLAZE_ALWAYS_INLINE auto load( [[maybe_unused]] size_t index ) const noexcept {
       BLAZE_INTERNAL_ASSERT( index == 0UL, "Invalid vector access index" );
       LT x( serial( lhs_ ) );  // Evaluation of the left-hand side dense vector operand
       RT y( serial( rhs_ ) );  // Evaluation of the right-hand side dense vector operand
