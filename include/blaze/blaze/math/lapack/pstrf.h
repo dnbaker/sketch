@@ -158,7 +158,7 @@ inline blas_int_t pstrf( DenseMatrix<MT,SO>& A, char uplo, blas_int_t* piv, ST t
 
    BLAZE_INTERNAL_ASSERT( info >= 0, "Invalid argument for Cholesky decomposition" );
 
-   for( size_t i=0UL; i<n; ++i ) {
+   for( blas_int_t i=0; i<n; ++i ) {
       --piv[i];  // Adapt from Fortran 1-based to C 0-based indexing
    }
 
