@@ -187,7 +187,7 @@ public:
         } else {
             static_assert(sizeof(val) % sizeof(T) == 0, "val must be the same size or greater than inserted element.");
             T *ptr = reinterpret_cast<T *>(&val);
-            for(unsigned i = 0; i < sizeof(val) / sizeof(T); add(ptr[i++]));
+            for(uint32_t i = 0; i < sizeof(val) / sizeof(T); add(ptr[i++]));
         }
     }
     auto begin() {return minimizers_.begin();}
@@ -277,7 +277,7 @@ struct DictWeight {
 
 template<typename T, typename Allocator=std::allocator<T>>
 struct FinalRMinHash {
-    static_assert(std::is_unsigned<T>::value, "must be unsigned btw");
+    static_assert(std::is_unsigned<T>::value, "must be uint32_t btw");
 
     using allocator = Allocator;
     std::vector<T, Allocator> first;
@@ -1036,7 +1036,7 @@ public:
             OMP_PFOR
             for(size_t i = 0; i < nh_; ++i) {
                 std::fprintf(stderr, "Starting caching for hash %zu/%u\n", i, nh_);
-                unsigned left_to_find = nd_;
+                uint32_t left_to_find = nd_;
                 uint64_t searchseed = seeds_[i];
                 for(size_t cind = 0;;++cind) {
                     uint64_t val = preseed2final(searchseed + cind);
@@ -1101,7 +1101,7 @@ public:
 
         std::fill(ret, ret + this->nh_, std::numeric_limits<Signature>::max());
         CONST_IF(weighted) {
-            for(unsigned i = 0; i < nh_; ++i) {
+            for(uint32_t i = 0; i < nh_; ++i) {
                 for(auto &pair: x) {
                     ret[i] = std::min(mintimes[pair.index() * nh_ + i], ret[i]);
                 }
@@ -1144,7 +1144,7 @@ public:
                     ret[i] = std::min(ret[i], mintimes[ind * this->nh_ + i]);
 #else
                 SK_UNROLL_8
-                for(unsigned i = 0;i < this->nh_; ++i) {
+                for(uint32_t i = 0;i < this->nh_; ++i) {
                     ret[i] = std::min(ret[i], mintimes[ind * this->nh_ + i]);
                 }
 #endif

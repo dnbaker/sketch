@@ -13,10 +13,10 @@ class fhllbase_t {
     using hll_t = hll::hllbase_t<HashType>;
     cbf_t cbf_;
     hll_t hll_;
-    unsigned threshold_;
+    uint32_t threshold_;
 public:
-    fhllbase_t(unsigned np_, size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval,
-               unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE):
+    fhllbase_t(uint32_t np_, size_t nbfs, size_t l2sz, uint32_t nhashes, uint64_t seedseedseedval,
+               uint32_t threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE):
         cbf_(nbfs, l2sz, nhashes, seedseedseedval), hll_(np_, estim, jestim), threshold_(threshold) {
         if(threshold > (1u << (nbfs - 1))) throw std::runtime_error("Count threshold must be countable-to");
     }
@@ -32,8 +32,8 @@ public:
         hll_.clear();
         cbf_.clear();
     }
-    void set_threshold(unsigned threshold) {threshold_ = threshold;}
-    void resize_bloom(unsigned newnp) {
+    void set_threshold(uint32_t threshold) {threshold_ = threshold;}
+    void resize_bloom(uint32_t newnp) {
         cbf_.resize_sketches(newnp);
     }
     auto threshold() const {return threshold_;}
@@ -60,11 +60,11 @@ class pcbfhllbase_t {
     using hll_t = hll::hllbase_t<HashType>;
     bf::pcbfbase_t<HashType> pcb_;
     hll_t                    hll_;
-    unsigned           threshold_;
+    uint32_t           threshold_;
     uint64_t     seedseedseedval_;
 public:
-    pcbfhllbase_t(unsigned filternp_, unsigned subnp_, size_t nbfs, size_t l2sz, unsigned nhashes, uint64_t seedseedseedval,
-                  unsigned threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=true):
+    pcbfhllbase_t(uint32_t filternp_, uint32_t subnp_, size_t nbfs, size_t l2sz, uint32_t nhashes, uint64_t seedseedseedval,
+                  uint32_t threshold, hll::EstimationMethod estim=hll::ERTL_MLE, hll::JointEstimationMethod jestim=hll::ERTL_JOINT_MLE, bool shrinkpow2=true):
             pcb_(nbfs, l2sz, nhashes, seedseedseedval, subnp_, estim, jestim, shrinkpow2),
             hll_(filternp_, estim, jestim), threshold_{threshold}, seedseedseedval_(seedseedseedval)
     {
@@ -86,10 +86,10 @@ public:
         hll_.clear();
         pcb_.clear();
     }
-    void resize_bloom(unsigned newsize) {
+    void resize_bloom(uint32_t newsize) {
         pcb_.resize_bloom(newsize);
     }
-    void set_threshold(unsigned threshold) {threshold_ = threshold;}
+    void set_threshold(uint32_t threshold) {threshold_ = threshold;}
     auto threshold() const {return threshold_;}
     void not_ready() {hll_.not_ready();}
     hll_t       &hll()       {return hll_;}

@@ -11,8 +11,8 @@ std::string bf2str(const bf_t &h) {
 PYBIND11_MODULE(sketch_bf, m) {
     m.doc() = "Bloom Filter support"; // optional module docstring
     py::class_<bf_t> (m, "bf")
-        .def(py::init<size_t, unsigned, uint64_t>())
-        .def(py::init<size_t, unsigned>())
+        .def(py::init<size_t, uint32_t, uint64_t>())
+        .def(py::init<size_t, uint32_t>())
         .def(py::init<std::string>())
         .def("clear", &bf_t::clear, "Clear all entries.")
         .def("resize", &bf_t::resize, "Change old size to a new size.")

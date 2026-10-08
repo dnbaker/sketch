@@ -390,7 +390,7 @@ struct HasherSet {
             hashers_.emplace_back(mt());
     }
     size_t size() const {return hashers_.size();}
-    uint64_t operator()(uint64_t v, unsigned ind) const {
+    uint64_t operator()(uint64_t v, uint32_t ind) const {
         return hashers_[ind](v);
     }
     uint64_t operator()(uint64_t) const {throw std::runtime_error("Should not be called.");}
@@ -410,10 +410,10 @@ struct XORSeedHasherSet {
         seeds_(nh)
     {
         std::mt19937_64 mt(seedseed);
-        for(unsigned i = 0; i < nh; seeds_[i++] = mt());
+        for(uint32_t i = 0; i < nh; seeds_[i++] = mt());
     }
     size_t size() const {return seeds_.size();}
-    uint64_t operator()(uint64_t v, unsigned ind) const {
+    uint64_t operator()(uint64_t v, uint32_t ind) const {
         return hasher_(v ^ seeds_[ind]);
     }
 #ifndef VEC_DISABLED__
@@ -456,7 +456,7 @@ struct HasherSet {
             hashers_.emplace_back(mt());
     }
     size_t size() const {return hashers_.size();}
-    uint64_t operator()(uint64_t v, unsigned ind) const {
+    uint64_t operator()(uint64_t v, uint32_t ind) const {
         return hashers_[ind](v);
     }
     uint64_t operator()(uint64_t v) const {throw std::runtime_error("Should not be called.");}
@@ -692,8 +692,10 @@ struct Rot {
     template<typename T>
     INLINE T constexpr operator()(T val) const {
         static_assert(n < sizeof(T) * CHAR_BIT, "Can't shift more than the width of the type.");
-        return left ? (val << n) ^ (val >> (64 - n))
-                    : (val >> n) ^ (val << (64 - n));
+        // Use T's actual width: with a literal 64 a uint32_t instantiation
+        // would shift by >= 32 (UB).
+        return left ? T(val << n) ^ T(val >> (sizeof(T) * CHAR_BIT - n))
+                    : T(val >> n) ^ T(val << (sizeof(T) * CHAR_BIT - n));
     }
     template<typename T>
     INLINE T constexpr inverse(T val) const {

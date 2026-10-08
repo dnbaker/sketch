@@ -43,8 +43,9 @@ public:
         if(o.sum_) {
             if(!sum_)
                 sum_.reset(new std::array<uint32_t, 64>);
-            *sum_ = o.sum_;
+            *sum_ = *o.sum_;
         } else if(sum_) sum_.reset(nullptr);
+        return *this;
     }
     SparseHLL(const SparseHLL &o): p_(o.p_), vals_(o.vals_), v_(o.v_) {
 #if VERBOSE_AF
@@ -80,7 +81,7 @@ public:
         }
         return true;
     }
-    unsigned q() const {return 64 - p_;}
+    uint32_t q() const {return 64 - p_;}
     std::array<uint32_t, 64> sum() const {
         assert(is_sorted());
         std::array<uint32_t, 64> ret{0};
@@ -191,13 +192,13 @@ public:
                     ++ind;
                 }
 #if VERBOSE_AF
-                std::fprintf(stderr, "saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), unsigned(SparseHLL32::get_value(buf[ind])), buf[ind]);
+                std::fprintf(stderr, "saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), uint32_t(SparseHLL32::get_value(buf[ind])), buf[ind]);
 #endif
-                assert(vals_.empty() || buf[ind] > vals_.back() || std::fprintf(stderr, "ind is %u\n", unsigned(ind)) == 0);
+                assert(vals_.empty() || buf[ind] > vals_.back() || std::fprintf(stderr, "ind is %u\n", uint32_t(ind)) == 0);
                 vals_.push_back(buf[ind++]);
             } else {
 #if VERBOSE_AF
-                std::fprintf(stderr, "ind is nelem - 1, and saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), unsigned(SparseHLL32::get_value(buf[ind])), buf[ind]);
+                std::fprintf(stderr, "ind is nelem - 1, and saving for index: %u, has value %u and fully encoded value %u\n", SparseHLL32::get_index(buf[ind]), uint32_t(SparseHLL32::get_value(buf[ind])), buf[ind]);
 #endif
                 vals_.push_back(buf[ind++]);
             }

@@ -126,8 +126,8 @@ public:
     }
     void read(gzFile ifp) {
         uint64_t nelem;
-        if(gzread(ifp, &mod_, sizeof(mod_)) != unsigned(sizeof(mod_)) ||
-           gzread(ifp, &nelem, sizeof(nelem)) != unsigned(sizeof(nelem)))
+        if(gzread(ifp, &mod_, sizeof(mod_)) != uint32_t(sizeof(mod_)) ||
+           gzread(ifp, &nelem, sizeof(nelem)) != uint32_t(sizeof(nelem)))
             throw ZlibError("Wrong number of bytes");
         this->first.resize(nelem);
         if(gzread(ifp, this->first.data(), nelem * sizeof(T)) != int64_t(nelem * sizeof(T)))

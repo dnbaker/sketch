@@ -71,7 +71,7 @@ def make_module(namecppf):
 
 
 ext_modules = list(map(make_module, map(
-    make_namepair, ('hll', 'bbmh', 'util', 'bf', 'hmh', 'ss', 'lsh'))))
+    make_namepair, ('hll', 'bbmh', 'util', 'bf', 'hmh', 'ss', 'lsh', 'ull', 'ell', 'fmh', 'dmh', 'pmh'))))
 
 '''
 ext_modules = [
@@ -152,6 +152,17 @@ class BuildExt(build_ext):
 
     def build_extensions(self):
         ct = self.compiler.compiler_type
+        # On macOS, if the environment CXX resolves to a broken/missing-
+        # headers clang (e.g. Homebrew LLVM without a sysroot), fall back
+        # to gcc-15 from Homebrew when available.
+        if sys.platform == 'darwin' and os.path.exists('/usr/local/bin/g++-15'):
+            try:
+                cxx = self.compiler.compiler_cxx[0]
+                if 'clang' in cxx and '/usr/local/bin/g++-15' not in cxx:
+                    self.compiler.compiler_cxx.insert(0, '/usr/local/bin/g++-15')
+                    self.compiler.compiler_so.insert(0, '/usr/local/bin/gcc-15')
+            except (AttributeError, IndexError):
+                pass
         opts = self.c_opts.get(ct, [])
         link_opts = self.l_opts.get(ct, [])
         if ct == 'unix':

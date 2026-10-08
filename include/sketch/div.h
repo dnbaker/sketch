@@ -75,7 +75,7 @@ INLINE __m128i cvtepi64_epi32_avx(__m256i v)
 }
 static inline __m256i mul64_haswell (__m256i a, __m256i b);
 static INLINE __m256i mul64_constant32(__m256i lhs, const uint32_t d) {
-    const __m256i prod = _mm256_mul_epu32(lhs, _mm256_set1_epi32(d));               // a0Lb0L,a1Lb1L, 64 bit unsigned products
+    const __m256i prod = _mm256_mul_epu32(lhs, _mm256_set1_epi32(d));               // a0Lb0L,a1Lb1L, 64 bit uint32_t products
 #ifndef NDEBUG
     __m256i actual_right = mul64_haswell(lhs, _mm256_set1_epi64x(d));
     assert(std::equal((uint8_t *)&actual_right, (uint8_t *)&actual_right + 32, (uint8_t *)&prod));
@@ -85,7 +85,7 @@ static INLINE __m256i mul64_constant32(__m256i lhs, const uint32_t d) {
     __m256i prodlh  = _mm256_mullo_epi32(lhs,bswap);         // 32 bit L*H products
     __m256i prodlh2 = _mm256_hadd_epi32(prodlh,_mm256_setzero_si256());      // a0Lb0H+a0Hb0L,a1Lb1H+a1Hb1L,0,0
     __m256i prodlh3 = _mm256_shuffle_epi32(prodlh2,0x73);  // 0, a0Lb0H+a0Hb0L, 0, a1Lb1H+a1Hb1L
-    __m256i prodll  = _mm256_mul_epu32(lhs,_mm256_set1_epi32(d));               // a0Lb0L,a1Lb1L, 64 bit unsigned products
+    __m256i prodll  = _mm256_mul_epu32(lhs,_mm256_set1_epi32(d));               // a0Lb0L,a1Lb1L, 64 bit uint32_t products
     __m256i prod    = _mm256_add_epi64(prodll,prodlh3);    // a0Lb0L+(a0Lb0H+a0Hb0L)<<32, a1Lb1L+(a1Lb1H+a1Hb1L)<<32
 #endif
     return  prod;
@@ -142,7 +142,7 @@ static inline __m256i mul64_haswell (__m256i a, __m256i b) {
     __m256i zero    = _mm256_setzero_si256();              // 0
     __m256i prodlh2 = _mm256_hadd_epi32(prodlh,zero);      // a0Lb0H+a0Hb0L,a1Lb1H+a1Hb1L,0,0
     __m256i prodlh3 = _mm256_shuffle_epi32(prodlh2,0x73);  // 0, a0Lb0H+a0Hb0L, 0, a1Lb1H+a1Hb1L
-    __m256i prodll  = _mm256_mul_epu32(a,b);               // a0Lb0L,a1Lb1L, 64 bit unsigned products
+    __m256i prodll  = _mm256_mul_epu32(a,b);               // a0Lb0L,a1Lb1L, 64 bit uint32_t products
     __m256i prod    = _mm256_add_epi64(prodll,prodlh3);    // a0Lb0L+(a0Lb0H+a0Hb0L)<<32, a1Lb1L+(a1Lb1H+a1Hb1L)<<32
     return  prod;
 }

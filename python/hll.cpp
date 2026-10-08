@@ -22,7 +22,7 @@ PYBIND11_MODULE(sketch_hll, m) {
         .def("union_size", [](const hll_t &h1, const hll_t &h2) {return h1.union_size(h2);})
         .def("est_err", &hll_t::est_err, "Estimate error")
         .def("relative_error", &hll_t::relative_error, "Expected error for sketch")
-        .def("compress", [](const hll_t &h1, unsigned newnp) {return h1.compress(newnp);},
+        .def("compress", [](const hll_t &h1, uint32_t newnp) {return h1.compress(newnp);},
              py::return_value_policy::take_ownership,
              "Compress an HLL sketch from a previous prefix length to a smaller one.")
         .def("__str__", [](const hll_t &h) {return h.desc_string();})

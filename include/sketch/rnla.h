@@ -60,8 +60,8 @@ auto &cs_compress(const C &in, C2 &ret, size_t newdim, const Hasher &hf) {
     const size_t ns = hf.size();
     schism::Schismatic<uint32_t> div(newdim);
     PREC_REQ(ret.size() == newdim * ns, "out size doesn't match parameters");
-    for(unsigned j = 0; j < ns; ++j) {
-        for(unsigned i = 0; i < in.size(); ++i) {
+    for(uint32_t j = 0; j < ns; ++j) {
+        for(uint32_t i = 0; i < in.size(); ++i) {
             const auto v = in[i];
             auto hv = hf(i, j);
             auto ind = div.mod(hv >> 1) * ns + j;
@@ -84,7 +84,7 @@ auto &cs_compress(const blaze::CompressedVector<FT, SO> &in, C2 &ret, size_t new
     for(const auto &pair: in) {
         const auto idx = pair.index();
         const auto v = pair.value();
-        for(unsigned j = 0; j < ns; ++j) {
+        for(uint32_t j = 0; j < ns; ++j) {
             auto hv = hf(idx, j);
             auto ind = div.mod(hv >> 1) * ns + j;
             const auto upv = v * (hv & 1 ? 1: -1);
@@ -113,8 +113,8 @@ auto &wz_compress(const C &in, C2 &out, size_t newdim, const Hasher &hf, double 
     const size_t ns = hf.size();
     schism::Schismatic<uint32_t> div(newdim);
     SamplingDist gen(p);
-    for(unsigned j = 0; j < ns; ++j) {
-        for(unsigned i = 0; i < in.size(); ++i) {
+    for(uint32_t j = 0; j < ns; ++j) {
+        for(uint32_t i = 0; i < in.size(); ++i) {
             const auto v = in[i];
             auto hv = hf(i, j);
             auto dm = div.divmod(hv);
@@ -139,7 +139,7 @@ auto &wz_compress(const blaze::CompressedVector<FT> &in, C2 &out, size_t newdim,
     schism::Schismatic<uint32_t> div(newdim);
     SamplingDist gen(p);
     for(const auto &p: in) {
-        for(unsigned j = 0; j < ns; ++j) {
+        for(uint32_t j = 0; j < ns; ++j) {
             const auto v = p.value();
             auto hv = hf(p.index(), j);
             auto dm = div.divmod(hv);
@@ -174,7 +174,7 @@ auto &wz_decompress(const C &in, const Hasher &hf, OutC &ret, double p) {
     for(size_t i = 0; i < newdim; ++i) {
         sketch::common::detail::tmpbuffer<float, 9> mem(hf.size());
         auto tmp = mem.get();
-        for(unsigned j = 0; j < ns; ++j) {
+        for(uint32_t j = 0; j < ns; ++j) {
             auto hv = hf(i, j);
             auto dm = div.divmod(hv);
             RNG rng(dm.quot >> 1);
@@ -204,7 +204,7 @@ auto &cs_decompress(const C &in, const Hasher &hf, OutC &ret) {
     for(size_t i = 0; i < newdim; ++i) {
         sketch::common::detail::tmpbuffer<float, 9> mem(hf.size());
         auto tmp = mem.get();
-        for(unsigned j = 0; j < ns; ++j) {
+        for(uint32_t j = 0; j < ns; ++j) {
             auto hv = hf(i, j);
             tmp[j] = in[div.mod(hv >> 1) * ns + j] * (hv & 1 ? 1: -1);
         }
@@ -226,24 +226,24 @@ struct AbsMax {
 };
 
 template<typename C, typename Functor=std::greater<void>>
-auto top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, const KWiseHasherSet<4> &hf, unsigned k) {
+auto top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, const KWiseHasherSet<4> &hf, uint32_t k) {
     //if(newdim < in.size()) throw 1;
     const size_t ns = hf.size();
     schism::Schismatic<uint32_t> div(olddim);
     using FT = std::decay_t<decltype(*std::begin(in))>;
-    std::priority_queue<std::pair<FT, unsigned>, std::vector<std::pair<FT, unsigned>>, Functor> pq;
+    std::priority_queue<std::pair<FT, uint32_t>, std::vector<std::pair<FT, uint32_t>>, Functor> pq;
     OMP_PFOR
     for(size_t i = 0; i < newdim; ++i) {
         sketch::common::detail::tmpbuffer<float, 8> mem(hf.size());
         auto tmp = mem.get();
-        for(unsigned j = 0; j < ns; ++j) {
+        for(uint32_t j = 0; j < ns; ++j) {
             auto hv = hf(i, j);
             tmp[j] = in.operator[](div.mod(hv >> 1) * ns + j) * (hv & 1 ? 1: -1);
         }
         common::sort::insertion_sort(tmp, tmp + hf.size());
         FT med = median(tmp, hf.size());
         if(pq.size() < k || med > pq.top().first) {
-            std::pair<FT, unsigned> pair(med, unsigned(i));
+            std::pair<FT, uint32_t> pair(med, uint32_t(i));
             OMP_CRITICAL
             {
                 pq.push(pair);
@@ -251,10 +251,10 @@ auto top_indices_from_compressed(const C &in, size_t newdim, size_t olddim, cons
             }
         }
     }
-    std::pair<std::vector<FT>, std::vector<unsigned>> ret;
+    std::pair<std::vector<FT>, std::vector<uint32_t>> ret;
     ret.first.reserve(k);
     ret.second.reserve(k);
-    for(unsigned i = 0; i < k; ++i) {
+    for(uint32_t i = 0; i < k; ++i) {
         const auto &r(pq.top());
         ret.first.push_back(r.first);
         ret.second.push_back(r.second);
@@ -271,7 +271,7 @@ protected:
     const Transform tx_;
     HasherSetType hs_;
 public:
-    SketchApplicator(size_t indim, size_t outdim, unsigned nh=3, uint64_t seed=13, double p=1., Transform tx=CountSketch):
+    SketchApplicator(size_t indim, size_t outdim, uint32_t nh=3, uint64_t seed=13, double p=1., Transform tx=CountSketch):
         in_(indim), out_(outdim), p_(p), tx_(tx), hs_(nh, seed)
     {
         PREC_REQ(tx == CountSketch || tx == WoodruffZhang, "Unsupported");
@@ -349,7 +349,7 @@ protected:
     uint64_t seed_;
     DistType<FloatType> dist_;
     bool dense_;
-    unsigned sourcedim_;
+    uint32_t sourcedim_;
     Norm norm_;
 public:
     using final_type = this_type;

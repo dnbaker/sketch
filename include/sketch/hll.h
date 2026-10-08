@@ -115,7 +115,7 @@ using CountArrayType = std::array<uint32_t, 64>;
 
 namespace detail {
 template<typename T>
-static double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr=1e-2); // forward declaration
+static double ertl_ml_estimate(const T& c, uint32_t p, uint32_t q, double relerr=1e-2); // forward declaration
 template<typename Container>
 inline std::array<uint32_t, 64> sum_counts(const Container &con);
 }
@@ -174,7 +174,7 @@ std::array<double, 3> ertl_joint_simple(const HllType &h1, const HllType &h2) {
             }
         }
     }
-    for(unsigned _q = 0; _q < q; ++_q) {
+    for(uint32_t _q = 0; _q < q; ++_q) {
         // Handle AXBhalf
         countsAXBhalf[_q] = cg1[_q] + ceq[_q] + cg2[_q + 1];
         assert(countsAXBhalf[q] >= countsAXBhalf[_q]);
@@ -221,8 +221,8 @@ static double calculate_estimate(const CountArrType &counts,
 #endif
         assert(estim != static_cast<JointEstimationMethod>(ERTL_MLE));
         double sum = counts[0];
-        for(unsigned i = 1; i < 64 - p + 1; ++i) if(counts[i]) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
-        //for(unsigned i = 1; i < 64 - p + 1; ++i) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        for(uint32_t i = 1; i < 64 - p + 1; ++i) if(counts[i]) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
+        //for(uint32_t i = 1; i < 64 - p + 1; ++i) sum += std::ldexp(counts[i], -i); // 64 - p because we can't have more than that many leading 0s. This is just a speed thing.
         double value(alpha * m * m / sum);
         if(value < 2.5 * m) {
             if(counts[0]) {
@@ -244,7 +244,7 @@ static double calculate_estimate(const CountArrType &counts,
     {
         static const double divinv = 1. / (2.L*std::log(2.L));
         double z = m * detail::gen_tau(static_cast<double>((m-counts[64 - p + 1]))/static_cast<double>(m));
-        for(unsigned i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
+        for(uint32_t i = 64-p; i; z += counts[i--], z *= 0.5); // Reuse value variable to avoid an additional allocation.
         z += m * detail::gen_sigma(static_cast<double>(counts[0])/static_cast<double>(m));
         return m * divinv * m / z;
     }
@@ -313,7 +313,7 @@ public:
         ret.subs[1] = _mm256_cmpgt_epi8(*(__m256i *)(((uint8_t *)&a) + 32), *(__m256i *)(((uint8_t *)&b) + 32));
 #if !NDEBUG
         SIMDHolder ac(a), bc(b);
-        for(unsigned i(0); i < sizeof(ret); ++i) {
+        for(uint32_t i(0); i < sizeof(ret); ++i) {
             assert(!!ret.vals[i] == !!(ac.vals[i] > bc.vals[i]));
         }
 #endif
@@ -343,7 +343,7 @@ public:
     uint64_t sub64s[sizeof(__m256i) / sizeof(uint64_t)];
     static SIMDHolder max_fn64(__m256i a, __m256i b) {
         SIMDHolder ret;
-        for(unsigned i = 0; i < sizeof(__m256i) / sizeof(uint64_t); ++i)
+        for(uint32_t i = 0; i < sizeof(__m256i) / sizeof(uint64_t); ++i)
             ret.sub64s[i] = std::max(((uint64_t *)&a)[i], ((uint64_t *)&b)[i]);
         return ret;
     }
@@ -359,7 +359,7 @@ public:
     uint64_t sub64s[sizeof(__m128i) / sizeof(uint64_t)];
     static SIMDHolder max_fn64(__m128i a, __m128i b) {
         SIMDHolder ret;
-        for(unsigned i = 0; i < sizeof(__m128i) / sizeof(uint64_t); ++i)
+        for(uint32_t i = 0; i < sizeof(__m128i) / sizeof(uint64_t); ++i)
             ret.sub64s[i] = std::max(((uint64_t *)&a)[i], ((uint64_t *)&b)[i]);
         return ret;
     }
@@ -626,7 +626,7 @@ inline std::set<uint64_t> seeds_from_seed(uint64_t seed, size_t size) {
     return rset;
 }
 template<typename T>
-static double ertl_ml_estimate(const T& c, unsigned p, unsigned q, double relerr) {
+static double ertl_ml_estimate(const T& c, uint32_t p, uint32_t q, double relerr) {
 /*
     Note --
     Putting all these optimizations together finally gives the new cardinality estimation
@@ -649,7 +649,7 @@ TODO:  Consider adding this change to the method. This could improve our perform
     double z = 0.;
     for(int k = kMaxPrime; k >= kMinPrime; z = 0.5*z + c[k--]);
     z = ldexp(z, -kMinPrime);
-    unsigned cPrime = c[q+1];
+    uint32_t cPrime = c[q+1];
     if(q) cPrime += c[kMaxPrime];
     double gprev;
     double x;
@@ -722,7 +722,7 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     std::array<uint32_t, 64> countsBXAhalf;
     countsAXBhalf[q] = h1.m();
     countsBXAhalf[q] = h1.m();
-    for(unsigned _q = 0; _q < q; ++_q) {
+    for(uint32_t _q = 0; _q < q; ++_q) {
         // Handle AXBhalf
         countsAXBhalf[_q] = cg1[_q] + ceq[_q] + cg2[_q + 1];
         assert(countsAXBhalf[q] >= countsAXBhalf[_q]);
@@ -815,6 +815,7 @@ public:
         estim_(estim), jestim_(jestim)
         , hf_(std::forward<Args>(args)...)
     {
+        if(np >= 63) throw std::invalid_argument(std::string("[hllbase_t] precision parameter np must be < 63, got ") + std::to_string(np));
 #if LZ_COUNTER
         for(size_t i = 0; i < clz_counts_.size(); ++i)
             clz_counts_[i].store(uint64_t(0));
@@ -887,6 +888,9 @@ public:
         const uint32_t index(q() == 64 ? uint32_t(0): uint32_t(hashval >> q()));
         const uint8_t lzt = clz(((hashval << 1)|1) << (np_ - 1)) + 1;
 #ifndef NOT_THREADSAFE
+        // Plain-load fast path: the __sync builtin clobbers memory, which
+        // would block load scheduling on the dominant no-update path.
+        if(HEDLEY_LIKELY(core_[index] >= lzt)) return;
         for(;core_[index] < lzt;
              __sync_bool_compare_and_swap(&core_[index], core_[index], lzt));
 #else
@@ -968,7 +972,7 @@ public:
         if(new_np > np_)
             throw std::runtime_error(std::string("Can't compress to a larger size. Current: ") + std::to_string(np_) + ". Requested new size: " + std::to_string(new_np));
         hllbase_t<HashStruct> ret(new_np, get_estim(), get_jestim());
-        unsigned diff = np_ - new_np;
+        uint32_t diff = np_ - new_np;
         size_t ratio = static_cast<size_t>(1) << (diff);
         size_t new_size = 1ull << new_np;
         size_t b = 0;
@@ -1015,10 +1019,12 @@ public:
         return hllbase_t(np_, estim_, jestim_);
     }
 
-    hllbase_t &operator+=(const hllbase_t &other) noexcept {
+    // Not noexcept: the PREC_REQ below throws UnsatisfiedPreconditionError
+    // on mismatched sizes, and a throw out of noexcept terminates.
+    hllbase_t &operator+=(const hllbase_t &other) {
         PREC_REQ(np_ == other.np_, "mismatched sketch sizes.");
 #ifndef VEC_DISABLED__
-        unsigned i;
+        uint32_t i;
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
         if(m() >= sizeof(Type)) {
 #if HAS_AVX_512 && __AVX512BW__
@@ -1038,19 +1044,18 @@ public:
             for(i = 0; i < m() >> 4; ++i) els[i] = _mm_max_epu8(els[i], oels[i]);
 #endif /* #if (HAS_AVX_512 && __AVX512BW__) || __AVX2__ || true */
 
-            if(m() < sizeof(Type)) for(;i < m(); ++i) core_[i] = std::max(core_[i], other.core_[i]);
         } else {
 #endif /* #if HAS_AVX_512 || __AVX2__ || __SSE2__ */
-            uint64_t *els(reinterpret_cast<uint64_t *>(core_.data()));
-            const uint64_t *oels(reinterpret_cast<const uint64_t *>(other.core_.data()));
-            while(els < reinterpret_cast<const uint64_t *>(core_.data() + core_.size()))
-                *els = std::max(*els, *oels), ++els, ++oels;
+            // Per-byte maximum: a whole-word std::max here is NOT equivalent
+            // (register-wise maximum must be taken per byte).
+            for(size_t j = 0; j < core_.size(); ++j)
+                core_[j] = std::max(core_[j], other.core_[j]);
 #if HAS_AVX_512 || __AVX2__ || __SSE2__
         }
 #endif
+#else /* ifndef VEC_DISABLED__ */
         std::transform(core_.begin(), core_.end(), other.core_.begin(), core_.begin(), [](auto x, auto y) {return std::max(x, y);});
-#else /*ifndef VEC_DISABLED__ */
-#endif
+#endif /* ifndef VEC_DISABLED__ */
         not_ready();
         return *this;
     }
@@ -1064,14 +1069,20 @@ public:
     }
     EstimationMethod get_estim()       const {return  estim_;}
     JointEstimationMethod get_jestim() const {return jestim_;}
+    // Out-of-range values are clamped to ERTL_MLE (the maximum supported
+    // single-sketch method); values from the joint-method enum are accepted
+    // and reduced, which existing code relies on.
     void set_estim(EstimationMethod val) noexcept {
         estim_ = std::min(val, ERTL_MLE);
     }
     void set_jestim(JointEstimationMethod val) noexcept {
         jestim_ = val;
     }
-    void set_jestim(uint16_t val) {set_jestim(static_cast<JointEstimationMethod>(val));}
-    void set_estim(uint16_t val)  {estim_  = static_cast<EstimationMethod>(val);}
+    void set_jestim(uint16_t val) {
+        if(val > ERTL_JOINT_MLE) throw std::invalid_argument(std::string("[hllbase_t] invalid joint estimation method: ") + std::to_string(val));
+        set_jestim(static_cast<JointEstimationMethod>(val));
+    }
+    void set_estim(uint16_t val)  {set_estim(static_cast<EstimationMethod>(val));}
     bool get_is_ready() const {return value_ >= 0.;}
     void not_ready() {value_ = -1.;}
     void set_is_ready() {}
@@ -1251,7 +1262,7 @@ public:
         return std::max(0., ret);
     }
     size_t size() const {return size_t(m());}
-    static constexpr unsigned min_size() {
+    static constexpr uint32_t min_size() {
 #ifndef VEC_DISABLED__
         return ilog2(sizeof(detail::SIMDHolder));
 #else
@@ -1355,6 +1366,7 @@ public:
                 this->core_[i] = ov;
             }
         }
+        return *this;
     }
 #if 0
     double uest_UNSTABLE(const shllbase_t &o) const {
@@ -1451,7 +1463,7 @@ public:
         uint64_t size;
         gzread(fp, &size, sizeof(size));
         seeds_.resize(size);
-        for(unsigned i(0); i < size; gzread(fp, seeds_.data() + i++, sizeof(seeds_[0])));
+        for(uint32_t i(0); i < size; gzread(fp, seeds_.data() + i++, sizeof(seeds_[0])));
         hlls_.clear();
         while(hlls_.size() < size) hlls_.emplace_back(fp);
         gzclose(fp);
@@ -1465,7 +1477,7 @@ public:
 #endif
     bool may_contain(uint64_t element) const {
 #ifndef VEC_DISABLED__
-        unsigned k = 0;
+        uint32_t k = 0;
         if(size() >= Space::COUNT) {
             if(size() & (size() - 1)) throw NotImplementedError("supporting a non-power of two.");
             const Type *sptr = reinterpret_cast<const Type *>(&seeds_[0]);
@@ -1473,17 +1485,17 @@ public:
             VType key;
             do {
                 key = WangHash()(*sptr++ ^ Space::set1(element));
-                for(unsigned i(0); i < Space::COUNT;) if(!hlls_[k++].may_contain(key.arr_[i++])) return false;
+                for(uint32_t i(0); i < Space::COUNT;) if(!hlls_[k++].may_contain(key.arr_[i++])) return false;
             } while(sptr < eptr);
             return true;
         }
 #endif
         // if size() >= Space::COUNT
-        for(unsigned i(0); i < size(); ++i) if(!hlls_[i].may_contain(WangHash()(element ^ seeds_[i]))) return false;
+        for(uint32_t i(0); i < size(); ++i) if(!hlls_[i].may_contain(WangHash()(element ^ seeds_[i]))) return false;
         return true;
     }
     void addh(uint64_t val) {
-        unsigned k = 0;
+        uint32_t k = 0;
 #ifndef VEC_DISABLED__
         if(size() >= Space::COUNT) {
             if(size() & (size() - 1)) throw NotImplementedError("supporting a non-power of two.");
@@ -1493,7 +1505,7 @@ public:
             VType key;
             do {
                 key = WangHash()(*sptr++ ^ element);
-                for(unsigned i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
+                for(uint32_t i(0) ; i < Space::COUNT; hlls_[k++].add(key.arr_[i++]));
                 assert(k <= size());
             } while(sptr < eptr);
         }
@@ -1510,7 +1522,7 @@ public:
     hlfbase_t &operator+=(const hlfbase_t &other) {
         if(other.size() != size()) throw std::runtime_error("Wrong number of subsketches.");
         if(other.hlls_[0].p() != hlls_[0].p()) throw std::runtime_error("Wrong size of subsketches.");
-        for(unsigned i(0); i < size(); ++i) {
+        for(uint32_t i(0); i < size(); ++i) {
             hlls_[i] += other.hlls_[i];
             hlls_[i].not_ready();
         }
@@ -1520,6 +1532,7 @@ public:
         // Could be more directly optimized.
         hlfbase_t ret = *this;
         ret += other;
+        return ret;
     }
     double jaccard_index(const hlfbase_t &other) const {
         double est = chunk_report();
@@ -1654,7 +1667,7 @@ struct wh119_t {
     }
     wh119_t &operator+=(const wh119_t &o) {
         PREC_REQ(size() == o.size(), "mismatched sketch sizes.");
-        unsigned i;
+        uint32_t i;
 #if !defined(VEC_DISABLED__) && (HAS_AVX_512 || __AVX2__ || __SSE2__)
         if(m() >= sizeof(Type)) {
 #if HAS_AVX_512 && __AVX512BW__

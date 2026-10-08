@@ -193,9 +193,9 @@ class ccmbase_t {
 protected:
     VectorType        data_;
     UpdateStrategy updater_;
-    unsigned nhashes_;
-    unsigned l2sz_:16;
-    unsigned nbits_:16;
+    uint32_t nhashes_;
+    uint32_t l2sz_:16;
+    uint32_t nbits_:16;
     HashStruct hf_;
     uint64_t mask_;
     uint64_t subtbl_sz_;
@@ -251,7 +251,7 @@ public:
         if(HEDLEY_UNLIKELY(l2sz < 0)) throw std::runtime_error("l2sz cannot be negative.");
         if(HEDLEY_UNLIKELY(nhashes < 0)) throw std::runtime_error("nhashes cannot be negative.");
         std::mt19937_64 mt(seed + 4);
-        while(seeds_.size() < static_cast<unsigned>(nhashes)) seeds_.emplace_back(mt());
+        while(seeds_.size() < static_cast<uint32_t>(nhashes)) seeds_.emplace_back(mt());
         clear();
         VERBOSE_ONLY(std::fprintf(stderr, "data size: %zu. nbits per entry: %u\n", data_.size(), nbits);)
     }
@@ -322,7 +322,7 @@ public:
     }
     static constexpr bool is_increment = std::is_same<UpdateStrategy, update::Increment>::value;
     ssize_t add(const uint64_t val) {
-        unsigned nhdone = 0;
+        uint32_t nhdone = 0;
         ssize_t ret;
         CONST_IF(conservative_update) {
             std::vector<uint64_t> indices, best_indices;
@@ -337,13 +337,13 @@ public:
             }
 #if 0
             if(val == 137) {
-                for(const auto v: indices) std::fprintf(stderr, "index for 137: %u\n", unsigned(v));
+                for(const auto v: indices) std::fprintf(stderr, "index for 137: %u\n", uint32_t(v));
             }
 #endif
             best_indices.push_back(indices[0]);
             ssize_t minval = data_.operator[](indices[0]);
             for(size_t i(1); i < indices.size(); ++i) {
-                unsigned score;
+                uint32_t score;
                 if((score = data_.operator[](indices[i])) == minval) {
                     best_indices.push_back(indices[i]);
                 } else if(score < minval) {
@@ -370,12 +370,12 @@ public:
         }
         return ret + is_increment;
     }
-    auto hash(uint64_t x, unsigned index) const {
+    auto hash(uint64_t x, uint32_t index) const {
         return hash(x ^ seeds_[index]);
     }
     uint64_t est_count(uint64_t val) const {
         uint64_t ret = std::numeric_limits<uint64_t>::max();
-        for(unsigned i = 0; i < nhashes_; ++i) {
+        for(uint32_t i = 0; i < nhashes_; ++i) {
             auto hv = hash(val, i);
             ret = std::min(ret, uint64_t(data_[(hv & mask_) + subtbl_sz_ * i]));
         }
@@ -395,7 +395,7 @@ public:
         if(seeds_.size() != other.seeds_.size() || !std::equal(seeds_.cbegin(), seeds_.cend(), other.seeds_.cbegin()))
             throw std::runtime_error("Could not add sketches together with different hash functions.");
         for(size_t i(0), e(data_.size()); i < e; ++i) {
-            data_[i] = std::min(static_cast<unsigned>(data_[i]), static_cast<unsigned>(other.data_[i]));
+            data_[i] = std::min(static_cast<uint32_t>(data_[i]), static_cast<uint32_t>(other.data_[i]));
         }
         return *this;
     }
@@ -428,7 +428,7 @@ class csbase_t {
     const CounterType *data() const {return core_.data();}
 public:
     template<typename...Args>
-    csbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137, Args &&...args):
+    csbase_t(uint32_t np, uint32_t nh=1, uint32_t seedseed=137, Args &&...args):
         core_(uint64_t(nh) << np), np_(np), nh_(nh), hf_(std::forward<Args>(args)...),
         mask_((1ull << np_) - 1),
         seeds_(nh_),
@@ -446,7 +446,7 @@ public:
         auto cptr = counts.data();
         uint64_t v = hf_(val);
         cptr[0] = add(v, 0);
-        for(unsigned ind = 1;ind < nh_; ++ind)
+        for(uint32_t ind = 1;ind < nh_; ++ind)
             cptr[ind] = add(hf_(seeds_[ind] ^ val), ind);
         return median(cptr, nh_);
     }
@@ -464,7 +464,7 @@ public:
         uint64_t v = hf_(val);
         auto it = seeds_.begin();
         add(v, 0);
-        unsigned ind = 1;
+        uint32_t ind = 1;
         while(ind < nh_)
             add(hf_(*it++ ^ val), ind++);
     }
@@ -482,7 +482,7 @@ public:
         uint64_t v = hf_(val);
         auto it = seeds_.begin();
         sub(v, 0);
-        unsigned ind = 1;
+        uint32_t ind = 1;
         while(ind < nh_)
             sub(hf_(*it++ ^ val), ind++);
     }
@@ -492,15 +492,15 @@ public:
         uint64_t v = hf_(val);
         auto it = seeds_.begin();
         *cptr++ = sub(v, 0);
-        unsigned ind = 1;
+        uint32_t ind = 1;
         while(ind < nh_)
             *cptr++ = sub(hf_(*it++ ^ val), ind++);
         return median(counts.get(), nh_);
     }
-    INLINE size_t index(uint64_t hv, unsigned subidx) const noexcept {
+    INLINE size_t index(uint64_t hv, uint32_t subidx) const noexcept {
         return (hv & mask_) + (subidx << np_);
     }
-    INLINE auto add(uint64_t hv, unsigned subidx) noexcept {
+    INLINE auto add(uint64_t hv, uint32_t subidx) noexcept {
 #if !NDEBUG
         at_pos(hv, subidx) += sign(hv);
         return at_pos(hv, subidx);
@@ -508,17 +508,17 @@ public:
         return at_pos(hv, subidx) += sign(hv);
 #endif
     }
-    INLINE auto vatpos(uint64_t hv, unsigned subidx) const noexcept {
+    INLINE auto vatpos(uint64_t hv, uint32_t subidx) const noexcept {
         return at_pos(hv, subidx) * sign(hv);
     }
-    INLINE auto sub(uint64_t hv, unsigned subidx) noexcept {
+    INLINE auto sub(uint64_t hv, uint32_t subidx) noexcept {
         return at_pos(hv, subidx) -= sign(hv);
     }
-    INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
+    INLINE auto &at_pos(uint64_t hv, uint32_t subidx) noexcept {
         assert(index(hv, subidx) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
         return core_[index(hv, subidx)];
     }
-    INLINE auto at_pos(uint64_t hv, unsigned subidx) const noexcept {
+    INLINE auto at_pos(uint64_t hv, uint32_t subidx) const noexcept {
         assert((hv & mask_) + (subidx << np_) < core_.size());
         return core_[index(hv, subidx)];
     }
@@ -531,7 +531,7 @@ public:
         uint64_t v = hf_(val);
         auto it = seeds_.begin();
         *ptr++ = vatpos(v, 0);
-        for(unsigned ind = 1;ind < nh_; ++it, ++ptr, ++ind) {
+        for(uint32_t ind = 1;ind < nh_; ++it, ++ptr, ++ind) {
             auto hv = hf_(*it ^ val);
             *ptr = vatpos(hv, ind);
         }
@@ -540,7 +540,7 @@ public:
         return median(mem.get(), nh_);
     }
     csbase_t &operator+=(const csbase_t &o) {
-        precondition_require(o.size() == this->size(), "tables must have the same size\n");
+        precondition_require(o.core_.size() == this->core_.size(), "tables must have the same size\n");
         using VS = vec::SIMDTypes<CounterType>;
         using VT = typename VS::VType;
         VT sum = VS::set1(0);
@@ -613,7 +613,7 @@ class cs4wbase_t {
 
     size_t size() const {return core_.size();}
 public:
-    cs4wbase_t(unsigned np, unsigned nh=1, unsigned seedseed=137):
+    cs4wbase_t(uint32_t np, uint32_t nh=1, uint32_t seedseed=137):
         np_(np),
         nh_(nh),
         mask_((1ull << np_) - 1),
@@ -631,7 +631,7 @@ public:
     CounterType addh_val(uint64_t val) {
         std::vector<CounterType> counts(nh_);
         auto cptr = counts.data();
-        for(unsigned added = 0; added < nh_; ++added)
+        for(uint32_t added = 0; added < nh_; ++added)
             cptr[added] = add(val, added);
         return median(cptr, nh_);
     }
@@ -651,27 +651,27 @@ public:
     template<typename T,  typename=std::enable_if_t<std::is_arithmetic<T>::value>>
     auto addh(T x) {return addh_val(static_cast<uint64_t>(x));}
     void subh(uint64_t val) {
-        for(unsigned added = 0; added < nh_; ++added)
+        for(uint32_t added = 0; added < nh_; ++added)
             sub(val, added);
     }
     auto subh_val(uint64_t val) {
         tmpbuffer<CounterType> counts(nh_);
         auto cptr = counts.get();
-        for(unsigned added = 0; added < nh_; ++added)
+        for(uint32_t added = 0; added < nh_; ++added)
             cptr[added] = sub(val, added);
         return median(cptr, nh_);
     }
-    INLINE size_t index(uint64_t hv, unsigned subidx) const noexcept {
+    INLINE size_t index(uint64_t hv, uint32_t subidx) const noexcept {
         return (hv & mask_) + (subidx << np_);
     }
-    INLINE auto add(uint64_t hv, unsigned subidx) noexcept {
+    INLINE auto add(uint64_t hv, uint32_t subidx) noexcept {
         hv = hf_(hv, subidx);
         auto &ref = at_pos(hv, subidx);
         if(ref != std::numeric_limits<CounterType>::max()) // easy branch to predict
             ref += sign(hv);
         return ref * sign(hv);
     }
-    INLINE auto sub(uint64_t hv, unsigned subidx) noexcept {
+    INLINE auto sub(uint64_t hv, uint32_t subidx) noexcept {
         hv = hf_(hv, subidx);
         auto &ref = at_pos(hv, subidx);
         if(ref != std::numeric_limits<CounterType>::min()) // easy branch to predict
@@ -681,7 +681,7 @@ public:
     CounterType update(uint64_t val, const double increment=1.) {
         std::vector<CounterType> counts(nh_);
         auto cptr = counts.data();
-        for(unsigned added = 0; added < nh_; ++added) {
+        for(uint32_t added = 0; added < nh_; ++added) {
             auto hv = hf_(val, added);
             auto &ref = at_pos(hv, added);
             auto shv = sign(hv);
@@ -690,11 +690,11 @@ public:
         }
         return median(cptr, nh_);
     }
-    INLINE auto &at_pos(uint64_t hv, unsigned subidx) noexcept {
+    INLINE auto &at_pos(uint64_t hv, uint32_t subidx) noexcept {
         assert(index(hv, subidx) < core_.size() || !std::fprintf(stderr, "hv & mask_: %zu. subidx %d. np: %d. nh: %d. size: %zu\n", size_t(hv&mask_), subidx, np_, nh_, core_.size()));
         return core_[index(hv, subidx)];
     }
-    INLINE auto at_pos(uint64_t hv, unsigned subidx) const noexcept {
+    INLINE auto at_pos(uint64_t hv, uint32_t subidx) const noexcept {
         assert((hv & mask_) + (subidx << np_) < core_.size());
         return core_[index(hv, subidx)];
     }
@@ -704,7 +704,7 @@ public:
         auto memp = mem.get();
         const size_t tsz = (1ull << np_);
         double ret = 0.;
-        for(unsigned i = 0u; i < nh_; ++i) {
+        for(uint32_t i = 0u; i < nh_; ++i) {
             auto lmyp = myp + tsz, lop = op + tsz;
 #if _OPENMP > 201307L
         #pragma omp simd
@@ -728,7 +728,7 @@ public:
     CounterType est_count(uint64_t val) const {
         common::detail::tmpbuffer<CounterType> mem(nh_);
         CounterType *ptr = mem.get(), *p = ptr;
-        for(unsigned i = 0; i < nh_; ++i) {
+        for(uint32_t i = 0; i < nh_; ++i) {
             auto v = hf_(val, i);
             *p++ = at_pos(v, i) * sign(v);
         }
@@ -775,7 +775,7 @@ public:
         PREC_REQ(n >= 1, "n < 0 is meaningless and n = 1 uses a copy instead.");
         PREC_REQ(n <= int(np_), "Can't fold to less than 1");
         cs4wbase_t ret(np_ - n, nh_, seedseed_);
-        unsigned destmod = (1ull << ret.p()) - 1;
+        uint32_t destmod = (1ull << ret.p()) - 1;
         // More cache-efficient way to traverse than iterating over the final sketch
         const size_t coresubsz = 1ull << p();
         for(auto h = 0u; h < nh_; ++h) {

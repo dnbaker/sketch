@@ -9,7 +9,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <iterator>
 #include <limits>
+#include <numeric>
 #include <ostream>
 #include <random>
 #include <set>
@@ -301,7 +303,7 @@ struct tmpbuffer {
 } // namespace detail
 
 template<typename T>
-static constexpr int range_check(unsigned nbits, T val) {
+static constexpr int range_check(uint32_t nbits, T val) {
     CONST_IF(std::is_floating_point<T>::value) {
         return 0; // Yeah, we're fine.
     }

@@ -109,7 +109,7 @@ public:
                 scale_cur_ = scale_; // So when we multiply inc by scale_cur, the insertion happens at 1
             }
         }
-        unsigned nhdone = 0, seedind = 0;
+        uint32_t nhdone = 0, seedind = 0;
         const auto nperhash64 = lut::nhashesper64bitword[l2sz_];
         const auto nbitsperhash = l2sz_;
         using Type = vec::SIMDTypes<uint64_t>::Type;
@@ -121,18 +121,18 @@ public:
             indices.reserve(nhashes_);
             while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(FSpace::COUNT * nperhash64))
                 FSpace::VType(hash(FSpace::xor_fn(vb.simd_, FSpace::load(sptr++)))).for_each([&](uint64_t subval) {
-                    for(unsigned k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
+                    for(uint32_t k(0); k < nperhash64; indices.push_back(((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_));
                 }),
                 seedind += FSpace::COUNT;
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind]);
-                for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone); indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
+                for(uint32_t k(0); k < std::min(static_cast<uint32_t>(nperhash64), nhashes_ - nhdone); indices.push_back(((hv >> (k++ * nbitsperhash)) & mask_) + subtbl_sz_ * nhdone++));
                 ++seedind;
             }
             auto fi = indices[0];
             best_indices.push_back(fi);
             auto minval = data_[fi];
-            unsigned score;
+            uint32_t score;
             for(size_t i(1); i < indices.size(); ++i) {
                 // This will change with
                 if((score = data_[indices[i]]) == minval) {
@@ -151,7 +151,7 @@ public:
             ret = std::numeric_limits<decltype(ret)>::max();
             while(static_cast<int>(nhashes_) - static_cast<int>(nhdone) >= static_cast<ssize_t>(FSpace::COUNT * nperhash64)) {
                 FSpace::VType(hash(FSpace::xor_fn(vb.simd_, FSpace::load(sptr++)))).for_each([&](uint64_t subval) {
-                    for(unsigned k(0); k < nperhash64;) {
+                    for(uint32_t k(0); k < nperhash64;) {
                         auto ref = data_[((subval >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
                         ref += inc;
                         ret = std::min(ret, double(ref));
@@ -161,7 +161,7 @@ public:
             }
             while(nhdone < nhashes_) {
                 uint64_t hv = hash(val ^ seeds_[seedind++]);
-                for(unsigned k(0); k < std::min(static_cast<unsigned>(nperhash64), nhashes_ - nhdone);) {
+                for(uint32_t k(0); k < std::min(static_cast<uint32_t>(nperhash64), nhashes_ - nhdone);) {
                     auto ref = data_[((hv >> (k++ * nbitsperhash)) & mask_) + nhdone++ * subtbl_sz_];
                     throw NotImplementedError("The updater should be here");
                     ret = std::min(ret, ssize_t(ref));
@@ -190,7 +190,7 @@ struct Card {
     // because the people who made this structure are weird
     // and use inconsistent notation
     template<typename...Args>
-    Card(unsigned r, unsigned p, CounterType maxcnt, Args &&... args):
+    Card(uint32_t r, uint32_t p, CounterType maxcnt, Args &&... args):
         core_(std::forward<Args>(args)...), p_(p), r_(r), pshift_(64 - p), maxcnt_(maxcnt) {
         total_added_.store(0);
 #if VERBOSE_AF
@@ -198,7 +198,7 @@ struct Card {
 #endif
     }
     template<typename...Args>
-    Card(unsigned r, unsigned p): Card(r, p, std::numeric_limits<CounterType>::max()) {}
+    Card(uint32_t r, uint32_t p): Card(r, p, std::numeric_limits<CounterType>::max()) {}
     Card(Card &&o): core_(std::move(o.core_)), p_(o.p_), r_(o.r_), pshift_(o.pshift_), maxcnt_(o.maxcnt_), hf_(std::move(o.hf_)) {
         total_added_.store(o.total_added_.load());
     }
@@ -284,7 +284,7 @@ struct Card {
     ResultType report() const {
         const CounterType max_val = *std::max_element(core_.begin(), core_.end()),
                           nvals = max_val + 1;
-        std::vector<unsigned> arr(2 * nvals);
+        std::vector<uint32_t> arr(2 * nvals);
 #if VERBOSE_AF
         std::fprintf(stderr,"Made arr with nvals = %zu\n", size_t(nvals));
 #endif
@@ -327,7 +327,7 @@ template<typename CType, typename HashStruct=WangHash, bool filter=true>
 struct VecCard: public Card<std::vector<CType, Allocator<CType>>, HashStruct, filter> {
     using super = Card<std::vector<CType, Allocator<CType>>, HashStruct, filter>;
     static_assert(std::is_integral<CType>::value, "Must be integral.");
-    VecCard(unsigned r, unsigned p, CType max=std::numeric_limits<CType>::max()): super(r, p, max, 2ull << r) {} // 2 << r
+    VecCard(uint32_t r, uint32_t p, CType max=std::numeric_limits<CType>::max()): super(r, p, max, 2ull << r) {} // 2 << r
 };
 
 } // namespace nt

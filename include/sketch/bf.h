@@ -36,7 +36,7 @@ struct sparsebf_t {
     using value_type = T;
     using allocator_type = Alloc;
     std::vector<T, Alloc> core_;
-    unsigned nh_, tsz_;
+    uint32_t nh_, tsz_;
     sparsebf_t(std::vector<T, Alloc> &&o, size_t nhashes, size_t tablesz): core_(std::move(o)), nh_(nhashes), tsz_(tablesz) {}
     sparsebf_t(const std::vector<T, Alloc> &o, size_t nhashes, size_t tablesz): core_(o), nh_(nhashes), tsz_(tablesz) {}
     template<typename Hash>
@@ -67,7 +67,7 @@ protected:
     uint64_t                                seedseed_;
     uint64_t                                    mask_;
 public:
-    static constexpr unsigned OFFSET = 6; // log2(CHAR_BIT * 8) == log2(64) == 6
+    static constexpr uint32_t OFFSET = 6; // log2(CHAR_BIT * 8) == log2(64) == 6
     using HashType = HashStruct;
 
     using final_type = bfbase_t;
@@ -91,7 +91,7 @@ public:
 
     // Constructor
     template<typename... Args>
-    explicit bfbase_t(size_t l2sz, unsigned nhashes, uint64_t seedval=137, Args &&... args):
+    explicit bfbase_t(size_t l2sz, uint32_t nhashes, uint64_t seedval=137, Args &&... args):
         np_(l2sz > OFFSET ? l2sz - OFFSET: 0), nh_(nhashes), hf_(std::forward<Args>(args)...), seedseed_(seedval)
     {
         //if(l2sz < OFFSET) throw std::runtime_error("Need at least a power of size 6\n");
@@ -112,7 +112,7 @@ public:
         if(HEDLEY_UNLIKELY(p() == 0)) throw std::runtime_error(std::string("p is ") + std::to_string(p()));
 #endif
         auto nperhash64 = lut::nhashesper64bitword[p()];
-        //assert(is_pow2(nperhash64) || !std::fprintf(stderr, "nperhash64 %u(accessed by p = %u)\n", nperhash64, unsigned(p())));
+        //assert(is_pow2(nperhash64) || !std::fprintf(stderr, "nperhash64 %u(accessed by p = %u)\n", nperhash64, uint32_t(p())));
         while(seeds_.size() * nperhash64 < nh_) {
 #if __cplusplus >= 201703L
             if(auto val = mt(); std::find(seeds_.cbegin(), seeds_.cend(), val) == seeds_.cend())
@@ -155,16 +155,16 @@ public:
         return ret != 0;
     }
 
-    INLINE bool all_set(const uint64_t &hv, unsigned n, unsigned shift) const {
+    INLINE bool all_set(const uint64_t &hv, uint32_t n, uint32_t shift) const {
         if(!is_set(hv)) return false;
-        for(unsigned i(1); i < n;)
+        for(uint32_t i(1); i < n;)
             if(!is_set(hv >> (i++ * shift)))
                 return false;
         return true;
     }
-    INLINE bool all_set_and_set1(const uint64_t &hv, unsigned n, unsigned shift) {
+    INLINE bool all_set_and_set1(const uint64_t &hv, uint32_t n, uint32_t shift) {
         auto ret = is_set_and_set1(hv);
-        for(unsigned i(1); i < n; ret &= is_set_and_set1(hv >> (i++ * shift)));
+        for(uint32_t i(1); i < n; ret &= is_set_and_set1(hv >> (i++ * shift)));
         return ret;
     }
     std::string print_vals() const {
@@ -173,15 +173,15 @@ public:
         ret.reserve(64 * core_.size());
         for(size_t i(0); i < core_.size(); ++i) {
             uint64_t val = core_[i];
-            for(unsigned k(0); k < 64; ++k)
+            for(uint32_t k(0); k < 64; ++k)
                 ret += bin[val&1], val>>=1;
         }
         return ret;
     }
 
-    INLINE void sub_set1(const uint64_t &hv, unsigned n, unsigned shift) {
+    INLINE void sub_set1(const uint64_t &hv, uint32_t n, uint32_t shift) {
         set1(hv);
-        for(unsigned subhind = 1; subhind < n; set1((hv >> (subhind++ * shift))));
+        for(uint32_t subhind = 1; subhind < n; set1((hv >> (subhind++ * shift))));
     }
 
     uint64_t popcnt_manual() const {
@@ -439,7 +439,7 @@ public:
 #endif
     INLINE void addh(const uint64_t element) {
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()];
+        uint32_t nleft = nh_, npw = lut::nhashesper64bitword[p()];
         const auto shift = p();
 #if __AVX512F__
         const size_t npersimd = 8 * npw;
@@ -521,7 +521,7 @@ public:
             throw std::runtime_error(buf);
         }
 #ifndef VEC_DISABLED__
-        unsigned i;
+        uint32_t i;
         VType *els(reinterpret_cast<VType *>(core_.data()));
         const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
         if(core_.size() / Space::COUNT >= 8) {
@@ -550,7 +550,7 @@ public:
             snprintf(buf, 255, "For operator +=: np_ (%u) != other.np_ (%u) or nh != o.nh (%u/%u) or (seeds differ %zu/%zu)\n", np_, other.np_, nh_, other.nh_, size_t(seedseed_), size_t(other.seedseed_));
             throw std::runtime_error(buf);
         }
-        unsigned i;
+        uint32_t i;
 #ifndef VEC_DISABLED__
         VType *els(reinterpret_cast<VType *>(core_.data()));
         const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
@@ -576,7 +576,7 @@ public:
             throw std::runtime_error(buf);
         }
 #ifndef VEC_DISABLED__
-        unsigned i;
+        uint32_t i;
         VType *els(reinterpret_cast<VType *>(core_.data()));
         const VType *oels(reinterpret_cast<const VType *>(other.core_.data()));
         if(core_.size() / Space::COUNT >= 8) {
@@ -622,13 +622,13 @@ public:
     // Getter for is_calculated_
     bool may_contain(uint64_t val) const {
         bool ret = true;
-        unsigned nleft = nh_;
+        uint32_t nleft = nh_;
         assert(p() < sizeof(lut::nhashesper64bitword));
-        unsigned npw = lut::nhashesper64bitword[p()];
+        uint32_t npw = lut::nhashesper64bitword[p()];
         const auto shift = p();
         const uint64_t *sptr = seeds_.data();
 #ifndef VEC_DISABLED__
-        unsigned npersimd = Space::COUNT * npw;
+        uint32_t npersimd = Space::COUNT * npw;
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         while(nleft > npersimd) {
             VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
@@ -646,13 +646,13 @@ public:
     }
     bool may_contain_and_addh(uint64_t val) {
         bool ret = true;
-        unsigned nleft = nh_;
+        uint32_t nleft = nh_;
         assert(p() < sizeof(lut::nhashesper64bitword));
-        unsigned npw = lut::nhashesper64bitword[p()];
+        uint32_t npw = lut::nhashesper64bitword[p()];
         const auto shift = p();
         const uint64_t *sptr = seeds_.data();
 #ifndef VEC_DISABLED__
-        unsigned npersimd = Space::COUNT * npw;
+        uint32_t npersimd = Space::COUNT * npw;
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         while(nleft > npersimd) {
             VType v(hf_(Space::set1(val) ^ (*seedptr++).simd_));
@@ -678,16 +678,16 @@ public:
         std::fprintf(stderr, "nvals: %zu. nvals. Resize size: %zu\n", nvals, (nvals >> 6) + ((nvals & 0x63u) != 0));
 #endif
         ret.resize((nvals >> 6) + ((nvals & 0x63u) != 0), UINT64_C(-1));
-        unsigned nleft = nh_, npw = lut::nhashesper64bitword[p()];
+        uint32_t nleft = nh_, npw = lut::nhashesper64bitword[p()];
         const auto shift = p();
         const uint64_t *sptr = seeds_.data();
 #ifndef VEC_DISABLED__
-        unsigned npersimd = Space::COUNT * npw;
+        uint32_t npersimd = Space::COUNT * npw;
         const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         VType seed, v;
         while(nleft > npersimd) {
             seed.simd_ = (*seedptr++).simd_;
-            for(unsigned  i(0); i < nvals; ++i) {
+            for(uint32_t  i(0); i < nvals; ++i) {
                 v = hf_(Space::set1(vals[i]) ^ seed.simd_);
                 v.for_each([&](const uint64_t &val) {
                     ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(val, npw, shift)) << (i & 63u));
@@ -699,7 +699,7 @@ public:
 #endif
         while(nleft) {
             uint64_t hv, seed = *sptr++;
-            for(unsigned i(0); i < nvals; ++i) {
+            for(uint32_t i(0); i < nvals; ++i) {
                 hv = hf_(vals[i] ^ seed);
                 ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(hv, std::min(npw, nleft), shift)) << (i & 63u));
             }

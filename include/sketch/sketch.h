@@ -6,7 +6,6 @@
 #include "./bbmh.h"
 #include "./ccm.h"
 #include "./cbf.h"
-#include "./mult.h"
 #include "./heap.h"
 #include "./filterhll.h"
 #include "./mult.h"
@@ -17,6 +16,8 @@
 #include "./hbb.h"
 #include "./mod.h"
 #include "./setsketch.h"
+#include "./ultraloglog.h"
+#include "./exaloglog.h"
 
 #ifdef __CUDACC__
 #include "hllgpu.h"
@@ -44,6 +45,8 @@ namespace sketch {
     // Utilities
     using namespace heap; // Heap maintainers for multisets based on a variety of criteria
     using namespace vac;  // Approximate Multiplicity samplers for streams
+    using namespace ull;  // UltraLogLog
+    using namespace ell;  // ExaLogLog
 }
 
 namespace sk = sketch;

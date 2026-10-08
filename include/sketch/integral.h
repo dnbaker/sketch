@@ -30,7 +30,7 @@
 namespace sketch {
 inline namespace integral {
 #if defined(__GNUC__) || defined(__clang__)
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(signed long long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t clz(signed long long x) noexcept {
     return
 #ifdef __CUDA_ARCH__
     __clzll(x);
@@ -38,7 +38,7 @@ CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(signed l
     __builtin_clzll(x);
 #endif
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(signed long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t clz(signed long x) noexcept {
     return
 #ifdef __CUDA_ARCH__
     __clzll(x);
@@ -46,7 +46,7 @@ CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(signed l
     __builtin_clzl(x);
 #endif
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(signed x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t clz(signed x) noexcept {
     return
 #ifdef __CUDA_ARCH__
     __clz(x);
@@ -54,42 +54,42 @@ CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(signed x
     __builtin_clz(x);
 #endif
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ctz(signed long long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ctz(signed long long x) noexcept {
 #ifdef __CUDA_ARCH__
     return __clzll(__brevll(x));
 #else
     return __builtin_ctzl(x);
 #endif
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ctz(signed long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ctz(signed long x) noexcept {
 #ifdef __CUDA_ARCH__
     return __clzll(__brevll(x));
 #else
     return __builtin_ctzl(x);
 #endif
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ctz(signed x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ctz(signed x) noexcept {
 #ifdef __CUDA_ARCH__
     return __clz(__brev(x));
 #else
     return __builtin_ctz(x);
 #endif
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ffs(signed long long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ffs(signed long long x) noexcept {
 #ifdef __CUDA_ARCH__
     return __ffsll(x);
 #else
     return __builtin_ffsll(x);
 #endif
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ffs(signed long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ffs(signed long x) noexcept {
 #ifdef __CUDA_ARCH__
     return __ffsll(x);
 #else
     return __builtin_ffsl(x);
 #endif
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ffs(signed x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ffs(signed x) noexcept {
 #ifdef __CUDA_ARCH__
     return __ffs(x);
 #else
@@ -98,31 +98,31 @@ CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ffs(signed x
 }
 
 
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(unsigned long long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t clz(unsigned long long x) noexcept {
     return clz(static_cast<signed long long>(x));
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(unsigned long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t clz(unsigned long x) noexcept {
     return clz(static_cast<signed long>(x));
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned clz(unsigned x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t clz(uint32_t x) noexcept {
     return clz(static_cast<signed>(x));
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ctz(unsigned long long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ctz(unsigned long long x) noexcept {
     return ctz(static_cast<signed long long>(x));
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ctz(unsigned long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ctz(unsigned long x) noexcept {
     return ctz(static_cast<signed long>(x));
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ctz(unsigned x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ctz(uint32_t x) noexcept {
     return ctz(static_cast<signed>(x));
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ffs(unsigned long long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ffs(unsigned long long x) noexcept {
     return ffs(static_cast<signed long long>(x));
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ffs(unsigned long x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ffs(unsigned long x) noexcept {
     return ffs(static_cast<signed long>(x));
 }
-CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) unsigned ffs(unsigned x) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE HOST_ONLY(constexpr) uint32_t ffs(uint32_t x) noexcept {
     return ffs(static_cast<signed>(x));
 }
 #endif
@@ -176,7 +176,7 @@ static_assert(clz(0x0000013333000003ull) == 23, "64-bit clz failed.");
 #endif
 
 template<typename T>
-static constexpr INLINE unsigned ilog2(T x) noexcept {
+static constexpr INLINE uint32_t ilog2(T x) noexcept {
     return sizeof(T) * CHAR_BIT - clz(x) - 1;
 }
 template<typename T>
@@ -225,7 +225,7 @@ CUDA_ONLY(__host__ __device__) INLINE auto popcount(signed long val) noexcept {
     return __builtin_popcountl(val);
 #endif
 }
-CUDA_ONLY(__host__ __device__) INLINE auto popcount(unsigned val) noexcept {
+CUDA_ONLY(__host__ __device__) INLINE auto popcount(uint32_t val) noexcept {
 #ifdef __CUDA_ARCH__
     return __popc(val);
 #else
@@ -233,20 +233,20 @@ CUDA_ONLY(__host__ __device__) INLINE auto popcount(unsigned val) noexcept {
 #endif
 }
 CUDA_ONLY(__host__ __device__) INLINE auto popcount(int val) noexcept {
-    return popcount(unsigned(val));
+    return popcount(uint32_t(val));
 }
 
 #if defined(__MMX__) || defined(__SSE2__) || defined(__SSE4_1__) || defined(__SSE4_2__)
-INLINE unsigned popcount(__m64 arg) noexcept {
+INLINE uint32_t popcount(__m64 arg) noexcept {
     uint64_t val;
     std::memcpy(&val, &arg, sizeof(val));
     return popcount(val);
 }
 #elif !defined(__CUDA_ARCH__)
 template<typename T>
-INLINE unsigned popcount(const T x) {
+INLINE uint32_t popcount(const T x) {
     size_t i = 0;
-    unsigned ret = 0;
+    uint32_t ret = 0;
     while(i + 1 <= sizeof(x) / 8) {
         ret += popcount(reinterpret_cast<const uint64_t *>(&x)[i++]);
     }

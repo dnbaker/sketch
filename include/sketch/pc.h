@@ -58,7 +58,7 @@ public:
     }
     PCSA(PCSA &&o) = default;
     PCSA &operator|=(const PCSA &o) {
-        for(unsigned i = 0; i < n_; ++i) counters_[i] |= o.counters_[i];
+        for(uint32_t i = 0; i < n_; ++i) counters_[i] |= o.counters_[i];
         return *this;
     }
     void addh(uint64_t value) {
@@ -89,7 +89,7 @@ public:
                 // x = popcount(x)
                 auto start = (uint32_t *)&vx;
                 SK_UNROLL_8
-                for(unsigned i = 0; i < nper; ++i) {
+                for(uint32_t i = 0; i < nper; ++i) {
                     start[i] = popcount(start[i]);
                 }
                 // x = vector of floats via popcount(x)
@@ -98,7 +98,7 @@ public:
             }
             // Reduce
             double sum = 0.;
-            for(unsigned i = 0; i < nper; ++i) sum += ((float *)&sums)[i];
+            for(uint32_t i = 0; i < nper; ++i) sum += ((float *)&sums)[i];
             for(i *= nper; i < n_; ++i) {
                 sum += detail::r(counters_[i]);
             }

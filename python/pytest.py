@@ -1,6 +1,6 @@
 import unittest
-from sketch import hmh
-from sketch import hll
+from sketch_ds import hmh
+from sketch_ds import hll
 import sketch_util as su
 
 HMHP = 10

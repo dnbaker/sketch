@@ -474,6 +474,22 @@ struct pmh1_t {
         }
     }
     void add(const IT id, const FT w) {update(id, w);}
+    // Unweighted convenience and repo sketch conventions: add(value) is a
+    // single pre-hashed value at weight 1; addh hashes. Equal registers
+    // hold identical race values iff the same element won the register, so
+    // the fraction of equal registers estimates the (weighted) Jaccard.
+    void add(uint64_t id) {update(id, FT(1));}
+    template<typename HashStruct=WangHash> void addh(uint64_t element) {update(HashStruct()(element), FT(1));}
+    // see pmh2_t::jaccard_index for the estimator definition.
+    double jaccard_index(const pmh1_t &o) const {
+        if(m() != o.m()) throw std::invalid_argument("pmh1 jaccard: mismatched sizes");
+        uint64_t eq = 0;
+        for(size_t i = 0; i < m(); ++i)
+            eq += res_[i] == o.res_[i] && hvals_[i] < hvals_.max() && o.hvals_[i] < o.hvals_.max();
+        return double(eq) / double(m());
+    }
+    double report() const {return double(total_weight());}
+    double cardinality_estimate() const {return report();}
     size_t m() const {return res_.size();}
     template<typename IT=FT>
     std::vector<IT> to_sigs() const {
@@ -622,7 +638,7 @@ struct pmh2_t {
     }
     pmh2_t &operator+=(const pmh2_t &o) {
         if(size() != o.size()) throw std::invalid_argument("Mismatched sizes");
-        if(!resweights_.empty() != o.resweights_.empty()) throw std::invalid_argument("Mismatched counting");
+        if(resweights_.empty() != o.resweights_.empty()) throw std::invalid_argument("Mismatched counting");
         const bool use_counts = !resweights_.empty();
         total_weight_ += o.total_weight_;
         total_weight_carry_ += o.total_weight_carry_;
@@ -636,6 +652,22 @@ struct pmh2_t {
         return *this;
     }
     void add(const IT id, const FT w) {update(id, w);}
+    // see pmh1_t for the convention notes.
+    void add(uint64_t id) {update(id, FT(1));}
+    template<typename HashStruct=WangHash> void addh(uint64_t element) {update(HashStruct()(element), FT(1));}
+    // Jaccard estimator: a register's winning id matches with probability
+    // J (order-statistics identity; exact for unweighted sets and for
+    // weighted sets with consistent weights on shared elements). Empty
+    // registers (value == max) never match.
+    double jaccard_index(const pmh2_t &o) const {
+        if(m() != o.m()) throw std::invalid_argument("pmh2 jaccard: mismatched sizes");
+        uint64_t eq = 0;
+        for(size_t i = 0; i < m(); ++i)
+            eq += res_[i] == o.res_[i] && hvals_[i] < hvals_.max() && o.hvals_[i] < o.hvals_.max();
+        return double(eq) / double(m());
+    }
+    double report() const {return double(total_weight());}
+    double cardinality_estimate() const {return report();}
     size_t m() const {return res_.size();}
     size_t size() const {return m();}
     template<typename IT=FT>

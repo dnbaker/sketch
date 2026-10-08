@@ -4,7 +4,7 @@ PYBIND11_MODULE(sketch_hmh, m) {
     m.doc() = "HyperMinHash support";
 #ifndef VEC_DISABLED__
     py::class_<sketch::HyperMinHash> (m, "hmh")
-        .def(py::init<unsigned, unsigned>(), py::arg("p"), py::arg("rsize") = 8)
+        .def(py::init<uint32_t, uint32_t>(), py::arg("p"), py::arg("rsize") = 8)
         .def(py::init<std::string>(), py::arg("path"))
         .def("getcard", &sketch::HyperMinHash::getcard, "Emit estimated cardinality. Performs sum if not performed, but sum must be recalculated if further entries are added.")
         .def("add", [](sketch::HyperMinHash &h1, uint64_t v) {h1.add(v);}, "Add a (hashed) value to the sketch.")
@@ -35,7 +35,7 @@ PYBIND11_MODULE(sketch_hmh, m) {
     m.def("jaccard_index", [](sketch::HyperMinHash &h1, sketch::HyperMinHash &h2) {
             return jaccard_index(h1, h2);
         }, "Calculates jaccard indexes between two sketches")
-    .def("from_shs", [](const py::array_t<uint64_t> &input, size_t ss=10, unsigned remsize=16) {
+    .def("from_shs", [](const py::array_t<uint64_t> &input, size_t ss=10, uint32_t remsize=16) {
          sketch::HyperMinHash ret(ss, remsize);
          auto ptr = input.data();
          const auto end = ptr + input.size();
@@ -45,7 +45,7 @@ PYBIND11_MODULE(sketch_hmh, m) {
          }
          return ret;
     }, py::return_value_policy::take_ownership, "Creates an HLL sketch from a numpy array of 64-bit hashes.")
-    .def("from_np", [](const py::array_t<uint64_t> &input, size_t ss=10, unsigned remsize=16) {
+    .def("from_np", [](const py::array_t<uint64_t> &input, size_t ss=10, uint32_t remsize=16) {
          sketch::HyperMinHash ret(ss, remsize);
          auto ptr = input.data();
          const auto end = ptr + input.size();

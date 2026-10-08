@@ -896,11 +896,11 @@ static inline std::pair<uint64_t, uint64_t> count_gtlt_words(const uint32_t *con
     return std::make_pair(lhgt, rhgt);
 }
 union uf {
-    unsigned u;
+    uint32_t u;
     float f;
-    constexpr uf(unsigned v): u(v) {}
+    constexpr uf(uint32_t v): u(v) {}
 };
-static constexpr float from_unsigned(unsigned x) {
+static constexpr float from_unsigned(uint32_t x) {
     uf tmp(x);
     return tmp.f;
 }

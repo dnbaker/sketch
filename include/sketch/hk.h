@@ -172,7 +172,7 @@ public:
     uint64_t add(uint64_t x) {
         __sync_fetch_and_add(&n_updates_, 1);
         uint64_t maxv = 0;
-        unsigned i = 0;
+        uint32_t i = 0;
         FOREVER {
             size_t pos, newfp;
             divmod(x, pos, newfp);
@@ -212,7 +212,7 @@ public:
     }
     uint64_t query(uint64_t x) const {
         uint64_t ret = 0;
-        unsigned i = 0;
+        uint32_t i = 0;
         FOREVER {
             size_t pos, newfp;
             divmod(x, pos, newfp);

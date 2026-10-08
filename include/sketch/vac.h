@@ -22,7 +22,7 @@ struct VACSketch {
 
     // Members
     Container<base, VectorArgs...> sketches_;
-    const unsigned n_;
+    const uint32_t n_;
 
     // Construction
     template<typename...Args>
@@ -37,7 +37,7 @@ struct VACSketch {
     void addh(uint64_t x) {
         thread_local static ThreadSeededGen<RNG> gen;
         const auto end = std::min(ctz(gen()) + 1, n_);
-        unsigned i = 0;
+        uint32_t i = 0;
         do sketches_[i++].addh(x); while(i < end);
     }
     // Composition
@@ -92,7 +92,7 @@ struct PowerVACSketch: public VACSketch<BaseSketch, Container, RNG, VectorArgs..
     void addh(uint64_t x) {
         thread_local static ThreadSeededGen<RNG> gen;
         auto v = gen();
-        unsigned i = 0;
+        uint32_t i = 0;
         do {
             this->sketches_[i++].addh(x);
         } while(i < this->n_ && v < lut_[i]);
