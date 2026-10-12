@@ -37,24 +37,6 @@ protected:
     uint16_t p_, r_, lrszm3_;
     std::vector<uint8_t, Allocator<uint8_t>> data_;
     long double pmrp2_;
-    // Per-register-width update, cached at construction: dispatching the
-    // register width via a switch on every insert costs ~45% of insert
-    // throughput (measured 141 vs 206 M/s at p=12, r=16) because the
-    // indirect branch does not pipeline as well as a monomorphic call.
-    void (*addfn_)(hmh_t *, uint64_t, uint64_t) = nullptr;
-    template<typename IT>
-    static void add_impl(hmh_t *p, uint64_t h1, uint64_t h2) {
-        p->perform_add<IT>(h1, h2);
-    }
-    void set_addfn() {
-        switch(lrszm3_) {
-            case 0: addfn_ = &add_impl<uint8_t>;  break;
-            case 1: addfn_ = &add_impl<uint16_t>; break;
-            case 2: addfn_ = &add_impl<uint32_t>; break;
-            case 3: addfn_ = &add_impl<uint64_t>; break;
-            default: HEDLEY_UNREACHABLE();
-        }
-    }
 public:
     static constexpr long double C4 = 0.6796779486389563759078484561637623073693248443305492L;
     hmh_t(uint32_t p, uint32_t rsize=8):
@@ -67,7 +49,6 @@ public:
         PREC_REQ((uint64_t(rsize) << p_) >= 64, "We require at least 64 bits of storage");
         lrszm3_ = ilog2(rsize) - 3;
         data_.resize(rsize << (p_ - 3));
-        set_addfn();
     }
     hmh_t(gzFile fp) {
         this->read(fp);
@@ -297,8 +278,16 @@ public:
         size_t i = 0;
         for_each_register_pair([&i,&func](auto x, auto y) {func(i++, x, y);});
     }
+    // Single-element dispatch: switch-to-inline
+    // (function pointer removed). Each arm inlines perform_add<IT> directly.
     void add(uint64_t h1, uint64_t h2) {
-        addfn_(this, h1, h2);
+        switch(lrszm3_) {
+#undef CASE_U
+#define CASE_U(type, index, __unused) case index: perform_add<type>(h1, h2); break
+            SHOW_CASES(CASE_U)
+#undef CASE_U
+            default: HEDLEY_UNREACHABLE();
+        }
     }
     template<typename IT> IT access(size_t index) const {
         return reinterpret_cast<const IT *>(data_.data())[index];
@@ -359,6 +348,62 @@ public:
         for_each_register([&](auto x) {++cmp[reg2lzc(x, r_)];});
         assert(std::equal(ret.begin(), ret.end(), cmp.begin()));
 #endif
+        assert(std::accumulate(ret.begin(), ret.end(), size_t(0)) == (1ull << p_));
+        return ret;
+    }
+    // Histogram of lzcs over the element-wise max of both register arrays
+    // (the union registers) -- feeds the Ertl ML union estimate. Same SIMD
+    // shape as sum_counts; the max is the HMH merge, so this is one fused
+    // merge+histogram pass.
+    template<typename IT>
+    std::array<uint32_t, 64> union_sum_counts(const hmh_t &o) const {
+        using hll::detail::SIMDHolder;
+        using Space = vec::SIMDTypes<IT>;
+        std::array<uint32_t, 64> ret{0};
+        if(data_.size() >= sizeof(SIMDHolder)) {
+            const typename Space::Type mask = Space::set1(0x3Fu);
+            auto update_point = [&](auto x) {
+#if __AVX512BW__ || ((__AVX2__ || __SSE2__) && !(__AVX512F__))
+                CONST_IF(sizeof(IT) == 1) {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 2), mask)).inc_counts_by_type<IT>(ret);
+                } else CONST_IF(sizeof(IT) == 2) {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 10), mask)).inc_counts_by_type<IT>(ret);
+                } else CONST_IF(sizeof(IT) == 4) {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 26), mask)).inc_counts_by_type<IT>(ret);
+                } else {
+                    SIMDHolder(Space::and_fn(Space::srli(x, 58), mask)).inc_counts_by_type<IT>(ret);
+                }
+#elif __AVX512F__
+                CONST_IF(sizeof(IT) == 1) {
+                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi8(x, 2), mask)).inc_counts_by_type<IT>(ret);
+                } else CONST_IF(sizeof(IT) == 2) {
+                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi16(x, 10), mask)).inc_counts_by_type<IT>(ret);
+                } else CONST_IF(sizeof(IT) == 4) {
+                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi32(x, 26), mask)).inc_counts_by_type<IT>(ret);
+                } else {
+                    SIMDHolder(_mm512_and_si512(_mm512_srli_epi64(x, 58), mask)).inc_counts_by_type<IT>(ret);
+                }
+#else
+            throw std::runtime_error("HMH is only supported on x86-64");
+#endif
+            };
+            using Type = typename Space::Type;
+            auto ptr = reinterpret_cast<const Type *>(data_.data());
+            auto eptr = reinterpret_cast<const Type *>(&data_[data_.size()]);
+            auto optr = reinterpret_cast<const Type *>(o.data_.data());
+            while(eptr - ptr > 8) {
+                update_point(Space::max(Space::load(ptr + 0), Space::load(optr + 0)));
+                update_point(Space::max(Space::load(ptr + 1), Space::load(optr + 1)));
+                update_point(Space::max(Space::load(ptr + 2), Space::load(optr + 2)));
+                update_point(Space::max(Space::load(ptr + 3), Space::load(optr + 3)));
+                update_point(Space::max(Space::load(ptr + 4), Space::load(optr + 4)));
+                update_point(Space::max(Space::load(ptr + 5), Space::load(optr + 5)));
+                update_point(Space::max(Space::load(ptr + 6), Space::load(optr + 6)));
+                update_point(Space::max(Space::load(ptr + 7), Space::load(optr + 7)));
+                ptr += 8; optr += 8;
+            }
+            while(ptr < eptr) update_point(Space::max(Space::load(ptr++), Space::load(optr++)));
+        } else for_each_union_register(o, [&](auto x) {++ret[reg2lzc(x, r_)];});
         assert(std::accumulate(ret.begin(), ret.end(), size_t(0)) == (1ull << p_));
         return ret;
     }
@@ -428,7 +473,10 @@ public:
         double us = union_size(o);
         return std::max(0., mv + ov - us); // Inclusion-exclusion principle
     }
-    double union_size(const hmh_t &o) const {
+    // Legacy MH-flavored union estimate (per-register remainder-weighted
+    // sum over the element-wise max). Kept for back-compat and A/B; the
+    // default union_size uses the histogram+Ertl path below.
+    double union_size_mh(const hmh_t &o) const {
         double ret = 0.;
 #ifndef VEC_DISABLED_H__
         if(data_.size() >= sizeof(vec::SIMDTypes<uint64_t>::Type)) {
@@ -464,6 +512,20 @@ public:
         });
         return mhsum2ret(ret, p_);
     }
+    // Union cardinality via one fused SIMD merge+histogram pass and the
+    // Ertl ML estimate (round 15: same construction as the Rust reference;
+    // A/B on the synthetic ladder shows parity with the MH-flavored union).
+    double union_size(const hmh_t &o) const {
+        PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
+        switch(lrszm3_) {
+#undef CASE_U
+#define CASE_U(type, index, __UNUSED) case index: return std::max(0., hll::detail::ertl_ml_estimate(this->union_sum_counts<type>(o), p_, 64 - p_))
+            SHOW_CASES(CASE_U)
+#undef CASE_U
+            default: HEDLEY_UNREACHABLE();
+        }
+        HEDLEY_UNREACHABLE();
+    }
     double approx_ec(double n, double m, int laziness=1) const {
         if(n < m) std::swap(n, m);
         const double ln = std::log(n);
@@ -473,7 +535,11 @@ public:
             const auto nmv = static_cast<long double>(n) * minv;
             return nmv * pmrp2_ * std::pow(nmv + minv, -2);
         }
-        if(laziness > 0) return hll_lazy_collision_estimate(n, m);
+        // Round 15: closed-form rank-interval estimate (accuracy A/B vs the
+        // legacy hll_lazy path: statistically identical error and bias on the
+        // synthetic ladder, ~100x cheaper). The legacy paths remain for
+        // reference and exact back-compat via laziness < 0.
+        if(laziness > 0) return rank_interval_collision_estimate(n, m);
         return expected_collisions(n, m) / p_;
     }
     double expected_collisions(double n, double m) const {
@@ -502,6 +568,29 @@ public:
         double b1 = tr() * di, b2 = b1 + di;
         for(size_t j = 0; j < tr(); b1 += di, b2 += di, incx(b1, b2), ++j);
         return x * p_ + 0.5;
+    }
+    // Closed-form rank-interval collision estimate (round 15: adopted from
+    // the HyperMinHash-rs formulation; same per-interval probability model
+    // as hll_lazy_collision_estimate -- P[card keys land in bucket interval
+    // [lo, hi)] = (1-lo)^card - (1-hi)^card, evaluated exp/log1p-stable --
+    // at O(64 - p) work instead of O(num_registers) pow calls). Returns the
+    // expected accidental common-register count (the quantity ec/nc uses).
+    double rank_interval_collision_estimate(double n, double m) const {
+        const double registers = double(num_registers());
+        const double maxrem = double(max_remainder());
+        auto iprob = [](double card, double lo, double hi) {
+            const double llo = card * std::log1p(-lo);
+            const double lhi = card * std::log1p(-hi);
+            return std::exp(llo) * -std::expm1(lhi - llo);
+        };
+        double x = 0.;
+        for(uint32_t rank = 1; rank <= 64 - p_; ++rank) {
+            const double lo = std::ldexp(1., -int(p_ + rank));
+            x += iprob(n, lo, 2. * lo) * iprob(m, lo, 2. * lo);
+        }
+        const double tail = std::ldexp(1., -64);
+        x += iprob(n, 0., tail) * iprob(m, 0., tail);
+        return x * registers / maxrem + 0.5;
     }
     double hll_lazy_collision_estimate(double n, double m) const {
         double x = 0.;
@@ -680,7 +769,6 @@ public:
         gzclose(fp);
     }
     void read(gzFile fp) {
-        // note: set_addfn() re-called at the end of read
         uint8_t buf[2];
         gzread(fp, buf, sizeof(buf));
         p_ = buf[0];
@@ -692,7 +780,6 @@ public:
         gzread(fp, data_.data(), data_.size());
         rbm_ = (1ull << r_) - 1;
         pmrp2_ = std::ldexp(C4, p_ - r_);
-        set_addfn();
     }
     void clear() {
         std::memset(data_.data(), 0, data_.size());
@@ -726,7 +813,7 @@ struct HyperMinHasher: public hmh_t {
 
     HyperMinHasher& operator+=(const HyperMinHasher &o) {
         hmh_t::operator+=(o);
-        card_ = this->cardinality_estimate();
+        unset_card(); // invalidate the cache; do not pay O(nregs) per merge
         return *this;
     }
     HyperMinHasher operator+(const HyperMinHasher &o) const {
@@ -781,6 +868,34 @@ public:
         if(unlikely(this == &o)) return 1.;
         double msz = this->getcard();
         return msz ? intersection_size(o) / msz: 1.;
+    }
+    // Raw register overlap from the single SIMD cc/nc pass (uncorrected
+    // similarity is cc/nc) -- exposed for benchmarks and custom estimators.
+    std::pair<uint32_t, uint32_t> overlap_counts(const HyperMinHasher &o) const {
+        const uint64_t cc_nc = calculate_cc_nc(o);
+        return {uint32_t(cc_nc >> 32), uint32_t(cc_nc & 0xFFFFFFFFu)};
+    }
+    // All four set comparisons derived from ONE register-pair pass (cc/nc)
+    // plus ONE union pass, with the collision correction computed once.
+    struct Comparison {
+        double jaccard, intersection, union_cardinality, containment;
+    };
+    Comparison compare(const HyperMinHasher &o) const {
+        if(unlikely(this == &o)) return {1., getcard(), getcard(), 1.};
+        PREC_REQ(o.p_ == this->p_ && o.r_ == this->r_, "Must have matching parameters");
+        const uint64_t cc_nc = calculate_cc_nc(o);
+        const uint32_t cc = cc_nc >> 32, nc = cc_nc & 0xFFFFFFFFu;
+        const double mycard = this->getcard(), ocard = o.getcard();
+        double ji;
+        if(!cc) ji = 0.;
+        else if(cc == nc) ji = 1.;
+        else {
+            const double ec = this->approx_ec(mycard, ocard);
+            ji = (1. - double(ec) / nc) * cc / nc;
+        }
+        const double us = this->union_size(o);
+        const double is = us * ji;
+        return {ji, is, us, mycard ? is / mycard: 1.};
     }
     std::array<double, 3> full_set_comparison(const HyperMinHasher &o) const {
         auto mycard = this->getcard(), ocard = o.getcard();

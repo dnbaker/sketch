@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <cassert>
 #include <climits>
 #include <cmath>
@@ -22,6 +23,7 @@
 
 #include "unistd.h"
 #include "sys/mman.h"
+#include <cerrno>
 
 #include "aesctr/wy.h"
 #include "macros.h"
@@ -351,6 +353,70 @@ template<typename T>
 void advise_mem(const T *lhs, const T *rhs, size_t nelem, int advice=MADV_SEQUENTIAL) {
     ::madvise((void *)(lhs), sizeof(T) * nelem, advice);
     ::madvise((void *)(rhs), sizeof(T) * nelem, advice);
+}
+
+// Write exactly nb bytes to a file descriptor, looping over short writes and
+// retrying EINTR; zero progress is reported as EIO. Returns nb, or -1 with errno set.
+static INLINE ssize_t write_all(int fd, const void *buf, size_t nb) {
+    const char *p = static_cast<const char *>(buf);
+    size_t nwritten = 0;
+    while(nwritten < nb) {
+        const ssize_t ret = ::write(fd, static_cast<const void *>(p + nwritten), nb - nwritten);
+        if(ret > 0) {
+            nwritten += size_t(ret);
+            continue;
+        }
+        if(ret == 0) { errno = EIO; return -1; }
+        if(errno == EINTR) continue;
+        return -1;
+    }
+    return ssize_t(nwritten);
+}
+// Read exactly nb bytes from a file descriptor, looping over short reads and
+// retrying EINTR; EOF (zero progress) before nb is reported as EIO. Returns nb, or -1 with errno set.
+static INLINE ssize_t read_all(int fd, void *buf, size_t nb) {
+    char *p = static_cast<char *>(buf);
+    size_t nread = 0;
+    while(nread < nb) {
+        const ssize_t ret = ::read(fd, static_cast<void *>(p + nread), nb - nread);
+        if(ret > 0) {
+            nread += size_t(ret);
+            continue;
+        }
+        if(ret == 0) { errno = EIO; return -1; }
+        if(errno == EINTR) continue;
+        return -1;
+    }
+    return ssize_t(nread);
+}
+// Exact-count gz counterparts; short transfers only occur at EOF or error.
+static INLINE ssize_t gzwrite_all(gzFile fp, const void *buf, size_t nb) {
+    const char *p = static_cast<const char *>(buf);
+    size_t nwritten = 0;
+    while(nwritten < nb) {
+        const int ret = gzwrite(fp, static_cast<const void *>(p + nwritten), unsigned(nb - nwritten));
+        if(ret > 0) {
+            nwritten += unsigned(ret);
+            continue;
+        }
+        errno = EIO;
+        return -1;
+    }
+    return ssize_t(nwritten);
+}
+static INLINE ssize_t gzread_all(gzFile fp, void *buf, size_t nb) {
+    char *p = static_cast<char *>(buf);
+    size_t nread = 0;
+    while(nread < nb) {
+        const int ret = gzread(fp, static_cast<void *>(p + nread), unsigned(nb - nread));
+        if(ret > 0) {
+            nread += unsigned(ret);
+            continue;
+        }
+        errno = EIO;
+        return -1;
+    }
+    return ssize_t(nread);
 }
 
 #ifdef __CUDACC__

@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     BottomKHasher<> bk(nmin);
     CountingRangeMinHash<uint64_t> crmh(nmin), crmh2(nmin);
     //KthMinHash<uint64_t> kmh(30, 100);
-    std::mt19937_64 mt(1337);
+    DefaultRNGType mt(1337);
     size_t olap_n = (olap_frac * nelem);
     double true_ji = double(olap_n ) / (nelem * 2 - olap_n);
     olap_frac = static_cast<double>(olap_n) / nelem;

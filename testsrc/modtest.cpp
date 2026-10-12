@@ -10,7 +10,7 @@ int main() {
     std::cerr << "div: " << mod.mod_.nelem() << '\n';
     assert(mod.add(1 << 16));
     assert(mod.finalize().size() == 1);
-    std::mt19937_64 mt;
+    DefaultRNGType mt;
     for(size_t i = 0; i < 10000; ++i) {
         mod.addh(mt());
     }

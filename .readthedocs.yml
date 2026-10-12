@@ -1,0 +1,25 @@
+# .readthedocs.yml
+# Read the Docs configuration for the Sketch documentation.
+#
+# Note: building the C++ extension modules (the sketch_* modules) requires
+# a real gcc/g++ and zlib. RTD's Ubuntu images ship gcc by default; the
+# apt packages below additionally ensure the full toolchain and zlib
+# headers are present if the extensions are ever built during docs
+# generation (e.g. by autodoc with mocked imports removed). The docs
+# themselves are pure Sphinx and do not compile C++.
+version: 2
+
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.11"
+  apt_packages:
+    - build-essential
+    - zlib1g-dev
+
+python:
+  install:
+    - requirements: docs/requirements.txt
+
+sphinx:
+  configuration: docs/source/conf.py

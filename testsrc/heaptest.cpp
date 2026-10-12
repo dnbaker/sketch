@@ -14,7 +14,7 @@ using namespace sketch;
 using Hash = sketch::hash::WangHash;
 auto cmp = std::less<>();
 int main() {
-    std::mt19937_64 mt(1337);
+    DefaultRNGType mt(1337);
     using cmp = std::less<>;
     ObjHeap<uint64_t, cmp> zomg(100);
     std::set<uint64_t, cmp> zomgset;

@@ -15,6 +15,7 @@
 #include "aesctr/wy.h"
 #include "sketch/sseutil.h"
 #include "sketch/div.h"
+#include "sketch/integral.h"
 #include "sketch/intrinsics.h"
 #include "sketch/macros.h"
 
@@ -211,8 +212,8 @@ public:
         if(nregs > std::numeric_limits<ModT>::max()) throw std::invalid_argument(std::string("nregs ") + std::to_string(nregs) + " is > than ModT size. Use a 64-bit ModT to build an LPCQF of that size.");
         if(is_pow2) {
             if(nregs & (nregs - 1)) throw std::invalid_argument("LPCQF of power of 2 size requires a power-of-two size.");
-            l2n = 64 - __builtin_clzll(nregs) - 1;
-            bitmask = 0xFFFFFFFFFFFFFFFFull >> (64 - l2n);
+            l2n = ilog2(nregs);
+            bitmask = 0xFFFFFFFFFFFFFFFFull >> (bits_per_word<uint64_t> - l2n);
         }
         data_.resize(nregs);
         size_ = nregs;

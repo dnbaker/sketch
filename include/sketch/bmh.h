@@ -404,6 +404,8 @@ struct bmh_t {
     void reset() {
         hvals_.reset();
         heap_.clear();
+        std::fill(track_ids_.begin(), track_ids_.end(), IDType(0));
+        std::fill(idcounts_.begin(), idcounts_.end(), FT(0));
         total_updates_ = 0;
         total_weight_carry_ = total_weight_ = 0.;
     }
@@ -1030,7 +1032,9 @@ public:
             throw std::runtime_error("Cannot complete an OrderMinHash with infinite indexes selected. This is either a bug or you are finalizing an item built from an empty string.");
         }
         std::vector<uint64_t> ret(m_);
-        std::vector<T> up(l_);
+        // Positions index the input, so they keep the width of indices
+        // rather than that of the element type T, which may be as narrow as char.
+        std::vector<uint64_t> up(l_);
         XXH3_state_t state;
         for(size_t i = 0; i < m_; ++i) {
             auto indptr = &indices[l_ * i];

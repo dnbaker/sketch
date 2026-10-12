@@ -1,4 +1,5 @@
 #include "sketch/bmh.h"
+#include "common.h"
 #include <chrono>
 using namespace sketch;
 
@@ -47,7 +48,7 @@ int main(int argc, char *argv[]) {
     const size_t nh = (argc <= 2) ? size_t(133333700): size_t(std::strtoull(argv[1], nullptr, 10));
     const auto constants = compute_truncexp_constants<double>(m);
     std::vector<uint64_t> sources(nh);
-    std::mt19937_64 mt;
+    DefaultRNGType mt;
     for(auto &x: sources) x = mt();
     std::vector<double> hashes(nh);
     auto t1 = gett();

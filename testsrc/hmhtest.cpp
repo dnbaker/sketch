@@ -5,7 +5,7 @@ int main() {
     const char *hm1p = "__hm1.hmh", *hm2p = "__hm2.hmh";
     size_t nelem = 1000000;
     for(const auto hms: {8, 10, 12}) {
-        std::mt19937_64 rng(hms);
+        sketch::DefaultRNGType rng(hms);
         for(const auto rem: {8, 16, 32, 64}) {
             double hle = 0., hme = 0.;
             double jhle = 0., jhme = 0., cjhme = 0.;

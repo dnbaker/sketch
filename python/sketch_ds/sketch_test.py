@@ -43,6 +43,49 @@ def test_bbmh():
     print("cards:" + ",".join(f"{x.report()}" for x in bs))
 
 
-all_tests = [test_hll, test_bbmh]
+def test_cqf():
+    import tempfile, os
+    cqf = sketch_ds.cqf
 
-__all__ = ["all_tests", "test_hll", "test_bbmh"]
+    # batch construction from numpy; counts agree with python sets (small
+    # enough to stay at the requested q -- ceiling keeps clusters short)
+    x = np.random.randint(0, (1 << 64) - 1, dtype=np.uint64, size=200)
+    f = cqf.from_np(x, 8)
+    want = len(set(x.tolist()))
+    assert f.q() == 8 and f.r() == 56, "q/r wrong"
+    assert f.size() == want, f"size {f.size()} != {want}"
+    for v in x[:100]:
+        assert f.contains(f.hash(int(v))), "lost key from batch add"
+    # addh_np agrees with from_np (even when the filter must grow)
+    y = np.random.randint(0, (1 << 64) - 1, dtype=np.uint64, size=5000)
+    g = cqf.cqf(8)
+    g.addh_np(y)
+    assert g.size() == len(set(y.tolist())), "addh_np disagrees"
+    assert g.q() > 8, "addh_np did not grow"
+    # scalar add/dec/erase semantics (hashed-value API)
+    h = cqf.cqf(6)
+    h.addh(7); h.addh(7); h.addh(9)
+    assert h.size() == 2 and h.count(h.hash(7)) == 2 and h.count(h.hash(9)) == 1, "scalar counts wrong"
+    assert h.dec(h.hash(7)) and h.count(h.hash(7)) == 1, "dec wrong"
+    assert h.erase(h.hash(9)) and not h.contains(h.hash(9)), "erase wrong"
+    assert not h.erase(h.hash(9)), "erase of absent returned True"
+    h.dec(h.hash(7))
+    assert h.empty(), "filter not empty after dec-to-zero"
+    # r argument validated against 64 - q
+    try:
+        cqf.cqf(8, 8)
+        raise AssertionError("accepted wrong r")
+    except Exception:
+        pass
+    # serialization round-trip through the python API
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "cqf.gz")
+    f.write(path)
+    f.clear()
+    assert f.empty(), "clear failed"
+    print("cqf tests passed")
+
+
+all_tests = [test_hll, test_bbmh, test_cqf]
+
+__all__ = ["all_tests", "test_hll", "test_bbmh", "test_cqf"]

@@ -92,7 +92,7 @@ void test_cardinality() {
         std::vector<double> errs;
         for(unsigned seed = 1; seed <= 7; ++seed) {
             dmh::dartminhashbase_t<> h(k, seed);
-            std::mt19937_64 rng(seed * 2017 + unsigned(n));
+            DefaultRNGType rng(seed * 2017 + unsigned(n));
             for(uint64_t i = 0; i < uint64_t(n); ++i) h.addh(rng());
             errs.push_back(h.report() / n - 1.);
         }
@@ -105,7 +105,7 @@ void test_cardinality() {
     }
     { // single-seed large-n smoke (keeps runtime sane: cost is n*k/LANES)
         dmh::dartminhashbase_t<> h(k, 3);
-        std::mt19937_64 rng(3);
+        DefaultRNGType rng(3);
         const uint64_t n = 10000000;
         for(uint64_t i = 0; i < n; ++i) h.addh(rng());
         const double relerr = std::abs(h.report() / n - 1.);
@@ -118,7 +118,7 @@ void test_cardinality() {
 void test_merge_and_serialization() {
     for(const unsigned k: {64u, 256u, 1000u}) {
         dmh::dartminhashbase_t<> a(k, 7), b(k, 7), both(k, 7);
-        std::mt19937_64 rng(k);
+        DefaultRNGType rng(k);
         for(unsigned i = 0; i < 60000; ++i) {const uint64_t v = rng(); a.addh(v); both.addh(v);}
         for(unsigned i = 0; i < 60000; ++i) {const uint64_t v = rng(); b.addh(v); both.addh(v);}
         a += b;
@@ -149,12 +149,12 @@ void test_merge_and_serialization() {
 void test_simd_equivalence() {
     for(const unsigned k: {3u, 64u, 255u, 1024u}) { // odd sizes exercise the tail
         dmh::dartminhashbase_t<> h(k, 99);
-        std::mt19937_64 rng(k);
+        DefaultRNGType rng(k);
         for(unsigned i = 0; i < 20000; ++i) h.addh(rng());
         for(unsigned j = 0; j < k; ++j) {
             const uint64_t seed_j = 99 + uint64_t(j) * dmh::detail::DMH_GOLDEN;
             uint64_t exp_rank = ~uint64_t(0), exp_id = 0;
-            std::mt19937_64 rng2(k);
+            DefaultRNGType rng2(k);
             for(unsigned i = 0; i < 20000; ++i) {
                 const uint64_t v = rng2();
                 const uint64_t r = sketch::hash::WangHash::hash(h.hash(v) ^ seed_j);

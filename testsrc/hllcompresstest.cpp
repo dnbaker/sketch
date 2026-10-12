@@ -1,7 +1,7 @@
 #include "sketch/hll.h"
 using namespace sketch;
 int main() {
-    std::mt19937_64 mt;
+    DefaultRNGType mt;
     std::vector<hll_t> hlls;
     unsigned start = 10, stop = 16;
     for(unsigned c = start; c <= stop; hlls.emplace_back(c++));

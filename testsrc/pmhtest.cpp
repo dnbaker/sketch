@@ -1,4 +1,5 @@
 #include "bmh.h"
+#include "common.h"
 #include <cstdio>
 #include <cmath>
 #include <random>
@@ -54,7 +55,7 @@ void test_weighted_jaccard() {
     const unsigned m = 1024;
     std::vector<double> errs;
     for(unsigned seed = 1; seed <= 10; ++seed) {
-        std::mt19937_64 rng(seed * 2718);
+        DefaultRNGType rng(seed * 2718);
         std::unordered_map<uint64_t, double> wa, wb;
         for(unsigned t = 0; t < 300; ++t) {
             const uint64_t id = rng() % 400;
@@ -96,7 +97,7 @@ void test_merge_and_pmh1() {
     // merge (register-wise min of race values) equals sketching the union
     const unsigned m = 512;
     pmh2_t<> a(m), b(m), both(m);
-    std::mt19937_64 rng(13);
+    DefaultRNGType rng(13);
     for(unsigned i = 0; i < 30000; ++i) {const uint64_t v = rng(); a.addh(v); both.addh(v);}
     for(unsigned i = 0; i < 30000; ++i) {const uint64_t v = rng(); b.addh(v); both.addh(v);}
     a += b;

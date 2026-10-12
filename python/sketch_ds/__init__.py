@@ -5,6 +5,7 @@ import sketch_bf as bf
 import sketch_hmh as hmh
 import sketch_ss as setsketch
 import sketch_lsh as lsh
+import sketch_cqf as cqf
 from .sketch_test import all_tests
 from collections import namedtuple
 

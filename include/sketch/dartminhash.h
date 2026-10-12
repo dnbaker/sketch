@@ -99,11 +99,11 @@ static INLINE void dmh_regmin(uint64_t *rank, uint64_t *id, __m256i r2, __m256i 
 static constexpr uint32_t DMH_LANES = 2;
 static INLINE __m128i dmh_whash(__m128i k) {
     k = _mm_add_epi64(_mm_xor_si128(k, _mm_set1_epi64x(-1)), _mm_slli_epi64(k, 21));
-    k = _mm_xor_si128(k, _mm_srli_si64(k, 24));
+    k = _mm_xor_si128(k, _mm_srli_epi64(k, 24));
     k = _mm_add_epi64(_mm_add_epi64(k, _mm_slli_epi64(k, 3)), _mm_slli_epi64(k, 8));
-    k = _mm_xor_si128(k, _mm_srli_si64(k, 14));
+    k = _mm_xor_si128(k, _mm_srli_epi64(k, 14));
     k = _mm_add_epi64(_mm_add_epi64(k, _mm_slli_epi64(k, 2)), _mm_slli_epi64(k, 4));
-    k = _mm_xor_si128(k, _mm_srli_si64(k, 28));
+    k = _mm_xor_si128(k, _mm_srli_epi64(k, 28));
     k = _mm_add_epi64(k, _mm_slli_epi64(k, 31));
     return k;
 }

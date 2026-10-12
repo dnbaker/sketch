@@ -1163,7 +1163,7 @@ public:
         uint32_t bf[]{is_calculated(), estim_, jestim_, 137};
 #define CHWR(fn, obj, sz) \
     do {\
-    if(HEDLEY_UNLIKELY(::write(fn, (obj), (sz)) != ssize_t(sz))) \
+    if(HEDLEY_UNLIKELY(common::write_all(fn, (obj), (sz)) != ssize_t(sz))) \
         throw std::runtime_error( \
             std::string("[") + __PRETTY_FUNCTION__ + std::string("Failed to write to disk at fd ") + std::to_string(fileno)); \
     } while(0)
@@ -1176,7 +1176,7 @@ public:
     }
     void read(int fileno) {
         uint32_t bf[4];
-#define CHRE(fn, obj, sz) if(HEDLEY_UNLIKELY(::read(fn, (obj), (sz)) != ssize_t(sz))) throw std::runtime_error(std::string("Failed to read from fd in ") + __PRETTY_FUNCTION__)
+#define CHRE(fn, obj, sz) if(HEDLEY_UNLIKELY(common::read_all(fn, (obj), (sz)) != ssize_t(sz))) throw std::runtime_error(std::string("Failed to read from fd in ") + __PRETTY_FUNCTION__)
         CHRE(fileno, bf, sizeof(bf));
         estim_         = static_cast<EstimationMethod>(bf[1]);
         jestim_        = static_cast<JointEstimationMethod>(bf[2]);

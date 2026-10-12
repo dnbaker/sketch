@@ -84,14 +84,14 @@ static inline double harmonic_cardinality_estimate(const std::vector<T, Allocato
 }
 
 INLINE void setnthbit(uint64_t *ptr, size_t index, bool val) {
-    ptr[index / 64] |= uint64_t(val) << (index % 64);
+    ptr[index / bits_per_word<uint64_t>] |= uint64_t(val) << (index % bits_per_word<uint64_t>);
 }
 template<typename T> INLINE void setnthbit(T *ptr, size_t index, bool val) {
     return setnthbit(reinterpret_cast<uint64_t *>(ptr), index, val);
 }
 
 static INLINE uint64_t getnthbit(const uint64_t *ptr, size_t index) {
-    return (ptr[index / 64] >> (index % 64)) & 1u;
+    return (ptr[index / bits_per_word<uint64_t>] >> (index % bits_per_word<uint64_t>)) & 1u;
 }
 
 template<typename T> INLINE T getnthbit(const T *ptr, size_t index) {
@@ -275,9 +275,9 @@ public:
     std::vector<value_type, Allocator<value_type>> core_;
     FinalDivBBitMinHash(uint32_t nbuckets, uint32_t b, double est):
         est_cardinality_(est), nbuckets_(nbuckets), b_(b),
-        core_(value_type(b) * nbuckets / 64)
+        core_(value_type(b) * nbuckets / bits_per_word<value_type>)
     {
-        PREC_REQ(b * nbuckets % 64 == 0, "b * nbuckets must be divisible by 64");
+        PREC_REQ(b * nbuckets % bits_per_word<value_type> == 0, "b * nbuckets must be divisible by the word width");
     }
     void free() {
         decltype(core_) tmp;
@@ -317,10 +317,10 @@ public:
         ssize_t ret = sizeof(arr);
         b_ = arr[0];
         nbuckets_ = arr[1];
-        PREC_REQ(b_ * nbuckets_ % 64 == 0, "b * nbuckets must be divisible by 64");
+        PREC_REQ(b_ * nbuckets_ % bits_per_word<value_type> == 0, "b * nbuckets must be divisible by the word width");
         if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw ZlibError("Could not read from file.");
         ret += sizeof(est_cardinality_);
-        core_.resize(b_ * nbuckets_ / 64 + (b_ * nbuckets_ % 64 != 0));
+        core_.resize(ceil_div(b_ * nbuckets_, uint64_t(bits_per_word<value_type>)));
         const size_t expected = sizeof(core_[0]) * core_.size();
         if(gzread(fp, core_.data(), expected) != ssize_t(expected))
             throw ZlibError(std::string("Failed to read core from file"));
@@ -396,7 +396,7 @@ public:
 #endif
         // p_ already guaranteed to be greater than 6
         auto l2szfloor = ilog2(nbuckets_);
-        const value_type *p1 = core_.data(), *pe = core_.data() + b_ * (1ull << l2szfloor) / 64, *p2 = o.core_.data();
+        const value_type *p1 = core_.data(), *pe = core_.data() + b_ * (1ull << l2szfloor) / bits_per_word<value_type>, *p2 = o.core_.data();
         uint64_t sum;
         switch(l2szfloor) {
             case 6: {
@@ -473,7 +473,7 @@ public:
 #if HAS_AVX_512
         {
             __m512i lsum = _mm512_set1_epi64(0);
-            const __m512i *vp1 = reinterpret_cast<const __m512i *>(pe), *vp2 = reinterpret_cast<const __m512i *>(o.core_.data() +  b_ * (1ull << l2szfloor) / 64);
+            const __m512i *vp1 = reinterpret_cast<const __m512i *>(pe), *vp2 = reinterpret_cast<const __m512i *>(o.core_.data() +  b_ * (1ull << l2szfloor) / bits_per_word<value_type>);
             while(vp1 + b_ <= reinterpret_cast<const __m512i *>(pf)) {
                 __m512i match = ~(*vp1++ ^ *vp2++);
                 for(uint32_t b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
@@ -489,7 +489,7 @@ public:
         }
 #elif __AVX2__
         {
-            const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
+            const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>(o.core_.data() + b_ * (1ull << l2szfloor) / bits_per_word<value_type>);
             __m256i lsum = _mm256_set1_epi64x(0);
             while(vp1 + b_ <= reinterpret_cast<const __m256i *>(pf)) {
                 __m256i match = ~(*vp1++ ^ *vp2++);
@@ -502,7 +502,7 @@ public:
         }
 #elif __SSE2__
         const __m128i *vp1 = reinterpret_cast<const __m128i *>(pe);
-        const __m128i *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
+        const __m128i *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * (1ull << l2szfloor) / bits_per_word<value_type>);
         while(vp1 + b_ <= reinterpret_cast<const __m128i *>(pf)) {
             __m128i match = ~(*vp1++ ^ *vp2++);
             for(uint32_t b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
@@ -1096,7 +1096,6 @@ public:
     BBitMinHasher &operator+=(const BBitMinHasher &o) {
         if(size() != o.size()) throw std::runtime_error("Wrong sizes");
         if(size() == 0) throw std::runtime_error("Empty sketches");
-        std::fprintf(stderr, "Size: %zu\n", size());
         size_t i = 0;
 #if __AVX512F__
         __m512i *p1 = reinterpret_cast<__m512i *>(core_.data());
@@ -1152,7 +1151,7 @@ public:
         std::vector<uint32_t> ret(b * (core_.size() >> 5));
         for(size_t i = 0; i < core_.size(); ++i) {
             for(uint32_t bi = 0; bi < b; ++bi) {
-                detail::setnthbit(&ret[(i >> 5) * b + bi], (core_[i] >> bi) & 1);
+                detail::setnthbit(&ret[(i / 32) * b + bi], (core_[i] >> bi) & 1);
             }
         }
         return ret;
@@ -1162,10 +1161,10 @@ public:
         b = b ? b: b_;
         PREC_REQ(b <= 64, "b can't be > 64");
         PREC_REQ(p_ >= 6, "p must be >= 5 for this");
-        std::vector<uint64_t> ret(b * (core_.size() >> 6));
+        std::vector<uint64_t> ret(b * (core_.size() / bits_per_word<T>));
         for(size_t i = 0; i < core_.size(); ++i) {
             for(uint32_t bi = 0; bi < b; ++bi) {
-                detail::setnthbit(&ret[(i >> 6) * b + bi], (core_[i] >> bi) & 1);
+                detail::setnthbit(&ret[(i / bits_per_word<uint64_t>) * b + bi], (core_[i] >> bi) & 1);
             }
         }
         return ret;
@@ -1375,7 +1374,7 @@ public:
         b_ = arr[0];
         p_ = arr[1];
         if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw ZlibError("Could not read from file.");
-        core_.resize((value_type(b_) << p_) >> 6);
+        core_.resize((value_type(b_) << p_) / bits_per_word<value_type>);
         const size_t nb = sizeof(core_[0]) * core_.size();
         if(gzread(fp, core_.data(), nb) != ssize_t(nb)) throw ZlibError("Could not read data vector from file");
         return nb + sizeof(arr) + sizeof(est_cardinality_);
@@ -1499,14 +1498,14 @@ public:
             default: {
                 // Process each 'b' remainder block in
                 const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2);
-                auto sum = detail::matching_bits(vp1, vp2, b_);
+                auto local_sum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < (size_t(1) << (p_ - 9u)); ++i) {
                     vp1 += b_;
                     vp2 += b_;
-                    sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
+                    local_sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), local_sum);
                 }
                 assert((value_type*)vp1 == &core_[core_.size()]);
-                sum = common::sum_of_u64s(sum);
+                sum = common::sum_of_u64s(local_sum);
                 break;
             }
 #    else /* has avx2 not not 512 */
@@ -1635,7 +1634,7 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
     if((ndef = std::count_if(core_.begin(), core_.end(), [](auto x) {return x == detail::default_val<T>();}))) {
         tmp = core_;
         cest = detail::harmonic_cardinality_estimate_impl(tmp);
-        std::replace(tmp.begin(), tmp.end(), std::numeric_limits<T>::max() >> p_, detail::default_val<T>());
+        std::replace(tmp.begin(), tmp.end(), T(std::numeric_limits<T>::max() >> p_), detail::default_val<T>());
         detail::densifybin(tmp);
         ptr = &tmp;
     }

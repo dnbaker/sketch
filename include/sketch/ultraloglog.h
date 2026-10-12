@@ -39,7 +39,7 @@ namespace detail {
 inline uint64_t ull_unpack(uint8_t reg) {
     const uint64_t v = uint64_t(4 | (reg & 3));
     const int sh = int(reg >> 2) - 2; // in [-2, 61]
-    return v << (sh & 63);
+    return v << (sh & (bits_per_word<uint64_t> - 1)); // Java semantics: shift mod word
 }
 
 // Encodes a (nonzero) bit map of observed update values into a register byte.
@@ -54,7 +54,7 @@ inline uint64_t ull_scaled_register_change_probability(uint8_t reg, uint32_t p) 
     if(reg == 0) return uint64_t(1) << (64 - p);
     const int k = 1 - int(p) + (reg >> 2);
     const uint64_t m = uint64_t(((reg & 2) | ((reg & 1) << 2)) ^ 7);
-    return (m << ((~k) & 63)) >> p;
+    return (m << ((~k) & (bits_per_word<uint64_t> - 1))) >> p;
 }
 
 } // namespace detail

@@ -63,13 +63,13 @@ int main() {
         policy::SizeDivPolicy<uint64_t> p2(j);
         std::fprintf(stderr, "input: %zu. power of two: %zu. div: %zu.\n", j, p1.nelem(), p2.nelem());
     }
-    std::mt19937 mt;
+    DefaultRNGType mt;
     for(int round = 0; round < 2; ++round) {
         const uint32_t sz = mt();
         schism::Schismatic<uint32_t> sm(sz);
         __m256i vals;
         uint32_t *vp = (uint32_t *)&vals;
-        std::mt19937 mt;
+        DefaultRNGType mt;
         std::array<uint32_t, 8> truem;
         for(size_t i = 0; i < 8; ++i) {
             vp[i] = mt();

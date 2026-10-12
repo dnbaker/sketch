@@ -1,4 +1,4 @@
-#include "python/pysketch.h"
+#include "pysketch.h"
 
 PYBIND11_MODULE(sketch_hll, m) {
     m.doc() = "HyperLogLog support"; // optional module docstring

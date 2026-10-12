@@ -345,6 +345,15 @@ INLINE auto roundupdiv(T x, T2 div) noexcept {
     return ((x + div - 1) / div) * div;
 }
 
+// x / y rounded up, for unsigned arithmetic (single shared ceil-division)
+template<typename T, typename T2>
+INLINE constexpr auto ceil_div(T x, T2 y) noexcept -> decltype(x / y) {
+    return (x + y - 1) / y;
+}
+// word width in bits, bound once per type (single shared word-size constant)
+template<typename T>
+static constexpr unsigned bits_per_word = sizeof(T) * CHAR_BIT;
+
 static constexpr inline uint64_t bitmask(size_t n) {
     uint64_t x = uint64_t(1) << (n - 1);
     x ^= x - 1;
