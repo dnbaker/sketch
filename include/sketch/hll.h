@@ -527,6 +527,62 @@ struct joint_unroller {
         assert((c1.size() & (SIMDHolder::nels - 1)) == 0);
         sum_arrays(reinterpret_cast<const SType *>(&c1[0]), reinterpret_cast<const SType *>(&c2[0]), reinterpret_cast<const SType *>(&*c1.cend()), arrh1, arrh2, arru, arrg1, arrg2, arreq);
     }
+    // Comparison-only variant: three compare-derived histograms with
+    // two-way privatization (independent accumulators per unrolled
+    // slot), the union histogram derived by the caller.
+    template<typename T, size_t iternum, size_t niter_left> struct cmp_impl {
+        INLINE void operator()(const SIMDHolder &ref1, const SIMDHolder &ref2, T &g1a, T &g2a, T &eqa, T &g1b, T &g2b, T &eqb, MType gtmask1, MType gtmask2, MType eqmask) const {
+#if __AVX512BW__
+            const uint64_t m1 = gtmask1 & 1, m2 = gtmask2 & 1, me = eqmask & 1;
+#else
+            const uint64_t m1 = gtmask1.vals[iternum] != 0, m2 = gtmask2.vals[iternum] != 0, me = eqmask.vals[iternum] != 0;
+#endif
+            if(iternum & 1) {
+                g1a[ref1.vals[iternum]] += m1;
+                eqa[ref1.vals[iternum]] += me;
+                g2a[ref2.vals[iternum]] += m2;
+            } else {
+                g1b[ref1.vals[iternum]] += m1;
+                eqb[ref1.vals[iternum]] += me;
+                g2b[ref2.vals[iternum]] += m2;
+            }
+#if __AVX512BW__
+            gtmask1 >>= 1; gtmask2 >>= 1; eqmask >>= 1;
+#endif
+            cmp_impl<T, iternum+1, niter_left-1> nxt;
+            nxt(ref1, ref2, g1a, g2a, eqa, g1b, g2b, eqb, gtmask1, gtmask2, eqmask);
+        }
+    };
+    template<typename T, size_t iternum> struct cmp_impl<T, iternum, 0> {
+        INLINE void operator()(const SIMDHolder &, const SIMDHolder &, T &, T &, T &, T &, T &, T &, MType, MType, MType) const {}
+    };
+    template<typename T>
+    INLINE void cmp_arrays(const SType *arr1, const SType *arr2, const SType *const arr1end, T &cg1, T &cg2, T &ceq) const {
+        alignas(64) T g1b{0}, g2b{0}, eqb{0};
+        SIMDHolder v1, v2;
+        do {
+            v1.val = *arr1++;
+            v2.val = *arr2++;
+#if __AVX512BW__
+            const MType g1 = SIMDHolder::gt_fn(v1.val, v2.val);
+            const MType g2 = SIMDHolder::gt_fn(v2.val, v1.val);
+            const MType eq = SIMDHolder::eq_fn(v1.val, v2.val);
+#else
+            const SIMDHolder g1(SIMDHolder::gt_fn(v1.val, v2.val));
+            const SIMDHolder g2(SIMDHolder::gt_fn(v2.val, v1.val));
+            const SIMDHolder eq(SIMDHolder::eq_fn(v1.val, v2.val));
+#endif
+            cmp_impl<T, 0, SIMDHolder::nels> nxt;
+            nxt(v1, v2, cg1, cg2, ceq, g1b, g2b, eqb, g1, g2, eq);
+        } while(arr1 < arr1end);
+        for(unsigned k = 0; k < 64; ++k) { cg1[k] += g1b[k]; cg2[k] += g2b[k]; ceq[k] += eqb[k]; }
+    }
+    template<typename T, typename VectorType>
+    INLINE void cmp_arrays(const VectorType &c1, const VectorType &c2, T &cg1, T &cg2, T &ceq) const {
+        assert(c1.size() == c2.size() || !std::fprintf(stderr, "Sizes: %zu, %zu\n", c1.size(), c2.size()));
+        assert((c1.size() & (SIMDHolder::nels - 1)) == 0);
+        cmp_arrays(reinterpret_cast<const SType *>(&c1[0]), reinterpret_cast<const SType *>(&c2[0]), reinterpret_cast<const SType *>(&*c1.cend()), cg1, cg2, ceq);
+    }
 #else
     template<typename T, typename VectorType>
     INLINE void sum_arrays(const VectorType &c1, const VectorType &c2, T &arrh1, T &arrh2, T &arru, T &arrg1, T &arrg2, T &arreq) const {
@@ -545,6 +601,17 @@ struct joint_unroller {
             arrg2[token2] += lt;
             arreq[token_max] += eq;
         }
+    template<typename T, typename VectorType>
+    INLINE void cmp_arrays(const VectorType &c1, const VectorType &c2, T &cg1, T &cg2, T &ceq) const {
+        alignas(64) T g1b{0}, g2b{0}, eqb{0};
+        for(size_t i = 0; i < c1.size(); ++i) {
+            const auto t1 = c1[i], t2 = c2[i];
+            if(t1 > t2) { if(i & 1) ++g1b[t1]; else ++cg1[t1]; }
+            else if(t2 > t1) { if(i & 1) ++g2b[t2]; else ++cg2[t2]; }
+            else { if(i & 1) ++eqb[t1]; else ++ceq[t1]; }
+        }
+        for(unsigned k = 0; k < 64; ++k) { cg1[k] += g1b[k]; cg2[k] += g2b[k]; ceq[k] += eqb[k]; }
+    }
     }
 #endif /* VEC_DISABLED__*/
 };
@@ -711,13 +778,22 @@ std::array<double, 3> ertl_joint(const HllType &h1, const HllType &h2) {
     using detail::ertl_ml_estimate;
     auto p = h1.p();
     auto q = h1.q();
-    std::array<uint32_t, 64> c1{0}, c2{0}, cu{0}, ceq{0}, cg1{0}, cg2{0};
+    // Per-sketch histograms come from the sketch cache (computed once
+    // per mutation epoch, reused across every pairwise comparison); the
+    // comparison pass produces only the three compare-derived
+    // histograms, and the union histogram is derived from them
+    // (cu[k] = cg1[k] + cg2[k] + ceq[k]).
+    h1.csum(); h2.csum();
+    const auto &c1 = h1.ccounts();
+    const auto &c2 = h2.ccounts();
+    std::array<uint32_t, 64> cu{0}, ceq{0}, cg1{0}, cg2{0};
     detail::joint_unroller ju;
-    ju.sum_arrays(h1.core(), h2.core(), c1, c2, cu, cg1, cg2, ceq);
-    const double cAX = h1.get_is_ready() ? h1.creport() : ertl_ml_estimate(c1, h1.p(), h1.q());
-    const double cBX = h2.get_is_ready() ? h2.creport() : ertl_ml_estimate(c2, h2.p(), h2.q());
+    ju.cmp_arrays(h1.core(), h2.core(), cg1, cg2, ceq);
+    cu = cg1;
+    for(unsigned k = 0; k < 64; ++k) cu[k] += cg2[k] + ceq[k];
+    const double cAX = ertl_ml_estimate(c1, h1.p(), h1.q());
+    const double cBX = ertl_ml_estimate(c2, h2.p(), h2.q());
     const double cABX = ertl_ml_estimate(cu, h1.p(), h1.q());
-    std::fprintf(stderr, "Made initials: %lf, %lf, %lf\n", cAX, cBX, cABX);
     std::array<uint32_t, 64> countsAXBhalf;
     std::array<uint32_t, 64> countsBXAhalf;
     countsAXBhalf[q] = h1.m();
@@ -776,6 +852,7 @@ class hllbase_t {
 protected:
     std::vector<uint8_t, common::Allocator<uint8_t>> core_;
     mutable double                          value_;
+    mutable std::array<uint32_t, 64>        counts_{}; // cached register histogram (valid with value_)
     uint32_t                                   np_;
     EstimationMethod                        estim_;
     JointEstimationMethod                  jestim_;
@@ -833,10 +910,14 @@ public:
 
     // Call sum to recalculate if you have changed contents.
     void sum() const noexcept {
-        const auto counts(detail::sum_counts(core_)); // std::array<uint32_t, 64>
-        value_ = detail::calculate_estimate(counts, estim_, m(), np_, alpha());
+        counts_ = detail::sum_counts(core_); // std::array<uint32_t, 64>
+        value_ = detail::calculate_estimate(counts_, estim_, m(), np_, alpha());
     }
     void csum() const noexcept {if(!is_calculated()) sum();}
+    // cached per-register histogram (valid while is_calculated); joint
+    // estimators reuse it instead of re-histogramming the sketch per
+    // comparison
+    const std::array<uint32_t, 64> &ccounts() const noexcept {csum(); return counts_;}
 
     // Returns cardinality estimate. Sums if not calculated yet.
     double creport() const noexcept {
@@ -1010,6 +1091,7 @@ public:
         std::memcpy(core_.data(), other.core_.data(), core_.size()); // TODO: consider SIMD copy
         np_ = other.np_;
         value_ = other.value_;
+        counts_ = other.counts_;
         estim_ = other.estim_;
         hf_ = other.hf_;
         return *this;
