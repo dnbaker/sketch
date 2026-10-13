@@ -1642,6 +1642,7 @@ public:
                 else {
                     hv &= HVMASK;
                     const uint64_t b1 = blk1(hv);
+                    const uint64_t b2 = blk2(hv);
                     uint64_t pos;
                     lock_block(b1);
                     if(block_find(b1, hv, pos)) { // duplicate under lock
@@ -1652,6 +1653,21 @@ public:
                         return;
                     }
                     if(live_[b1] < (BLK * 3) / 4) { // shortcut: one lock
+                        // Presence must also cover the secondary block
+                        // before placing into the primary: a key placed in
+                        // b2 by an earlier two-choice insert must not be
+                        // duplicated when b1 later drops below the
+                        // threshold. Scanning b2 without its lock is
+                        // race-free while b1's lock is held: every
+                        // placement path for this key takes b1's lock, so
+                        // no concurrent writer can be inserting this key.
+                        if(b2 != b1 && block_find(b2, hv, pos)) { // secondary copy
+                            const uint64_t i = (b2 << BLK_SHIFT) + pos;
+                            const uint64_t c = get_cnt(i);
+                            if(c < SAT) put(i, hv, c + 1);
+                            unlock_block(b1);
+                            return;
+                        }
                         const unsigned f = block_free(b1);
                         put((b1 << BLK_SHIFT) + f, hv, 1);
                         bump_live(b1, 1);
@@ -1660,13 +1676,17 @@ public:
                         return;
                     }
                     unlock_block(b1);
-                    const uint64_t b2 = blk2(hv);
                     const uint64_t blo = std::min(b1, b2), bhi = std::max(b1, b2);
                     lock_block(blo);
                     if(bhi != blo) lock_block(bhi);
                     bool placed = false;
                     if(block_find(b1, hv, pos)) { // raced insert landed meanwhile
                         const uint64_t i = (b1 << BLK_SHIFT) + pos;
+                        const uint64_t c = get_cnt(i);
+                        if(c < SAT) put(i, hv, c + 1);
+                        placed = true;
+                    } else if(bhi != blo && block_find(b2, hv, pos)) { // raced secondary copy
+                        const uint64_t i = (b2 << BLK_SHIFT) + pos;
                         const uint64_t c = get_cnt(i);
                         if(c < SAT) put(i, hv, c + 1);
                         placed = true;
@@ -2000,7 +2020,11 @@ public:
         CR(fp, header, sizeof(header));
         if(header[0] != MAGIC && header[0] != MAGIC5) throw std::runtime_error("[bcqf] bad magic: not a CQF6/CQF5 (block layout) sketch");
         const bool legacy = header[0] == MAGIC5;
-        if(header[1] != q_ || header[2] != VAL_BITS) init(header[1]);
+        if(header[2] != VAL_BITS)
+            throw std::runtime_error(std::string("[bcqf] VAL_BITS mismatch: file has ") + std::to_string(header[2]) + ", this type has " + std::to_string(VAL_BITS));
+        if(header[1] < 6 || header[1] > 40 || uint64_t(header[1]) > uint64_t(KEY_BITS) + BLK_SHIFT)
+            throw std::runtime_error(std::string("[bcqf] invalid q in file: ") + std::to_string(header[1]));
+        if(header[1] != q_) init(header[1]);
         CR(fp, &used_, sizeof(used_));
         std::vector<uint64_t, common::Allocator<uint64_t>> flat(nslots_);
         CR(fp, flat.data(), nslots_ * sizeof(uint64_t));
