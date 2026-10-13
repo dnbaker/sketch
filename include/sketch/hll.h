@@ -1092,6 +1092,7 @@ public:
         value_ = other.value_;
         counts_ = other.counts_;
         estim_ = other.estim_;
+        jestim_ = other.jestim_;
         hf_ = other.hf_;
         return *this;
     }
