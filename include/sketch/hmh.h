@@ -39,12 +39,19 @@ protected:
     long double pmrp2_;
 public:
     static constexpr long double C4 = 0.6796779486389563759078484561637623073693248443305492L;
+    // Validate rsize before the initializer list touches it: the mask and
+    // width shifts below, and ilog2(rsize), are undefined for rsize < 6 or
+    // 0, which the body's PREC_REQ would otherwise reject only after the
+    // undefined operation ran.
+    static uint32_t check_rsize(uint32_t rsize) {
+        PREC_REQ(rsize == 8 || rsize == 16 || rsize == 32 || rsize == 64, "Must have 8, 16, 32, or 64 for register size");
+        return rsize;
+    }
     hmh_t(uint32_t p, uint32_t rsize=8):
-          rbm_((uint64_t(1) << (rsize - q)) - 1),
+          rbm_((uint64_t(1) << (check_rsize(rsize) - q)) - 1),
           p_(p), r_(rsize-q),
           lrszm3_(ilog2(rsize) - 3), pmrp2_(std::ldexp(C4, p_ - r_))
     {
-        PREC_REQ(rsize == 8 || rsize == 16 || rsize == 32 || rsize == 64, "Must have 8, 16, 32, or 64 for register size");
         PREC_REQ(p_ >= 3 && p_ < 64, "p can't be less than 3 or >= 64");
         PREC_REQ((uint64_t(rsize) << p_) >= 64, "We require at least 64 bits of storage");
         lrszm3_ = ilog2(rsize) - 3;
