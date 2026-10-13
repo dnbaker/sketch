@@ -190,7 +190,8 @@ public:
     void __for_each_union_vector(const hmh_t &o, const Func &func) const {
         using Space = vec::SIMDTypes<IT>;
         auto d = reinterpret_cast<const typename Space::Type *>(data_.data());
-        const auto e  = d + ((num_registers() / Space::COUNT) * Space::COUNT);
+        // end in whole-vector units: num_registers() registers of IT each
+        const auto e  = d + (num_registers() / Space::COUNT);
         auto od = reinterpret_cast<const typename Space::Type *>(o.data_.data());
         while(d != e) {
             func(Space::max(Space::load(d), Space::load(od)));
@@ -211,12 +212,13 @@ public:
             VType maxv = Space::max(lhv, rhv);
 #ifndef NDEBUG
             bool pass = true;
+            IT lb[sizeof(lhv) / sizeof(IT)], rb[sizeof(lhv) / sizeof(IT)], mb[sizeof(lhv) / sizeof(IT)];
+            Space::storeu(reinterpret_cast<typename Space::Type *>(lb), lhv);
+            Space::storeu(reinterpret_cast<typename Space::Type *>(rb), rhv);
+            Space::storeu(reinterpret_cast<typename Space::Type *>(mb), maxv);
             for(size_t i = 0; i < sizeof(lhv) / sizeof(IT); ++i) {
-                IT _lh = ((IT *)&lhv)[i],
-                   _rh = ((IT *)&rhv)[i],
-                   _mh = ((IT *)&maxv)[i];
-                if(_mh != std::max(_lh, _rh)) {
-                    std::fprintf(stderr, "lh %zu, rh %zu, maxv %zu\n", size_t(_lh), size_t(_rh), size_t(_mh));
+                if(mb[i] != std::max(lb[i], rb[i])) {
+                    std::fprintf(stderr, "lh %zu, rh %zu, maxv %zu\n", size_t(lb[i]), size_t(rb[i]), size_t(mb[i]));
                     pass = false;
                 }
             }
@@ -487,14 +489,19 @@ public:
             switch(lrszm3_) {
 #undef CASE_U
 #define CASE_U(type, i, rshift) case i: \
-            __for_each_union_vector<type>(o, [&](const auto v) noexcept { \
-                using Space = vec::SIMDTypes<type>;\
-                using VType = Space::VType;\
-                const auto lzcs = VType(Space::srli(v, rshift));\
-                const auto rems = Space::and_fn(v, Space::set1(maxremi));\
-                for(uint32_t j = 0; j < sizeof(VType) / sizeof(type); ++j) \
-                    ret += mrx2 - double(((const type *)&rems)[j]) * mri * INVPOWERSOFTWO[((const type *)&lzcs)[j]];\
-            }); break
+            if((num_registers() % vec::SIMDTypes<type>::COUNT) == 0) { \
+                __for_each_union_vector<type>(o, [&](const auto v) noexcept { \
+                    using Space = vec::SIMDTypes<type>;\
+                    using VType = Space::VType;\
+                    const auto lzcs = VType(Space::srli(v, rshift));\
+                    const auto rems = VType(Space::and_fn(v, Space::set1(maxremi)));\
+                    for(uint32_t j = 0; j < sizeof(VType) / sizeof(type); ++j) \
+                        ret += (mrx2 - double(rems.arr_[j])) * mri * INVPOWERSOFTWO[lzcs.arr_[j]];\
+                }); \
+            } else { \
+                for_each_union_lzrem(o, [&](const auto lzc, const auto rem) noexcept { __lzrem_func<rshift>(lzc, rem, ret); }); \
+            } \
+            break
             SHOW_CASES(CASE_U)
                 default: HEDLEY_UNREACHABLE();
             }
