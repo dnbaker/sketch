@@ -1575,7 +1575,6 @@ public:
         for(const auto &hll: hlls_) {
             hll.write(fp);
         }
-        gzclose(fp);
     }
     void read(gzFile fp) {
         uint64_t size;
@@ -1584,7 +1583,6 @@ public:
         for(uint32_t i(0); i < size; gzread(fp, seeds_.data() + i++, sizeof(seeds_[0])));
         hlls_.clear();
         while(hlls_.size() < size) hlls_.emplace_back(fp);
-        gzclose(fp);
     }
 
     // This only works for hlls using 64-bit integers.
@@ -1645,6 +1643,7 @@ public:
             hlls_[i].not_ready();
         }
         is_calculated_ = false;
+        return *this;
     }
     hlfbase_t operator+(const hlfbase_t &other) const {
         // Could be more directly optimized.
