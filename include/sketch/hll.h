@@ -1037,7 +1037,6 @@ public:
         return ret += std::fprintf(fp, "%d]", int(core_.back()));
     }
     std::string sprintf() const noexcept {
-        std::fprintf(stderr, "Core size: %zu. to string: %s\n", core_.size(), to_string().data());
         std::string ret = "[";
         for(size_t i = 0; i < core_.size() - 1; ++i)
             ret += std::to_string(core_[i]), ret += ", ";
