@@ -659,7 +659,7 @@ inline void inc_counts(T &counts, const Container &con) {
 template<typename Container>
 inline std::array<uint32_t, 64> sum_counts(const Container &con) {
     std::array<uint32_t, 64> ret{0};
-    for(const uint8_t x: ret) {
+    for(const uint8_t x: con) {
         ++ret[x];
     }
     return ret;
