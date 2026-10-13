@@ -14,28 +14,20 @@ description = "A python module for constructing and comparing sketch data struct
 authors = [
   { name="Daniel Baker", email="dnb@cs.jhu.edu" },
 ]
-requires-python = ">=3.5"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-]
-readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
-authors = [
-    {name = "Daniel Baker", email = "dnb@cs.jhu.edu"},
-]
 keywords = ["sketch", "hyperloglog", "minhash", "cardinality", "jaccard", "bloom-filter"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OS Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: C++",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering",
 ]
+readme = "README.md"
 
 [project.urls]
 Homepage = "https://github.com/dnbaker/sketch"
