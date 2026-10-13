@@ -1169,7 +1169,9 @@ public:
     void set_is_ready() {}
     bool may_contain(uint64_t hashval) const {
         // This returns false positives, but never a false negative.
-        return core_[hashval >> q()] >= clz(hashval << np_) + 1;
+        // The ((x << 1) | 1) form keeps the clz operand nonzero when the
+        // hash's non-index bits are all zero (clz(0) is undefined).
+        return core_[q() == 64 ? uint32_t(0): uint32_t(hashval >> q())] >= clz(((hashval << 1) | 1) << (np_ - 1)) + 1;
     }
 
     bool within_bounds(uint64_t actual_size) const noexcept {
