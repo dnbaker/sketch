@@ -340,7 +340,11 @@ private:
         const uint64_t u = r >> from_d;
         r >>= (from_d - to_d);
         if(u >= downsize_threshold_u) {
-            const int64_t shift = int64_t((from_p - to_p) - (63 - clz(sub_idx))) << t;
+            // sub_idx == 0 reproduces the reference's
+            // numberOfLeadingZeros(0) == 64 without calling clz(0)
+            // (__builtin_clzll(0) is undefined).
+            const int64_t sub_top = sub_idx ? int64_t(63 - clz(sub_idx)): int64_t(-1);
+            const int64_t shift = (int64_t(from_p - to_p) - sub_top) << t;
             if(shift > 0) {
                 const int64_t num_bits_to_shift = int64_t(to_d) + downsize_threshold_u - u;
                 if(num_bits_to_shift > 0) {
