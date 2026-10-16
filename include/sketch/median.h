@@ -1,6 +1,7 @@
 #ifndef SK_MEDIAN_H
 #define SK_MEDIAN_H
 #include <algorithm>
+#include <functional>
 #include "macros.h"
 
 namespace sketch {

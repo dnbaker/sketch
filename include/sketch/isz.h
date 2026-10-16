@@ -1,6 +1,9 @@
 #ifndef ISZ_H__
 #define ISZ_H__
 #include <cstdint>
+#include <functional>
+#include <algorithm>
+#include "macros.h"
 
 namespace sketch {
 namespace isz {

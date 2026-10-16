@@ -1,3 +1,85 @@
 
 # local-only agent working log (PI directive: never commit)
 ROUND-QUEUE.md
+
+# macOS
+.DS_Store
+
+# test build outputs: the Makefile compiles testsrc/*.cpp to same-named
+# binaries at the repo root (plus lztest); generated list in tmpfiles.txt
+tmpfiles.txt
+__hm*.hmh
+*.o
+/tmp/
+/tmpfiles.txt
+/bagminhashtest
+/bbmhtest
+/bcqftest
+/bftest
+/cardbench
+/cmtest
+/count
+/cqf_splat_bench
+/cqfopt_bench
+/cqftest
+/cscomp
+/ddtest
+/divtest
+/dmhtest
+/edgetest
+/elltest
+/expsampletest
+/fhlltest
+/fmhtest
+/heaptest
+/hktest
+/hllcardtest
+/hllcompresstest
+/hlltest
+/hmhbench
+/hmhtest
+/hnswcmp
+/lpcqf_approx
+/lpcqf_test
+/lpfp
+/lshbench
+/lshmem
+/lshtest
+/lshv2
+/lztest
+/mctest
+/mhtest
+/modtest
+/multtest
+/omhtest
+/pctest
+/pmhtest
+/policytest
+/pstabletest
+/serial_test
+/simd_eq
+/sstest
+/swtest
+/test_revhash
+/testcontain
+/testmhmerge
+/testsparse
+/timehash
+/timerevhash
+/ulltest
+/vactest
+/version_test
+/xormaskhll
+# bench sources live in benchmark/*.cpp; built binaries land here too
+/benchmark/cqfopt_bench
+
+# python packaging/build artifacts
+/python/build/
+/python/dist/
+/python/.eggs/
+/python/var/
+/python/err
+/python/err2
+/python/sketch.egg-info/
+/python/sketch_ds.egg-info/
+__pycache__/

@@ -1,5 +1,7 @@
 #ifndef FAST_APPROX_LOG_FLOG_H__
 #define FAST_APPROX_LOG_FLOG_H__
+#include <cstring>
+#include <cmath>
 
 namespace sketch {
 

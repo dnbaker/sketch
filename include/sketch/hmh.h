@@ -94,7 +94,11 @@ public:
     }
     template<typename IT>
     hmh_t &perform_merge(const hmh_t &o) {
-#ifndef VEC_DISABLED_H__
+#ifdef VEC_DISABLED__
+        std::transform(reinterpret_cast<IT *>(data_.data()), reinterpret_cast<IT *>(&data_[data_.size()]),
+                       reinterpret_cast<const IT *>(o.data_.data()),
+                       reinterpret_cast<IT *>(data_.data()), [](auto x, auto y) {return std::max(x, y);});
+#else
         using Space = vec::SIMDTypes<IT>;
         using Type = typename Space::Type;
         auto d = reinterpret_cast<Type *>(data_.data());
@@ -104,9 +108,6 @@ public:
             Space::store(d, Space::max(Space::load(d), Space::load(od)));
             ++d, ++od;
         } while(d < e);
-#else
-        std::transform(reinterpret_cast<IT *>(data_.data()), reinterpret_cast<IT *>(data_[data_.size()]), reinterpret_cast<IT *>(other.data_.data())
-                       reinterpret_cast<IT *>(data_.data()), [](auto x, auto y) {return std::max(x, y);});
 #endif
         return *this;
     }
@@ -192,7 +193,7 @@ public:
         return -1;
     }
 
-#ifndef VEC_DISABLED_H__
+#ifndef VEC_DISABLED__
     template<typename IT, typename Func>
     void __for_each_union_vector(const hmh_t &o, const Func &func) const {
         using Space = vec::SIMDTypes<IT>;
@@ -459,8 +460,9 @@ public:
     static void __lzrem_func(IT lzc, OIT rem, double &ret) {
         static constexpr double mri = 1.L / static_cast<long double>((uint64_t(1) << N) - 1);
         static constexpr double mrx2 = 2.L * static_cast<long double>((uint64_t(1) << N) - 1);
-        ret += std::ldexp((mrx2 - rem) * mri,
-                           -static_cast<std::make_signed_t<IT>>(lzc));
+        // 2^-lzc via the exact table: identical to std::ldexp(y, -lzc) for
+        // lzc < 64 (both exact), at multiply+load cost instead of scalbn
+        ret += (mrx2 - rem) * mri * INVPOWERSOFTWO[lzc];
         // TODO: Better manual intrinsics
     }
     double estimate_mh_portion() const {
@@ -487,7 +489,7 @@ public:
     // default union_size uses the histogram+Ertl path below.
     double union_size_mh(const hmh_t &o) const {
         double ret = 0.;
-#ifndef VEC_DISABLED_H__
+#ifndef VEC_DISABLED__
         if(data_.size() >= sizeof(vec::SIMDTypes<uint64_t>::Type)) {
             const uint64_t maxremi = max_remainder();
             const double maxrem = maxremi;

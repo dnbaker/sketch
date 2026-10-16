@@ -15,6 +15,7 @@
 #include "sketch/div.h"
 #include "sketch/integral.h"
 #include "sketch/hash.h"
+#include "sketch/common.h"
 #include <mutex>
 #include <optional>
 

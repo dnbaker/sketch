@@ -74,6 +74,8 @@ class exaloglogbase_t {
     uint32_t                                      np_;
     uint8_t                                      rb_; // register size in bits
     uint64_t                                   mask_; // register value mask
+    uint64_t                                idxmask_; // ((1 << t_) << np_) - 1: register index + low-t bits
+    uint64_t                                 tmask_; // (1 << t_) - 1: low-t update bits
     std::vector<uint8_t, common::Allocator<uint8_t>> state_;
     HashStruct                                       hf_;
     static constexpr uint32_t MAGIC = 0x454c4c31; // "ELL1"
@@ -104,6 +106,10 @@ public:
         if(np < min_p() || np > max_p(t)) throw std::invalid_argument(std::string("[exaloglog] p must be in [2, ") + std::to_string(max_p(t)) + "] for t=" + std::to_string(t));
         rb_ = regbits(t_, d_);
         mask_ = (rb_ == 64) ? ~uint64_t(0): ((uint64_t(1) << rb_) - 1);
+        // hoisted out of add(): the index/update-value decompositions use
+        // them on every insertion (shift-by-runtime-value is not free)
+        idxmask_ = ((uint64_t(1) << t_) << np_) - 1;
+        tmask_ = (uint64_t(1) << t_) - 1;
         // +16 bytes of padding so that register access can always go
         // through (unaligned, memcpy-based) 8-byte accesses, including the
         // two-word access needed when a register wider than 57 bits crosses
@@ -198,10 +204,9 @@ public:
 
     // Insertion, Algorithm 2 of the paper (constant time).
     INLINE void add(uint64_t hashval) noexcept {
-        const uint64_t mask = ((uint64_t(1) << t_) << np_) - 1;
-        const uint32_t idx = uint32_t((hashval & mask) >> t_);
-        const int nlz = clz(hashval | mask); // in {0, ..., 64-p-t}
-        const uint64_t k = (uint64_t(nlz) << t_) + (hashval & ((uint64_t(1) << t_) - 1)) + 1;
+        const uint32_t idx = uint32_t((hashval & idxmask_) >> t_);
+        const int nlz = clz(hashval | idxmask_); // in {0, ..., 64-p-t}
+        const uint64_t k = (uint64_t(nlz) << t_) + (hashval & tmask_) + 1;
         const uint64_t r_old = getreg(idx);
         const uint64_t u = r_old >> d_;
         const int64_t delta = int64_t(k) - int64_t(u);
@@ -216,10 +221,9 @@ public:
 
     // Insertion with martingale (HIP) estimation support.
     INLINE void add(uint64_t hashval, mle::detail::MartingaleEstimator &martingale) noexcept {
-        const uint64_t mask = ((uint64_t(1) << t_) << np_) - 1;
-        const uint32_t idx = uint32_t((hashval & mask) >> t_);
-        const int nlz = clz(hashval | mask);
-        const uint64_t k = (uint64_t(nlz) << t_) + (hashval & ((uint64_t(1) << t_) - 1)) + 1;
+        const uint32_t idx = uint32_t((hashval & idxmask_) >> t_);
+        const int nlz = clz(hashval | idxmask_);
+        const uint64_t k = (uint64_t(nlz) << t_) + (hashval & tmask_) + 1;
         const uint64_t r_old = getreg(idx);
         const uint64_t u = r_old >> d_;
         const int64_t delta = int64_t(k) - int64_t(u);
