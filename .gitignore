@@ -82,4 +82,5 @@ __hm*.hmh
 /python/err2
 /python/sketch.egg-info/
 /python/sketch_ds.egg-info/
+/python/*.cpython-*.so
 __pycache__/
