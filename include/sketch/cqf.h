@@ -57,6 +57,7 @@
 #include <unordered_map>
 #include <algorithm>
 #include <atomic>
+#include <iterator>
 #include <shared_mutex>
 #include <thread>
 
@@ -342,17 +343,36 @@ public:
 
 } // namespace detail
 
-template<size_t KEY_BITS, size_t VAL_BITS, class Storage=uint64_t, class Hash=WangHash>
+template<size_t KEY_BITS, size_t VAL_BITS, class Storage=uint64_t, class Hash=WangHash, size_t RSTORE_BITS = 0>
 class cqfbase_t {
     static_assert(KEY_BITS >= 4 && KEY_BITS <= 64, "KEY_BITS in [4, 64]");
     static_assert(VAL_BITS >= 1 && VAL_BITS <= 64, "VAL_BITS in [1, 64]");
+    static_assert(RSTORE_BITS == 0 || KEY_BITS < 64, "remainder truncation is an inexact-mode knob (KEY_BITS < 64)");
 public:
     static constexpr size_t key_bits = KEY_BITS;
     static constexpr size_t val_bits = VAL_BITS;
-    static constexpr bool exact = (KEY_BITS >= 64);
+    // exact = hash spans the key AND the full remainder is stored. The
+    // RSTORE_BITS truncation (below) is a SEPARATE fingerprint-filter mode:
+    // it drops low remainder bits, which is inexact even at KEY_BITS = 64.
+    static constexpr bool exact = (KEY_BITS >= 64) && (RSTORE_BITS == 0);
     static constexpr uint64_t SAT = VAL_BITS >= 64 ? ~uint64_t(0): ((uint64_t(1) << VAL_BITS) - 1);
 private:
     uint32_t q_ = 0, r_ = 0;
+    uint32_t rs_ = 0;         // STORED remainder width. Truncation mode
+                              // (RSTORE_BITS > 0): the filter fingerprint is
+                              // the key's top (q0 + RSTORE_BITS) bits, where
+                              // q0 is the construction quotient; each grow()
+                              // consumes one stored bit (rs_ shrinks by 1, the
+                              // home absorbs the fingerprint's next bit), so
+                              // the EFFECTIVE fingerprint width q_ + rs_ is
+                              // INVARIANT across grows and fpr_bound() is
+                              // stable. Without truncation: rs_ = r_ always.
+                              // The low r_ - rs_ bits of every remainder are
+                              // dropped at the comparison/store sites (frs),
+                              // shrinking the packed remainder array at a
+                              // 2^(r_-rs_) FPR multiplier.
+    uint32_t grows_ = 0;      // number of grow() calls (construction 0);
+                              // drives the rs_ schedule above
     uint64_t nslots_ = 0;     // homes (2^q)
     uint64_t xnslots_ = 0;    // physical slots: nslots + ~2*sqrt(nslots)
                               // overflow tail (linear, no wrap); absorbs the
@@ -410,16 +430,25 @@ public:
 
     void init(uint32_t q) {
         q_ = q; r_ = uint32_t(KEY_BITS) - q;
+        // rs_ schedule: construction reserves RSTORE_BITS; each grow() spent
+        // one (grows_), and rs_ must also fit the shrunken r_. While
+        // RSTORE_BITS >= r_ the mode is inactive (rs_ == r_, full width).
+        rs_ = RSTORE_BITS
+            ? unsigned(std::min<size_t>(size_t(RSTORE_BITS) > size_t(grows_)
+                                            ? size_t(RSTORE_BITS) - size_t(grows_)
+                                            : size_t(0),
+                                        size_t(r_)))
+            : r_;
         nslots_ = uint64_t(1) << q;
         xnslots_ = nslots_ + 2 * (uint64_t(1) << (q / 2)) + 8; // ~2 sqrt(nslots)
-        fuse_ = fuse_pref_ && (KEY_BITS - q + VAL_BITS <= word_bits);
-        remmask_ = r_ >= word_bits ? ~uint64_t(0): ((uint64_t(1) << r_) - 1);
+        fuse_ = fuse_pref_ && (rs_ + VAL_BITS <= word_bits);
+        remmask_ = rs_ >= word_bits ? ~uint64_t(0): ((uint64_t(1) << rs_) - 1);
         if(fuse_) {
             slot_.assign(xnslots_, 0);
             decltype(remraw_)().swap(remraw_);
             decltype(cntraw_)().swap(cntraw_);
         } else {
-            remraw_.assign(ceil_div(xnslots_ * r_, uint64_t(word_bits)) + 1, 0);
+            remraw_.assign(ceil_div(xnslots_ * rs_, uint64_t(word_bits)) + 1, 0);
             cntraw_.assign(ceil_div(xnslots_ * VAL_BITS, uint64_t(word_bits)) + 1, 0);
             decltype(slot_)().swap(slot_);
         }
@@ -442,9 +471,16 @@ public:
                               + occ_dir_.bytes() + runend_dir_.bytes());
     }
     bool fused() const {return fuse_;} // rem+cnt in one register per slot
-    // false-positive bound for inexact mode
+    // false-positive bound. Untruncated exact mode: 0. Otherwise the filter
+    // behaves as if keys were (q_ + rs_)-bit fingerprints: run membership
+    // compares rs_ remainder bits, so an absent key collides with a stored
+    // (home, truncated-remainder) pair with probability ~1 - exp(-used /
+    // 2^(q_ + rs_)). In truncated-remainder mode q_ + rs_ is INVARIANT
+    // (each grow spends one stored bit into the home), so the bound does not
+    // degrade as the table grows. Full-width inexact instantiations recover
+    // the shipped bound (q_ + rs_ == KEY_BITS).
     double fpr_bound() const {
-        return exact ? 0.: 1. - std::exp(-double(std::max<uint64_t>(used_, 1)) / std::ldexp(1., int(KEY_BITS)));
+        return exact ? 0.: 1. - std::exp(-double(std::max<uint64_t>(used_, 1)) / std::ldexp(1., int(q_ + rs_)));
     }
 
     INLINE uint64_t hash(uint64_t v) const {return hf_(v);}
@@ -452,7 +488,15 @@ public:
     INLINE std::pair<uint64_t, uint64_t> parts(uint64_t hv) const {
         return {(hv >> r_) & (nslots_ - 1), hv & ((uint64_t(1) << r_) - 1)};
     }
-    uint64_t key_of(uint64_t fq, uint64_t fr) const {return (fq << r_) | fr;}
+    // reconstruct a reduced key from (quotient, STORED remainder): the
+    // stored remainder is re-embedded at the TOP of the remainder field
+    // (zeros below), so grow()'s q+1 re-split keeps frs(stored) stable.
+    // Identity when the truncation mode is off (rs_ == r_).
+    uint64_t key_of(uint64_t fq, uint64_t fr) const {return (fq << r_) | (fr << (r_ - rs_));}
+    // truncation: the comparison/store width of a full remainder (identity
+    // when the mode is off). Sort order is preserved (monotonic shift), so
+    // run navigation is unaffected.
+    INLINE uint64_t frs(uint64_t fr) const {return fr >> (r_ - rs_);}
 
     // ---- metadata regions (one allocation; occ words then runend words) ----
     uint64_t *occ_w() {return metaraw_.data();}
@@ -465,25 +509,36 @@ public:
     bool re_get(uint64_t i) const {return detail::bv_get(re_w(), i);}
     void re_set(uint64_t i) {detail::bv_set(re_w(), i);}
     void re_clear(uint64_t i) {detail::bv_clear(re_w(), i);}
+    // any runend bit in [lo, hi) (few positions, spans at most two words);
+    // used by the SIMD window scan and by tests on every target
+    static bool re_any_(const uint64_t *rw, uint64_t lo, uint64_t hi) {
+        const unsigned nb = unsigned(hi - lo);
+        const unsigned off = unsigned(lo & (word_bits - 1));
+        if(off + nb <= word_bits)
+            return ((rw[lo / word_bits] >> off) & ((uint64_t(1) << nb) - 1)) != 0;
+        const uint64_t w0 = rw[lo / word_bits] >> off;
+        const uint64_t w1 = rw[lo / word_bits + 1] & ((uint64_t(1) << (nb - (word_bits - off))) - 1);
+        return (w0 | w1) != 0;
+    }
 
     // ---- slot accessors ----
     uint64_t rem(uint64_t i) const {
-        return fuse_ ? slot_[i] & remmask_: detail::packed_get(remraw_.data(), i, r_);
+        return fuse_ ? slot_[i] & remmask_: detail::packed_get(remraw_.data(), i, rs_);
     }
     void set_rem(uint64_t i, uint64_t v) {
         if(fuse_) slot_[i] = (slot_[i] & ~remmask_) | (v & remmask_);
-        else detail::packed_set(remraw_.data(), i, r_, v);
+        else detail::packed_set(remraw_.data(), i, rs_, v);
     }
     uint64_t cnt(uint64_t i) const {
-        return fuse_ ? slot_[i] >> r_: detail::packed_get(cntraw_.data(), i, unsigned(VAL_BITS));
+        return fuse_ ? slot_[i] >> rs_: detail::packed_get(cntraw_.data(), i, unsigned(VAL_BITS));
     }
     void set_cnt(uint64_t i, uint64_t v) {
-        if(fuse_) slot_[i] = (slot_[i] & remmask_) | ((v & SAT) << r_);
+        if(fuse_) slot_[i] = (slot_[i] & remmask_) | ((v & SAT) << rs_);
         else detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), v);
     }
     void set_slot(uint64_t i, uint64_t fr, uint64_t c) { // fused: one store
-        if(fuse_) slot_[i] = (fr & remmask_) | ((c & SAT) << r_);
-        else {set_rem(i, fr); set_cnt(i, c);}
+        if(fuse_) slot_[i] = (frs(fr) & remmask_) | ((c & SAT) << rs_);
+        else {set_rem(i, frs(fr)); set_cnt(i, c);}
     }
     bool slot_live(uint64_t i) const {return cnt(i) != 0;}
 
@@ -500,6 +555,9 @@ public:
     // run [s, e] (inclusive) of quotient fq; requires occ[fq].
     std::pair<uint64_t, uint64_t> run_of(uint64_t fq) const {
         const uint64_t rnk = occ_dir_.rank1(occ_w(), fq + 1); // 1-indexed home position
+#if defined(__GNUC__)
+        if(fuse_) __builtin_prefetch(slot_.data() + fq, 0, 1);
+#endif
         const uint64_t e = runend_dir_.select1(re_w(), rnk - 1);
         uint64_t s = e;
         while(s > 0 && slot_live(s - 1) && !re_get(s - 1)) --s;
@@ -507,12 +565,12 @@ public:
     }
     uint64_t first_empty(uint64_t s) const {
         // scan RIGHT only (no wrap); the 0.9 load cap guarantees one exists
-        if(fuse_) { // cnt == 0 <=> register < 2^r_ (high bits stay zero)
+        if(fuse_) { // cnt == 0 <=> register < 2^rs_ (high bits stay zero)
             const uint64_t *sl = slot_.data();
             uint64_t i = s;
 #if defined(__AVX2__) && !defined(SKETCH_CQF_NO_SIMD)
             const __m256i z = _mm256_setzero_si256();
-            const __m128i sh = _mm_cvtsi32_si128(int(r_));
+            const __m128i sh = _mm_cvtsi32_si128(int(rs_)); // counts sit above the STORED remainder
             for(; i + 4 <= xnslots_; i += 4) {
                 const __m256i v = _mm256_loadu_si256((const __m256i *)(sl + i));
                 const unsigned m = unsigned(_mm256_movemask_pd((__m256d)_mm256_cmpeq_epi64(_mm256_srl_epi64(v, sh), z)));
@@ -544,27 +602,87 @@ public:
     // in one loop (the sorted run exits at the first rem < fr scanning
     // right-to-left; the run-start test stops at holes and runends). One
     // payload pass instead of walk-left-then-scan.
+    // SIMD window scan (fused regime): compare four remainders per step;
+    // the run is sorted ascending, so scanning right-to-left the first lane
+    // with rem <= fr decides (eq = hit, lt = miss) -- valid only while the
+    // whole window is inside the queried run. The scalar walk stops at a
+    // dead slot, at a runend bit below the current slot, and at slot 0; the
+    // SIMD loop must reproduce all three or hand the exact slot it reached
+    // to the scalar loop (which then decides identically):
+    //   - a decided (highest rem <= fr) lane that is dead is a miss: dead
+    //     slots carry rem 0 (the erase/shift paths zero the vacated word),
+    //     so they always compare <= fr, and the scalar walk never enters
+    //     them (it stops on the liveness test at the slot above);
+    //   - a decided lane with a runend bit at or below it inside the window
+    //     is a miss: the scalar walk stops at that bit's slot before
+    //     reaching the decided lane;
+    //   - the all-greater step left requires no runend bit in [i-4, i-1]
+    //     and a live slot i-4, else the scalar break happens at or above
+    //     i-4 and must not be skipped over;
+    //   - i >= 4 keeps i-4 in range (i is unsigned; i -= 4 must not wrap),
+    //     slots 3..0 fall to the scalar loop, which stops at i == 0.
     uint64_t find_slot(uint64_t fq, uint64_t fr) const {
         if(!occ_get(fq)) return ~uint64_t(0);
+        const uint64_t frq = frs(fr); // stored-width query remainder
         const uint64_t rnk = occ_dir_.rank1(occ_w(), fq + 1); // 1-indexed home position
+#if defined(__GNUC__)
+        if(fuse_) __builtin_prefetch(slot_.data() + fq, 0, 1); // home region; pre-drift runs sit at the home
+#endif
         uint64_t i = runend_dir_.select1(re_w(), rnk - 1);
+#if defined(__AVX2__) && !defined(SKETCH_CQF_NO_SIMD)
+        if(fuse_ && rs_ < 63) { // signed 64-lane compares need the remainder < 2^63
+            const uint64_t *sl = slot_.data();
+            const uint64_t *rw = re_w();
+            const __m256i rmm = _mm256_set1_epi64x(remmask_);
+            const __m256i fv = _mm256_set1_epi64x(frq);
+            while(i >= 4) {
+                const __m256i v = _mm256_loadu_si256((const __m256i *)(sl + i - 3));
+                const __m256i rv = _mm256_and_si256(v, rmm);
+                const unsigned eq = unsigned(_mm256_movemask_pd((__m256d)_mm256_cmpeq_epi64(rv, fv)));
+                const unsigned lt = unsigned(_mm256_movemask_pd((__m256d)_mm256_cmpgt_epi64(fv, rv)));
+                const unsigned m = eq | lt;
+                if(m) {
+                    const unsigned jj = 31 - unsigned(clz(m)); // highest lane, scan right-to-left
+                    if(sl[i - 3 + jj] <= remmask_) return ~uint64_t(0); // dead decided lane
+                    if(re_any_(rw, i - 3 + jj, i)) return ~uint64_t(0); // boundary stops the walk above it
+                    return ((eq >> jj) & 1) ? i - 3 + jj: ~uint64_t(0);
+                }
+                // window all-greater (so all-live): step left only if the run
+                // provably continues through slot i-4
+                if(re_any_(rw, i - 4, i) || sl[i - 4] <= remmask_) break;
+                i -= 4;
+            }
+        }
+#endif
+        return find_slot_scalar(frq, i);
+    }
+    // scalar walk left from slot i (the runend on entry); also the SIMD
+    // fallback and the test oracle (find_slot must agree with this on every
+    // target). frq is the stored-width (truncated) query remainder.
+    uint64_t find_slot_scalar(uint64_t frq, uint64_t i) const {
         for(;;) {
             const uint64_t rv = rem(i);
-            if(rv == fr) return i;
-            if(rv < fr || i == 0 || re_get(i - 1) || !slot_live(i - 1)) return ~uint64_t(0);
+            if(rv == frq) return i;
+            if(rv < frq || i == 0 || re_get(i - 1) || !slot_live(i - 1)) return ~uint64_t(0);
             --i;
         }
     }
     bool contains(uint64_t hv) const {const auto p = parts(hv); return find_slot(p.first, p.second) != ~uint64_t(0);}
     bool may_contain(uint64_t hv) const {return contains(hv);}
     uint64_t count(uint64_t hv) const {const auto p = parts(hv); const uint64_t s = find_slot(p.first, p.second); return s == ~uint64_t(0) ? 0: cnt(s);}
+    // Batched counts; one-by-one loop (the CQF's dependent rank/select chain
+    // has no batched form). Results identical to count() per key.
+    template<typename It, typename Ot>
+    void count_many(It first, It last, Ot out) const {
+        for(; first != last; ++first, ++out) *out = count(*first);
+    }
 
     // shift slots [pos, empty-1] into [pos+1, empty] over rem/cnt/runend
     void shift_range_right(uint64_t pos, uint64_t empty) {
         if(fuse_)
             std::memmove(slot_.data() + pos + 1, slot_.data() + pos, (empty - pos) * sizeof(uint64_t));
         else {
-            detail::packed_shift_right(remraw_.data(), pos, r_, empty);
+            detail::packed_shift_right(remraw_.data(), pos, rs_, empty);
             detail::packed_shift_right(cntraw_.data(), pos, unsigned(VAL_BITS), empty);
         }
         detail::packed_shift_right(re_w(), pos, 1, empty);
@@ -577,7 +695,7 @@ public:
             std::memmove(slot_.data() + pos, slot_.data() + pos + 1, (empty - pos) * sizeof(uint64_t));
             slot_[empty] = 0;
         } else {
-            detail::packed_shift_left(remraw_.data(), pos, r_, empty);
+            detail::packed_shift_left(remraw_.data(), pos, rs_, empty);
             detail::packed_shift_left(cntraw_.data(), pos, unsigned(VAL_BITS), empty);
         }
         detail::packed_shift_left(re_w(), pos, 1, empty);
@@ -591,20 +709,21 @@ public:
     void add(uint64_t hv) {
         grow_if_full(); // grow first: parts() below must use the new r_
         const auto [fq, fr] = parts(hv);
+        const uint64_t frq = frs(fr);
         if(occ_get(fq)) {
             // one run_of serves membership check and sorted insert position
             auto [s, e] = run_of(fq);
             uint64_t p = s;
             for(;;) {
                 const uint64_t rv = rem(p);
-                if(rv == fr) { // membership: bump the counter
+                if(rv == frq) { // membership: bump the counter
                     if(cnt(p) < SAT) set_cnt(p, cnt(p) + 1);
                     return;
                 }
-                if(p == e || rv > fr) break;
+                if(p == e || rv > frq) break;
                 ++p;
             }
-            if(p == e && rem(p) < fr) ++p; // append beyond runend
+            if(p == e && rem(p) < frq) ++p; // append beyond runend
             uint64_t empty = first_empty(p);
             if(HEDLEY_UNLIKELY(empty == ~uint64_t(0))) { grow(); return add(hv); }
             shift_range_right(p, empty);
@@ -635,17 +754,18 @@ public:
             const uint64_t hv = first->first;
             const uint64_t count_ = first->second;
             const auto [fq, fr] = parts(hv);
+            const uint64_t frq = frs(fr);
             if(occ_get(fq)) {
                 auto [s, e] = run_of(fq);
                 uint64_t p = s;
                 for(;;) {
                     const uint64_t rv = rem(p);
-                    if(rv == fr) { // membership: bump the counter
+                    if(rv == frq) { // membership: bump the counter
                         if(cnt(p) < SAT) set_cnt(p, std::min<uint64_t>(SAT, cnt(p) + count_));
                         break;
                     }
-                    if(p == e || rv > fr) {
-                        if(p == e && rem(p) < fr) ++p; // append beyond runend
+                    if(p == e || rv > frq) {
+                        if(p == e && rem(p) < frq) ++p; // append beyond runend
                         const uint64_t empty = first_empty(p);
                         shift_range_right(p, empty); // refreshes the runend dir
                         set_slot(p, fr, std::min<uint64_t>(count_, SAT)); ++used_;
@@ -720,6 +840,7 @@ public:
     void insert_new_key(uint64_t hv, uint64_t count_) {
         for(;;) {
             const auto [fq, fr] = parts(hv);
+            const uint64_t frq = frs(fr);
             if(!occ_get(fq)) {
                 // place the new run right after the previous home's run
                 // (runs are stored in home order table-wide); the shift
@@ -740,8 +861,8 @@ public:
             }
             auto [s, e] = run_of(fq);
             uint64_t p = s;
-            while(p != e && rem(p) <= fr) ++p;
-            if(p == e && rem(p) < fr) ++p; // append beyond runend
+            while(p != e && rem(p) <= frq) ++p;
+            if(p == e && rem(p) < frq) ++p; // append beyond runend
             const uint64_t empty = first_empty(p);
             if(HEDLEY_UNLIKELY(empty == ~uint64_t(0))) { grow(); continue; }
             shift_range_right(p, empty); // refreshes the runend dir
@@ -845,6 +966,11 @@ public:
     void grow() {
         if(q_ + 1 > 40 || KEY_BITS - (q_ + 1) < 2)
             throw std::overflow_error("[cqf] cannot grow: remainder bits exhausted");
+        // Truncated-remainder mode: the next grow would shrink rs_ below 1,
+        // i.e. the fingerprint (top q0 + RSTORE_BITS key bits) is spent.
+        if(RSTORE_BITS && rs_ <= 1)
+            throw std::overflow_error("[cqf] cannot grow: stored remainder exhausted in truncated-remainder mode");
+        ++grows_; // BEFORE init(): init derives rs_ from the grow count
 
         std::vector<std::pair<uint64_t, uint64_t>> els;
         els.reserve(used_);
@@ -883,6 +1009,7 @@ public:
     // compose with mismatched (KEY_BITS, VAL_BITS): rehash the other here
     template<size_t KB2, size_t VB2>
     void compose(const cqfbase_t<KB2, VB2, Storage, Hash> &o) {
+        if(RSTORE_BITS) throw std::logic_error("[cqf] compose is not supported in truncated-remainder mode");
         for(uint64_t i = 0; i < o.nslots(); ++i) {
             if(o.cnt(i)) {
                 const uint64_t hv = o.key_of_home(i); // KB2-bit reduced key
@@ -932,8 +1059,10 @@ public:
 
     // ---- serialization (wire format unchanged: packed rem stream, packed
     // cnt stream, occ words, runend words; the fused regime packs/unpacks
-    // at this boundary) ----
+    // at this boundary). The truncated-remainder mode changes the rem
+    // stream width, so it is in-memory only. ----
     void write(gzFile fp) const {
+        if(RSTORE_BITS) throw std::logic_error("[cqf] truncated-remainder (fingerprint) mode is in-memory only: serialization disabled");
 #define CW(fp, src, len) do {if(gzwrite(fp, src, len) == 0) throw std::runtime_error("Error writing to file.");} while(0)
         uint32_t header[3]{MAGIC, q_, uint32_t(VAL_BITS)};
         CW(fp, header, sizeof(header));
@@ -963,6 +1092,7 @@ public:
     }
     void write(const std::string &path) const {write(path.data());}
     void read(gzFile fp) {
+        if(RSTORE_BITS) throw std::logic_error("[cqf] truncated-remainder (fingerprint) mode is in-memory only: serialization disabled");
 #define CR(fp, dst, len) do {if(static_cast<uint64_t>(gzread(fp, dst, len)) != len) throw ZlibError(std::string("[cqf] Error reading from file"));} while(0)
         uint32_t header[3];
         CR(fp, header, sizeof(header));
@@ -1233,6 +1363,7 @@ private:
     uint64_t nslots_ = 0, nblocks_ = 0; // nslots_ = nblocks_ * BLK = 2^q
     std::atomic<uint64_t> used_ {0};    // live keys
     double max_load_ = 0.9;             // proactive grow threshold (1.0 = grow on full only)
+    bool autogrow_ = true;              // false (bcf_t): grow conditions throw
     std::vector<W, common::Allocator<W>> slots_; // [hash | cnt] (fused)
     std::vector<uint64_t, common::Allocator<uint64_t>> hashes_; // hash per slot (SoA)
     std::vector<uint16_t, common::Allocator<uint16_t>> cnts_;   // counter per slot (SoA)
@@ -1452,7 +1583,14 @@ private:
     // (an empty block is a definite miss without touching the payload),
     // secondary block prefetched while the primary scans
     bool find_slot(uint64_t hv, uint64_t &b, uint64_t &pos) const {
-        const uint64_t b1 = blk1(hv), b2 = blk2(hv);
+        return find_slot_blk(hv, blk1(hv), blk2(hv), b, pos);
+    }
+    // block-supplied twin: the routing bits come from the caller, which
+    // allows them to originate OUTSIDE the stored fingerprint (bcf_t's
+    // position-encoded mode: block = the key's top bits, fingerprint = the
+    // bits below). Callers must keep autogrow enabled only if they re-derive
+    // the blocks after every grow (b1/b2 go stale when nblocks changes).
+    bool find_slot_blk(uint64_t hv, uint64_t b1, uint64_t b2, uint64_t &b, uint64_t &pos) const {
         if(b2 != b1) __builtin_prefetch(payload(b2), 0, 2);
         // no live-word gating on the query path: at BLK=32 and load >=
         // 0.5 a candidate block is empty with probability ~e^-16 ~= 0,
@@ -1582,18 +1720,80 @@ public:
     // merge and compaction goes through the iterators/range instead)
     uint64_t slot_hash(uint64_t i) const {return get_hv(i);}
     uint64_t slot_count(uint64_t i) const {return get_cnt(i);}
+    // block derivations, exposed for wrappers that inject external routing
+    // bits (see find_slot_blk/add_blk/count_blk/dec_blk and bcf_t)
+    uint64_t block1(uint64_t hv) const {return blk1(hv);}
+    uint64_t block2(uint64_t hv) const {return blk2(hv);}
+    const void *block_payload(uint64_t b) const {return payload(b);}
+    // Fixed-capacity mode (bcf_t): any grow condition is an overflow_error
+    // instead of a rebuild. Grow invalidates caller-derived blocks, so
+    // block-supplied operations REQUIRE this to be set.
+    void disable_autogrow() {autogrow_ = false;}
+    bool autogrow() const {return autogrow_;}
     uint64_t count(uint64_t hv) const {
         hv &= HVMASK;
         uint64_t b, pos;
         if(!find_slot(hv, b, pos)) return 0;
         return get_cnt((b << BLK_SHIFT) + pos) & SAT;
     }
+    // block-supplied twin of count() (see find_slot_blk)
+    uint64_t count_blk(uint64_t hv, uint64_t b1, uint64_t b2) const {
+        hv &= HVMASK;
+        uint64_t b, pos;
+        if(!find_slot_blk(hv, b1, b2, b, pos)) return 0;
+        return get_cnt((b << BLK_SHIFT) + pos) & SAT;
+    }
     bool contains(uint64_t hv) const {return count(hv) != 0;}
     bool may_contain(uint64_t hv) const {return contains(hv);}
+    bool contains_blk(uint64_t hv, uint64_t b1, uint64_t b2) const {return count_blk(hv, b1, b2) != 0;}
+    // Batched read-only queries: write count(hv) for each key in [first,
+    // last) to out (forward iterator, must accept uint64_t assignments).
+    // Software-pipelined: each key's two candidate-block payloads are
+    // prefetched a few keys ahead while the current key scans, turning the
+    // two dependent cache misses of a lone count() into overlapped misses.
+    // Results are identical to count() one-by-one; the batch form exists
+    // for query-heavy streams. Chunked (64 keys) so forward iterators need
+    // no length and memory stays bounded.
+    template<typename It, typename Ot>
+    void count_many(It first, It last, Ot out) const {
+        const unsigned CH = 64;
+        uint64_t hv[CH], b1[CH], b2[CH];
+        for(;;) {
+            unsigned n = 0;
+            for(; n < CH && first != last; ++first, ++n) {
+                hv[n] = (*first) & HVMASK;
+                b1[n] = blk1(hv[n]);
+                const uint64_t bb2 = blk2(hv[n]);
+                b2[n] = bb2 == b1[n] ? b1[n]: bb2;
+            }
+            if(n == 0) return;
+            for(unsigned j = 0; j < n; ++j) {
+                if(j + 4 < n) { // prefetch a few keys ahead
+                    const void *p1 = payload(b1[j + 4]), *p2 = payload(b2[j + 4]);
+                    __builtin_prefetch(p1, 0, 2);
+                    if(p2 != p1) __builtin_prefetch(p2, 0, 2);
+                }
+                uint64_t pos;
+                if(block_find(b1[j], hv[j], pos)) { *out++ = get_cnt((b1[j] << BLK_SHIFT) + pos) & SAT; continue; }
+                if(b2[j] != b1[j] && block_find(b2[j], hv[j], pos)) { *out++ = get_cnt((b2[j] << BLK_SHIFT) + pos) & SAT; continue; }
+                *out++ = 0;
+            }
+        }
+    }
+    // convenience: batch membership into a caller buffer of n keys
+    template<typename It>
+    std::vector<uint64_t> count_many(It first, It last) const {
+        std::vector<uint64_t> v;
+        count_many(first, last, std::back_inserter(v));
+        return v;
+    }
 
     void add(uint64_t hv) {
         for(;;) {
-            if(HEDLEY_UNLIKELY(used_ >= max_load_ * double(nslots_))) grow();
+            if(HEDLEY_UNLIKELY(used_ >= max_load_ * double(nslots_))) {
+                if(!autogrow_) throw std::overflow_error("[bcqf] capacity reached (autogrow disabled)");
+                grow();
+            }
             hv &= HVMASK;
             const uint64_t b1 = blk1(hv);
             uint64_t pos;
@@ -1618,12 +1818,47 @@ public:
             uint64_t target = ~uint64_t(0);
             if(l2 < BLK && (l1 >= BLK || l2 < l1)) target = b2;
             else if(l1 < BLK) target = b1;
-            if(HEDLEY_UNLIKELY(target == ~uint64_t(0))) { grow(); continue; } // both full: grow + retry
+            if(HEDLEY_UNLIKELY(target == ~uint64_t(0))) { // both full: grow + retry
+                if(!autogrow_) throw std::overflow_error("[bcqf] both candidate blocks full (autogrow disabled)");
+                grow(); continue;
+            }
             const unsigned f = block_free(target);
             put((target << BLK_SHIFT) + f, hv, 1);
             bump_live(target, 1); ++used_;
             return;
         }
+    }
+    // block-supplied twin of add(): placement and duplicate detection use
+    // the caller's candidate blocks (routing bits outside the fingerprint).
+    // autogrow must be disabled: a rebuild would change nblocks and the
+    // caller-derived blocks cannot be refreshed from inside the retry loop.
+    void add_blk(uint64_t hv, uint64_t b1, uint64_t b2) {
+        if(HEDLEY_UNLIKELY(used_ >= max_load_ * double(nslots_)))
+            throw std::overflow_error("[bcqf] capacity reached (autogrow disabled)");
+        hv &= HVMASK;
+        uint64_t pos;
+        uint64_t fb;
+        if(find_slot_blk(hv, b1, b2, fb, pos)) {
+            const uint64_t i = (fb << BLK_SHIFT) + pos;
+            const uint64_t c = get_cnt(i);
+            if(c < SAT) put(i, hv, c + 1);
+            return;
+        }
+        if(live_[b1] < (BLK * 3) / 4) { // VQF S6.2 shortcut: primary only
+            const unsigned f = block_free(b1);
+            put((b1 << BLK_SHIFT) + f, hv, 1);
+            bump_live(b1, 1); ++used_;
+            return;
+        }
+        const unsigned l1 = live_[b1], l2 = live_[b2];
+        uint64_t target = ~uint64_t(0);
+        if(l2 < BLK && (l1 >= BLK || l2 < l1)) target = b2;
+        else if(l1 < BLK) target = b1;
+        if(HEDLEY_UNLIKELY(target == ~uint64_t(0)))
+            throw std::overflow_error("[bcqf] both candidate blocks full (autogrow disabled)");
+        const unsigned f = block_free(target);
+        put((target << BLK_SHIFT) + f, hv, 1);
+        bump_live(target, 1); ++used_;
     }
 
     // ---- concurrent insert (item 6). VQF S6.3 pattern: the block lock
@@ -1710,6 +1945,7 @@ public:
                 }
             }
             if(need_grow) {
+                if(!autogrow_) throw std::overflow_error("[bcqf] capacity reached (autogrow disabled)");
                 std::unique_lock<std::shared_mutex> g(grow_mu_);
                 if(used_.load() >= max_load_ * double(nslots_)) grow();
                 // else another thread grew already; retry placement
@@ -1722,6 +1958,19 @@ public:
         hv &= HVMASK;
         uint64_t b, pos;
         if(find_slot(hv, b, pos)) {
+            const uint64_t i = (b << BLK_SHIFT) + pos;
+            const uint64_t c = get_cnt(i);
+            if(c > 1) { put(i, hv, c - 1); return true; }
+            put(i, 0, 0); bump_live(b, -1); --used_;
+            return true;
+        }
+        return false;
+    }
+    // block-supplied twin of dec() (see find_slot_blk)
+    bool dec_blk(uint64_t hv, uint64_t b1, uint64_t b2) {
+        hv &= HVMASK;
+        uint64_t b, pos;
+        if(find_slot_blk(hv, b1, b2, b, pos)) {
             const uint64_t i = (b << BLK_SHIFT) + pos;
             const uint64_t c = get_cnt(i);
             if(c > 1) { put(i, hv, c - 1); return true; }
@@ -2058,7 +2307,10 @@ public:
     // ---- invariant checker: throws on violation (active in all builds) ----
     // Block live counts and superblock rollups accurate; every live
     // slot's hash routes to its owning block (b1 or b2); used_ agrees.
-    void structure_check() const {
+    // The routing check is skipped when autogrow is disabled (bcf_t):
+    // there the block comes from bits OUTSIDE the stored fingerprint, so a
+    // slot's hv routing to its block is not an invariant.
+    void structure_check(bool check_routing=true) const {
         uint64_t live_total = 0;
         for(uint64_t b = 0; b < nblocks_; ++b) {
             uint64_t cnt = 0;
@@ -2067,9 +2319,11 @@ public:
                 const uint64_t c = get_cnt(idx);
                 if(c == 0) continue;
                 if(c > SAT) throw std::runtime_error("[bcqf] counter above SAT");
-                const uint64_t hv = get_hv(idx);
-                if(blk1(hv) != b && blk2(hv) != b)
-                    throw std::runtime_error(std::string("[bcqf] slot routes outside its block: ") + std::to_string(hv));
+                if(check_routing) {
+                    const uint64_t hv = get_hv(idx);
+                    if(blk1(hv) != b && blk2(hv) != b)
+                        throw std::runtime_error(std::string("[bcqf] slot routes outside its block: ") + std::to_string(hv));
+                }
                 ++cnt;
             }
             if(cnt != live_[b])
@@ -2107,6 +2361,150 @@ using cqf64_8 = cqfbase_t<64, 8>;
 using cqf64_16 = cqfbase_t<64, 16>;
 using cqf64_32 = cqfbase_t<64, 32>;
 using cqf64_64 = cqfbase_t<64, 64>;
+
+// ---- position-encoded counting fingerprint filter (FINGERPRINT-FILTER
+// MODE; the exact modes above are unchanged and remain the default).
+//
+// bcf_t wraps the block engine with an explicit key reduction: callers hand
+// it FULL 64-bit hashes; the slot's block position is derived from the
+// key's TOP (q - BLK_SHIFT) bits and the slot stores only the FP_BITS
+// immediately BELOW them (disjoint bit ranges -- this is what makes the
+// position informative). The EFFECTIVE fingerprint per stored key is
+// therefore (q - 5) + FP_BITS bits while the stored word is only
+// FP_BITS + VAL_BITS wide. The engine is driven through its block-supplied
+// entry points (add_blk/count_blk/dec_blk) with autogrow disabled: a
+// rebuild would change nblocks, and caller-derived blocks cannot be
+// refreshed from inside the engine's retry loop.
+//
+// Semantics (separate mode, deliberately NOT the bcqf default):
+//   - NO false negatives for stored keys (membership compare is exact on
+//     (block, fp); presence always covers both candidate blocks).
+//   - False positives for absent keys: an absent query scans its two
+//     candidate blocks and accepts on any stored-fp equality; with block
+//     live counts l1, l2 the per-query FPR is
+//         1 - (1 - 2^-FP)^(l1 + l2)  ~=  (l1 + l2) * 2^-FP,
+//     i.e. at load a: ~= 2 * a * BLK * 2^-FP -- the block position confines
+//     the comparison count to ~2*BLK slots instead of the whole table, which
+//     is precisely where the remainder savings come from. fpr_bound()
+//     reports the worst case (l1 = l2 = BLK).
+//   - Counts are exact per fingerprint; two FULL keys with the same
+//     (block, fp) collide and MERGE counts (documented filter overcount).
+//   - Fixed capacity like the Bloom filters (bf.h): no grow(); size q for
+//     the expected n (nslots >= n / max_load). Inserting past capacity
+//     throws overflow_error rather than degrading the FPR silently.
+// Space: the slot word is width-selected on FP_BITS + VAL_BITS (u16 for
+// fp12+val8 etc.), so at FP = 12, VAL = 8 the payload is 2 bytes/slot vs 8
+// for the exact 48/16 block filter -- the bytes/key tables in
+// doc/bench-cqf-opt-after.md are the point of the mode.
+template<size_t FP_BITS, size_t VAL_BITS, class Hash=WangHash>
+class bcf_t {
+    static_assert(FP_BITS >= 4 && FP_BITS <= 48, "FP_BITS in [4, 48]");
+    static_assert(VAL_BITS >= 1 && VAL_BITS <= 16, "VAL_BITS in [1, 16]");
+public:
+    static constexpr size_t fp_bits = FP_BITS;
+    static constexpr size_t val_bits = VAL_BITS;
+    static constexpr size_t key_bits = 64; // callers hand in full 64-bit hashes
+    // the block engine stores/compares only the fingerprint
+    using core_type = bcqf_t<FP_BITS, VAL_BITS, Hash>;
+    static constexpr uint64_t FPMASK = (uint64_t(1) << FP_BITS) - 1;
+private:
+    core_type core_;
+    Hash hf_;
+    // fingerprint: the FP_BITS of hv immediately below the block-index
+    // quotient (the position encodes the top ib bits, the slot stores these)
+    static INLINE uint64_t reduce(uint64_t hv, uint32_t ib) {
+        return (hv >> (64 - ib - FP_BITS)) & FPMASK;
+    }
+    // candidate blocks from the full hash: primary = the top ib bits,
+    // secondary = the engine's PHI mix of the whole hash
+    INLINE std::pair<uint64_t, uint64_t> blocks(uint64_t hv, uint32_t ib) const {
+        const uint64_t b1 = hv >> (64 - ib);
+        const uint64_t b2 = core_.block2(hv);
+        return {b1, b2};
+    }
+public:
+    explicit bcf_t(uint32_t q, double max_load = 0.85, Hash &&hf = Hash()): core_(q, max_load), hf_(std::move(hf)) {
+        const uint32_t ib = core_.q() - core_type::BLK_SHIFT;
+        if(q < core_type::BLK_SHIFT + 1 || ib + FP_BITS > 64)
+            throw std::invalid_argument(std::string("[bcf] need 5 < q and q - 5 + FP_BITS <= 64; got q=") + std::to_string(q));
+        core_.disable_autogrow();
+    }
+    uint32_t q() const { return core_.q(); }
+    uint64_t nslots() const { return core_.nslots(); }
+    uint64_t size() const { return core_.size(); }
+    double load_factor() const { return core_.load_factor(); }
+    // worst-case per-query false-positive probability (both candidate
+    // blocks full); the realized FPR tracks ~2 * load * BLK * 2^-FP
+    double fpr_bound() const {
+        const double p = std::ldexp(1., -int(FP_BITS));
+        return 1. - std::pow(1. - p, 2. * double(core_type::BLK));
+    }
+    double fpr_expected() const {
+        const double p = std::ldexp(1., -int(FP_BITS));
+        return 1. - std::pow(1. - p, 2. * core_.load_factor() * double(core_type::BLK));
+    }
+    std::pair<size_t, size_t> est_memory_usage() const { return core_.est_memory_usage(); }
+    INLINE uint64_t reduce(uint64_t hv) const { return reduce(hv, core_.q() - core_type::BLK_SHIFT); }
+    void add(uint64_t hv) {
+        const uint32_t ib = core_.q() - core_type::BLK_SHIFT;
+        const auto bs = blocks(hv, ib);
+        core_.add_blk(reduce(hv, ib), bs.first, bs.second);
+    }
+    // bulk build path (count-1 (hash, count) pairs; used by loaders, not a
+    // sorted fast path -- the block engine places unsorted)
+    template<typename It>
+    void insert_sorted_counts(It first, It last) {
+        for(; first != last; ++first) add(first->first);
+    }
+    void addh(uint64_t e) { add(hf_(e)); }
+    uint64_t count(uint64_t hv) const {
+        const uint32_t ib = core_.q() - core_type::BLK_SHIFT;
+        const auto bs = blocks(hv, ib);
+        return core_.count_blk(reduce(hv, ib), bs.first, bs.second);
+    }
+    bool contains(uint64_t hv) const { return count(hv) != 0; }
+    bool may_contain(uint64_t hv) const { return contains(hv); }
+    bool dec(uint64_t hv) {
+        const uint32_t ib = core_.q() - core_type::BLK_SHIFT;
+        const auto bs = blocks(hv, ib);
+        return core_.dec_blk(reduce(hv, ib), bs.first, bs.second);
+    }
+    bool del(uint64_t hv) { return dec(hv); }
+    bool erase(uint64_t hv) {
+        if(count(hv) == 0) return false;
+        while(count(hv) != 0) dec(hv);
+        return true;
+    }
+    template<typename It, typename Ot> void count_many(It first, It last, Ot out) const {
+        // reduce + block per key, then the same software-pipelined two-block
+        // scan as the core's count_many (64-key chunks; out may be an output
+        // iterator, so it is advanced by ++ only)
+        const unsigned CH = 64;
+        const uint32_t ib = core_.q() - core_type::BLK_SHIFT;
+        uint64_t red[CH], b1[CH], b2[CH];
+        for(;;) {
+            unsigned n = 0;
+            for(; n < CH && first != last; ++first, ++n) {
+                const uint64_t hv = *first;
+                red[n] = reduce(hv, ib);
+                const auto bs = blocks(hv, ib);
+                b1[n] = bs.first;
+                b2[n] = bs.second == bs.first ? bs.first: bs.second;
+            }
+            if(n == 0) return;
+            for(unsigned j = 0; j < n; ++j) {
+                if(j + 4 < n) { // prefetch a few keys ahead
+                    const void *p1 = core_.block_payload(b1[j + 4]), *p2 = core_.block_payload(b2[j + 4]);
+                    __builtin_prefetch(p1, 0, 2);
+                    if(p2 != p1) __builtin_prefetch(p2, 0, 2);
+                }
+                *out++ = core_.count_blk(red[j], b1[j], b2[j]);
+            }
+        }
+    }
+    void structure_check() const { core_.structure_check(core_.autogrow()); }
+    void clear() { core_.clear(); }
+};
 
 } // namespace cqf
 } // namespace sketch
