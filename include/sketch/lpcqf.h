@@ -156,7 +156,7 @@ private:
     }
     static long double ainc_estimate_count(signed long long n) {
         if constexpr(num == 2 && denom == 1) {
-            if(n < 64) return (1ull << n) - 1ull;
+            if(n < static_cast<signed long long>(bits_per_word<uint64_t>)) return (1ull << n) - 1ull;
             return std::ldexp(1., n) - 1.L;
         } else {
             const long double v = n < NCACHED_POWERS ? POWERS<denom, num, NCACHED_POWERS>[n]: std::pow(approxlogb, n);
@@ -168,10 +168,10 @@ private:
         if constexpr(is_apow2) {
             if(numdraws < counter) {
                 rv = wy::wyhash64_stateless(&rseed);
-                numdraws = 64;
+                numdraws = bits_per_word<uint64_t>; // rv is a full u64 of fresh random bits
             }
             const T old = counter;
-            if((rv & (UINT64_C(-1) >> (64 - counter))) == 0)
+            if((rv & (UINT64_C(-1) >> (bits_per_word<uint64_t> - counter))) == 0)
                 ++counter;
             rv >>= old; numdraws -= old;
         } else {
