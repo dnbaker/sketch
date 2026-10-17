@@ -382,6 +382,7 @@ private:
     uint64_t ndistinct_ = 0;  // occupied homes
     uint64_t occ_words_ = 0, runend_words_ = 0; // word counts of the two
                               // bitvector regions inside metaraw_
+    uint64_t hv_words_ = 0;   // holes bitvector word count (hveraw_)
     bool fuse_ = false;       // rem+cnt share one register per slot
     bool fuse_pref_ = true;   // policy: allow fusion when it fits (grow/read
                               // re-apply it); false selects the packed arrays
@@ -393,6 +394,10 @@ private:
     // structure_check reference)
     std::vector<uint64_t, common::Allocator<uint64_t>> metaraw_;
     detail::dir occ_dir_, runend_dir_;
+    // holes: hv[i] = !slot_live(i), own allocation (wire format unchanged),
+    // Fenwick directory for O(log n) first_empty
+    std::vector<uint64_t, common::Allocator<uint64_t>> hveraw_;
+    detail::dir holes_dir_;
     Hash hf_;
     static constexpr uint32_t MAGIC = 0x43514634; // "CQF4" (home-anchored layout)
 public:
@@ -457,6 +462,14 @@ public:
         metaraw_.assign(occ_words_ + runend_words_, 0);
         occ_dir_.reset(nslots_);
         runend_dir_.reset(xnslots_);
+        // all slots start empty: hv all ones with the tail beyond xnslots_
+        // kept zero (rank/select and the used_-derived hole total must not
+        // see phantom holes)
+        hv_words_ = runend_words_;
+        hveraw_.assign(hv_words_, ~uint64_t(0));
+        if(xnslots_ % word_bits) hveraw_.back() = (uint64_t(1) << (xnslots_ % word_bits)) - 1;
+        holes_dir_.reset(xnslots_);
+        holes_dir_.rebuild(hv_w(), hv_words_);
         used_ = ndistinct_ = 0;
     }
     uint32_t q() const {return q_;}
@@ -467,8 +480,8 @@ public:
     double load_factor() const {return double(used_) / double(nslots_);}
     std::pair<size_t, size_t> est_memory_usage() const {
         const size_t payload = fuse_ ? slot_.size(): remraw_.size() + cntraw_.size();
-        return std::make_pair(sizeof(*this), (payload + metaraw_.size()) * sizeof(uint64_t)
-                              + occ_dir_.bytes() + runend_dir_.bytes());
+        return std::make_pair(sizeof(*this), (payload + metaraw_.size() + hveraw_.size()) * sizeof(uint64_t)
+                              + occ_dir_.bytes() + runend_dir_.bytes() + holes_dir_.bytes());
     }
     bool fused() const {return fuse_;} // rem+cnt in one register per slot
     // false-positive bound. Untruncated exact mode: 0. Otherwise the filter
@@ -509,6 +522,32 @@ public:
     bool re_get(uint64_t i) const {return detail::bv_get(re_w(), i);}
     void re_set(uint64_t i) {detail::bv_set(re_w(), i);}
     void re_clear(uint64_t i) {detail::bv_clear(re_w(), i);}
+    // ---- holes bitvector (own allocation: the wire format must not change):
+    // hv[i] = !slot_live(i). Maintained at every liveness change (the same
+    // primitives that move payload: set_cnt/set_slot/shift_range_*, plus
+    // init/clear/read), and indexed by the Fenwick directory below so
+    // first_empty is O(log n) instead of a rightward scan whose length is
+    // the frontier distance -- with no deletes all holes sit at the frontier,
+    // so the scan alone made random-order inserts O(n^2) (measured: 48% of
+    // insert wall at q=20, load 0.9; 194s for 1M inserts).
+    uint64_t *hv_w() {return hveraw_.data();}
+    const uint64_t *hv_w() const {return hveraw_.data();}
+    bool hole_get(uint64_t i) const {return detail::bv_get(hv_w(), i);}
+    // set/clear a hole bit and refresh its directory block
+    void hole_set(uint64_t i) {
+        if(!detail::bv_get(hv_w(), i)) {
+            detail::bv_set(hv_w(), i);
+            holes_dir_.refresh(hv_w(), hv_words_, i, i);
+        }
+    }
+    void hole_clear(uint64_t i) {
+        if(detail::bv_get(hv_w(), i)) {
+            detail::bv_clear(hv_w(), i);
+            holes_dir_.refresh(hv_w(), hv_words_, i, i);
+        }
+    }
+    // reconcile hv[i] with the liveness just written at slot i
+    void hv_sync(uint64_t i, bool live) {live ? hole_clear(i): hole_set(i);}
     // any runend bit in [lo, hi) (few positions, spans at most two words);
     // used by the SIMD window scan and by tests on every target
     static bool re_any_(const uint64_t *rw, uint64_t lo, uint64_t hi) {
@@ -535,10 +574,12 @@ public:
     void set_cnt(uint64_t i, uint64_t v) {
         if(fuse_) slot_[i] = (slot_[i] & remmask_) | ((v & SAT) << rs_);
         else detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), v);
+        hv_sync(i, (v & SAT) != 0);
     }
     void set_slot(uint64_t i, uint64_t fr, uint64_t c) { // fused: one store
         if(fuse_) slot_[i] = (frs(fr) & remmask_) | ((c & SAT) << rs_);
         else {set_rem(i, frs(fr)); set_cnt(i, c);}
+        if(fuse_) hv_sync(i, (c & SAT) != 0); // packed: set_cnt already synced
     }
     bool slot_live(uint64_t i) const {return cnt(i) != 0;}
 
@@ -564,7 +605,24 @@ public:
         return {s, e};
     }
     uint64_t first_empty(uint64_t s) const {
-        // scan RIGHT only (no wrap); the 0.9 load cap guarantees one exists
+        // Directory over the holes bitvector: rank the holes before s, then
+        // select the next one. O(log n) with no slot scan. No hole at index
+        // >= s returns ~0 (the 0.9 ceiling should make this unreachable;
+        // the grow+retry paths consume it).
+        const uint64_t rnk = holes_dir_.rank1(hv_w(), s); // holes in [0, s)
+        const uint64_t r = rnk >= xnslots_ - used_ ? ~uint64_t(0): holes_dir_.select1(hv_w(), rnk);
+#if defined(SKETCH_CQF_EMPTY_ORACLE)
+        const uint64_t o = first_empty_oracle(s);
+        if(o != r) throw std::runtime_error(std::string("[cqf] holes directory drifted from the scan oracle at ") + std::to_string(s));
+#endif
+        return r;
+    }
+    // rightward scan for the first hole at index >= s (no wrap). Retained as
+    // the test oracle for the directory (SKETCH_CQF_EMPTY_ORACLE) and for
+    // debugging; production queries go through first_empty. The packed
+    // variants remain scalar: the directory made them dead in production, so
+    // SIMD-izing them would only widen the tested surface.
+    uint64_t first_empty_oracle(uint64_t s) const {
         if(fuse_) { // cnt == 0 <=> register < 2^rs_ (high bits stay zero)
             const uint64_t *sl = slot_.data();
             uint64_t i = s;
@@ -677,7 +735,9 @@ public:
         for(; first != last; ++first, ++out) *out = count(*first);
     }
 
-    // shift slots [pos, empty-1] into [pos+1, empty] over rem/cnt/runend
+    // shift slots [pos, empty-1] into [pos+1, empty] over rem/cnt/runend;
+    // the holes bits move with the payload (interior block sums change only
+    // at boundaries, so the range refresh is O((empty-pos)/64))
     void shift_range_right(uint64_t pos, uint64_t empty) {
         if(fuse_)
             std::memmove(slot_.data() + pos + 1, slot_.data() + pos, (empty - pos) * sizeof(uint64_t));
@@ -688,6 +748,9 @@ public:
         detail::packed_shift_right(re_w(), pos, 1, empty);
         re_clear(pos);
         runend_dir_.refresh(re_w(), runend_words_, pos, empty);
+        detail::packed_shift_right(hv_w(), pos, 1, empty);
+        detail::bv_set(hv_w(), pos); // vacated slot; the caller's set_slot lands on it next
+        holes_dir_.refresh(hv_w(), hv_words_, pos, empty);
     }
     // shift slots [pos+1, empty] into [pos, empty-1]; slot empty freed
     void shift_range_left(uint64_t pos, uint64_t empty) {
@@ -700,6 +763,12 @@ public:
         }
         detail::packed_shift_left(re_w(), pos, 1, empty);
         runend_dir_.refresh(re_w(), runend_words_, pos, empty);
+        // the shift zeroes hv[empty], but the payload zeroing at `empty` is a
+        // liveness flip live -> dead: the slot becomes a HOLE (erase/dec
+        // paths free exactly this slot)
+        detail::packed_shift_left(hv_w(), pos, 1, empty);
+        detail::bv_set(hv_w(), empty);
+        holes_dir_.refresh(hv_w(), hv_words_, pos, empty);
     }
 
     // grow when a further insert would push past the 0.9 load cap
@@ -951,6 +1020,10 @@ public:
         std::fill(metaraw_.begin(), metaraw_.end(), 0);
         occ_dir_.reset(nslots_);
         runend_dir_.reset(xnslots_);
+        std::fill(hveraw_.begin(), hveraw_.end(), ~uint64_t(0));
+        if(xnslots_ % word_bits) hveraw_.back() = (uint64_t(1) << (xnslots_ % word_bits)) - 1;
+        holes_dir_.reset(xnslots_);
+        holes_dir_.rebuild(hv_w(), hv_words_);
         used_ = ndistinct_ = 0;
     }
     void reset() {clear();}
@@ -959,6 +1032,7 @@ public:
         auto tmp1(std::move(remraw_));
         auto tmp2(std::move(cntraw_));
         auto tmp3(std::move(metaraw_));
+        auto tmp4(std::move(hveraw_));
         q_ = r_ = 0; nslots_ = used_ = ndistinct_ = 0;
     }
 
@@ -1116,6 +1190,12 @@ public:
         CR(fp, metaraw_.data(), metaraw_.size() * sizeof(uint64_t));
         occ_dir_.rebuild(occ_w(), occ_words_);
         runend_dir_.rebuild(re_w(), runend_words_);
+        // holes derive from the payload just loaded (wire format has no hv):
+        // all slots empty except the live ones
+        std::fill(hveraw_.begin(), hveraw_.end(), ~uint64_t(0));
+        if(xnslots_ % word_bits) hveraw_.back() = (uint64_t(1) << (xnslots_ % word_bits)) - 1;
+        for(uint64_t i = 0; i < xnslots_; ++i) if(cnt(i)) detail::bv_clear(hv_w(), i);
+        holes_dir_.rebuild(hv_w(), hv_words_);
 #undef CR
     }
     void read(const char *path) {
@@ -1170,6 +1250,24 @@ public:
             s = e + 1;
         }
         if(live != used_) throw std::runtime_error("[cqf] I5 violated: used count mismatch");
+        // holes bitvector: exact total and per-slot agreement with liveness
+        if(detail::bv_total(hv_w(), hv_words_) != xnslots_ - used_)
+            throw std::runtime_error("[cqf] HV violated: hole total != xnslots - used");
+        {
+            const uint64_t *hw = hv_w();
+            const uint64_t step = std::max<uint64_t>(1, hv_words_ / 47);
+            uint64_t next_probe = 0;
+            for(uint64_t w = 0; w < hv_words_; ++w) {
+                if(w >= next_probe) {
+                    for(unsigned o: {0u, 5u, 27u, 63u}) {
+                        const uint64_t i = w * word_bits + o;
+                        if(i < xnslots_ && detail::bv_get(hw, i) != !slot_live(i))
+                            throw std::runtime_error("[cqf] HV violated: hole bit disagrees with liveness");
+                    }
+                    next_probe += step;
+                }
+            }
+        }
         // navigation probes, allocation-free: sampled ranks against a running
         // word-popcount scan (probe words spread across the region, offsets
         // exercise the intra-word mask), each checked on BOTH the flat scan
@@ -1337,6 +1435,18 @@ struct bcqf_soa_layout {};
 
 template<size_t KEY_BITS, size_t VAL_BITS, class Hash=WangHash, class Layout=bcqf_fused_layout>
 class bcqf_t {
+    // INPUT CONTRACT: hv is a PRE-HASHED, KEY_BITS-wide reduced key (the
+    // add(hv)/count(hv) surface takes hashes, like cqfbase_t). Bits above
+    // KEY_BITS are IGNORED, never trusted: every public entry
+    // (count/contains/add/dec/erase, count_many, and the _blk twins) masks
+    // hv &= HVMASK before deriving block or slot indices, so a caller
+    // passing a full 64-bit hash with garbage in the top bits gets exactly
+    // the masked-key behavior. This is a deliberate difference from
+    // reference quotient-filter designs whose hash = key << value_bits is
+    // unmasked and requires keys < 2^key_bits (a wide key there indexes
+    // blocks out of range and segfaults -- the "bcqf segfault" of
+    // 2026-10-16 traced to a bench that fed ~key to the reference, not to
+    // this filter; bcqftest's test_wide_hv pins the masking contract).
     static constexpr bool SOA = std::is_same<Layout, bcqf_soa_layout>::value;
     static_assert(KEY_BITS >= 8 && KEY_BITS <= 48, "bcqf stores the full reduced hash: KEY_BITS in [8, 48]");
     static_assert(VAL_BITS >= 1 && VAL_BITS <= 16, "VAL_BITS in [1, 16]");

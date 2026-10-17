@@ -284,12 +284,68 @@ static void test_anchors() {
                  best, best_delta, in_seg, by_delta[best_delta].size());
 }
 
+// ---- wide-hv contract: bits above KEY_BITS are ignored, never trusted ----
+// Regression gate for a "bcqf segfault" that ASan localized to the bench
+// harness, not the filter; the filter itself masks hv &= HVMASK at every
+// public entry (count/add/dec/erase/count_many and the _blk twins). This
+// test pins that contract: every operation addressed with garbage in the
+// top 64-KEY_BITS bits must behave exactly as the masked key. Run at the
+// bench scale (q=22, 2M keys) so an unmasked index derivation would blow
+// past the arrays instead of limping.
+static void test_wide_hv() {
+    using B = cqf::bcqf48_16;
+    constexpr uint64_t KMASK = (uint64_t(1) << 48) - 1;
+    constexpr uint32_t q = 22;
+    const uint64_t n = 2000000;
+    std::mt19937_64 rng(20261016);
+    std::vector<uint64_t> keys(n);
+    for(auto &k: keys) k = rng() & KMASK;
+    B f(q);
+    for(uint64_t i = 0; i < n; ++i) f.add(keys[i]);
+    f.structure_check();
+    // garbage patterns for the top bits: complement, all-ones, random
+    auto wide = [&](uint64_t k, uint64_t i) {
+        const uint64_t g = (i % 3 == 0) ? ~uint64_t(0): (i % 3 == 1) ? ~k: (rng() << 48);
+        return k | (g & ~KMASK);
+    };
+    uint64_t i = 0;
+    for(uint64_t k: keys) {
+        const uint64_t w = wide(k, i++);
+        CHECK(f.count(w) == 1, "wide count must hit (masked key present)");
+        CHECK(f.contains(w), "wide contains");
+        f.add(w); // must merge onto the masked key
+        CHECK(f.count(k) == 2, "wide add merged onto masked key");
+        CHECK(f.dec(w), "wide dec");
+        CHECK(f.count(k) == 1, "wide dec hit the masked key");
+    }
+    // count_many parity under wide keys
+    std::vector<uint64_t> batch, out;
+    for(uint64_t j = 0; j < 1000; ++j) batch.push_back(wide(keys[j * 977 % n], j));
+    f.count_many(batch.begin(), batch.end(), std::back_inserter(out));
+    for(size_t j = 0; j < batch.size(); ++j) CHECK(out[j] == 1, "wide count_many parity");
+    // absent wide keys stay absent (masked value not in table)
+    uint64_t fp = 0;
+    for(uint64_t j = 0; j < 100000; ++j) {
+        const uint64_t k = rng() & KMASK;
+        if(f.count(k)) { --j; continue; }
+        fp += f.count(~k) != 0;
+    }
+    CHECK(fp == 0, "wide absent key must be a miss (fp %llu)", (unsigned long long)fp);
+    // wide erase removes the masked key
+    for(uint64_t j = 0; j < 50000; ++j) f.erase(wide(keys[j], j));
+    for(uint64_t j = 0; j < 50000; ++j) CHECK(f.count(keys[j]) == 0, "wide erase removed masked key");
+    for(uint64_t j = 50000; j < n; j += 997) CHECK(f.count(keys[j]) == 1, "untouched keys intact");
+    f.structure_check();
+    std::fprintf(stderr, "wide-hv contract ok (%llu keys, q=%u)\n", (unsigned long long)n, q);
+}
+
 int main() {
     test_compact_matrix();
     test_freeze();
     test_frozen_groups();
     test_trie_smoke();
     test_anchors();
+    test_wide_hv();
     range_case<cqf::bcqf48_16>(11, 25000, (1ULL<<48)-1);
     range_case<cqf::bcqf24_8>(12, 25000, (1ULL<<24)-1);
     std::fprintf(stderr, "bcqftest: %s\n", failures ? "FAILURES PRESENT" : "all bcqf battery tests passed");

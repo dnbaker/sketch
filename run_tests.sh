@@ -9,4 +9,4 @@ do
   echo ./$line
   ./$line
 done < tmpfiles.txt
-rm tmpfiles.txt
+rm -f tmpfiles.txt

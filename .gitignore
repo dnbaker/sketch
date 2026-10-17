@@ -20,6 +20,9 @@ __hm*.hmh
 /cmtest
 /count
 /cqf_splat_bench
+/cqfsimdtest
+/chttest
+/cqf_ht_bench
 /cqfopt_bench
 /cqftest
 /cscomp
@@ -38,6 +41,7 @@ __hm*.hmh
 /hlltest
 /hmhbench
 /hmhtest
+/hashtest
 /hnswcmp
 /lpcqf_approx
 /lpcqf_test
@@ -61,6 +65,7 @@ __hm*.hmh
 /sstest
 /swtest
 /test_revhash
+/revhash_bench
 /testcontain
 /testmhmerge
 /testsparse

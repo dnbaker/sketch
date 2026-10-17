@@ -57,11 +57,11 @@ static void test_re_any() {
     std::fprintf(stderr, "re_any_ ok\n");
 }
 
-// ---- 2. adversarial exact-mode fused CQF vs oracle ----
+// ---- 2. adversarial exact-mode CQF vs oracle ----
 template<typename Cqf>
-static void churn_vs_oracle(uint32_t q, uint64_t nkeys, uint64_t seed) {
-    Cqf f(q);
-    CHECK(f.fused(), "test requires the fused regime");
+static void churn_vs_oracle(uint32_t q, uint64_t nkeys, uint64_t seed, bool fuse=true) {
+    Cqf f(q, fuse);
+    CHECK(f.fused() == fuse, "fuse policy not honored");
     std::unordered_map<uint64_t, uint64_t> oracle;
     uint64_t st = seed;
     std::vector<uint64_t> keys(nkeys);
@@ -85,6 +85,13 @@ static void churn_vs_oracle(uint32_t q, uint64_t nkeys, uint64_t seed) {
                 CHECK(f.dec(v), "dec of present key must succeed");
                 if(--it->second == 0) oracle.erase(it);
             }
+        }
+        if((i % 977) == 0) { // the holes directory must track every churn event
+            const uint64_t probe = sm64(st) % (f.nslots() + (uint64_t(1) << (q / 2)) + 8);
+            const uint64_t got = f.first_empty(probe), want = f.first_empty_oracle(probe);
+            CHECK(got == want, "first_empty directory vs scan oracle: got %llu want %llu (probe %llu)",
+                  (unsigned long long)got, (unsigned long long)want, (unsigned long long)probe);
+            f.structure_check();
         }
     }
     f.structure_check();
@@ -245,6 +252,11 @@ int main() {
     churn_vs_oracle<sketch::cqf::cqf64_8>(10, 12000, 2);
     churn_vs_oracle<sketch::cqf::cqf64_8>(12, 20000, 3);
     churn_vs_oracle<sketch::cqf::cqf64_16>(16, 8000, 4);
+    // packed regime (fuse=false): the holes directory is layout-independent,
+    // the old scalar packed scan is the oracle
+    churn_vs_oracle<sketch::cqf::cqf64_8>(8, 6000, 5, false);
+    churn_vs_oracle<sketch::cqf::cqf64_16>(10, 10000, 6, false);
+    churn_vs_oracle<sketch::cqf::cqfbase_t<32, 8>>(9, 9000, 7, false);
     test_rstore();
     test_bcf();
     if(failures) {
