@@ -122,8 +122,9 @@
 // hash reuses it; the other hashers compose their 4-lane chain locally.
 // Measurable surfaces:
 //   - batch hashing: hashes_many/add_many_simd run keys through hash4()
-//     (4 x u64 lanes) with a scalar tail; lane-verified against the scalar
-//     chain in chttest.
+//     (4 x u64 lanes) with a scalar tail. The hash4 lane-identity lives in
+//     hash.h (hashtest); cht's own batch paths are bench-side
+//     (cqf_ht_bench), not covered by the test gate.
 //   - the probe: count_simd finds the probe-span end on the occupancy
 //     bitmap (simde 4-word all-ones scan) and compares remainders 8 lanes
 //     at a time (simde_mm256_cmpeq_epi32 + movemask_epi8 over the packed
@@ -188,43 +189,14 @@ namespace sketch {
 inline namespace cht {
 
 namespace detail {
-// Shared 64-bit mixing core: the splitmix64 finalizer (see
-// cht_splitmix64_hash below). Used directly by the 64-bit hash and as the
-// Feistel round function by cht_feistel128_hash.
+// Shared 64-bit mixing core: the splitmix64 finalizer, REUSED from hash.h's
+// audited SplitMix64Hash (identical stage chain: xorshift-multiply with two
+// odd multiplies and interleaved xorshifts; hash.h carries the audited
+// scalar/4-lane implementations and their inverse). Used directly by
+// cht_splitmix64_hash and as the Feistel round function by
+// cht_feistel128_hash.
 INLINE uint64_t mix64(uint64_t z) {
-    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
-    z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
-    return z ^ (z >> 31);
-}
-// Inverse of y = x ^ (x >> k) on 64 bits. Fixed-shift iteration: with
-// x_0 = y, x_n = y ^ (x_{n-1} >> k) gives x_n = x ^ (x >> (n+1)k), which
-// reaches x once (n+1)k >= 64. (Doubling the shift each step is the
-// left-shift inversion; it is WRONG here.)
-INLINE uint64_t unxorshift_r(uint64_t y, unsigned k) {
-    uint64_t x = y;
-    for (unsigned s = k; s < 64; s += k) x = y ^ (x >> k);
-    return x;
-}
-// 4-lane (simde__m256i) versions of the primitives above. simde maps these
-// to the native AVX2 instructions on this host and emulates elsewhere --
-// one source, no ISA ifdefs.
-INLINE simde__m256i unxorshift_r4(simde__m256i y, unsigned k) {
-    simde__m256i x = y;
-    for (unsigned s = k; s < 64; s += k)
-        x = simde_mm256_xor_si256(y, simde_mm256_srli_epi64(x, k));
-    return x;
-}
-// (a * b) mod 2^64 on 4 lanes. simde_mm256_mullo_epi64 needs AVX512VL for
-// the native form; compose from vpmuludq (simde_mm256_mul_epu32, low-32 x
-// low-32 of each 64-bit lane) so AVX2 hosts get the 3-multiply emulation
-// directly from the compiler: lo + ((a_lo*b_hi + a_hi*b_lo) << 32).
-INLINE simde__m256i mullo64_4(simde__m256i a, simde__m256i b) {
-    const simde__m256i a_hi = simde_mm256_srli_epi64(a, 32);
-    const simde__m256i b_hi = simde_mm256_srli_epi64(b, 32);
-    const simde__m256i lo = simde_mm256_mul_epu32(a, b);
-    const simde__m256i cross = simde_mm256_add_epi64(simde_mm256_mul_epu32(a, b_hi),
-                                                     simde_mm256_mul_epu32(a_hi, b));
-    return simde_mm256_add_epi64(lo, simde_mm256_slli_epi64(cross, 32));
+    return uint64_t(SplitMix64Hash()(z));
 }
 // The batch-SIMD hash contract: a hasher MAY provide
 //   static simde__m256i hash4(simde__m256i)   // 4 x u64 lanes, == hash() per lane
@@ -267,16 +239,17 @@ struct cht_identity_hash {
     }
 };
 
-// Invertible mixer for full 64-bit keys: the splitmix64 finalizer,
-// Sebastiano Vigna, public domain (http://xoshiro.di.unimi.it/splitmix64.c;
-// the mixing function of the splitmix64 PRNG). Construction: add the odd
-// Weyl constant Golden, then two (multiply by odd constant; xorshift-
-// right) stages. Every stage is a mod-2^64 bijection -- translation;
-// multiplication by an odd constant (modular inverses computed and
-// verified at build time of chttest); xorshift-right via detail::
-// unxorshift_r -- so hash() is a bijection and invert() recovers the
-// original key exactly. This is what makes a cht_t over RAW 64-bit keys a
-// decodable map with no pre-hashing on the caller side.
+// Invertible mixer for full 64-bit keys: hash.h's audited SplitMix64Hash
+// (the splitmix64 finalizer, Sebastiano Vigna, public domain;
+// http://xoshiro.di.unimi.it/splitmix64.c) composed with a +GOLDEN Weyl
+// pre-add. Every stage is a mod-2^64 bijection -- translation; multiply by
+// an odd constant; xorshift-right -- so hash() is a bijection and invert()
+// recovers the original key exactly: SplitMix64Hash::inverse inverts the
+// finalizer and the pre-add is undone by subtracting GOLDEN. This is what
+// makes a cht_t over RAW 64-bit keys a decodable map with no pre-hashing on
+// the caller side. The stage constants and their multiplicative inverses
+// mod 2^64 (in application order) stay exposed as M1/IM1/M2/IM2; chttest
+// verifies M_i * IM_i == 1.
 struct cht_splitmix64_hash {
     static constexpr size_t key_bits = 64;
     static constexpr uint64_t GOLDEN = 0x9e3779b97f4a7c15ull;
@@ -289,22 +262,16 @@ struct cht_splitmix64_hash {
     cht_splitmix64_hash() = default;
     template<typename...Args> cht_splitmix64_hash(Args &&...) {}
     INLINE uint64_t hash(uint64_t x) const {return detail::mix64(x + GOLDEN);}
-    INLINE uint64_t invert(uint64_t h) const {
-        uint64_t z = detail::unxorshift_r(h, 31);
-        z *= IM2;
-        z = detail::unxorshift_r(z, 27);
-        z *= IM1;
-        z = detail::unxorshift_r(z, 30);
-        return z - GOLDEN;
-    }
-    // 4-lane batch through the same chain (simde compose): z += Golden;
-    // z = (z ^ z>>30) * M1; z = (z ^ z>>27) * M2; z ^ z>>31. Lane-verified
-    // against hash() in chttest.
+    INLINE uint64_t invert(uint64_t h) const {return uint64_t(SplitMix64Hash().inverse(h)) - GOLDEN;}
+    // 4-lane batch: REUSES hash.h's audited SplitMix64Hash::hash4 (lane-
+    // identical to its operator(), verified in hashtest) on the +GOLDEN-
+    // pre-added lanes, so hash4 matches hash() bit for bit per lane -- the
+    // has_hash4 contract hashes_many/add_many_simd/count_many_simd rely on.
+    // (The previous local compose mis-clamped GOLDEN: a >= 2^63 guard in
+    // the set1 ternary mapped it to -1, so the SIMD lanes diverged from
+    // hash(). Delegating removes the duplicate chain and the bug together.)
     static simde__m256i hash4(simde__m256i z) {
-        z = simde_mm256_add_epi64(z, simde_mm256_set1_epi64x(GOLDEN >= (~uint64_t(0) >> 1) ? -1ll: static_cast<long long>(GOLDEN)));
-        z = detail::mullo64_4(simde_mm256_xor_si256(z, simde_mm256_srli_epi64(z, 30)), simde_mm256_set1_epi64x(static_cast<long long>(M1)));
-        z = detail::mullo64_4(simde_mm256_xor_si256(z, simde_mm256_srli_epi64(z, 27)), simde_mm256_set1_epi64x(static_cast<long long>(M2)));
-        return simde_mm256_xor_si256(z, simde_mm256_srli_epi64(z, 31));
+        return SplitMix64Hash::hash4(simde_mm256_add_epi64(z, simde_mm256_set1_epi64x(static_cast<long long>(GOLDEN))));
     }
 };
 
