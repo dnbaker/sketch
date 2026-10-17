@@ -622,7 +622,8 @@ public:
             return i;
         }
         const uint64_t nw = ceil_div(nslots_, uint64_t(word_bits));
-        uint64_t wi = i / word_bits;
+        const uint64_t wi0 = i / word_bits;
+        uint64_t wi = wi0;
         const simde__m256i ones = simde_mm256_set1_epi64x(-1);
         for(; wi + 4 <= nw; wi += 4) {
             const simde__m256i v = simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i*>(ocraw_.data() + wi));
@@ -631,6 +632,10 @@ public:
         }
         for(; wi < nw; ++wi) {
             uint64_t w = ~ocraw_[wi];
+            // first word: occupancy bits below the query index belong to
+            // slots BEFORE i -- mask them off. probe_end(i) must be >= i; an
+            // empty earlier in the same word ends a DIFFERENT probe's span.
+            if(wi == wi0 && i % word_bits) w &= ~((uint64_t(1) << (i % word_bits)) - 1);
             if(wi == nw - 1 && nslots_ % word_bits) w &= (uint64_t(1) << (nslots_ % word_bits)) - 1; // phantom tail bits
             if(w) return wi * word_bits + ctz(w);
         }

@@ -511,6 +511,131 @@ void test_bytes_accounting() {
                  f.bytes_used(), double(f.bytes_used()) * 8 / double(ns));
 }
 
+// ---- 9. SIMD batch paths: lane-identity and table equivalence --------------
+// hashes_many/add_many_simd/count_many_simd route u64 keys through
+// RevHash::hash4 4 lanes at a time; after the round-2 delegation these lanes
+// are bit-identical to the scalar chain (hash()), and add_many_simd inserts
+// through the identical probe as add(). These gates pin both facts at the
+// table level: batch-built tables must answer exactly like scalar-built ones.
+void test_batch_simd() {
+    {   // hashes_many == hf_.hash elementwise (SIMD lanes + scalar tail;
+        // 100003 is not a multiple of 4, so the tail path runs). Both
+        // hash4-carrying instantiations are checked.
+        std::mt19937_64 rng(31);
+        const unsigned n = 100003;
+        std::vector<uint64_t> keys(n), hv(n);
+        for (auto &k: keys) k = rng();
+        {   cht_t<uint64_t, cht_splitmix64_hash, 16> f(8);
+            cht_splitmix64_hash h;
+            f.hashes_many(keys.begin(), keys.end(), hv.begin());
+            for (unsigned i = 0; i < n; ++i)
+                CHECK(hv[i] == h.hash(keys[i]), "hashes_many != hash() at %u", i);
+        }
+        {   cht_t<uint64_t, cht_identity_hash<48>, 16> f(8);
+            cht_identity_hash<48> h;
+            f.hashes_many(keys.begin(), keys.end(), hv.begin());
+            for (unsigned i = 0; i < n; ++i)
+                CHECK(hv[i] == h.hash(keys[i]), "identity hashes_many != hash() at %u", i);
+        }
+        std::fprintf(stderr, "cht hashes_many lane-identity done (%u keys)\n", n);
+    }
+    {   // exact mode: SIMD-built table == scalar-built table on identical
+        // streams, across every batch-count variant, including dump sets
+        const uint32_t q = 15; // 32768 slots; ~23k distinct below
+        std::mt19937_64 rng(32);
+        std::vector<uint64_t> stream;
+        std::unordered_map<uint64_t, uint64_t> ref;
+        for (unsigned i = 0; i < 60000; ++i) {
+            const uint64_t k = (i % 3) ? (rng() % 3000) : rng(); // dups + wide
+            stream.push_back(k); ++ref[k];
+        }
+        cht_t<uint64_t, cht_splitmix64_hash, 16> f_single(q);
+        for (const uint64_t k: stream) f_single.add(k);
+        std::vector<uint64_t> shuffled(stream);
+        std::shuffle(shuffled.begin(), shuffled.end(), rng);
+        cht_t<uint64_t, cht_splitmix64_hash, 16> f_simd(q);
+        f_simd.add_many_simd(shuffled.begin(), shuffled.end());
+        CHECK(f_single.size() == f_simd.size(), "add_many_simd size %llu != single %llu",
+              (unsigned long long)f_simd.size(), (unsigned long long)f_single.size());
+        CHECK(f_single.bytes_used() == f_simd.bytes_used(), "add_many_simd bytes differ");
+        std::vector<uint64_t> probe = stream;
+        for (unsigned i = 0; i < 20000; ++i) probe.push_back(rng() | (1ull << 60));
+        std::vector<uint64_t> c_ref(probe.size()), c_simd(probe.size()), c_pf(probe.size());
+        f_simd.count_many(probe.begin(), probe.end(), c_ref.begin());
+        f_simd.count_many_simd(probe.begin(), probe.end(), c_simd.begin());
+        f_simd.count_many_prefetch(probe.begin(), probe.end(), c_pf.begin());
+        CHECK(c_ref == c_simd, "count_many_simd != count_many");
+        CHECK(c_ref == c_pf, "count_many_prefetch != count_many");
+        {   // sorted variant: input ordered by hf_.hash ascending (the
+            // add_bulk_sorted order); must return identical counts
+            cht_splitmix64_hash h;
+            std::vector<uint64_t> sprobe(probe);
+            std::sort(sprobe.begin(), sprobe.end(), [&h](uint64_t a, uint64_t b){return h.hash(a) < h.hash(b);});
+            std::vector<uint64_t> c_sorted(sprobe.size());
+            f_simd.count_many_sorted(sprobe.begin(), sprobe.end(), c_sorted.begin());
+            for (size_t i = 0; i < sprobe.size(); ++i)
+                CHECK(c_sorted[i] == f_simd.count(sprobe[i]), "count_many_sorted wrong at %zu", i);
+        }
+        for (size_t i = 0; i < probe.size(); ++i)
+            CHECK(c_ref[i] == f_single.count(probe[i]), "simd-built table count != single-built at %zu", i);
+        // dump set-equality between the two builds (both are the raw-key set)
+        std::vector<uint64_t> d_single, d_simd;
+        f_single.dump_keys(std::back_inserter(d_single));
+        f_simd.dump_keys(std::back_inserter(d_simd));
+        std::sort(d_single.begin(), d_single.end());
+        std::sort(d_simd.begin(), d_simd.end());
+        CHECK(d_single == d_simd, "simd-built dump set != scalar-built dump set");
+        CHECK(d_single.size() == ref.size(), "dump size %zu != ref %zu", d_single.size(), ref.size());
+        for (const uint64_t k: d_single) CHECK(ref.count(k) == 1, "dumped key not in reference set");
+        std::fprintf(stderr, "cht exact-mode SIMD batch equivalence done (%zu stream, %zu distinct)\n",
+                     stream.size(), ref.size());
+    }
+    {   // truncated mode: batch paths fall out of the same (home, fp)
+        // placement; membership must match single inserts exactly, with no
+        // false negatives (per-mode counts may couple across homes on
+        // insertion order -- only membership is pinned here)
+        const uint32_t q = 12; // 4096 slots, ~2500 distinct below
+        std::mt19937_64 rng(33);
+        std::vector<uint64_t> stream;
+        for (unsigned i = 0; i < 2500; ++i) stream.push_back(rng());
+        cht_t<uint64_t, cht_splitmix64_hash, 16, 8> t_single(q);
+        for (const uint64_t k: stream) t_single.add(k);
+        std::vector<uint64_t> shuffled(stream);
+        std::shuffle(shuffled.begin(), shuffled.end(), rng);
+        cht_t<uint64_t, cht_splitmix64_hash, 16, 8> t_simd(q);
+        t_simd.add_many_simd(shuffled.begin(), shuffled.end());
+        std::vector<uint64_t> c_ref(stream.size()), c_simd(stream.size());
+        t_simd.count_many(stream.begin(), stream.end(), c_ref.begin());
+        t_simd.count_many_simd(stream.begin(), stream.end(), c_simd.begin());
+        CHECK(c_ref == c_simd, "truncated count_many_simd != count_many");
+        uint64_t fn = 0;
+        for (size_t i = 0; i < stream.size(); ++i) {
+            fn += t_simd.count(stream[i]) == 0;
+            CHECK((t_simd.count(stream[i]) != 0) == (t_single.count(stream[i]) != 0),
+                  "truncated membership mismatch (single vs simd) at %zu", i);
+        }
+        CHECK(fn == 0, "truncated SIMD build has false negatives: %llu", (unsigned long long)fn);
+        std::fprintf(stderr, "cht truncated-mode SIMD batch membership done\n");
+    }
+    {   // 128-bit keys: no hash4 exists, so the batch APIs must fall back to
+        // the scalar chain and still match single inserts exactly
+        const uint32_t q = 10; // 1024 slots, 600 distinct below
+        std::mt19937_64 rng(34);
+        auto mk = [](uint64_t hi, uint64_t lo) {return (u128(hi) << 64) | lo;};
+        std::vector<u128> stream;
+        for (unsigned i = 0; i < 600; ++i) stream.push_back(mk(rng(), rng()));
+        cht_t<u128, cht_feistel128_hash, 16, 12> f_single(q);
+        for (const u128 k: stream) f_single.add(k);
+        cht_t<u128, cht_feistel128_hash, 16, 12> f_simd(q);
+        f_simd.add_many_simd(stream.begin(), stream.end());
+        CHECK(f_single.size() == f_simd.size(), "128-bit batch size mismatch");
+        uint64_t bad = 0;
+        for (const u128 k: stream) bad += (f_simd.count(k) != 0) != (f_single.count(k) != 0);
+        CHECK(bad == 0, "128-bit batch membership mismatches: %llu", (unsigned long long)bad);
+        std::fprintf(stderr, "cht 128-bit batch fallback done\n");
+    }
+}
+
 int main() {
     test_hash_roundtrips();
     test_exact_vs_cqf();
@@ -520,6 +645,7 @@ int main() {
     test_bulk_highfill();
     test_edges();
     test_bytes_accounting();
+    test_batch_simd();
     if (failures) { std::fprintf(stderr, "%d failures\n", failures); return 1; }
     std::fprintf(stderr, "all cht tests passed\n");
     return 0;
