@@ -716,6 +716,11 @@ struct SuperMinHash {
         double cest = detail::harmonic_cardinality_estimate_diffmax_impl(*ptr, h_.size() << 32);
         return cest;
     }
+// .cu translation units must not include the CPU sketch headers at all (nvcc
+// frontend ICEs / constexpr whack-a-mole); provide CPU references from a
+// plain-g++ TU instead — see gpu/tests/reference.{h,cpp}. This estimator is
+// host-only, so hiding it from __CUDACC__ costs nothing.
+#if !defined(__CUDACC__)
     FinalDivBBitMinHash finalize(uint32_t b=0) const {
         if(b == 0) b = bbits_;
         const auto *ptr = &h_;
@@ -745,6 +750,7 @@ struct SuperMinHash {
         }
         return div_bbit_finalize(b, *ptr, cest);
     }
+#endif // !defined(__CUDACC__)
     auto cfinalize(uint32_t b=0) const {return finalize(b ? b: bbits_);}
     void clear() {
         SuperMinHash tmp(std::move(*this));
