@@ -1,5 +1,7 @@
 // revhash_bench: speed/quality tradeoffs for invertible 64-bit hashes.
-// Built by the repo Makefile pattern rule (benchmark/%.cpp -> ./revhash_bench).
+// Built by the repo Makefile pattern rule (benchmark/%.cpp -> ./revhash_bench)
+// or directly: g++-15 -std=c++17 -O3 -march=native -Iinclude/sketch -I.
+//   -Iinclude/blaze -Ivec -Iinclude benchmark/revhash_bench.cpp -o revhash_bench
 // Usage: ./revhash_bench [quick]
 #include "sketch/hash.h"
 #include <chrono>
@@ -15,13 +17,52 @@
 
 using namespace sketch::hash;
 using clk = std::chrono::steady_clock;
+#ifndef VEC_DISABLED__
+static constexpr size_t LANES = vec::SIMDTypes<uint64_t>::COUNT;
+#endif
 
 static double now_s() { return std::chrono::duration<double>(clk::now().time_since_epoch()).count(); }
 static uint64_t sink_val;
 static inline void sink(uint64_t v) { sink_val ^= v; }
 
-// local 1-multiply experimental candidate (NOT shipped in hash.h: fails avalanche)
+// local experimental candidates (NOT shipped in hash.h):
+// Xor1Mul: lone xorshift-multiply-xorshift; moremur: Evensen's 1-multiply mixer.
+// Both are bijections but FAIL the flip-one-bit avalanche gate (single multiply).
 struct Xor1Mul: sketch::hash::CEIFused<RShiftXor<33>, CEIMul<0xff51afd7ed558ccd>, RShiftXor<31>> {};
+struct MoreMur {
+    static constexpr uint64_t M = 0x3c79ac492ba7b653ULL;
+    static constexpr uint64_t hash_(uint64_t h) { h ^= h >> 27; h *= M; h ^= h >> 33; return h; }
+    inline uint64_t operator()(uint64_t h) const { return hash_(h); }
+    static INLINE simde__m256i hash4(simde__m256i h) {
+        const simde__m256i m  = simde_mm256_set1_epi64x((int64_t)M);
+        const simde__m256i ms = simde_mm256_set1_epi64x((int64_t)0x2ba7b6533c79ac49ULL);
+        h = simde_mm256_xor_si256(h, simde_mm256_srli_epi64(h, 27));
+        h = SplitMix64Hash::mul64_const_(h, m, ms);
+        h = simde_mm256_xor_si256(h, simde_mm256_srli_epi64(h, 33));
+        return h;
+    }
+    static void hash_batch(uint64_t *out, const uint64_t *in, size_t n) {
+        size_t i = 0;
+        for(; i + 4 <= n; i += 4)
+            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i *>(out + i),
+                                     hash4(simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i *>(in + i))));
+        for(; i < n; ++i) out[i] = hash_(in[i]);
+    }
+};
+static inline void x1mul_hash4_store(uint64_t *out, const uint64_t *in, size_t n) {
+    Xor1Mul h;
+    size_t i = 0;
+    for(; i + 4 <= n; i += 4) {
+        simde__m256i x = simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i *>(in + i));
+        const simde__m256i c  = simde_mm256_set1_epi64x((int64_t)0xff51afd7ed558ccdULL);
+        const simde__m256i cs = simde_mm256_set1_epi64x((int64_t)0xed558ccdff51afd7ULL);
+        x = simde_mm256_xor_si256(x, simde_mm256_srli_epi64(x, 33));
+        x = SplitMix64Hash::mul64_const_(x, c, cs);
+        x = simde_mm256_xor_si256(x, simde_mm256_srli_epi64(x, 31));
+        simde_mm256_storeu_si256(reinterpret_cast<simde__m256i *>(out + i), x);
+    }
+    for(; i < n; ++i) out[i] = h(in[i]);
+}
 
 // ---------------- speed ----------------
 template<typename F>
@@ -43,32 +84,50 @@ double throughput_mhps(const F &f, const std::vector<uint64_t> &in, uint32_t rep
     sink(acc);
     return double(in.size()) * reps / (t1 - t0) / 1e6;
 }
-#ifndef VEC_DISABLED__
-using SpaceL = vec::SIMDTypes<uint64_t>;
-using VTypeL = typename SpaceL::VType;
-using RawTypeL = typename SpaceL::Type;
-static constexpr size_t LANES = SpaceL::COUNT;
-template<typename F>
-double simd_throughput_mhps(const F &f, const std::vector<uint64_t> &in, uint32_t reps) {
-    uint64_t acc = 0;
+// Batch-kernel throughput: ping-pong over a cache-resident block (32K values,
+// 256KB per buffer, L2-sized) so the measurement reflects the kernel, not DRAM
+// bandwidth. Ping-ponging forces every store to be observable (dead-store
+// elimination cannot collapse reps). Reps scale to ~200M hashes per run.
+using BatchFn = std::function<void(const uint64_t *, uint64_t *, size_t)>;
+static constexpr size_t BLK = 1ull << 15;
+double batch_mhps(const BatchFn &f, const std::vector<uint64_t> &in, std::vector<uint64_t> &buf, uint32_t) {
+    static uint64_t dst[BLK];
+    const size_t reps = size_t(200000000 / BLK);
     double t0 = now_s();
-    for(uint32_t r = 0; r < reps; ++r) {
-        size_t i = 0;
-        for(; i + LANES <= in.size(); i += LANES) {
-            VTypeL v = SpaceL::load(reinterpret_cast<const RawTypeL *>(&in[i]));
-            VTypeL hv = f(v);
-            RawTypeL raw = hv.simd_;
-            uint64_t tmp[LANES];
-            std::memcpy(tmp, &raw, sizeof(tmp));
-            for(size_t j = 0; j < LANES; ++j) acc ^= tmp[j];
-        }
-        for(; i < in.size(); ++i) acc ^= 0; // tail skipped (inputs are a multiple of LANES here)
+    const uint64_t *src = in.data();
+    uint64_t *d = dst;
+    for(size_t r = 0; r < reps; ++r) {
+        f(src, d, BLK);
+        // next rep reads what this rep wrote (ping-pong through buf as scratch)
+        src = d;
+        if(d == dst) { // alternate destination to break aliasing chains
+            if(buf.data() != in.data()) d = buf.data(); else d = dst;
+        } else d = dst;
     }
     double t1 = now_s();
-    sink(acc);
-    return double(in.size()) * reps / (t1 - t0) / 1e6;
+    sink(d[0] ^ d[BLK - 1]);
+    return double(BLK) * reps / (t1 - t0) / 1e6;
 }
-#endif
+// plain scalar loop over the same block: documents what the compiler's
+// autovectorizer achieves at this build's optimization level (no intrinsics).
+template<typename F>
+double autovec_mhps(const F &f, const std::vector<uint64_t> &in, std::vector<uint64_t> &buf) {
+    static uint64_t dst[BLK];
+    const size_t reps = size_t(200000000 / BLK);
+    double t0 = now_s();
+    const uint64_t *src = in.data();
+    uint64_t *d = dst;
+    for(size_t r = 0; r < reps; ++r) {
+        for(size_t i = 0; i < BLK; ++i) d[i] = f(src[i]);
+        src = d;
+        if(d == dst) {
+            if(buf.data() != in.data()) d = buf.data(); else d = dst;
+        } else d = dst;
+    }
+    double t1 = now_s();
+    sink(d[0] ^ d[BLK - 1]);
+    return double(BLK) * reps / (t1 - t0) / 1e6;
+}
 
 // ---------------- quality ----------------
 struct AvalancheRes { double maxdev; double worst_chi2; };
@@ -137,7 +196,7 @@ bool bijection_spotcheck(const F &f, const std::vector<uint64_t> &in) {
 int main(int argc, char **argv) {
     const bool quick = argc > 1 && std::strcmp(argv[1], "quick") == 0;
     const uint64_t NINPUT = 1ull << 23; // 8M
-    std::vector<uint64_t> inputs(NINPUT);
+    std::vector<uint64_t> inputs(NINPUT), outbuf(NINPUT);
     {
         std::mt19937_64 gen(20261017);
         for(auto &x: inputs) x = gen();
@@ -145,45 +204,68 @@ int main(int argc, char **argv) {
     struct Cand {
         std::string name;
         std::function<uint64_t(uint64_t)> fn;
-#ifndef VEC_DISABLED__
-        std::function<VTypeL(VTypeL)> simd_fn;
-#endif
+        BatchFn batch; // vectorized batch path, or empty
     };
     std::vector<Cand> cands;
-    auto add = [&](const std::string &n, std::function<uint64_t(uint64_t)> fn
-#ifndef VEC_DISABLED__
-                   , std::function<VTypeL(VTypeL)> simd_fn = {}
-#endif
-                   ) {
-        cands.push_back({n, std::move(fn)
-#ifndef VEC_DISABLED__
-                         , std::move(simd_fn)
-#endif
-                        });
+    auto add = [&](const std::string &n, std::function<uint64_t(uint64_t)> fn, BatchFn batch = {}) {
+        cands.push_back({n, std::move(fn), std::move(batch)});
     };
-    add("WangHash (baseline)", [](uint64_t x){ return WangHash()(x); }
-#ifndef VEC_DISABLED__
-        , [](VTypeL v){ return VTypeL{WangHash()(v.simd_)}; }
-#endif
-        );
-    add("SplitMix64Hash (2 mul)", [](uint64_t x){ return SplitMix64Hash()(x); });
-    add("Xor1Mul<33,C1,31> local (1 mul)", [](uint64_t x){ return Xor1Mul()(x); });
+    WangHash whasher;
+    add("WangHash (baseline)", [](uint64_t x){ return WangHash()(x); },
+        [&whasher](const uint64_t *in, uint64_t *out, size_t n) {
+            size_t i = 0;
+            for(; i + 4 <= n; i += 4) {
+                Type v = Space::loadu(reinterpret_cast<const Type *>(in + i));
+                Space::storeu(reinterpret_cast<Type *>(out + i), whasher(v));
+            }
+            for(; i < n; ++i) out[i] = whasher(in[i]);
+        });
+    SplitMix64Hash smhasher;
+    add("SplitMix64Hash (2 mul)", [](uint64_t x){ return SplitMix64Hash()(x); },
+        [&smhasher](const uint64_t *in, uint64_t *out, size_t n) { smhasher.hash_batch(out, in, n); });
+    add("RRMxMxHash (2 mul, rot)", [](uint64_t x){ return RRMxMxHash()(x); },
+        [rr = RRMxMxHash()](const uint64_t *in, uint64_t *out, size_t n) { rr.hash_batch(out, in, n); });
+    add("MoreMur local (1 mul)", [h = MoreMur()](uint64_t x){ return h(x); },
+        [h = MoreMur()](const uint64_t *in, uint64_t *out, size_t n) {
+            size_t i = 0;
+            for(; i + 4 <= n; i += 4)
+                simde_mm256_storeu_si256(reinterpret_cast<simde__m256i *>(out + i),
+                                         MoreMur::hash4(simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i *>(in + i))));
+            for(; i < n; ++i) out[i] = h(in[i]);
+        });
+    add("Xor1Mul<33,C1,31> local (1 mul)", [](uint64_t x){ return Xor1Mul()(x); },
+        [](const uint64_t *in, uint64_t *out, size_t n) { x1mul_hash4_store(out, in, n); });
     add("CEHasher (xor,mul,xor)", [](uint64_t x){ return CEHasher()(x); });
-    add("XorMultiply (xor,mul)", [h = XorMultiply()](uint64_t x){ return h(x); }
-#ifndef VEC_DISABLED__
-        , [h = XorMultiply()](VTypeL v) mutable { return h(v); }
-#endif
-        );
-    add("MultiplyAdd (mul,add)", [h = MultiplyAdd()](uint64_t x){ return h(x); }
-#ifndef VEC_DISABLED__
-        , [h = MultiplyAdd()](VTypeL v) mutable { return h(v); }
-#endif
-        );
-    add("MultiplyAddXor (a,mul,x)", [h = MultiplyAddXor()](uint64_t x){ return h(x); }
-#ifndef VEC_DISABLED__
-        , [h = MultiplyAddXor()](VTypeL v) mutable { return h(v); }
-#endif
-        );
+    add("XorMultiply (xor,mul)", [h = XorMultiply()](uint64_t x){ return h(x); },
+        [h = XorMultiply()](const uint64_t *in, uint64_t *out, size_t n) {
+            size_t i = 0;
+            for(; i + LANES <= n; i += LANES) {
+                VType v = Space::loadu(reinterpret_cast<const Type *>(in + i));
+                VType hv = h(v);
+                Space::storeu(reinterpret_cast<Type *>(out + i), hv.simd_);
+            }
+            for(; i < n; ++i) out[i] = h(in[i]);
+        });
+    add("MultiplyAdd (mul,add)", [h = MultiplyAdd()](uint64_t x){ return h(x); },
+        [h = MultiplyAdd()](const uint64_t *in, uint64_t *out, size_t n) {
+            size_t i = 0;
+            for(; i + LANES <= n; i += LANES) {
+                VType v = Space::loadu(reinterpret_cast<const Type *>(in + i));
+                VType hv = h(v);
+                Space::storeu(reinterpret_cast<Type *>(out + i), hv.simd_);
+            }
+            for(; i < n; ++i) out[i] = h(in[i]);
+        });
+    add("MultiplyAddXor (a,mul,x)", [h = MultiplyAddXor()](uint64_t x){ return h(x); },
+        [h = MultiplyAddXor()](const uint64_t *in, uint64_t *out, size_t n) {
+            size_t i = 0;
+            for(; i + LANES <= n; i += LANES) {
+                VType v = Space::loadu(reinterpret_cast<const Type *>(in + i));
+                VType hv = h(v);
+                Space::storeu(reinterpret_cast<Type *>(out + i), hv.simd_);
+            }
+            for(; i < n; ++i) out[i] = h(in[i]);
+        });
     add("MultiplyAddXoRot<23>", [h = MultiplyAddXoRot<23>()](uint64_t x){ return h(x); });
     add("MultiplyAddXoRot<29>", [h = MultiplyAddXoRot<29>()](uint64_t x){ return h(x); });
     add("XorMultiplyNVec n=2", [h = XorMultiplyNVec(2)](uint64_t x){ return h(x); });
@@ -203,15 +285,26 @@ int main(int argc, char **argv) {
     std::vector<uint64_t> qin(inputs.begin(), inputs.begin() + qn);
 
     std::fprintf(stderr, "revhash_bench: %zu candidates, %llu inputs, quick=%d, LANES=%zu\n",
-                 cands.size(), (unsigned long long)NINPUT, int(quick),
-#ifndef VEC_DISABLED__
-                 LANES
-#else
-                 0
-#endif
-                 );
-    std::fprintf(stderr, "lat=dependent-chain ns/op (median of 3 x %llu ops); thr=M hashes/s over 8M inputs (median of 3, x%u reps); simd=SIMD M/s where provided\n", (unsigned long long)lat_ops, speed_reps);
+                 cands.size(), (unsigned long long)NINPUT, int(quick), size_t(4));
 
+    // ---- SIMD bit-identity gate: every batch path must equal the scalar bijection ----
+    const size_t IDN = 1ull << 20;
+    for(auto &c: cands) {
+        if(!c.batch) continue;
+        std::fill(outbuf.begin(), outbuf.end(), 0);
+        c.batch(inputs.data(), outbuf.data(), IDN);
+        for(size_t i = 0; i < IDN; ++i) {
+            if(outbuf[i] != c.fn(inputs[i])) {
+                std::fprintf(stderr, "SIMD identity FAILURE: %s at %zu (simd %016llx != scalar %016llx)\n",
+                             c.name.c_str(), i, (unsigned long long)outbuf[i], (unsigned long long)c.fn(inputs[i]));
+                return 1;
+            }
+        }
+    }
+    std::fprintf(stderr, "SIMD bit-identity gate: ok for all batch paths (1M values each)\n");
+
+    std::fprintf(stderr, "lat=dependent-chain ns/op (median of 3 x %llu ops); thr=M hashes/s single-shot (median of 3, x%u reps); simd=batch-kernel M/s (median of 3, x%u reps)\n",
+                 (unsigned long long)lat_ops, speed_reps, speed_reps);
     std::printf("%-34s %8s %9s %9s | %7s %8s | %10s | %8s %8s %8s | %s\n",
                 "candidate", "lat_ns", "thr_Mh/s", "simd_Mh/s", "maxdev", "chi2max", "top22_chi2", "rem_w1pc", "rem_mean", "rem_max", "bijective");
     std::fflush(stdout);
@@ -224,12 +317,10 @@ int main(int argc, char **argv) {
             thr[r] = throughput_mhps(c.fn, inputs, speed_reps);
         }
         std::sort(lat, lat + 3); std::sort(thr, thr + 3);
-#ifndef VEC_DISABLED__
-        if(c.simd_fn) {
-            for(int r = 0; r < 3; ++r) simd[r] = simd_throughput_mhps(c.simd_fn, inputs, speed_reps);
+        if(c.batch) {
+            for(int r = 0; r < 3; ++r) simd[r] = batch_mhps(c.batch, inputs, outbuf, 0);
             std::sort(simd, simd + 3);
         }
-#endif
         AvalancheRes av = avalanche(c.fn, av_trials);
         double chi2 = topq_chi2(c.fn, 22, qin, hist);
         RemRes rem = remainder_independence(c.fn, 18, 6, qin);
@@ -239,6 +330,14 @@ int main(int argc, char **argv) {
                     c.name.c_str(), lat[1], thr[1], simd[1], av.maxdev, av.worst_chi2, chi2,
                     rem.worst1pct_chi2, rem.mean_chi2, rem.max_chi2, bij ? "ok" : "COLLISION");
         std::fflush(stdout);
+    }
+    // autovec reality check: plain scalar array->array loops (compiler's own
+    // vectorization, no intrinsics) at this build's optimization level.
+    std::fprintf(stderr, "compiler-autovec batch (no intrinsics), same protocol:\n");
+    for(int r = 0; r < 3; ++r) {
+        double sm = autovec_mhps([](uint64_t x){ return SplitMix64Hash()(x); }, inputs, outbuf);
+        double wa = autovec_mhps([](uint64_t x){ return WangHash()(x); }, inputs, outbuf);
+        std::fprintf(stderr, "  run %d: SplitMix64 %9.1f M/s | WangHash %9.1f M/s\n", r, sm, wa);
     }
     std::fprintf(stderr, "reference: 3/sqrt(trials)=%.4f at trials=%u; top22 chi2 df=2^22-1=%.4g (std %.3g); remainder per-bucket chi2 df=63 (expect ~63); bijection on 1M random keys.\n",
                  3. / std::sqrt(double(av_trials)), av_trials, double((1ull << 22) - 1), std::sqrt(2. * double((1ull << 22) - 1)));

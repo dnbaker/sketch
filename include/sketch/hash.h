@@ -17,6 +17,14 @@
 #include "fixed_vector.h"
 #include "xxHash/xxh3.h"
 #include "macros.h"
+#if defined(__GNUC__) || defined(__clang__)
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wpedantic" // vendored simde uses __int128 unconditionally
+#endif
+#include "simde/x86/avx2.h"
+#if defined(__GNUC__) || defined(__clang__)
+#  pragma GCC diagnostic pop
+#endif
 
 #ifndef VEC_DISABLED__
 #include "vec/vec.h"
@@ -903,7 +911,101 @@ template<typename...Args> constexpr CEHasher(Args &&...) {}
 // matches WangHash's avalanche (and beats it on the biased-cell metric).
 struct SplitMix64Hash: public CEIFused<RShiftXor<30>, CEIMul<0xbf58476d1ce4e5b9>, RShiftXor<27>, CEIMul<0x94d049bb133111eb>, RShiftXor<31>> {
     template<typename...Args> constexpr SplitMix64Hash(Args &&...) {}
+    // --- simde batch path (2026-10 SIMD audit) ---
+    // 4x uint64_t lanes of the SAME bijection; bit-identical to
+    // operator()(uint64_t) lane-wise (hashtest asserts this). Single-source:
+    // simde lowers every op for whatever ISA is enabled (on AVX2 there is no
+    // native 64-bit-lane multiply: mul64_const_ is the mul_epu32/mullo_epi32
+    // decomposition, the same strategy as vec.h's _mm256_mullo_epi64, with
+    // the half-swapped constant folded at compile time).
+    static INLINE simde__m256i mul64_const_(simde__m256i a, simde__m256i c64, simde__m256i cswap) {
+        simde__m256i prodlh = simde_mm256_mullo_epi32(a, cswap);                               // aL*CH, aH*CL per 32-bit lane
+        simde__m256i cross  = simde_mm256_add_epi32(prodlh, simde_mm256_srli_epi64(prodlh, 32)); // sum pair, low 32 bits
+        simde__m256i prodll = simde_mm256_mul_epu32(a, c64);                                   // aL*CL, 64-bit
+        return simde_mm256_add_epi64(prodll, simde_mm256_slli_epi64(cross, 32));
+    }
+    static INLINE simde__m256i hash4(simde__m256i x) {
+        const simde__m256i c1  = simde_mm256_set1_epi64x((int64_t)0xbf58476d1ce4e5b9ULL);
+        const simde__m256i c1s = simde_mm256_set1_epi64x((int64_t)0x1ce4e5b9bf58476dULL);
+        const simde__m256i c2  = simde_mm256_set1_epi64x((int64_t)0x94d049bb133111ebULL);
+        const simde__m256i c2s = simde_mm256_set1_epi64x((int64_t)0x133111eb94d049bbULL);
+        x = simde_mm256_xor_si256(x, simde_mm256_srli_epi64(x, 30));
+        x = mul64_const_(x, c1, c1s);
+        x = simde_mm256_xor_si256(x, simde_mm256_srli_epi64(x, 27));
+        x = mul64_const_(x, c2, c2s);
+        x = simde_mm256_xor_si256(x, simde_mm256_srli_epi64(x, 31));
+        return x;
+    }
+    // Batch wrapper: out[i] = hash(in[i]) for i < n. Head is vectorized 4 at
+    // a time; the (n % 4) tail falls back to the scalar bijection, so results
+    // are bit-identical to operator() for every n.
+    void hash_batch(uint64_t *out, const uint64_t *in, size_t n) const {
+        size_t i = 0;
+        for(; i + 4 <= n; i += 4)
+            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i *>(out + i),
+                                     hash4(simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i *>(in + i))));
+        for(; i < n; ++i) out[i] = (*this)(in[i]);
+    }
 };
+
+// rrmxmx (Pelle Evensen's two-multiply bijective mixer): rotate-xor pre-mix,
+// multiply, xorshift, multiply, xorshift. Round-trip proven in hashtest
+// (1M random + structured); avalanche maxdev 0.0295 at T=4096, comfortably
+// inside the WangHash-relative gate. Rotations make it non-triangular.
+// The (I + R49 + R24) pre-mix is invertible because q = R49+R24 is nilpotent
+// over GF(2) (q^64 = (R49)^64 + (R24)^64 = I + I = 0), so
+// (I+q)^-1 = prod_{i<6} (I + q^{2^i}); each factor is applied with q's
+// composition doubled per round.
+struct RRMxMxHash {
+    static constexpr uint64_t M  = 0x9fb21c651e98df25ULL;
+    static constexpr uint64_t IM = 0x02ab9c720d1024adULL; // multiplicative inverse of M
+    template<typename...Args> constexpr RRMxMxHash(Args &&...) {}
+    static constexpr uint64_t rotl_(uint64_t v, unsigned k) {return (v << k) | (v >> (sizeof(uint64_t) * CHAR_BIT - k));}
+    static constexpr uint64_t q_(uint64_t x)   {return rotl_(x, 49) ^ rotl_(x, 24);}
+    static constexpr uint64_t q2_(uint64_t x)  {return q_(q_(x));}
+    static constexpr uint64_t q4_(uint64_t x)  {return q2_(q2_(x));}
+    static constexpr uint64_t q8_(uint64_t x)  {return q4_(q4_(x));}
+    static constexpr uint64_t q16_(uint64_t x) {return q8_(q8_(x));}
+    static constexpr uint64_t q32_(uint64_t x) {return q16_(q16_(x));}
+    static constexpr uint64_t hash(uint64_t v) {
+        v ^= q_(v);
+        v *= M; v ^= v >> 35; v *= M; v ^= v >> 28;
+        return v;
+    }
+    static constexpr uint64_t inverse(uint64_t v) {
+        v ^= v >> 28; v ^= v >> 56; v *= IM; v ^= v >> 35; v *= IM;
+        v ^= q_(v); v ^= q2_(v); v ^= q4_(v); v ^= q8_(v); v ^= q16_(v); v ^= q32_(v);
+        return v;
+    }
+    constexpr uint64_t operator()(uint64_t v) const {return hash(v);}
+    // inverse(uint64_t) is the static above; callable on an instance as usual.
+    // simde batch path: same 4-lane contract as SplitMix64Hash::hash4.
+    static INLINE simde__m256i hash4(simde__m256i v) {
+        const simde__m256i m  = simde_mm256_set1_epi64x((int64_t)M);
+        const simde__m256i ms = simde_mm256_set1_epi64x((int64_t)0x1e98df259fb21c65ULL);
+        {   // v ^= rotl(v,49) ^ rotl(v,24): BOTH rotations of the ORIGINAL v
+            const simde__m256i r49 = simde_mm256_or_si256(simde_mm256_slli_epi64(v, 49), simde_mm256_srli_epi64(v, 15));
+            const simde__m256i r24 = simde_mm256_or_si256(simde_mm256_slli_epi64(v, 24), simde_mm256_srli_epi64(v, 40));
+            v = simde_mm256_xor_si256(simde_mm256_xor_si256(v, r49), r24);
+        }
+        v = SplitMix64Hash::mul64_const_(v, m, ms);
+        v = simde_mm256_xor_si256(v, simde_mm256_srli_epi64(v, 35));
+        v = SplitMix64Hash::mul64_const_(v, m, ms);
+        v = simde_mm256_xor_si256(v, simde_mm256_srli_epi64(v, 28));
+        return v;
+    }
+    void hash_batch(uint64_t *out, const uint64_t *in, size_t n) const {
+        size_t i = 0;
+        for(; i + 4 <= n; i += 4)
+            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i *>(out + i),
+                                     hash4(simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i *>(in + i))));
+        for(; i < n; ++i) out[i] = hash(in[i]);
+    }
+};
+// moremur (Pelle Evensen's one-multiply mixer) is intentionally NOT shipped:
+// it is a bijection but fails the flip-one-bit avalanche gate like every
+// single-multiply hash (revhash_bench carries it as a bench-local data point).
+
 
 // Reversible, runtime-configurable hashes
 
@@ -1045,7 +1147,7 @@ struct XorMultiplyN: XorMultiplyNVec{
 // Right-triangular ops: RShiftXor / InvRShiftXor (v ^ (v >> n)).
 //   -> right-triangular hashes: RShiftXor chains, xor-of-constant hashes.
 // Neither (full 64-bit diffusion required, use full-width decode):
-//   WangHash, SplitMix64Hash, MurFinHash, anything containing Rot
+//   WangHash, SplitMix64Hash, RRMxMxHash, MurFinHash, anything containing Rot
 //   (MultiplyAddXoRot). A RecursiveReversibleHash<H> has whatever
 //   triangularity H has (e.g. XorMultiplyNVec is left-triangular).
 //

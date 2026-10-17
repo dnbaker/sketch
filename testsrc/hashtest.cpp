@@ -292,8 +292,42 @@ int main() {
     // new full-diffusion candidates
     { SplitMix64Hash h; roundtrip64(h, "SplitMix64Hash", 1000000); roundtrip_structured(h, "SplitMix64Hash");
       avalanche_gate(h, "SplitMix64Hash"); }
+    { RRMxMxHash h; roundtrip64(h, "RRMxMxHash", 1000000); roundtrip_structured(h, "RRMxMxHash");
+      avalanche_gate(h, "RRMxMxHash");
+      static_assert(!is_left_triangular<RRMxMxHash>::value && !is_right_triangular<RRMxMxHash>::value, "RRMxMxHash not triangular (rotations)");
+      constexpr uint64_t rv = RRMxMxHash::hash(0x123456789abcdef0ULL);
+      CHECK(RRMxMxHash::inverse(rv) == 0x123456789abcdef0ULL, "RRMxMxHash constexpr round trip"); }
     { MurFinHash h; roundtrip64(h, "MurFinHash", 1000000); roundtrip_structured(h, "MurFinHash");
       avalanche_gate(h, "MurFinHash"); }
+    // ---- simde batch paths: lane-wise bit-identity vs the scalar bijection ----
+    std::fprintf(stderr, "hashtest: simde batch-path identity tests\n");
+    {
+        std::mt19937_64 gen(0x5EED);
+        std::vector<uint64_t> vals(1000003), out(1000003); // deliberately not a multiple of 4
+        for(auto &v: vals) v = gen();
+        // edge lanes too
+        vals[0] = 0; vals[1] = 1; vals[2] = ~0ull; vals[3] = 0x8000000000000000ull;
+        SplitMix64Hash sm;
+        sm.hash_batch(out.data(), vals.data(), vals.size());
+        for(size_t i = 0; i < vals.size(); ++i)
+            if(out[i] != sm(vals[i])) { std::fprintf(stderr, "FAILURE SplitMix64Hash::hash_batch at %zu\n", i); ++nfailures; }
+        RRMxMxHash rr;
+        rr.hash_batch(out.data(), vals.data(), vals.size());
+        for(size_t i = 0; i < vals.size(); ++i)
+            if(out[i] != rr(vals[i])) { std::fprintf(stderr, "FAILURE RRMxMxHash::hash_batch at %zu\n", i); ++nfailures; }
+        // hash4 direct, all-ones/zero lanes (exercises every shift path)
+        {
+            alignas(32) uint64_t edge[4] = {0, ~0ull, 0x5555555555555555ull, 0x8000000000000000ull};
+            alignas(32) uint64_t got[4];
+            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i *>(got), SplitMix64Hash::hash4(simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i *>(edge))));
+            for(int i = 0; i < 4; ++i)
+                if(got[i] != sm(edge[i])) { std::fprintf(stderr, "FAILURE SplitMix64Hash::hash4 edge lane %d\n", i); ++nfailures; }
+            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i *>(got), RRMxMxHash::hash4(simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i *>(edge))));
+            for(int i = 0; i < 4; ++i)
+                if(got[i] != rr(edge[i])) { std::fprintf(stderr, "FAILURE RRMxMxHash::hash4 edge lane %d\n", i); ++nfailures; }
+        }
+        std::fprintf(stderr, "hashtest: batch-path identity ok\n");
+    }
     // MultiplyAddXoRot gets a report-only avalanche (rot spreads single bit to one position -> known not to pass strict gate)
     avalanche_report(MultiplyAddXoRot<23>(), "MultiplyAddXoRot<23>");
     avalanche_report(MultiplyAddXoRot<29>(), "MultiplyAddXoRot<29>");
