@@ -119,3 +119,18 @@ binaries unchanged on AMD with the CUDA-on-ROCm translation layer.
 Phase 1 (this directory): hash, HLL update/merge, bf/cbf/ccm updates,
 bbmh/fmh batch updates, correctness tests. Phase 2 (cqf/bcqf/cht) is designed
 in `DESIGN.md` but not implemented.
+
+## Verified on hardware (2026-10-17, vast.ai)
+
+GTX 1080 Ti (sm_61), CUDA 12.8.1, driver 580.173: `make hostcheck` 12/12 and
+`tests/test_gpu_sketches` **26/26 PASS** — splitmix64_hash, HLL update/merge
+(np 4..20), bf, cbf, ccm (incl. counter wrap), bbmh batch (incl.
+duplicates-heavy), fmh filter all bit-identical to the CPU implementations.
+Throughput (throwaway benches, not shipped): HLL register update
+**19-24 G hashes/s** (2^26-2^27 pre-hashed stream); bbmh batch update
+**~886 M (sid,hv) pairs/s** (independent of nsk in 4k-16k range).
+
+Build notes learned on the box: nvcc <12.8 ICEs on SuperMinHash::finalize
+(guarded in bbmh.h) — keep .cu TUs on the reference-split pattern so nvcc
+never sees CPU headers; Pascal needs `ARCH="-gencode arch=compute_61,code=sm_61"`;
+link with `-Xcompiler -pthread`, not bare `-pthread`.
