@@ -89,3 +89,8 @@ __hm*.hmh
 /python/sketch_ds.egg-info/
 /python/*.cpython-*.so
 __pycache__/
+
+# gpu/ build outputs (gpu/Makefile: nvcc test binary, host check, sketch.o)
+/gpu/sketch.o
+/gpu/tests/test_gpu_sketches
+/gpu/tests/host_math_check
