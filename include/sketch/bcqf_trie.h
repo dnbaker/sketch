@@ -104,7 +104,7 @@ public:
                 if(rs[r].child[0] >= 0 || rs[r].child[1] >= 0) {
                     if(rs[r].child[0] >= 0) nn.child_bits |= 1;
                     if(rs[r].child[1] >= 0) nn.child_bits |= 2;
-                    next_child += __builtin_popcount(nn.child_bits);
+                    next_child += popcount(nn.child_bits);
                     if(rs[r].child[0] >= 0) q.push_back(rs[r].child[0]);
                     if(rs[r].child[1] >= 0) q.push_back(rs[r].child[1]);
                 } else {

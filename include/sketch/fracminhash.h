@@ -37,11 +37,11 @@ class fmh_kept_set {
     static constexpr uint64_t EMPTY = ~uint64_t(0);
     std::vector<uint64_t, common::Allocator<uint64_t>> slots_;
     size_t size_ = 0;
-    uint32_t shift_ = 64 - 6; // multiplicative-shift amount: slot = (v*G) >> shift_
+    uint32_t shift_ = sizeof(uint64_t) * CHAR_BIT - 6; // multiplicative-shift amount: slot = (v*G) >> shift_
     void grow() {
         const auto old(std::move(slots_));
         slots_.assign(old.size() << 1, EMPTY);
-        shift_ = 64 - ilog2(slots_.size());
+        shift_ = sizeof(uint64_t) * CHAR_BIT - ilog2(slots_.size());
         size_ = 0;
         for(const auto v: old) if(v != EMPTY) insert(v);
     }
