@@ -20,11 +20,22 @@ include/sketch/gpu/bloom.cuh     bf bit-set, cbf counter-add
 include/sketch/gpu/count.cuh     ccm counter-add
 include/sketch/gpu/minhash.cuh   bbmh/fmh independent-sketch batch updates
 sketch.cu                        thin __global__ definitions (grid-stride loops only)
-tests/test_gpu_sketches.cu       device bit-identity tests (nvcc)
+tests/test_gpu_sketches.cu       device bit-identity test driver (nvcc; gpu/*.cuh + reference.h ONLY)
+tests/reference.cpp/.h           ALL CPU-header reference code, plain-g++ TU (POD interface)
 tests/host_math_check.cpp        same contract, host-only serial folds (plain g++)
 DESIGN.md                        phase-2 plan (cqf/bcqf/cht on GPU)
 Makefile                         nvcc targets; `make test`, `make hostcheck`
 ```
+
+**nvcc must never see the CPU sketch headers.** Learned on a CUDA 12.8.1 box:
+including `include/sketch/*.h` from a `.cu` gives non-deterministic frontend
+behavior (an ICE in `SuperMinHash::finalize` on nvcc < 12.8 — now
+`__CUDACC__`-guarded in bbmh.h — and include-order-dependent "expression must
+have a constant value" errors at `ilog2` constexpr sites). The whack-a-mole
+class of problem does not recur only if the `.cu` TUs include nothing but
+`gpu/*.cuh` + `reference.h`; every CPU-header computation lives in
+`tests/reference.cpp`, compiled by plain g++ and linked into the test binary
+by nvcc.
 
 ## The bit-identity contract
 
@@ -66,8 +77,9 @@ reuse the existing estimators unchanged.
 
 ## Building
 
-Requires nvcc (CUDA >= 9 for sm_70; any recent toolkit) and zlib (`-lz`) for
-the CPU reference headers. On a GPU host:
+Requires nvcc (CUDA >= 9 for sm_70; any recent toolkit), a host g++ (for
+`tests/reference.cpp` and the hostcheck), and zlib (`-lz`) for the reference
+TU. On a GPU host:
 
 ```bash
 cd gpu
@@ -98,8 +110,9 @@ rent via the vast.ai web UI):
 
 For AMD: `hipify-cl -inplace include/sketch/gpu sketch.cu tests/test_gpu_sketches.cu`,
 then compile with `hipcc` instead of `nvcc` (set `NVCC=hipcc`, adjust
-`ARCH` to the ROCm target, e.g. `--offload-arch=gfx90a`); ZLUDA can run the
-CUDA binaries unchanged on AMD with the CUDA-on-ROCm translation layer.
+`ARCH` to the ROCm target, e.g. `--offload-arch=gfx90a`); `tests/reference.cpp`
+is plain C++ — no hipify, still built with g++. ZLUDA can run the CUDA
+binaries unchanged on AMD with the CUDA-on-ROCm translation layer.
 
 ## Porting status
 
