@@ -25,17 +25,9 @@ using std::uint64_t;
 using std::uint32_t;
 
 namespace lsh {
-static inline constexpr uint64_t _wymum(uint64_t x, uint64_t y) {
-    __uint128_t l = x;
-    l *= y;
-    return l ^ (l >> 64);
-}
-
-// call wyhash64_seed before calling wyhash64
-static inline constexpr uint64_t wyhash64_stateless(uint64_t *seed) {
-  *seed += UINT64_C(0x60bee2bee120fc15);
-  return _wymum(*seed ^ 0xe7037ed1a0b428dbull, *seed);
-}
+// NOTE: the previous local _wymum/wyhash64_stateless pair duplicated
+// wy::wyhash64_stateless (include/aesctr/wy.h, reached via common.h) with
+// identical constants; the single use site below now calls the shared one.
 
 
 template<typename KeyT=uint64_t, typename IdT=uint32_t>
@@ -382,7 +374,7 @@ public:
         XXH64_reset(&state, seed);
         const schism::Schismatic<uint32_t> div(m_);
 #define SINGLE_UPDATE \
-    XXH64_update(&state, &item[div.mod(wyhash64_stateless(&seed))], ITEMSIZE);
+    XXH64_update(&state, &item[div.mod(wy::wyhash64_stateless(&seed))], ITEMSIZE);
         for(size_t ri8 = nreg / 8;ri8--;) {
 #define TWICE(X) X X
             TWICE(TWICE(TWICE(SINGLE_UPDATE)))
