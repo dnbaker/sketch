@@ -544,7 +544,7 @@ public:
         using VS = vec::SIMDTypes<CounterType>;
         using VT = typename VS::VType;
         VT sum = VS::set1(0);
-        static constexpr uint32_t lim = ilog2(uint64_t(VS::COUNT)); // nvcc: T must be u64 in constexpr contexts (32-bit device clz is not constexpr-evaluable)
+        static constexpr uint32_t lim = ilog2(VS::COUNT);
         if(np_ > lim && VS::aligned(o.data()) && VS::aligned(data())) {
             size_t i = 0;
             do {
@@ -738,7 +738,7 @@ public:
         precondition_require(o.size() == this->size(), "tables must have the same size\n");
         using OT = typename vec::SIMDTypes<CounterType>::Type;
         using VS = vec::SIMDTypes<CounterType>;
-        static constexpr uint32_t lim = ilog2(uint64_t(VS::COUNT)); // nvcc: T must be u64 in constexpr contexts (32-bit device clz is not constexpr-evaluable)
+        static constexpr uint32_t lim = ilog2(VS::COUNT);
         if(np_ > lim && VS::aligned(o.data()) && VS::aligned(data())) {
             size_t i = 0;
             do {
