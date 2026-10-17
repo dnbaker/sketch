@@ -544,7 +544,7 @@ public:
         using VS = vec::SIMDTypes<CounterType>;
         using VT = typename VS::VType;
         VT sum = VS::set1(0);
-        static constexpr uint32_t lim = ilog2(VS::COUNT);
+        static constexpr uint32_t lim = ilog2(uint64_t(VS::COUNT)); // nvcc: T must be u64 in constexpr contexts (32-bit device clz is not constexpr-evaluable)
         if(np_ > lim && VS::aligned(o.data()) && VS::aligned(data())) {
             size_t i = 0;
             do {
@@ -738,7 +738,7 @@ public:
         precondition_require(o.size() == this->size(), "tables must have the same size\n");
         using OT = typename vec::SIMDTypes<CounterType>::Type;
         using VS = vec::SIMDTypes<CounterType>;
-        static constexpr uint32_t lim = ilog2(VS::COUNT);
+        static constexpr uint32_t lim = ilog2(uint64_t(VS::COUNT)); // nvcc: T must be u64 in constexpr contexts (32-bit device clz is not constexpr-evaluable)
         if(np_ > lim && VS::aligned(o.data()) && VS::aligned(data())) {
             size_t i = 0;
             do {
@@ -800,7 +800,7 @@ public:
         std::fwrite(&seedseed_, sizeof(seedseed_), 1, fp);
         std::fwrite(data(), sizeof(CounterType), core_.size(), fp);
     }
-    void read(std::string p) const {
+    void read(std::string p) {
         std::FILE *ofp = std::fopen(p.data(), "rb");
         if(!ofp)
             throw std::invalid_argument("File not found");
