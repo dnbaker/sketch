@@ -118,6 +118,11 @@ test:
 
 lpf: lpcqf_test lpcqf_approx lpfp
 
+# Bench lanes, named so the reproduction commands from the bench commits are
+# one word (the binaries themselves build via the benchmark/%.cpp pattern
+# above). Not part of setup_tests -- build here, run the binaries manually.
+bench: cqf_ht_bench revhash_bench
+
 
 PREFIX?=/usr/local
 
