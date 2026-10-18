@@ -59,6 +59,7 @@ __hm*.hmh
 /pctest
 /pmhtest
 /policytest
+/poissonlsh_smoke
 /pstabletest
 /serial_test
 /simd_eq
