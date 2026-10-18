@@ -245,8 +245,57 @@ static void test_bcf() {
     std::fprintf(stderr, "bcf ok (fpr realized %g expected %g)\n", realized, expected);
 }
 
+// ---- 5. within-word-offset sweep (the cht probe_end bug class) ----------
+// cht's probe_end (fixed 2026-10) could return a position BELOW the query
+// index: its first-word scan never masked the low bits, so a match sharing
+// the query's first word but sitting below the offset won. cqf.h's offset
+// consumers are all correct on this class -- bv_next_set masks its first
+// word (cqf.h ~line 172), dir::rank1 masks its partial word, re_any_ shifts
+// by lo % word_bits (gated randomly above) -- but the churn oracle only
+// SAMPLES probes at these offsets. This sweep pins every within-word offset
+// 1..63 across word boundaries so any future regression in a rank/select/
+// scan offset computation is caught deterministically.
+static void test_word_offset_sweep() {
+    // (a) bv_next_set (first set bit >= i; live in the p() accessor,
+    // cqf.h:594) against a bit-by-bit reference at EVERY offset, four
+    // density patterns, 15 word boundaries
+    for(unsigned pat = 0; pat < 4; ++pat) {
+        uint64_t w[16] = {0};
+        constexpr unsigned nb = 16 * 64;
+        for(unsigned i = 0; i < nb; ++i) {
+            const bool set = pat == 0 ? (i & 63) == 0   // word-aligned singles
+                           : pat == 1 ? (i % 7) == 0    // sparse
+                           : pat == 2 ? (i % 3) == 1    // mid density
+                           : true;                      // dense
+            if(set) sketch::cqf::detail::bv_set(w, i);
+        }
+        for(unsigned i = 1; i < nb; ++i) {
+            unsigned want = i;
+            for(; want < nb && !sketch::cqf::detail::bv_get(w, want); ++want);
+            const uint64_t got = sketch::cqf::detail::bv_next_set(w, 16, i);
+            CHECK(got == want, "bv_next_set sweep pat=%u i=%u: got %llu want %u",
+                  pat, i, (unsigned long long)got, want);
+        }
+    }
+    std::fprintf(stderr, "bv_next_set offset sweep ok\n");
+    // (b) first_empty (holes directory, rank/select) vs the scan oracle at
+    // EVERY slot index on a fixed-fill table: holes at every within-word
+    // offset are compared across all word boundaries, not a random sample
+    sketch::cqf::cqf64_8 f(8, true);
+    uint64_t st = 31337;
+    for(unsigned i = 0; i < 180; ++i) f.add(sm64(st)); // ~70% of 256 slots, no grow
+    for(uint64_t i = 0; i < f.nslots(); ++i) {
+        const uint64_t got = f.first_empty(i), want = f.first_empty_oracle(i);
+        CHECK(got == want, "first_empty full sweep at %llu: got %llu want %llu",
+              (unsigned long long)i, (unsigned long long)got, (unsigned long long)want);
+    }
+    f.structure_check();
+    std::fprintf(stderr, "first_empty full-sweep ok (%llu slots)\n", (unsigned long long)f.nslots());
+}
+
 int main() {
     test_re_any();
+    test_word_offset_sweep();
     // fused regime needs r_ + VAL_BITS <= 64: cqf64_8 at q >= 8, cqf64_16 at q >= 16
     churn_vs_oracle<sketch::cqf::cqf64_8>(8, 6000, 1);
     churn_vs_oracle<sketch::cqf::cqf64_8>(10, 12000, 2);
