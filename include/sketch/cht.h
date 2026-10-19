@@ -41,8 +41,8 @@
 // idealized-per-(home,fp) bounds UNDERSTATE a linear-probing table by the
 // probe-span factor (at a = 0.9, ~50x at q+rs fixed). fpr_bound() reports
 // this clustering-aware value; chttest checks measured FPR against it.
-// Same factor applies in exact mode with key_bits < 64 (full remainder
-// compared across runs): L/2^key_bits.
+// Exact mode does NOT have this class (see EXACT below): there a match also
+// requires the slot's recorded displacement, i.e. the same home.
 //
 // Struct-of-arrays throughout: packed remainder array, packed counter
 // array, 1-bit occupancy bitmap, u8 displacement array (+ spill). Probe
@@ -71,16 +71,22 @@
 //   no overflow region and no grow -- fixed capacity, a full table throws
 //   std::overflow_error from add() (bcf_t semantics). q is a runtime
 //   constructor argument (2 <= q <= 40).
-//   EXACT (RSTORE_BITS = 0): the full remainder (key_bits - q bits) is
-//   stored. A 64-bit-or-wider hash with no truncation is exact up to the
-//   open-addressing run-mate class: an absent key false-positives iff a
-//   stored run-mate collides in the stored remainder, ~ used x E[miss
-//   probe] / 2^key_bits (measured 3 / 3.77M at q=22, fill 0.9, key48,
-//   matching the analytic 2.5-event expectation; cqfbase_t<48,...> shows 0
-//   there only because its runs are per-home, the same 2^-48 class without
-//   the clustering multiplier). key_bits < 64 (e.g. the identity hash on
-//   reduced keys) is exact in the reduced-key fingerprint sense, exactly
-//   like cqfbase_t KEY_BITS < 64.
+//   EXACT (RSTORE_BITS = 0 with DECODE_BITS = 8: `home_exact`): the full
+//   remainder (key_bits - q bits) is stored, and every match -- add, count,
+//   get, assign, find_slot, the SIMD span scan -- also requires the slot's
+//   recorded displacement to equal the probe distance, i.e. the stored key
+//   has the SAME home. (home, remainder) is the whole hash value, so
+//   distinct keys never merge and absent keys never hit, for ANY key_bits:
+//   exact on the key_bits-wide domain. key_bits >= 64 (`exact`) is exact on
+//   raw 64-bit keys. key_bits < 64 (e.g. the identity hash on reduced keys)
+//   is exact on the reduced keys, like cqfbase_t KEY_BITS < 64. The cost is
+//   one displacement-byte read per remainder match, never per probe step.
+//   (Before 2026-10-19, matching compared the remainder alone across the
+//   span, so run-mates with different homes merged: 3 / 3.77M false
+//   positives at q=22, fill 0.9, key48. At a 32-bit key width this was 11
+//   merged keys of 200k at q=18.) With DECODE_BITS = 0 there is no
+//   displacement to check, and matching is remainder-only (membership
+//   filter semantics).
 //   TRUNCATED (RSTORE_BITS > 0): rs_ = min(RSTORE_BITS, r_). A query key
 //   reports present iff some slot in its probe span stores its remainder,
 //   so FPR ~ 1 - exp(-L(a)/2^rs_) with L(a) the expected unsuccessful-
@@ -355,7 +361,16 @@ public:
     // exact mirrors cqfbase_t: the hash spans the key AND the full
     // remainder is stored. Truncation (RSTORE_BITS > 0) is a separate
     // fingerprint mode.
-    static constexpr bool exact = (RSTORE_BITS == 0) && (KH_ >= 64);
+    // home_exact: the full remainder is stored AND the displacement array
+    // exists, so every match (add/count/get/assign/find_slot and the SIMD
+    // scan) also requires the slot's recorded displacement == the probe
+    // distance (same home). Distinct keys of the key_bits-wide hash domain then
+    // never merge and absent keys never hit: exact on that domain, at one
+    // displacement-byte read per remainder match. exact: home_exact over the
+    // full 64-bit key (key_bits >= 64). DECODE_BITS = 0 or truncation keeps
+    // the remainder-only (run-mate class) matching of a membership filter.
+    static constexpr bool home_exact = (RSTORE_BITS == 0) && (DECODE_BITS != 0);
+    static constexpr bool exact = home_exact && (KH_ >= 64);
     static constexpr uint64_t SAT = VAL_BITS >= 64 ? ~uint64_t(0): ((uint64_t(1) << VAL_BITS) - 1);
 private:
     uint32_t q_ = 0, r_ = 0;
@@ -519,7 +534,7 @@ public:
                 disp_place(i, probe);
                 ++used_; return i;
             }
-            if(rem(i) == f) {
+            if(rem(i) == f && (!home_exact || disp_at(i) == probe)) {
                 const uint64_t c = cnt(i);
                 if(c < SAT) cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), c + 1);
                 return i;
@@ -651,7 +666,7 @@ public:
         uint64_t i = home(h);
         for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
             if(!occupied(i)) return 0;
-            if(rem(i) == f) return cnt(i);
+            if(rem(i) == f && (!home_exact || disp_at(i) == probe)) return cnt(i);
             if(++probe == nslots_) return 0;
         }
     }
@@ -812,12 +827,18 @@ public:
         const uint64_t f = fp(h);
         const uint64_t h0 = home(h);
         const uint64_t e = probe_end(h0);
-        const uint64_t s = scan_rem_simd(h0, e, f);
-        if(s != ~uint64_t(0)) return cnt(s);
+        // home_exact: a remainder match must also sit at its own probe distance
+        // from h0; otherwise keep scanning the span past it
+        for(uint64_t lo = h0;;) {
+            const uint64_t s = scan_rem_simd(lo, e, f);
+            if(s == ~uint64_t(0)) break;
+            if(!home_exact || disp_at(s) == s - h0) return cnt(s);
+            lo = s + 1;
+        }
         if(e < nslots_) return 0;
         for(uint64_t i = 0;; i = (i + 1) & (nslots_ - 1)) { // cyclically continued probe
             if(!occupied(i)) return 0;
-            if(rem(i) == f) return cnt(i);
+            if(rem(i) == f && (!home_exact || disp_at(i) == nslots_ - h0 + i)) return cnt(i);
         }
     }
     uint64_t count_simd(Key k) const {return count_simd_hash(hf_.hash(k));}

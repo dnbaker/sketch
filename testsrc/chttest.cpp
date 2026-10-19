@@ -690,7 +690,8 @@ static void test_assign_map() {
             if (!nref.count(k)) nfp += n.get(k) != 0;
         }
         CHECK(nbad == 0 && nfp == 0, "narrow get: %llu wrong values, %llu false positives", (unsigned long long)nbad, (unsigned long long)nfp);
-        std::fprintf(stderr, "cht narrow-key map exact (%zu keys at load %.2f; count() would differ on %llu)\n",
+        CHECK(runmates == 0, "narrow: exact-mode count() disagrees with get() on %llu keys", (unsigned long long)runmates);
+        std::fprintf(stderr, "cht narrow-key map exact (%zu keys at load %.2f; count() differs on %llu)\n",
                      nref.size(), n.load_factor(), (unsigned long long)runmates);
     }
     // slot handles: find_slot agrees with get, decode(slot) recovers the key,
@@ -800,7 +801,48 @@ static void test_cht_map() {
     }
 }
 
+// EXACT MODE COUNTS (home_exact): add()/count()/count_simd on narrow keys at
+// high fill must equal reference counts exactly -- the run-mate case (equal
+// remainders, different homes) that remainder-only matching merged.
+static void test_exact_counts() {
+    using T = cht_t<uint64_t, cht_identity_hash<32>, 16>;
+    static_assert(T::home_exact && !T::exact, "identity<32>: exact on the 32-bit domain only");
+    static_assert(cht_t<uint64_t, cht_splitmix64_hash, 16>::exact, "splitmix64 exact mode");
+    static_assert(!cht_t<uint64_t, cht_splitmix64_hash, 16, 0, true, 0>::home_exact, "no disp array: not exact");
+    const uint32_t q = 16;
+    T f(q);
+    std::mt19937_64 rng(61);
+    std::unordered_map<uint64_t, uint64_t> ref;
+    std::vector<uint64_t> stream;
+    while (ref.size() < 59000) {                       // fill 0.90
+        const uint64_t k = uint32_t(rng());
+        const int reps = 1 + int(rng() % 3);
+        for (int r = 0; r < reps; ++r) {f.add(k); ++ref[k]; stream.push_back(k);}
+    }
+    CHECK(f.size() == ref.size(), "exact add merged keys: %llu != %zu", (unsigned long long)f.size(), ref.size());
+    uint64_t bad = 0, bads = 0, fp = 0;
+    for (const auto &kv: ref) {bad += f.count(kv.first) != kv.second; bads += f.count_simd(kv.first) != kv.second;}
+    for (unsigned t = 0; t < 200000; ++t) {
+        const uint64_t k = uint32_t(rng());
+        if (!ref.count(k)) fp += f.count(k) != 0 || f.count_simd(k) != 0;
+    }
+    CHECK(bad == 0 && bads == 0 && fp == 0, "exact counts: %llu wrong (scalar), %llu wrong (simd), %llu false positives",
+          (unsigned long long)bad, (unsigned long long)bads, (unsigned long long)fp);
+    // the sorted bulk build lands in the same exact state
+    std::vector<uint64_t> sorted(stream);
+    T hs(q);
+    std::sort(sorted.begin(), sorted.end(), [&](uint64_t a, uint64_t b) {return hs.hash(a) < hs.hash(b);});
+    T fb(q);
+    fb.add_bulk_sorted(sorted.begin(), sorted.end());
+    uint64_t badb = 0;
+    for (const auto &kv: ref) badb += fb.count(kv.first) != kv.second;
+    CHECK(fb.size() == ref.size() && badb == 0, "exact bulk build: size %llu, %llu wrong counts", (unsigned long long)fb.size(), (unsigned long long)badb);
+    CHECK(f.structure_check() && fb.structure_check(), "exact counts: structure_check");
+    std::fprintf(stderr, "cht exact-mode counts on 32-bit keys at load %.2f done (%zu keys, %zu adds)\n", f.load_factor(), ref.size(), stream.size());
+}
+
 int main() {
+    test_exact_counts();
     test_cht_map();
     test_assign_map();
     test_hash_roundtrips();
