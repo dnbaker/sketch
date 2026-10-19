@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <iterator>
+#include <map>
 #include <random>
 #include <stdexcept>
 #include <unordered_map>
@@ -1023,7 +1024,70 @@ static void test_mixbits_cells() {
     }
 }
 
+// 128-BIT KEYS: cht_mixbits128_hash bijection on 65..128-bit domains, and
+// cht_map_t<unsigned __int128, ...> exact maps with remainders up to 102 bits
+// (cells up to 130+ bits) against std::map, with write/read.
+static void test_map128() {
+    using u128 = unsigned __int128;
+    std::mt19937_64 rng(91);
+    auto rnd128 = [&](unsigned b) {
+        u128 x = (u128(rng()) << 64) | rng();
+        return b >= 128 ? x: (x & ((u128(1) << b) - 1));
+    };
+    for (unsigned b: {65u, 80u, 100u, 127u, 128u}) {
+        cht_mixbits128_hash h(b);
+        uint64_t bad = 0;
+        for (unsigned t = 0; t < 100000; ++t) {
+            const u128 x = rnd128(b), y = h.hash(x);
+            bad += (b < 128 && (y >> b) != 0) || h.invert(y) != x || h.hash(h.invert(x)) != x;
+        }
+        CHECK(bad == 0, "mixbits128(%u): %llu round-trip/domain errors", b, (unsigned long long)bad);
+    }
+    struct Shape {unsigned kb, q, vb;};
+    for (const Shape sh: {Shape{80, 16, 20}, Shape{100, 16, 24}, Shape{128, 16, 20}, Shape{70, 18, 12}}) {
+        using M = cht_map_t<u128, cht_mixbits128_hash, 0>;
+        M m(sh.q, sh.vb, cht_mixbits128_hash(sh.kb));
+        CHECK(m.kbits() == sh.kb && m.cell_bits() == sh.kb - sh.q + sh.vb + 8, "map128: widths");
+        std::map<u128, uint64_t> ref;
+        while (ref.size() < 55000) {
+            const u128 k = rnd128(sh.kb);
+            const uint64_t v = 1 + rng() % m.sat();
+            m.assign(k, v); ref[k] = v;
+        }
+        for (int t = 0; t < 5000; ++t) {               // overwrites
+            auto it = std::next(ref.begin(), rng() % ref.size());
+            it->second = 1 + rng() % m.sat();
+            m.assign(it->first, it->second);
+        }
+        uint64_t bad = 0, fpos = 0;
+        for (const auto &kv: ref) {
+            bad += m.get(kv.first) != kv.second;
+            const uint64_t i = m.find_slot(kv.first);
+            bad += i >= m.nslots() || m.decode(i) != kv.first || m.value_at(i) != kv.second;
+        }
+        for (unsigned t = 0; t < 100000; ++t) {const u128 k = rnd128(sh.kb); if (!ref.count(k)) fpos += m.get(k) != 0;}
+        size_t n = 0;
+        for (auto it = m.begin(); it != m.end(); ++it, ++n) {
+            const auto r = ref.find(*it);
+            bad += r == ref.end() || r->second != it.mapped();
+        }
+        CHECK(bad == 0 && fpos == 0 && n == ref.size() && m.size() == ref.size() && m.structure_check(),
+              "map128 kb=%u: %llu wrong, %llu false positives, %zu iterated of %zu", sh.kb, (unsigned long long)bad,
+              (unsigned long long)fpos, n, ref.size());
+        std::FILE *fp = std::tmpfile();
+        m.write(fp); std::rewind(fp);
+        auto m2 = M::read(fp);
+        std::fclose(fp);
+        bool same = m2.kbits() == sh.kb && m2.size() == m.size();
+        for (const auto &kv: ref) same = same && m2.get(kv.first) == kv.second;
+        CHECK(same, "map128 kb=%u: write/read round trip differs", sh.kb);
+        std::fprintf(stderr, "cht_map 128-bit keys kb=%u done (%u-bit remainders, %u-bit cells, %zu keys, %zu spilled)\n",
+                     sh.kb, m.r(), m.cell_bits(), ref.size(), m.num_spilled());
+    }
+}
+
 int main() {
+    test_map128();
     test_mixbits_cells();
     test_div_sizing();
     test_exact_counts();
