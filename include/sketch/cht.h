@@ -530,6 +530,34 @@ public:
     // landed in (or merged at).
     uint64_t add_slot(Key k) {return add_hashed(hf_.hash(k));}
     void add(Key k) {add_slot(k);}
+    // MAP USE: insert k with value v, or overwrite its value, in the VAL_BITS
+    // field add() uses as a counter; count(k) then returns v (0 = absent).
+    // v must lie in [1, SAT]: 0 is the empty value (sentinel occupancy, and
+    // structure_check's live <=> nonzero invariant), so callers mapping onto
+    // a range that includes 0 store an offset (e.g. v + 1). Same probe and
+    // placement rule as add_hashed(), so decode/iteration are unaffected.
+    // In truncated mode fingerprint-colliding keys share (and overwrite)
+    // one value -- exact mode is the map configuration.
+    uint64_t assign(Key k, uint64_t v) {
+        if(HEDLEY_UNLIKELY(v == 0 || v > SAT))
+            throw std::invalid_argument("[cht] assign: value must lie in [1, 2^VAL_BITS - 1]");
+        const Key h = hf_.hash(k);
+        const uint64_t f = fp(h);
+        uint64_t i = home(h);
+        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+            if(!occupied(i)) {
+                if(used_ == nslots_) throw std::overflow_error("[cht] table full");
+                place(i, f, v);
+                disp_place(i, probe);
+                ++used_; return i;
+            }
+            if(rem(i) == f) {
+                cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), v);
+                return i;
+            }
+            if(++probe == nslots_) throw std::overflow_error("[cht] table full");
+        }
+    }
     uint64_t count(Key k) const {
         const Key h = hf_.hash(k);
         const uint64_t f = fp(h);

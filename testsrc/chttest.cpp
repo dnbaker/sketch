@@ -636,7 +636,45 @@ void test_batch_simd() {
     }
 }
 
+// assign(): the VAL_BITS field as a general key -> value map (exact mode),
+// checked against std::unordered_map: inserts, overwrites, values at the
+// SAT boundary, iteration yields (key, value), add() still counts on top,
+// structure_check holds, and out-of-range values throw.
+static void test_assign_map() {
+    const uint32_t q = 16;
+    cht_t<uint64_t, cht_splitmix64_hash, 32> f(q);
+    std::mt19937_64 rng(31);
+    std::unordered_map<uint64_t, uint64_t> ref;
+    const uint64_t SAT = decltype(f)::SAT;
+    for (unsigned i = 0; i < 50000; ++i) {
+        const uint64_t k = rng() % 40000;           // repeats -> overwrites
+        const uint64_t v = (i % 97 == 0) ? SAT: 1 + rng() % SAT;
+        f.assign(k, v); ref[k] = v;
+    }
+    CHECK(f.size() == ref.size(), "assign: size %llu != %llu", (unsigned long long)f.size(), (unsigned long long)ref.size());
+    uint64_t bad = 0;
+    for (const auto &kv: ref) bad += f.count(kv.first) != kv.second;
+    CHECK(bad == 0, "assign: %llu values differ from the reference map", (unsigned long long)bad);
+    CHECK(f.count(uint64_t(1) << 40) == 0, "assign: absent key reported present");
+    size_t n = 0;
+    for (auto it = f.begin(); it != f.end(); ++it, ++n) {
+        const auto r = ref.find(*it);
+        CHECK(r != ref.end() && r->second == it.mapped(), "assign: iteration yields a wrong (key, value)");
+    }
+    CHECK(n == ref.size(), "assign: iteration visited %zu of %zu", n, ref.size());
+    CHECK(f.structure_check(), "assign: structure_check failed");
+    bool threw0 = false, threw_big = false;
+    try { f.assign(7, 0); } catch (const std::invalid_argument &) { threw0 = true; }
+    try { f.assign(7, SAT + 1); } catch (const std::invalid_argument &) { threw_big = true; }
+    CHECK(threw0 && threw_big, "assign: out-of-range values must throw");
+    cht_t<uint64_t, cht_splitmix64_hash, 8> g(8);
+    g.assign(5, 3); g.add(5);                        // counter semantics compose
+    CHECK(g.count(5) == 4, "assign then add: got %llu, want 4", (unsigned long long)g.count(5));
+    std::fprintf(stderr, "cht assign/map done (%zu keys)\n", ref.size());
+}
+
 int main() {
+    test_assign_map();
     test_hash_roundtrips();
     test_exact_vs_cqf();
     test_decode_dump();
