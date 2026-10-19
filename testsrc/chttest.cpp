@@ -871,7 +871,104 @@ static void test_exact_counts() {
     std::fprintf(stderr, "cht exact-mode counts on 32-bit keys at load %.2f done (%zu keys, %zu adds)\n", f.load_factor(), ref.size(), stream.size());
 }
 
+// NON-POWER-OF-TWO SIZING (cht_div_sizing): split/compose exactness and
+// monotonicity across awkward slot counts, then exact maps, exact counts
+// (scalar, SIMD, sorted bulk build) and truncated membership on prime sizes.
+static void test_div_sizing() {
+    std::mt19937_64 rng(71);
+    for (const uint64_t n: {uint64_t(5), uint64_t(100003), uint64_t(1) << 20, (uint64_t(1) << 20) + 1, (uint64_t(1) << 21) - 1,
+                            uint64_t(999999937), uint64_t(1) << 33}) {
+        cht_map_t<uint64_t, cht_splitmix64_hash, 8, cht_div_sizing> m(cht_slots{n});
+        cht_map_t<uint64_t, cht_identity_hash<32>, 8, cht_div_sizing> m32(cht_slots{n < (uint64_t(1) << 31) ? n: uint64_t(1) << 30});
+        uint64_t bad = 0, mono = 0;
+        std::vector<uint64_t> hs;
+        for (int t = 0; t < 200000; ++t) hs.push_back(t < 4 ? std::vector<uint64_t>{0, 1, ~uint64_t(0), ~uint64_t(0) - 1}[t]: rng());
+        std::sort(hs.begin(), hs.end());
+        uint64_t prev_home = 0;
+        for (const uint64_t h: hs) {
+            uint64_t hh, rr;
+            m.split(h, hh, rr);
+            bad += hh >= m.nslots() || (m.r() < 64 && (rr >> m.r()) != 0) || m.compose(hh, rr) != h;
+            mono += hh < prev_home; prev_home = hh;
+            const uint64_t h32 = h & 0xffffffffull;
+            m32.split(h32, hh, rr);
+            bad += hh >= m32.nslots() || (rr >> m32.r()) != 0 || m32.compose(hh, rr) != h32;
+        }
+        CHECK(bad == 0 && mono == 0, "div sizing n=%llu: %llu split/compose errors, %llu monotonicity violations",
+              (unsigned long long)n, (unsigned long long)bad, (unsigned long long)mono);
+        if ((n & (n - 1)) == 0) {   // power of two through the div path == the shift/mask split
+            cht_map_t<uint64_t, cht_splitmix64_hash, 8> p2(cht_slots{n});
+            uint64_t diff = 0;
+            for (unsigned t = 0; t < 10000; ++t) {
+                const uint64_t h = rng();
+                uint64_t a1, b1, a2, b2;
+                m.split(h, a1, b1); p2.split(h, a2, b2);
+                diff += a1 != a2 || b1 != b2 || m.r() != p2.r();
+            }
+            CHECK(diff == 0, "div sizing at n=2^k differs from pow2 sizing on %llu hashes", (unsigned long long)diff);
+        }
+    }
+    {   // exact maps at fill 0.95 on a prime slot count, wide and narrow keys, write/read
+        const uint64_t n = 100003;
+        cht_map_t<uint64_t, cht_splitmix64_hash, 0, cht_div_sizing> m(cht_slots{n}, 20);
+        cht_map_t<uint64_t, cht_identity_hash<32>, 20, cht_div_sizing> m32(cht_slots{n});
+        std::unordered_map<uint64_t, uint64_t> ref, ref32;
+        while (ref.size() < 95000) {const uint64_t k = rng(), v = 1 + rng() % m.sat(); m.assign(k, v); ref[k] = v;}
+        while (ref32.size() < 95000) {const uint64_t k = uint32_t(rng()), v = 1 + rng() % m32.sat(); m32.assign(k, v); ref32[k] = v;}
+        check_map_against(m, ref, rng, ~uint64_t(0), "div-sized cht_map wide");
+        check_map_against(m32, ref32, rng, 0xffffffffull, "div-sized cht_map narrow");
+        std::FILE *fp = std::tmpfile();
+        m.write(fp); std::rewind(fp);
+        auto m2 = decltype(m)::read(fp);
+        std::rewind(fp);
+        bool threw = false;
+        try { (void)cht_map_t<uint64_t, cht_splitmix64_hash, 0>::read(fp); } catch (const std::runtime_error &) { threw = true; }
+        std::fclose(fp);
+        bool same = m2.nslots() == n && m2.size() == m.size();
+        for (const auto &kv: ref) same = same && m2.get(kv.first) == kv.second;
+        CHECK(same && threw, "div-sized cht_map: round trip differs or pow2 reader accepted a div file");
+        std::fprintf(stderr, "cht_map div sizing done (n=%llu, load %.3f/%.3f, r=%u/%u, %zu/%zu spilled)\n", (unsigned long long)n,
+                     m.load_factor(), m32.load_factor(), m.r(), m32.r(), m.num_spilled(), m32.num_spilled());
+    }
+    {   // exact counts on a prime-size cht_t: scalar, SIMD and the sorted bulk build
+        using T = cht_t<uint64_t, cht_identity_hash<32>, 16, 0, true, 8, true, cht_div_sizing>;
+        const uint64_t n = 65521;
+        T f(cht_slots{n});
+        std::unordered_map<uint64_t, uint64_t> ref;
+        std::vector<uint64_t> stream;
+        while (ref.size() < 60000) {
+            const uint64_t k = uint32_t(rng());
+            const int reps = 1 + int(rng() % 3);
+            for (int r = 0; r < reps; ++r) {f.add(k); ++ref[k]; stream.push_back(k);}
+        }
+        uint64_t bad = 0, fpos = 0;
+        for (const auto &kv: ref) bad += f.count(kv.first) != kv.second || f.count_simd(kv.first) != kv.second;
+        for (unsigned t = 0; t < 100000; ++t) {const uint64_t k = uint32_t(rng()); if (!ref.count(k)) fpos += f.count(k) != 0;}
+        std::vector<uint64_t> sorted(stream);
+        std::sort(sorted.begin(), sorted.end(), [&](uint64_t a, uint64_t b) {return f.hash(a) < f.hash(b);});
+        T fb(cht_slots{n});
+        fb.add_bulk_sorted(sorted.begin(), sorted.end());
+        uint64_t badb = 0;
+        for (const auto &kv: ref) badb += fb.count(kv.first) != kv.second;
+        CHECK(f.size() == ref.size() && fb.size() == ref.size() && bad == 0 && fpos == 0 && badb == 0
+              && f.structure_check(0) && fb.structure_check(0),
+              "div-sized cht_t counts: %llu wrong, %llu false positives, %llu wrong after bulk build",
+              (unsigned long long)bad, (unsigned long long)fpos, (unsigned long long)badb);
+        // truncated membership on a div-sized table: no false negatives
+        cht_t<uint64_t, cht_splitmix64_hash, 8, 10, true, 8, true, cht_div_sizing> tr(cht_slots{n});
+        for (const auto &kv: ref) tr.add(kv.first);
+        uint64_t fn = 0;
+        for (const auto &kv: ref) fn += !tr.contains(kv.first);
+        CHECK(fn == 0, "div-sized truncated table: %llu false negatives", (unsigned long long)fn);
+        std::fprintf(stderr, "cht_t div sizing done (n=%llu, load %.3f, %zu adds)\n", (unsigned long long)n, f.load_factor(), stream.size());
+    }
+    bool threw = false;
+    try { cht_map_t<uint64_t, cht_splitmix64_hash, 8> bad(cht_slots{100003}); (void)bad; } catch (const std::invalid_argument &) { threw = true; }
+    CHECK(threw, "pow2 sizing must reject a non-power-of-two slot count");
+}
+
 int main() {
+    test_div_sizing();
     test_exact_counts();
     test_cht_map();
     test_assign_map();

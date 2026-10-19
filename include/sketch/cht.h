@@ -178,6 +178,7 @@
 // same placement rule, so bulk-built tables decode exactly like
 // single-insert builds.
 #include "cqf.h" // detail::{packed_get,packed_set,bv_get,bv_set} reuse; contract parity with cqfbase_t
+#include "policy.h" // policy::SizeDivPolicy (schism fastdiv) for non-power-of-two table sizes
 #include "simde/x86/avx2.h" // simde__m256i, cmpeq/movemask/cvt/mullo compose (single-source SIMD)
 #include "simde/x86/sse.h"  // simde_mm_prefetch + SIMDE_MM_HINT_T0
 #include <cmath>
@@ -377,9 +378,30 @@ public:
 //   void     set_disp8_(uint64_t i, uint64_t d8)
 //   void     prefetch_(uint64_t home) const
 //   bool     extra_check_() const               storage-specific invariants
+// ---- table sizing --------------------------------------------------------
+// The hash h (key_bits wide) is split into a home slot and a stored
+// remainder by multiply-high ("fastrange"): with n slots,
+//     P = h * n,  home = P >> key_bits,  rem = (P mod 2^key_bits) div n,
+// which is exact -- rem = h - ceil(home * 2^key_bits / n), so
+// h = lo(home) + rem with lo(home) = ceil(home * 2^key_bits / n) (decode) --
+// keeps homes monotone in h (the sorted bulk build relies on it), and stores
+// rem in r = ceil(log2(ceil(2^key_bits / n))) bits: a fixed width per table,
+// though no longer a bit field of h.
+//   cht_pow2_sizing  n = 2^q: the split above IS home = top q bits, rem = low
+//                    key_bits - q bits (shift/mask; the default; constructors
+//                    take q).
+//   cht_div_sizing   any n in [4, 2^40] (key_bits <= 64): one 64x64 -> 128
+//                    multiply plus a schism fastdiv (policy::SizeDivPolicy)
+//                    per hash; probe wraparound by compare. Sizes the table
+//                    to the data instead of the next power of two.
+// Construct with cht_slots{n} to give the slot count directly.
+struct cht_pow2_sizing {static constexpr bool pow2 = true;};
+struct cht_div_sizing {static constexpr bool pow2 = false;};
+struct cht_slots {uint64_t n;};
+
 namespace detail {
 
-template<class Derived, class Key, class RevHash, size_t VAL_BITS, size_t RSTORE_BITS, size_t DECODE_BITS>
+template<class Derived, class Key, class RevHash, size_t VAL_BITS, size_t RSTORE_BITS, size_t DECODE_BITS, class Sizing = cht_pow2_sizing>
 class cht_core {
     static_assert(std::is_same<Key, uint64_t>::value || std::is_same<Key, unsigned __int128>::value,
                   "cht: Key must be uint64_t or unsigned __int128");
@@ -389,7 +411,9 @@ class cht_core {
 protected:
     static constexpr size_t KH_ = RevHash::key_bits; // effective hash width
     static_assert(KH_ >= 4 && KH_ <= sizeof(Key) * CHAR_BIT, "RevHash::key_bits must lie in [4, sizeof(Key)*CHAR_BIT]");
+    static_assert(Sizing::pow2 || KH_ <= 64, "non-power-of-two sizing needs key_bits <= 64");
 public:
+    using sizing_type = Sizing;
     static constexpr size_t key_bits = KH_;
     static constexpr size_t val_bits = VAL_BITS;     // 0: runtime width, see vbits()
     static constexpr bool runtime_val_bits = VAL_BITS == 0;
@@ -416,6 +440,7 @@ protected:
     uint64_t used_ = 0;       // occupied slots == distinct fingerprints
     Key rm_ = 0;              // low-r_ mask (Key width)
     uint64_t fpm_ = 0;        // low-rs_ mask (cell width)
+    policy::SizeDivPolicy<uint64_t> div_{uint64_t(4)};   // fastdiv by nslots_ (cht_div_sizing)
     uint32_t vb_ = uint32_t(VAL_BITS);   // value width (runtime when VAL_BITS == 0)
     uint64_t sat_ = SAT;                 // 2^vb_ - 1
     // displacements >= 255 (inline byte 255): (slot, displacement), sorted by slot
@@ -440,14 +465,35 @@ protected:
     void init_core(uint32_t q) {
         if(q < 2 || q > 40 || KH_ <= q)
             throw std::invalid_argument(std::string("[cht] need 2 <= q <= 40 and 1 <= key_bits - q; got q=") + std::to_string(q));
-        q_ = q; r_ = uint32_t(KH_) - q;
+        init_core_n(uint64_t(1) << q);
+    }
+    void init_core_n(uint64_t n) {
+        uint32_t q = 0;
+        while(q < 63 && (uint64_t(1) << q) < n) ++q;            // ceil(log2 n)
+        if(n < 4 || n > (uint64_t(1) << 40))
+            throw std::invalid_argument(std::string("[cht] need 4 <= nslots <= 2^40; got ") + std::to_string(n));
+        if constexpr(Sizing::pow2) {
+            if(n & (n - 1))
+                throw std::invalid_argument("[cht] cht_pow2_sizing needs a power-of-two slot count; use cht_div_sizing");
+            if(KH_ <= q) throw std::invalid_argument("[cht] need 1 <= key_bits - q");
+            r_ = uint32_t(KH_) - q;
+        } else {
+            // remainder bound ceil(2^key_bits / n) - 1 -> its bit width
+            const unsigned __int128 span = (((unsigned __int128)1 << KH_) + n - 1) / n;
+            const unsigned __int128 mx = span - 1;
+            r_ = 0;
+            while(r_ < 64 && (mx >> r_) != 0) ++r_;
+            if(r_ == 0) r_ = 1;
+            div_ = policy::SizeDivPolicy<uint64_t>(n);
+        }
+        q_ = q;
         rs_ = RSTORE_BITS ? unsigned(std::min<size_t>(size_t(RSTORE_BITS), size_t(r_))): r_;
         if(rs_ > 64) // u64 fingerprint cell: exact wide keys need q >= key_bits - 64
             throw std::invalid_argument(std::string("[cht] stored remainder width ") + std::to_string(rs_)
                                         + " exceeds the u64 cell; use a larger q or truncated mode (RSTORE_BITS <= 64)");
         rm_ = (Key(1) << r_) - Key(1);
         fpm_ = rs_ >= 64 ? ~uint64_t(0): ((uint64_t(1) << rs_) - 1);
-        nslots_ = uint64_t(1) << q;
+        nslots_ = n;
         dispill_.clear();
         used_ = 0;
         d().init_storage_();
@@ -513,13 +559,57 @@ public:
 
     INLINE Key hash(Key v) const {return hf_.hash(v);}
     INLINE Key invert(Key h) const {return hf_.invert(h);}
-    // home: top q bits of the key_bits-wide hash
-    INLINE uint64_t home(Key h) const {return uint64_t(h >> r_);}
-    // stored fingerprint: exact = full remainder (low r_ bits); truncated =
-    // top rs_ bits of the remainder field (cqfbase_t::frs() convention)
-    INLINE uint64_t fp(Key h) const {
-        return rs_ == r_ ? uint64_t(h & rm_): (uint64_t(h >> (r_ - rs_)) & fpm_);
+    // split a hash into (home slot, full remainder) -- see "table sizing"
+    INLINE void split(Key h, uint64_t &hh, uint64_t &rr) const {
+        if constexpr(Sizing::pow2) {
+            hh = uint64_t(h >> r_);
+            rr = uint64_t(h & rm_);
+        } else {
+            const unsigned __int128 P = (unsigned __int128)uint64_t(h) * nslots_;
+            hh = uint64_t(P >> KH_);
+            const uint64_t low = KH_ >= 64 ? uint64_t(P): uint64_t(P & ((((unsigned __int128)1) << KH_) - 1));
+            rr = div_.div(low);
+        }
     }
+    // the hash with home hh and remainder field rr (inverse of split; Key
+    // width, since 128-bit keys have remainders wider than 64 bits)
+    INLINE Key compose(uint64_t hh, Key rr) const {
+        if constexpr(Sizing::pow2) {
+            return (Key(hh) << r_) | rr;
+        } else {
+            const unsigned __int128 lo = ((((unsigned __int128)hh) << KH_) + nslots_ - 1) / nslots_;
+            return Key(uint64_t(lo) + rr);
+        }
+    }
+    // stored fingerprint from the full remainder: exact = all of it;
+    // truncated = its top rs_ bits (cqfbase_t::frs() convention)
+    INLINE uint64_t fp_of_rem(uint64_t rr) const {return rs_ == r_ ? rr: (rr >> (r_ - rs_)) & fpm_;}
+    // probe start for hash h: home slot and stored fingerprint. pow2 works
+    // in Key width (the remainder of a 128-bit key exceeds 64 bits; the
+    // stored fingerprint never does).
+    INLINE void probe_start(Key h, uint64_t &i, uint64_t &f) const {
+        if constexpr(Sizing::pow2) {
+            i = uint64_t(h >> r_);
+            f = rs_ == r_ ? uint64_t(h & rm_): (uint64_t(h >> (r_ - rs_)) & fpm_);
+        } else {
+            uint64_t rr;
+            split(h, i, rr);
+            f = fp_of_rem(rr);
+        }
+    }
+    INLINE uint64_t next_slot(uint64_t i) const {
+        if constexpr(Sizing::pow2) return (i + 1) & (nslots_ - 1);
+        else return i + 1 == nslots_ ? 0: i + 1;
+    }
+    // (i - d) mod nslots for 0 <= d < nslots
+    INLINE uint64_t back(uint64_t i, uint64_t dd) const {
+        if constexpr(Sizing::pow2) return (i + nslots_ - dd) & (nslots_ - 1);
+        else return dd <= i ? i - dd: i + nslots_ - dd;
+    }
+    // home slot of hash h
+    INLINE uint64_t home(Key h) const {uint64_t i, f; probe_start(h, i, f); return i;}
+    // stored fingerprint of hash h
+    INLINE uint64_t fp(Key h) const {uint64_t i, f; probe_start(h, i, f); return f;}
     // reconstruct the caller key stored at slot i: home (slot minus recorded
     // displacement) as the top bits, the stored fingerprint at the TOP of the
     // remainder field with zeros below, then invert(). Exact mode: the
@@ -527,16 +617,16 @@ public:
     INLINE Key decode(uint64_t i) const {
         static_assert(DECODE_BITS != 0, "decode/dump require DECODE_BITS=8 (membership-only table)");
         const auto c = d().load_(i);
-        const uint64_t hpos = (i + nslots_ - disp_h(i, c)) & (nslots_ - 1);
-        return hf_.invert((Key(hpos) << r_) | (Key(d().h_rem_(i, c)) << (r_ - rs_)));
+        const uint64_t hpos = back(i, disp_h(i, c));
+        return hf_.invert(compose(hpos, Key(d().h_rem_(i, c)) << (r_ - rs_)));
     }
 
     // ---- counting --------------------------------------------------------
     // insert given the key's HASH; returns the slot it landed in or merged at
     uint64_t add_hashed(Key h) {
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+        uint64_t i, f;
+        probe_start(h, i, f);
+        for(uint64_t probe = 0;; i = next_slot(i)) {
             const auto c = d().load_(i);
             if(!d().h_occ_(i, c)) {
                 if(used_ == nslots_) throw std::overflow_error("[cht] table full");
@@ -554,9 +644,9 @@ public:
     uint64_t add_slot(Key k) {return add_hashed(hf_.hash(k));}
     void add(Key k) {add_slot(k);}
     uint64_t count_hashed(Key h) const {
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+        uint64_t i, f;
+        probe_start(h, i, f);
+        for(uint64_t probe = 0;; i = next_slot(i)) {
             const auto c = d().load_(i);
             if(!d().h_occ_(i, c)) return 0;
             if(match<false>(i, c, f, probe)) return d().h_val_(i, c);
@@ -577,9 +667,9 @@ public:
         if(HEDLEY_UNLIKELY(v == 0 || v > sat_))
             throw std::invalid_argument("[cht] assign: value must lie in [1, 2^vbits - 1]");
         const Key h = hf_.hash(k);
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+        uint64_t i, f;
+        probe_start(h, i, f);
+        for(uint64_t probe = 0;; i = next_slot(i)) {
             const auto c = d().load_(i);
             if(!d().h_occ_(i, c)) {
                 if(used_ == nslots_) throw std::overflow_error("[cht] table full");
@@ -595,9 +685,9 @@ public:
     // a durable handle
     uint64_t find_slot_hashed(Key h) const {
         static_assert(DECODE_BITS != 0, "find_slot matches by home and needs DECODE_BITS=8");
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+        uint64_t i, f;
+        probe_start(h, i, f);
+        for(uint64_t probe = 0;; i = next_slot(i)) {
             const auto c = d().load_(i);
             if(!d().h_occ_(i, c)) return nslots_;
             if(match<true>(i, c, f, probe)) return i;
@@ -607,9 +697,9 @@ public:
     uint64_t find_slot(Key k) const {return find_slot_hashed(hf_.hash(k));}
     uint64_t get_hashed(Key h) const {
         static_assert(DECODE_BITS != 0, "assign/get match by home and need DECODE_BITS=8");
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+        uint64_t i, f;
+        probe_start(h, i, f);
+        for(uint64_t probe = 0;; i = next_slot(i)) {
             const auto c = d().load_(i);
             if(!d().h_occ_(i, c)) return 0;
             if(match<true>(i, c, f, probe)) return d().h_val_(i, c);
@@ -713,7 +803,7 @@ public:
             if(!used_) return true;
             auto check_slot = [&](uint64_t i) {
                 const Key h = hf_.hash(decode(i));
-                if(home(h) != ((i + nslots_ - disp_at(i)) & (nslots_ - 1)) || fp(h) != d().h_rem_(i, d().load_(i))) return false;
+                if(home(h) != back(i, disp_at(i)) || fp(h) != d().h_rem_(i, d().load_(i))) return false;
                 if constexpr(home_exact) if(find_slot_hashed(h) != i) return false;
                 return true;
             };
@@ -738,11 +828,12 @@ public:
 // VAL_BITS, RSTORE_BITS, OCC_BITMAP, DECODE_BITS, REM_PACKED). Adds to the
 // core: truncated-mode fpr_bound, batch hashing (hash4), the SIMD span scan
 // (count_simd*), SIMD batch insert and the sorted bulk build.
-template<class Key, class RevHash, size_t VAL_BITS, size_t RSTORE_BITS=0, bool OCC_BITMAP=true, size_t DECODE_BITS=8, bool REM_PACKED=true>
-class cht_t: public detail::cht_core<cht_t<Key, RevHash, VAL_BITS, RSTORE_BITS, OCC_BITMAP, DECODE_BITS, REM_PACKED>,
-                                     Key, RevHash, VAL_BITS, RSTORE_BITS, DECODE_BITS> {
+template<class Key, class RevHash, size_t VAL_BITS, size_t RSTORE_BITS=0, bool OCC_BITMAP=true, size_t DECODE_BITS=8, bool REM_PACKED=true,
+         class Sizing=cht_pow2_sizing>
+class cht_t: public detail::cht_core<cht_t<Key, RevHash, VAL_BITS, RSTORE_BITS, OCC_BITMAP, DECODE_BITS, REM_PACKED, Sizing>,
+                                     Key, RevHash, VAL_BITS, RSTORE_BITS, DECODE_BITS, Sizing> {
     static_assert(VAL_BITS >= 1, "cht_t: VAL_BITS in [1, 64] (runtime widths are cht_map_t only)");
-    using Base = detail::cht_core<cht_t, Key, RevHash, VAL_BITS, RSTORE_BITS, DECODE_BITS>;
+    using Base = detail::cht_core<cht_t, Key, RevHash, VAL_BITS, RSTORE_BITS, DECODE_BITS, Sizing>;
     friend Base;
     using Base::q_; using Base::r_; using Base::rs_; using Base::nslots_; using Base::used_;
     using Base::rm_; using Base::fpm_; using Base::dispill_; using Base::hf_;
@@ -827,6 +918,8 @@ public:
     using Base::home; using Base::fp; using Base::count; using Base::add_slot; using Base::load_factor;
     using Base::add_hashed; using Base::add; using Base::hash;
     explicit cht_t(uint32_t q, RevHash &&hf=RevHash()): Base(std::move(hf)) {this->init_core(q);}
+    // exact slot count (any n for cht_div_sizing; a power of two otherwise)
+    explicit cht_t(cht_slots s, RevHash &&hf=RevHash()): Base(std::move(hf)) {this->init_core_n(s.n);}
     cht_t() = delete;
 
     // False-positive bound, clustering-aware (see TRUNCATED-MODE FPR,
@@ -966,7 +1059,7 @@ public:
             lo = s + 1;
         }
         if(e < nslots_) return 0;
-        for(uint64_t i = 0;; i = (i + 1) & (nslots_ - 1)) { // cyclically continued probe
+        for(uint64_t i = 0;; i = this->next_slot(i)) { // cyclically continued probe
             if(!occupied(i)) return 0;
             if(rem(i) == f && (!home_exact || disp_at(i) == nslots_ - h0 + i)) return cnt(i);
         }
@@ -1022,8 +1115,9 @@ public:
                 It k = j;
                 for(; k != gend && fp(hf_.hash(Key(*k))) == f; ++k)
                     if(c < SAT) ++c;
-                place(i & (nslots_ - 1), f, c);
-                disp_place(i & (nslots_ - 1), i - h);
+                const uint64_t slot = i >= nslots_ ? i - nslots_: i;   // i < first_home + nslots <= 2 * nslots
+                place(slot, f, c);
+                disp_place(slot, i - h);
                 ++used_; ++i;
                 j = k;
             }
@@ -1042,14 +1136,14 @@ public:
 // width at construction (e.g. the minimum for a dense id range). Adds to the
 // core: serialization (write/read, the width travels in the header) and
 // cell_bits().
-template<class Key, class RevHash, size_t VAL_BITS>
-class cht_map_t: public detail::cht_core<cht_map_t<Key, RevHash, VAL_BITS>, Key, RevHash, VAL_BITS, 0, 8> {
+template<class Key, class RevHash, size_t VAL_BITS, class Sizing=cht_pow2_sizing>
+class cht_map_t: public detail::cht_core<cht_map_t<Key, RevHash, VAL_BITS, Sizing>, Key, RevHash, VAL_BITS, 0, 8, Sizing> {
     static_assert(std::is_same<Key, uint64_t>::value, "cht_map_t: Key must be uint64_t");
     static_assert(VAL_BITS <= 48, "cht_map_t: VAL_BITS in [1, 48], or 0 = runtime width (constructor argument)");
-    using Base = detail::cht_core<cht_map_t, Key, RevHash, VAL_BITS, 0, 8>;
+    using Base = detail::cht_core<cht_map_t, Key, RevHash, VAL_BITS, 0, 8, Sizing>;
     friend Base;
     using u128 = unsigned __int128;
-    using Base::q_; using Base::r_; using Base::nslots_; using Base::used_; using Base::dispill_;
+    using Base::r_; using Base::nslots_; using Base::used_; using Base::dispill_;
     using Base::vb_; using Base::sat_;
     uint32_t w_ = 0;    // cell width r_ + vb_ + 8
     u128 cm_ = 0;       // low-w_ mask
@@ -1105,20 +1199,27 @@ public:
         this->set_val_bits_(val_bits, 48);
         this->init_core(q);
     }
+    // exact slot count (any n in [4, 2^40] for cht_div_sizing; a power of two otherwise)
+    explicit cht_map_t(cht_slots s, uint32_t val_bits = uint32_t(VAL_BITS), RevHash &&hf=RevHash()): Base(std::move(hf)) {
+        this->set_val_bits_(val_bits, 48);
+        this->init_core_n(s.n);
+    }
     cht_map_t() = delete;
     uint32_t cell_bits() const {return w_;}
     // full check by default (every live slot re-probes to itself)
     bool structure_check(size_t sample = 0) const {return Base::structure_check(sample);}
 
-    // Binary serialization: magic "CHTMAP01", key_bits, VAL_BITS, q, size,
+    // Binary serialization: magic "CHTMAP02", key_bits, value bits, sizing
+    // (1 = power of two, 0 = div), nslots, size,
     // the cell stream and the displacement spill. RevHash must be stateless
     // (or default-constructed identically) on both sides; read() checks the
     // key/value widths against this instantiation and throws on mismatch.
     void write(std::FILE *fp) const {
-        static const char magic[8] = {'C','H','T','M','A','P','0','1'};
-        const uint32_t hdr[3] = {uint32_t(Base::key_bits), vb_, q_};
+        static const char magic[8] = {'C','H','T','M','A','P','0','2'};
+        const uint32_t hdr[3] = {uint32_t(Base::key_bits), vb_, uint32_t(Sizing::pow2)};
         const uint64_t nb = bits_.size(), ns = dispill_.size();
         if(std::fwrite(magic, 1, 8, fp) != 8 || std::fwrite(hdr, sizeof(hdr), 1, fp) != 1
+           || std::fwrite(&nslots_, sizeof(nslots_), 1, fp) != 1
            || std::fwrite(&used_, sizeof(used_), 1, fp) != 1 || std::fwrite(&nb, sizeof(nb), 1, fp) != 1
            || std::fwrite(bits_.data(), 1, nb, fp) != nb || std::fwrite(&ns, sizeof(ns), 1, fp) != 1
            || (ns && std::fwrite(dispill_.data(), sizeof(dispill_[0]), ns, fp) != ns))
@@ -1127,12 +1228,16 @@ public:
     static cht_map_t read(std::FILE *fp) {
         char magic[8];
         uint32_t hdr[3];
-        uint64_t used, nb, ns;
-        if(std::fread(magic, 1, 8, fp) != 8 || std::memcmp(magic, "CHTMAP01", 8))
+        uint64_t n, used, nb, ns;
+        if(std::fread(magic, 1, 8, fp) != 8 || std::memcmp(magic, "CHTMAP02", 8))
             throw std::runtime_error("[cht_map] read: bad magic");
         if(std::fread(hdr, sizeof(hdr), 1, fp) != 1 || hdr[0] != Base::key_bits || (VAL_BITS != 0 && hdr[1] != VAL_BITS))
             throw std::runtime_error("[cht_map] read: key/value widths do not match this instantiation");
-        cht_map_t ret(hdr[2], hdr[1]);
+        if(hdr[2] != uint32_t(Sizing::pow2))
+            throw std::runtime_error("[cht_map] read: table sizing policy does not match this instantiation");
+        if(std::fread(&n, sizeof(n), 1, fp) != 1)
+            throw std::runtime_error("[cht_map] read: truncated header");
+        cht_map_t ret(cht_slots{n}, hdr[1]);
         if(std::fread(&used, sizeof(used), 1, fp) != 1 || std::fread(&nb, sizeof(nb), 1, fp) != 1 || nb != ret.bits_.size())
             throw std::runtime_error("[cht_map] read: truncated or inconsistent header");
         if(std::fread(ret.bits_.data(), 1, nb, fp) != nb || std::fread(&ns, sizeof(ns), 1, fp) != 1)
