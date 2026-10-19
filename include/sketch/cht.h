@@ -530,15 +530,26 @@ public:
     // landed in (or merged at).
     uint64_t add_slot(Key k) {return add_hashed(hf_.hash(k));}
     void add(Key k) {add_slot(k);}
-    // MAP USE: insert k with value v, or overwrite its value, in the VAL_BITS
-    // field add() uses as a counter; count(k) then returns v (0 = absent).
-    // v must lie in [1, SAT]: 0 is the empty value (sentinel occupancy, and
-    // structure_check's live <=> nonzero invariant), so callers mapping onto
-    // a range that includes 0 store an offset (e.g. v + 1). Same probe and
-    // placement rule as add_hashed(), so decode/iteration are unaffected.
-    // In truncated mode fingerprint-colliding keys share (and overwrite)
-    // one value -- exact mode is the map configuration.
+    // MAP USE: assign(k, v) inserts k with value v or overwrites its value,
+    // in the VAL_BITS field add() uses as a counter; get(k) returns it (0 =
+    // absent). v must lie in [1, SAT]: 0 is the empty value (sentinel
+    // occupancy, and structure_check's live <=> nonzero invariant), so maps
+    // onto a range that includes 0 store an offset (e.g. v + 1).
+    //
+    // HOME-EXACT MATCHING: count()/add() compare only the stored remainder
+    // across the whole probe span, so two keys with different homes but equal
+    // remainders merge when one is displaced into the other's run (the
+    // run-mate class, ~2^-(key_bits - q) per comparison: negligible for 64-bit
+    // hashes, NOT for narrow keys such as 32-bit ids at q ~ 20). The map API
+    // also requires the slot's recorded displacement to equal the current
+    // probe distance, i.e. the slot's key has the SAME home -- so with the full
+    // remainder stored (RSTORE_BITS = 0) assign/get are exact for any
+    // key_bits. The displacement byte is read only on a remainder match. Needs
+    // the displacement array (DECODE_BITS = 8). Placement is add_hashed()'s,
+    // so decode/iteration are unaffected; mixing assign() with add() on one
+    // key is allowed but add() keeps its run-mate semantics.
     uint64_t assign(Key k, uint64_t v) {
+        static_assert(DECODE_BITS != 0, "assign/get match by home and need DECODE_BITS=8");
         if(HEDLEY_UNLIKELY(v == 0 || v > SAT))
             throw std::invalid_argument("[cht] assign: value must lie in [1, 2^VAL_BITS - 1]");
         const Key h = hf_.hash(k);
@@ -551,11 +562,22 @@ public:
                 disp_place(i, probe);
                 ++used_; return i;
             }
-            if(rem(i) == f) {
+            if(rem(i) == f && disp_at(i) == probe) {
                 cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), v);
                 return i;
             }
             if(++probe == nslots_) throw std::overflow_error("[cht] table full");
+        }
+    }
+    uint64_t get(Key k) const {
+        static_assert(DECODE_BITS != 0, "assign/get match by home and need DECODE_BITS=8");
+        const Key h = hf_.hash(k);
+        const uint64_t f = fp(h);
+        uint64_t i = home(h);
+        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+            if(!occupied(i)) return 0;
+            if(rem(i) == f && disp_at(i) == probe) return cnt(i);
+            if(++probe == nslots_) return 0;
         }
     }
     uint64_t count(Key k) const {

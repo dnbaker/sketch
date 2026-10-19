@@ -653,9 +653,9 @@ static void test_assign_map() {
     }
     CHECK(f.size() == ref.size(), "assign: size %llu != %llu", (unsigned long long)f.size(), (unsigned long long)ref.size());
     uint64_t bad = 0;
-    for (const auto &kv: ref) bad += f.count(kv.first) != kv.second;
+    for (const auto &kv: ref) bad += f.get(kv.first) != kv.second;
     CHECK(bad == 0, "assign: %llu values differ from the reference map", (unsigned long long)bad);
-    CHECK(f.count(uint64_t(1) << 40) == 0, "assign: absent key reported present");
+    CHECK(f.get(uint64_t(1) << 40) == 0, "assign: absent key reported present");
     size_t n = 0;
     for (auto it = f.begin(); it != f.end(); ++it, ++n) {
         const auto r = ref.find(*it);
@@ -669,7 +669,30 @@ static void test_assign_map() {
     CHECK(threw0 && threw_big, "assign: out-of-range values must throw");
     cht_t<uint64_t, cht_splitmix64_hash, 8> g(8);
     g.assign(5, 3); g.add(5);                        // counter semantics compose
-    CHECK(g.count(5) == 4, "assign then add: got %llu, want 4", (unsigned long long)g.count(5));
+    CHECK(g.get(5) == 4, "assign then add: got %llu, want 4", (unsigned long long)g.get(5));
+    // NARROW keys (32-bit, q = 16: 16-bit remainders): run-mates with equal
+    // remainders and different homes are common at this width, so the map
+    // must match by home -- every key distinct, every value exact, and
+    // absent keys never hit.
+    {
+        cht_t<uint64_t, cht_identity_hash<32>, 32> n(16);
+        std::mt19937_64 r2(41);
+        std::unordered_map<uint64_t, uint64_t> nref;
+        while (nref.size() < 55000) {
+            const uint64_t k = uint32_t(r2()), v = 1 + uint32_t(r2()) % 0xfffffffeu;
+            n.assign(k, v); nref[k] = v;
+        }
+        CHECK(n.size() == nref.size(), "narrow assign merged keys: %llu != %zu", (unsigned long long)n.size(), nref.size());
+        uint64_t nbad = 0, nfp = 0, runmates = 0;
+        for (const auto &kv: nref) { nbad += n.get(kv.first) != kv.second; runmates += n.count(kv.first) != kv.second; }
+        for (unsigned t = 0; t < 200000; ++t) {
+            const uint64_t k = uint32_t(r2());
+            if (!nref.count(k)) nfp += n.get(k) != 0;
+        }
+        CHECK(nbad == 0 && nfp == 0, "narrow get: %llu wrong values, %llu false positives", (unsigned long long)nbad, (unsigned long long)nfp);
+        std::fprintf(stderr, "cht narrow-key map exact (%zu keys at load %.2f; count() would differ on %llu)\n",
+                     nref.size(), n.load_factor(), (unsigned long long)runmates);
+    }
     std::fprintf(stderr, "cht assign/map done (%zu keys)\n", ref.size());
 }
 
