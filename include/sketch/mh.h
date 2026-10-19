@@ -218,6 +218,18 @@ public:
         }
         return double(shared) / n;
     }
+    // Thresholded comparison: exact count while it can still reach min_count,
+    // early-exit once the remaining registers provably cannot. Returns the
+    // exact count when < min_count, else a value in [min_count, exact].
+    template<typename C2>
+    size_t intersection_size_min(const C2 &o, size_t min_count) const {
+        return isz::intersection_size_min(o, *this, std::uint64_t(min_count), cmp_);
+    }
+    // Exact threshold test: is the Jaccard index >= threshold?
+    bool jaccard_at_least(const RangeMinHash &o, double threshold) const {
+        const size_t need = size_t(std::ceil(threshold * minimizers_.size()));
+        return isz::intersection_size_min(o, *this, std::uint64_t(need), cmp_) >= need;
+    }
     template<typename Container>
     Container to_container() const {
         if(this->ss_ != size()) // If the sketch isn't full, add max to the end until it is.
@@ -284,9 +296,21 @@ struct FinalRMinHash {
     uint64_t lsum_;
     using container_type = decltype(first);
     size_t intersection_size(const FinalRMinHash &o) const {
-        return isz::intersection_size(first, o.first);
+        if constexpr(std::is_same<T, uint32_t>::value || std::is_same<T, uint64_t>::value) {
+            // Exact multiplicity semantics for all sorted registers (padded
+            // counting sketches included); FESISA fast path when
+            // duplicate-free. See isz::intersection_size_sets.
+            return isz::intersection_size_sets(first.data(), first.size(), o.first.data(), o.first.size());
+        } else {
+            return isz::intersection_size(first, o.first);
+        }
     }
     double jaccard_index(const FinalRMinHash &o) const {
+        // NOTE: this bounded walk can undercount the shared registers for
+        // low-overlap sketches (the n-step bound exhausts before the merge
+        // does; reproduced at ~50% undercount for overlap ~5% at k=3924).
+        // Preserved as-is for downstream behavioral stability — use
+        // jaccard_at_least for exact threshold questions.
         auto lit = begin(), rit = o.begin(), lend = end(), rend = o.end();
         const size_t n = size();
         size_t nused = 0, shared = 0;
@@ -306,6 +330,23 @@ struct FinalRMinHash {
         return double(shared) / n;
         //double is = intersection_size(o);
         //return is / ((size() << 1) - is);
+    }
+    // Thresholded comparison: exact count while it can still reach min_count,
+    // early-exit once the remaining registers provably cannot. Returns the
+    // exact count when < min_count, else a value in [min_count, exact] —
+    // the interface LSH candidate filtering wants: answering "overlap >= t?"
+    // without paying the full merge.
+    size_t intersection_size_min(const FinalRMinHash &o, size_t min_count) const {
+        if constexpr(std::is_same<T, uint32_t>::value || std::is_same<T, uint64_t>::value) {
+            return isz::intersection_size_sets_min(first.data(), first.size(), o.first.data(), o.first.size(), min_count);
+        } else {
+            return isz::intersection_size_min(first, o.first, std::uint64_t(min_count));
+        }
+    }
+    // Exact threshold test: is the Jaccard index >= threshold?
+    bool jaccard_at_least(const FinalRMinHash &o, double threshold) const {
+        const size_t need = size_t(std::ceil(threshold * size()));
+        return intersection_size_min(o, need) >= need;
     }
     FinalRMinHash &operator+=(const FinalRMinHash &o) {
         std::vector<T, Allocator> newfirst; newfirst.reserve(o.size());
