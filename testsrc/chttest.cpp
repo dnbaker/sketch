@@ -713,7 +713,95 @@ static void test_assign_map() {
     std::fprintf(stderr, "cht assign/map done (%zu keys)\n", ref.size());
 }
 
+// cht_map_t (single-stream exact map) against std::unordered_map: wide and
+// narrow keys, overwrites, near-full fill (exercises the >= 255 displacement
+// spill), iteration, slot handles, batch prefetch lookups, structure_check.
+template<typename M>
+static void check_map_against(M &m, std::unordered_map<uint64_t, uint64_t> &ref, std::mt19937_64 &rng,
+                              uint64_t keymask, const char *tag) {
+    uint64_t bad = 0, fp = 0;
+    for (const auto &kv: ref) {
+        bad += m.get(kv.first) != kv.second;
+        const uint64_t i = m.find_slot(kv.first);
+        bad += i >= m.nslots() || m.decode(i) != kv.first || m.value_at(i) != kv.second;
+    }
+    for (unsigned t = 0; t < 100000; ++t) {
+        const uint64_t k = rng() & keymask;
+        if (!ref.count(k)) fp += m.get(k) != 0 || m.find_slot(k) != m.nslots();
+    }
+    CHECK(bad == 0 && fp == 0, "%s: %llu wrong, %llu false positives", tag, (unsigned long long)bad, (unsigned long long)fp);
+    CHECK(m.size() == ref.size(), "%s: size %llu != %zu", tag, (unsigned long long)m.size(), ref.size());
+    size_t n = 0;
+    for (auto it = m.begin(); it != m.end(); ++it, ++n) {
+        const auto r = ref.find(*it);
+        CHECK(r != ref.end() && r->second == it.mapped(), "%s: iteration (key, value) wrong", tag);
+    }
+    CHECK(n == ref.size(), "%s: iteration visited %zu of %zu", tag, n, ref.size());
+    std::vector<uint64_t> ks, got, want;
+    for (unsigned t = 0; t < 20000; ++t) ks.push_back((t & 1) ? (rng() & keymask): std::next(ref.begin(), rng() % std::min<size_t>(ref.size(), 5000))->first);
+    got.resize(ks.size());
+    m.get_many_prefetch(ks.begin(), ks.end(), got.begin(), 16);
+    for (const auto k: ks) want.push_back(m.get(k));
+    CHECK(got == want, "%s: get_many_prefetch != get", tag);
+    CHECK(m.structure_check(), "%s: structure_check failed", tag);
+}
+static void test_cht_map() {
+    {   // wide keys, 32-bit values, overwrites, fill ~0.85
+        cht_map_t<uint64_t, cht_splitmix64_hash, 32> m(16);
+        std::mt19937_64 rng(51);
+        std::unordered_map<uint64_t, uint64_t> ref;
+        for (unsigned i = 0; i < 70000; ++i) {
+            const uint64_t k = rng() % 56000, v = 1 + rng() % m.SAT;
+            m.assign(k, v); ref[k] = v;
+        }
+        check_map_against(m, ref, rng, ~uint64_t(0), "cht_map wide");
+        std::fprintf(stderr, "cht_map wide done (%zu keys, load %.2f, %u bits/slot)\n", ref.size(), m.load_factor(), m.cell_bits());
+    }
+    {   // narrow keys (32-bit identity, q = 16: 16-bit remainders), fill 0.99 -> spills
+        cht_map_t<uint64_t, cht_identity_hash<32>, 26> m(16);
+        std::mt19937_64 rng(52);
+        std::unordered_map<uint64_t, uint64_t> ref;
+        while (ref.size() < 64880) {
+            const uint64_t k = uint32_t(rng()), v = 1 + rng() % m.SAT;
+            m.assign(k, v); ref[k] = v;
+        }
+        check_map_against(m, ref, rng, 0xffffffffull, "cht_map narrow");
+        CHECK(m.num_spilled() > 0, "cht_map narrow: fill 0.99 should exercise the displacement spill");
+        std::fprintf(stderr, "cht_map narrow near-full done (%zu keys, load %.3f, %zu B, %zu spilled)\n", ref.size(), m.load_factor(), m.bytes_used(), m.num_spilled());
+    }
+    {   // write/read round trip
+        cht_map_t<uint64_t, cht_splitmix64_hash, 32> m(12);
+        std::mt19937_64 rng(53);
+        for (unsigned i = 0; i < 3000; ++i) m.assign(rng(), 1 + rng() % m.SAT);
+        std::FILE *fp = std::tmpfile();
+        m.write(fp); std::rewind(fp);
+        auto m2 = decltype(m)::read(fp);
+        std::fclose(fp);
+        bool same = m2.size() == m.size() && m2.q() == m.q();
+        for (auto it = m.begin(); it != m.end(); ++it) same = same && m2.get(*it) == it.mapped();
+        CHECK(same && m2.structure_check(), "cht_map: write/read round trip differs");
+        bool threw = false;
+        std::FILE *fp2 = std::tmpfile();
+        m.write(fp2); std::rewind(fp2);
+        try { (void)cht_map_t<uint64_t, cht_splitmix64_hash, 26>::read(fp2); } catch (const std::runtime_error &) { threw = true; }
+        std::fclose(fp2);
+        CHECK(threw, "cht_map: read with mismatched VAL_BITS must throw");
+    }
+    {   // errors and set_value_at
+        cht_map_t<uint64_t, cht_splitmix64_hash, 8> m(4);
+        bool threw0 = false, threwbig = false, threwfull = false;
+        try { m.assign(1, 0); } catch (const std::invalid_argument &) { threw0 = true; }
+        try { m.assign(1, 256); } catch (const std::invalid_argument &) { threwbig = true; }
+        for (uint64_t k = 0; k < 16; ++k) m.assign(k, 1 + k);
+        try { m.assign(99, 3); } catch (const std::overflow_error &) { threwfull = true; }
+        CHECK(threw0 && threwbig && threwfull, "cht_map: range/full errors must throw");
+        m.set_value_at(m.find_slot(5), 200);
+        CHECK(m.get(5) == 200 && m.get(6) == 7, "cht_map: set_value_at wrong");
+    }
+}
+
 int main() {
+    test_cht_map();
     test_assign_map();
     test_hash_roundtrips();
     test_exact_vs_cqf();

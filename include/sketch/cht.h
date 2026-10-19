@@ -176,6 +176,7 @@
 #include "simde/x86/sse.h"  // simde_mm_prefetch + SIMDE_MM_HINT_T0
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <iterator>
 #include <random>
@@ -569,15 +570,54 @@ public:
             if(++probe == nslots_) throw std::overflow_error("[cht] table full");
         }
     }
-    uint64_t get(Key k) const {
+    uint64_t get(Key k) const {return get_hashed(hf_.hash(k));}
+    uint64_t get_hashed(Key h) const {
         static_assert(DECODE_BITS != 0, "assign/get match by home and need DECODE_BITS=8");
-        const Key h = hf_.hash(k);
         const uint64_t f = fp(h);
         uint64_t i = home(h);
         for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
             if(!occupied(i)) return 0;
             if(rem(i) == f && disp_at(i) == probe) return cnt(i);
             if(++probe == nslots_) return 0;
+        }
+    }
+    // Prefetch every array a lookup at home slot hh touches: occupancy word,
+    // remainder word, displacement byte, value word.
+    INLINE void prefetch_home(uint64_t hh) const {
+        if(OCC_BITMAP)
+            simde_mm_prefetch(reinterpret_cast<const char*>(ocraw_.data() + hh / word_bits), SIMDE_MM_HINT_T0);
+        if(REM_PACKED)
+            simde_mm_prefetch(reinterpret_cast<const char*>(remraw_.data() + (hh * rs_) / word_bits), SIMDE_MM_HINT_T0);
+        else
+            simde_mm_prefetch(reinterpret_cast<const char*>(remu32_.data() + hh), SIMDE_MM_HINT_T0);
+        if(DECODE_BITS)
+            simde_mm_prefetch(reinterpret_cast<const char*>(dispraw_.data() + hh), SIMDE_MM_HINT_T0);
+        simde_mm_prefetch(reinterpret_cast<const char*>(cntraw_.data() + (hh * VAL_BITS) / word_bits), SIMDE_MM_HINT_T0);
+    }
+    // Batch get (home-exact) with software prefetch: each key is hashed ONCE
+    // into a small ring, its home's lines are prefetched `ahead` keys before
+    // use, and results are written in input order -- identical to calling
+    // get() on each key. The batch shape for lookup-bound callers (e.g. all
+    // k-mers of one read).
+    template<typename It, typename Ot>
+    void get_many_prefetch(It f, It l, Ot o, size_t ahead = 16) const {
+        static_assert(DECODE_BITS != 0, "assign/get match by home and need DECODE_BITS=8");
+        constexpr size_t RING = 64;
+        if(ahead > RING) ahead = RING;
+        if(ahead == 0) ahead = 1;
+        Key ring[RING];
+        size_t issued = 0, used = 0;
+        It pf = f;
+        auto issue = [&]() {
+            const Key h = hf_.hash(Key(*pf++));
+            prefetch_home(home(h));
+            ring[issued++ % RING] = h;
+        };
+        while(pf != l && issued < ahead) issue();
+        for(; f != l; ++f, ++o) {
+            const Key h = ring[used++ % RING];
+            if(pf != l) issue();
+            *o = get_hashed(h);
         }
     }
     // SLOT-LEVEL MAP ACCESS (home-exact like get): slots are stable -- linear
@@ -916,6 +956,271 @@ public:
             next_empty = i;
             first = gend;
         }
+    }
+};
+
+// ---------------------------------------------------------------------------
+// cht_map_t: exact key -> value map, SINGLE-STREAM layout.
+//
+// The same compact-hash idea as cht_t: a reversible hash, home = the top q
+// bits, and only the r = key_bits - q remainder bits stored. But every slot
+// is ONE packed cell, [ remainder (r) | value (VAL_BITS) | displacement (8) ],
+// in a single bit stream with value 0 = empty (no occupancy bitmap).
+//
+// A probe step is then one unaligned 16-byte load, and a lookup usually
+// touches one cache line. cht_t's struct-of-arrays layout touches four on a
+// hit (bitmap, remainder, displacement, value). Bits per slot are the same
+// as cht_t minus its occupancy bit.
+//
+// Matching is home-exact, as in cht_t::get: remainder equal AND recorded
+// displacement == probe distance. So with any key_bits there are no merged
+// keys and no false positives. Displacements >= 255 spill to a sorted side
+// vector (rare at fill <= 0.9), exactly like cht_t.
+//
+// Values must lie in [1, 2^VAL_BITS - 1]; store an offset for ranges that
+// include 0. Fixed capacity (no grow); insert throws std::overflow_error
+// when full. Slots are stable, so a slot index is a durable handle.
+// Not for concurrent writers.
+template<class Key, class RevHash, size_t VAL_BITS>
+class cht_map_t {
+    static_assert(std::is_same<Key, uint64_t>::value, "cht_map_t: Key must be uint64_t");
+    static_assert(VAL_BITS >= 1 && VAL_BITS <= 48, "VAL_BITS in [1, 48]");
+    static constexpr size_t KH_ = RevHash::key_bits;
+    static_assert(KH_ >= 4 && KH_ <= 64, "RevHash::key_bits must lie in [4, 64]");
+    using u128 = unsigned __int128;
+public:
+    static constexpr size_t key_bits = KH_;
+    static constexpr size_t val_bits = VAL_BITS;
+    static constexpr uint64_t SAT = (uint64_t(1) << VAL_BITS) - 1;
+private:
+    uint32_t q_ = 0, r_ = 0, w_ = 0;   // w_ = cell width r_ + VAL_BITS + 8
+    uint64_t nslots_ = 0, used_ = 0, rm_ = 0;
+    u128 cm_ = 0;                      // low-w_ mask
+    std::vector<uint8_t, common::Allocator<uint8_t>> bits_;
+    std::vector<std::pair<uint64_t, uint32_t>, common::Allocator<std::pair<uint64_t, uint32_t>>> spill_;
+    RevHash hf_;
+
+    INLINE u128 cell(uint64_t i) const {
+        const uint64_t off = i * w_;
+        u128 x;
+        std::memcpy(&x, bits_.data() + (off >> 3), sizeof(x));
+        return (x >> (off & 7)) & cm_;
+    }
+    INLINE void set_cell(uint64_t i, u128 v) {
+        const uint64_t off = i * w_;
+        const unsigned s = unsigned(off & 7);
+        u128 x;
+        std::memcpy(&x, bits_.data() + (off >> 3), sizeof(x));
+        x = (x & ~(cm_ << s)) | ((v & cm_) << s);
+        std::memcpy(bits_.data() + (off >> 3), &x, sizeof(x));
+    }
+    INLINE uint64_t c_rem(u128 c) const {return uint64_t(c) & rm_;}
+    INLINE uint64_t c_val(u128 c) const {return uint64_t(c >> r_) & SAT;}
+    INLINE uint64_t c_disp(u128 c) const {return uint64_t(c >> (r_ + VAL_BITS)) & 0xFFu;}
+    INLINE u128 make_cell(uint64_t f, uint64_t v, uint64_t d8) const {
+        return u128(f) | (u128(v) << r_) | (u128(d8) << (r_ + VAL_BITS));
+    }
+    uint64_t spilled_disp(uint64_t i) const {
+        const auto it = std::lower_bound(spill_.begin(), spill_.end(), std::make_pair(i, uint32_t(0)));
+        return it != spill_.end() && it->first == i ? uint64_t(it->second): 255;
+    }
+    INLINE uint64_t disp_of(uint64_t i, u128 c) const {
+        const uint64_t d = c_disp(c);
+        return HEDLEY_LIKELY(d < 255) ? d: spilled_disp(i);
+    }
+    // place a new entry at empty slot i, `probe` slots from its home
+    void place_new(uint64_t i, uint64_t f, uint64_t v, uint64_t probe) {
+        if(HEDLEY_LIKELY(probe < 255)) {
+            set_cell(i, make_cell(f, v, probe));
+        } else {
+            if(HEDLEY_UNLIKELY(probe > 0xFFFFFFFFull))
+                throw std::overflow_error("[cht_map] displacement exceeds 2^32");
+            set_cell(i, make_cell(f, v, 255));
+            spill_.insert(std::lower_bound(spill_.begin(), spill_.end(), std::make_pair(i, uint32_t(0))),
+                          std::make_pair(i, uint32_t(probe)));
+        }
+        ++used_;
+    }
+public:
+    using key_type = Key;
+    using mapped_type = uint64_t;
+    using hasher_type = RevHash;
+
+    explicit cht_map_t(uint32_t q, RevHash &&hf=RevHash()): hf_(std::move(hf)) {init(q);}
+    cht_map_t() = delete;
+
+    void init(uint32_t q) {
+        if(q < 2 || q > 40 || KH_ <= q)
+            throw std::invalid_argument(std::string("[cht_map] need 2 <= q <= 40 and q < key_bits; got q=") + std::to_string(q));
+        q_ = q; r_ = uint32_t(KH_) - q; w_ = r_ + uint32_t(VAL_BITS) + 8;
+        if(w_ > 121) // one 16-byte load at a byte offset covers 121 bits
+            throw std::invalid_argument("[cht_map] cell width (key_bits - q + VAL_BITS + 8) exceeds 121 bits");
+        rm_ = r_ >= 64 ? ~uint64_t(0): ((uint64_t(1) << r_) - 1);
+        cm_ = (u128(1) << w_) - 1;
+        nslots_ = uint64_t(1) << q;
+        bits_.assign(ceil_div(nslots_ * w_, uint64_t(8)) + 16, 0);
+        spill_.clear();
+        used_ = 0;
+    }
+    uint32_t q() const {return q_;}
+    uint32_t r() const {return r_;}
+    uint32_t cell_bits() const {return w_;}
+    uint64_t nslots() const {return nslots_;}
+    uint64_t size() const {return used_;}
+    bool empty() const {return used_ == 0;}
+    double load_factor() const {return double(used_) / double(nslots_);}
+    size_t bytes_used() const {return bits_.size() + spill_.size() * sizeof(spill_[0]);}
+    size_t num_spilled() const {return spill_.size();}   // entries displaced >= 255 slots
+
+    INLINE Key hash(Key v) const {return hf_.hash(v);}
+    INLINE Key invert(Key h) const {return hf_.invert(h);}
+    INLINE uint64_t home(Key h) const {return uint64_t(h >> r_);}
+    INLINE uint64_t fp(Key h) const {return uint64_t(h) & rm_;}
+
+    // insert k with value v in [1, SAT], or overwrite its value
+    uint64_t assign(Key k, uint64_t v) {
+        if(HEDLEY_UNLIKELY(v == 0 || v > SAT))
+            throw std::invalid_argument("[cht_map] assign: value must lie in [1, 2^VAL_BITS - 1]");
+        const Key h = hf_.hash(k);
+        const uint64_t f = fp(h);
+        uint64_t i = home(h);
+        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+            const u128 c = cell(i);
+            if(c_val(c) == 0) {
+                if(used_ == nslots_) throw std::overflow_error("[cht_map] table full");
+                place_new(i, f, v, probe);
+                return i;
+            }
+            if(c_rem(c) == f && disp_of(i, c) == probe) {
+                set_cell(i, (c & ~(u128(SAT) << r_)) | (u128(v) << r_));
+                return i;
+            }
+            if(++probe == nslots_) throw std::overflow_error("[cht_map] table full");
+        }
+    }
+    // slot of k, or nslots() when absent
+    uint64_t find_slot_hashed(Key h) const {
+        const uint64_t f = fp(h);
+        uint64_t i = home(h);
+        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+            const u128 c = cell(i);
+            if(c_val(c) == 0) return nslots_;
+            if(c_rem(c) == f && disp_of(i, c) == probe) return i;
+            if(++probe == nslots_) return nslots_;
+        }
+    }
+    uint64_t find_slot(Key k) const {return find_slot_hashed(hf_.hash(k));}
+    uint64_t get_hashed(Key h) const {
+        const uint64_t f = fp(h);
+        uint64_t i = home(h);
+        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+            const u128 c = cell(i);
+            const uint64_t v = c_val(c);
+            if(v == 0) return 0;
+            if(c_rem(c) == f && disp_of(i, c) == probe) return v;
+            if(++probe == nslots_) return 0;
+        }
+    }
+    uint64_t get(Key k) const {return get_hashed(hf_.hash(k));}
+    bool contains(Key k) const {return get(k) != 0;}
+    bool occupied_at(uint64_t i) const {return i < nslots_ && c_val(cell(i)) != 0;}
+    uint64_t value_at(uint64_t i) const {return c_val(cell(i));}
+    void set_value_at(uint64_t i, uint64_t v) {
+        if(HEDLEY_UNLIKELY(v == 0 || v > SAT || !occupied_at(i)))
+            throw std::invalid_argument("[cht_map] set_value_at: occupied slot and a value in [1, 2^VAL_BITS - 1] required");
+        const u128 c = cell(i);
+        set_cell(i, (c & ~(u128(SAT) << r_)) | (u128(v) << r_));
+    }
+    // the key stored at occupied slot i
+    Key decode(uint64_t i) const {
+        const u128 c = cell(i);
+        const uint64_t hpos = (i + nslots_ - disp_of(i, c)) & (nslots_ - 1);
+        return hf_.invert((Key(hpos) << r_) | Key(c_rem(c)));
+    }
+    INLINE void prefetch_home(uint64_t hh) const {
+        simde_mm_prefetch(reinterpret_cast<const char*>(bits_.data() + ((hh * w_) >> 3)), SIMDE_MM_HINT_T0);
+    }
+    // batch get with software prefetch, results in input order (== get each)
+    template<typename It, typename Ot>
+    void get_many_prefetch(It f, It l, Ot o, size_t ahead = 16) const {
+        constexpr size_t RING = 64;
+        if(ahead > RING) ahead = RING;
+        if(ahead == 0) ahead = 1;
+        Key ring[RING];
+        size_t issued = 0, used = 0;
+        It pf = f;
+        auto issue = [&]() {
+            const Key h = hf_.hash(Key(*pf++));
+            prefetch_home(home(h));
+            ring[issued++ % RING] = h;
+        };
+        while(pf != l && issued < ahead) issue();
+        for(; f != l; ++f, ++o) {
+            const Key h = ring[used++ % RING];
+            if(pf != l) issue();
+            *o = get_hashed(h);
+        }
+    }
+
+    class const_iterator {
+        const cht_map_t *t_ = nullptr;
+        uint64_t i_ = 0;
+        void skip() {while(i_ < t_->nslots_ && !t_->occupied_at(i_)) ++i_;}
+    public:
+        const_iterator() = default;
+        const_iterator(const cht_map_t *t, uint64_t i): t_(t), i_(i) {skip();}
+        bool operator==(const const_iterator &o) const {return t_ == o.t_ && i_ == o.i_;}
+        bool operator!=(const const_iterator &o) const {return !(*this == o);}
+        const_iterator &operator++() {++i_; skip(); return *this;}
+        Key operator*() const {return t_->decode(i_);}
+        uint64_t slot() const {return i_;}
+        uint64_t mapped() const {return t_->value_at(i_);}
+    };
+    const_iterator begin() const {return const_iterator(this, 0);}
+    const_iterator end() const {return const_iterator(this, nslots_);}
+
+    // Binary serialization: magic "CHTMAP01", key_bits, VAL_BITS, q, size,
+    // the cell stream and the displacement spill. RevHash must be stateless
+    // (or default-constructed identically) on both sides; read() checks the
+    // key/value widths against this instantiation and throws on mismatch.
+    void write(std::FILE *fp) const {
+        static const char magic[8] = {'C','H','T','M','A','P','0','1'};
+        const uint32_t hdr[3] = {uint32_t(KH_), uint32_t(VAL_BITS), q_};
+        const uint64_t nb = bits_.size(), ns = spill_.size();
+        if(std::fwrite(magic, 1, 8, fp) != 8 || std::fwrite(hdr, sizeof(hdr), 1, fp) != 1
+           || std::fwrite(&used_, sizeof(used_), 1, fp) != 1 || std::fwrite(&nb, sizeof(nb), 1, fp) != 1
+           || std::fwrite(bits_.data(), 1, nb, fp) != nb || std::fwrite(&ns, sizeof(ns), 1, fp) != 1
+           || (ns && std::fwrite(spill_.data(), sizeof(spill_[0]), ns, fp) != ns))
+            throw std::runtime_error("[cht_map] write failed");
+    }
+    static cht_map_t read(std::FILE *fp) {
+        char magic[8];
+        uint32_t hdr[3];
+        uint64_t used, nb, ns;
+        if(std::fread(magic, 1, 8, fp) != 8 || std::memcmp(magic, "CHTMAP01", 8))
+            throw std::runtime_error("[cht_map] read: bad magic");
+        if(std::fread(hdr, sizeof(hdr), 1, fp) != 1 || hdr[0] != KH_ || hdr[1] != VAL_BITS)
+            throw std::runtime_error("[cht_map] read: key/value widths do not match this instantiation");
+        cht_map_t ret(hdr[2]);
+        if(std::fread(&used, sizeof(used), 1, fp) != 1 || std::fread(&nb, sizeof(nb), 1, fp) != 1 || nb != ret.bits_.size())
+            throw std::runtime_error("[cht_map] read: truncated or inconsistent header");
+        if(std::fread(ret.bits_.data(), 1, nb, fp) != nb || std::fread(&ns, sizeof(ns), 1, fp) != 1)
+            throw std::runtime_error("[cht_map] read: truncated cell stream");
+        ret.spill_.resize(ns);
+        if(ns && std::fread(ret.spill_.data(), sizeof(ret.spill_[0]), ns, fp) != ns)
+            throw std::runtime_error("[cht_map] read: truncated spill");
+        ret.used_ = used;
+        return ret;
+    }
+    // every occupied slot re-probes to itself from its decoded key's home
+    bool structure_check() const {
+        uint64_t n = 0;
+        for(uint64_t i = 0; i < nslots_; ++i) {
+            if(!occupied_at(i)) continue;
+            ++n;
+            if(find_slot(decode(i)) != i) return false;
+        }
+        return n == used_;
     }
 };
 
