@@ -227,31 +227,13 @@ static void integration_minhash() {
                              k, (unsigned long long)ref, is);
                 std::exit(1);
             }
-            // jaccard_index keeps the legacy bounded-walk semantics
-            // (documented undercount on low overlap): gate it against a
-            // replica of that walk, not the exact count.
+            // jaccard_index is the exact full-merge register overlap.
             const double j = ra.jaccard_index(rb);
-            auto legacy_walk = [&]() {
-                auto lit = va.begin(), rit = vb.begin(), lend = va.end(), rend = vb.end();
-                size_t shared = 0, nused = 0;
-                while(nused++ < k) {
-                    if(*lit == *rit) {
-                        ++shared;
-                        if(++lit == lend) break;
-                        if(++rit == rend) break;
-                    } else {
-                        if(*lit < *rit) { if(++lit == lend) break; }
-                        else { if(++rit == rend) break; }
-                    }
-                }
-                return double(shared) / k;
-            };
-            const double jwalk = legacy_walk();
-            if(j != jwalk) {
-                std::fprintf(stderr, "[GATE FAIL] FinalRMinHash::jaccard_index k=%zu: walk=%f got=%f\n", k, jwalk, j);
+            const double jref = double(ref) / k;
+            if(j != jref) {
+                std::fprintf(stderr, "[GATE FAIL] FinalRMinHash::jaccard_index k=%zu: ref=%f got=%f\n", k, jref, j);
                 std::exit(1);
             }
-            const double jref = double(ref) / k;
             // Thresholded interfaces: capped count contract + exact jaccard threshold test.
             for(const std::uint64_t t: {std::uint64_t(0), std::uint64_t(1), std::uint64_t(ref / 2), std::uint64_t(ref), std::uint64_t(ref + 1), std::uint64_t(k + 1)}) {
                 const std::uint64_t got = sketch::isz::intersection_size_sets_min(

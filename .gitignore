@@ -41,6 +41,7 @@ __hm*.hmh
 /hlltest
 /hmhbench
 /hmhtest
+/isztest
 /hashtest
 /hnswcmp
 /lpcqf_approx
