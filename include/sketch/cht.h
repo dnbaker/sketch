@@ -345,104 +345,85 @@ public:
     }
 };
 
-// ---- the table ----------------------------------------------------------
-template<class Key, class RevHash, size_t VAL_BITS, size_t RSTORE_BITS=0, bool OCC_BITMAP=true, size_t DECODE_BITS=8, bool REM_PACKED=true>
-class cht_t {
+// ---- shared core ---------------------------------------------------------
+//
+// cht_core is the ONE implementation of the compact-hash table, shared by
+// two storage specializations:
+//   cht_t      struct-of-arrays storage (occupancy bitmap, packed remainder,
+//              packed value, u8 displacement as separate arrays): counting,
+//              truncated/membership-filter modes, 128-bit keys, the SIMD span
+//              scan and the sorted bulk build;
+//   cht_map_t  single-stream storage (one packed cell per slot:
+//              [remainder | value | displacement], value 0 = empty): the
+//              exact key -> value map, where a lookup touches one cache line.
+// The core holds the hashing (home = top q bits, stored fingerprint), the
+// probe loops with home-exact matching (one rule for add/count/assign/get/
+// find_slot), the displacement spill, decode/iteration, prefetching batch
+// lookups and the structure check. A storage policy supplies per-slot
+// primitives through a load handle: cht_t's handle is the slot index (lazy:
+// a probe step reads occupancy and remainder only), cht_map_t's is the loaded
+// cell (one load serves every field). Both are zero-cost.
+//
+// Storage hooks a Derived class provides (private; Derived befriends the core):
+//   void     init_storage_()                    size arrays for nslots_/rs_
+//   size_t   storage_bytes_() const             bytes of the storage arrays
+//   H        load_(uint64_t i) const            handle for slot i
+//   bool     h_occ_(uint64_t i, H) const        slot live
+//   uint64_t h_rem_(uint64_t i, H) const        stored fingerprint
+//   uint64_t h_val_(uint64_t i, H) const        value / counter
+//   uint64_t h_disp8_(uint64_t i, H) const      inline displacement byte
+//   void     place_(uint64_t i, uint64_t f, uint64_t v, uint64_t d8)   write a NEW live slot
+//   void     set_val_(uint64_t i, uint64_t v)
+//   void     set_disp8_(uint64_t i, uint64_t d8)
+//   void     prefetch_(uint64_t home) const
+//   bool     extra_check_() const               storage-specific invariants
+namespace detail {
+
+template<class Derived, class Key, class RevHash, size_t VAL_BITS, size_t RSTORE_BITS, size_t DECODE_BITS>
+class cht_core {
     static_assert(std::is_same<Key, uint64_t>::value || std::is_same<Key, unsigned __int128>::value,
-                  "cht_t: Key must be uint64_t or unsigned __int128");
+                  "cht: Key must be uint64_t or unsigned __int128");
     static_assert(VAL_BITS >= 1 && VAL_BITS <= 64, "VAL_BITS in [1, 64]");
     static_assert(RSTORE_BITS <= 64, "the stored fingerprint cell is a u64");
     static_assert(DECODE_BITS == 0 || DECODE_BITS == 8, "DECODE_BITS is 0 (membership-only) or 8 (u8 displacement array)");
+protected:
     static constexpr size_t KH_ = RevHash::key_bits; // effective hash width
     static_assert(KH_ >= 4 && KH_ <= sizeof(Key) * CHAR_BIT, "RevHash::key_bits must lie in [4, sizeof(Key)*CHAR_BIT]");
 public:
     static constexpr size_t key_bits = KH_;
     static constexpr size_t val_bits = VAL_BITS;
-    // exact mirrors cqfbase_t: the hash spans the key AND the full
-    // remainder is stored. Truncation (RSTORE_BITS > 0) is a separate
-    // fingerprint mode.
-    // home_exact: the full remainder is stored AND the displacement array
-    // exists, so every match (add/count/get/assign/find_slot and the SIMD
-    // scan) also requires the slot's recorded displacement == the probe
-    // distance (same home). Distinct keys of the key_bits-wide hash domain then
-    // never merge and absent keys never hit: exact on that domain, at one
-    // displacement-byte read per remainder match. exact: home_exact over the
+    // home_exact: the full remainder is stored AND displacements are kept,
+    // so every match (add/count/get/assign/find_slot and the SIMD scan)
+    // also requires the slot's recorded displacement == the probe distance
+    // (same home). Distinct keys of the key_bits-wide hash domain never
+    // merge and absent keys never hit: exact on that domain, at one
+    // displacement read per remainder match. exact: home_exact over the
     // full 64-bit key (key_bits >= 64). DECODE_BITS = 0 or truncation keeps
     // the remainder-only (run-mate class) matching of a membership filter.
     static constexpr bool home_exact = (RSTORE_BITS == 0) && (DECODE_BITS != 0);
     static constexpr bool exact = home_exact && (KH_ >= 64);
     static constexpr uint64_t SAT = VAL_BITS >= 64 ? ~uint64_t(0): ((uint64_t(1) << VAL_BITS) - 1);
-private:
-    uint32_t q_ = 0, r_ = 0;
-    uint32_t rs_ = 0;         // STORED fingerprint width: r_ (exact) or
-                              // min(RSTORE_BITS, r_) (truncated)
-    uint64_t nslots_ = 0;     // 2^q physical slots
-    uint64_t used_ = 0;       // occupied slots == distinct fingerprints
-    Key rm_ = 0;              // low-r_ mask (Key width)
-    uint64_t fpm_ = 0;        // low-rs_ mask (cell width)
-    std::vector<uint64_t, common::Allocator<uint64_t>> ocraw_, remraw_, cntraw_;
-    // unpacked remainder stream (REM_PACKED = false, rs_ <= 32 only): one
-    // u32 per slot for the direct 8-lane compare; packed wins memory, see
-    // the header REM_PACKED note and the bench crossover rows
-    std::vector<uint32_t, common::Allocator<uint32_t>> remu32_;
-    // dumper-only displacement metadata (never on the probe path): d < 255
-    // inline; 255 marks a spill entry (sorted by slot) holding d in u16
-    std::vector<uint8_t, common::Allocator<uint8_t>> dispraw_;
-    std::vector<std::pair<uint32_t, uint16_t>, common::Allocator<std::pair<uint32_t, uint16_t>>> dispill_;
-    RevHash hf_;
-
-    INLINE uint64_t rem(uint64_t i) const {
-        return REM_PACKED ? cqf::detail::packed_get(remraw_.data(), i, rs_): uint64_t(remu32_[i]);
-    }
-    INLINE void set_rem(uint64_t i, uint64_t v) {
-        if(REM_PACKED) cqf::detail::packed_set(remraw_.data(), i, rs_, v);
-        else remu32_[i] = uint32_t(v);
-    }
-    INLINE uint64_t cnt(uint64_t i) const {return cqf::detail::packed_get(cntraw_.data(), i, unsigned(VAL_BITS));}
-    INLINE bool occupied(uint64_t i) const {
-        return OCC_BITMAP ? cqf::detail::bv_get(ocraw_.data(), i): cnt(i) != 0;
-    }
-    // displacement d = (slot - home) mod nslots at placement; read only by
-    // decode(). Inline u8 covers d < 255; d >= 255 marks the byte and
-    // spills (sorted-by-slot binary search). A >= 65535 displacement means
-    // a 64k probe run -- never observed (max 1148 at q=22, fill 0.9).
-    INLINE void disp_place(uint64_t i, uint64_t d) {
-        if (DECODE_BITS) {
-            if (HEDLEY_LIKELY(d < 255)) {
-                dispraw_[i] = uint8_t(d);
-            } else {
-                if (HEDLEY_UNLIKELY(d >= 65535))
-                    throw std::overflow_error("[cht] displacement exceeds 65535; decode metadata cannot represent this probe run");
-                dispraw_[i] = 255;
-                dispill_.insert(std::lower_bound(dispill_.begin(), dispill_.end(), std::make_pair(uint32_t(i), uint16_t(0))),
-                                std::make_pair(uint32_t(i), uint16_t(d)));
-            }
-        }
-    }
-    INLINE uint64_t disp_at(uint64_t i) const {
-        const uint64_t d = dispraw_[i];
-        if (HEDLEY_LIKELY(d < 255)) return d;
-        const auto it = std::lower_bound(dispill_.begin(), dispill_.end(), std::make_pair(uint32_t(i), uint16_t(0)));
-        return it != dispill_.end() && it->first == i ? uint64_t(it->second): 255;
-    }
-    // payload write; liveness is the bitmap bit (bitmap mode) or the
-    // nonzero counter itself (sentinel mode), so no ordering constraint
-    // between the two packed arrays
-    void place(uint64_t i, uint64_t f, uint64_t c) {
-        set_rem(i, f);
-        cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), c);
-        if(OCC_BITMAP) cqf::detail::bv_set(ocraw_.data(), i);
-    }
-public:
     using key_type = Key;
     using mapped_type = uint64_t;
     using hasher_type = RevHash;
 
-    explicit cht_t(uint32_t q, RevHash &&hf=RevHash()): hf_(std::move(hf)) {init(q);}
-    cht_t() = delete;
+protected:
+    uint32_t q_ = 0, r_ = 0;
+    uint32_t rs_ = 0;         // STORED fingerprint width: r_ (exact) or min(RSTORE_BITS, r_) (truncated)
+    uint64_t nslots_ = 0;     // 2^q physical slots
+    uint64_t used_ = 0;       // occupied slots == distinct fingerprints
+    Key rm_ = 0;              // low-r_ mask (Key width)
+    uint64_t fpm_ = 0;        // low-rs_ mask (cell width)
+    // displacements >= 255 (inline byte 255): (slot, displacement), sorted by slot
+    std::vector<std::pair<uint64_t, uint32_t>, common::Allocator<std::pair<uint64_t, uint32_t>>> dispill_;
+    RevHash hf_;
 
-    void init(uint32_t q) {
-        if(q < 2 || q > 40 || KH_ - q < 1)
+    Derived &d() {return static_cast<Derived &>(*this);}
+    const Derived &d() const {return static_cast<const Derived &>(*this);}
+    explicit cht_core(RevHash &&hf): hf_(std::move(hf)) {}
+
+    void init_core(uint32_t q) {
+        if(q < 2 || q > 40 || KH_ <= q)
             throw std::invalid_argument(std::string("[cht] need 2 <= q <= 40 and 1 <= key_bits - q; got q=") + std::to_string(q));
         q_ = q; r_ = uint32_t(KH_) - q;
         rs_ = RSTORE_BITS ? unsigned(std::min<size_t>(size_t(RSTORE_BITS), size_t(r_))): r_;
@@ -451,54 +432,67 @@ public:
                                         + " exceeds the u64 cell; use a larger q or truncated mode (RSTORE_BITS <= 64)");
         rm_ = (Key(1) << r_) - Key(1);
         fpm_ = rs_ >= 64 ? ~uint64_t(0): ((uint64_t(1) << rs_) - 1);
-        if(!REM_PACKED && rs_ > 32) // u32 remainder cells
-            throw std::invalid_argument(std::string("[cht] REM_PACKED=false requires stored remainder width <= 32; got ") + std::to_string(rs_));
         nslots_ = uint64_t(1) << q;
-        if(OCC_BITMAP) ocraw_.assign(ceil_div(nslots_, uint64_t(word_bits)), 0);
-        else decltype(ocraw_)().swap(ocraw_);
-        if(REM_PACKED) {
-            remraw_.assign(ceil_div(nslots_ * rs_, uint64_t(word_bits)) + 1, 0);
-            decltype(remu32_)().swap(remu32_);
-        } else {
-            remu32_.assign(nslots_, 0);
-            decltype(remraw_)().swap(remraw_);
-        }
-        cntraw_.assign(VAL_BITS >= word_bits ? nslots_: ceil_div(nslots_ * VAL_BITS, uint64_t(word_bits)) + 1, 0);
-        if(DECODE_BITS) {dispraw_.assign(nslots_, 0); dispill_.clear();}
-        else {decltype(dispraw_)().swap(dispraw_); decltype(dispill_)().swap(dispill_);}
+        dispill_.clear();
         used_ = 0;
+        d().init_storage_();
     }
+
+    // ---- displacement: inline byte, >= 255 spilled -------------------------
+    template<typename H>
+    INLINE uint64_t disp_h(uint64_t i, const H &c) const {
+        const uint64_t d8 = d().h_disp8_(i, c);
+        if(HEDLEY_LIKELY(d8 < 255)) return d8;
+        const auto it = std::lower_bound(dispill_.begin(), dispill_.end(), std::make_pair(i, uint32_t(0)));
+        return it != dispill_.end() && it->first == i ? uint64_t(it->second): 255;
+    }
+    INLINE uint64_t disp_at(uint64_t i) const {return disp_h(i, d().load_(i));}
+    void disp_place(uint64_t i, uint64_t dd) {
+        if(!DECODE_BITS) return;
+        if(HEDLEY_LIKELY(dd < 255)) {
+            d().set_disp8_(i, dd);
+        } else {
+            if(HEDLEY_UNLIKELY(dd > 0xFFFFFFFFull))
+                throw std::overflow_error("[cht] displacement exceeds 2^32; decode metadata cannot represent this probe run");
+            d().set_disp8_(i, 255);
+            dispill_.insert(std::lower_bound(dispill_.begin(), dispill_.end(), std::make_pair(i, uint32_t(0))),
+                            std::make_pair(i, uint32_t(dd)));
+        }
+    }
+    // a new live slot in ONE storage write (payload + inline displacement
+    // byte); only displacements >= 255 touch the spill
+    void place_new(uint64_t i, uint64_t f, uint64_t v, uint64_t probe) {
+        if(HEDLEY_LIKELY(!DECODE_BITS || probe < 255)) {
+            d().place_(i, f, v, DECODE_BITS ? probe: 0);
+        } else {
+            if(HEDLEY_UNLIKELY(probe > 0xFFFFFFFFull))
+                throw std::overflow_error("[cht] displacement exceeds 2^32; decode metadata cannot represent this probe run");
+            d().place_(i, f, v, 255);
+            dispill_.insert(std::lower_bound(dispill_.begin(), dispill_.end(), std::make_pair(i, uint32_t(0))),
+                            std::make_pair(i, uint32_t(probe)));
+        }
+        ++used_;
+    }
+    // the matching rule: remainder AND (home_exact or MapApi) recorded displacement == probe distance
+    template<bool MapApi, typename H>
+    INLINE bool match(uint64_t i, const H &c, uint64_t f, uint64_t probe) const {
+        return d().h_rem_(i, c) == f && ((!home_exact && !MapApi) || disp_h(i, c) == probe);
+    }
+
+public:
+    void init(uint32_t q) {init_core(q);}
     uint32_t q() const {return q_;}
     uint32_t r() const {return r_;}
     uint64_t nslots() const {return nslots_;}
     uint64_t size() const {return used_;}   // distinct fingerprints
     bool empty() const {return used_ == 0;}
     double load_factor() const {return double(used_) / double(nslots_);}
-    // data footprint in bytes (every array of this instantiation,
-    // displacement metadata included when DECODE_BITS=8); bits/entry is
-    // bytes_used()*8 / size() at the measured fill
+    size_t num_spilled() const {return dispill_.size();}   // entries displaced >= 255 slots
+    // data footprint in bytes: every storage array plus the displacement spill
     size_t bytes_used() const {
-        return (OCC_BITMAP ? ocraw_.size(): 0) * sizeof(uint64_t)
-             + (REM_PACKED ? remraw_.size() * sizeof(uint64_t): remu32_.size() * sizeof(uint32_t))
-             + cntraw_.size() * sizeof(uint64_t)
-             + (DECODE_BITS ? dispraw_.size() + dispill_.size() * sizeof(std::pair<uint32_t, uint16_t>): 0);
+        return d().storage_bytes_() + (DECODE_BITS ? dispill_.size() * sizeof(dispill_[0]): 0);
     }
-    std::pair<size_t, size_t> est_memory_usage() const {
-        return std::make_pair(sizeof(*this), bytes_used());
-    }
-    // False-positive bound, clustering-aware (see TRUNCATED-MODE FPR,
-    // HONESTLY above): an absent key collides iff its rs_-wide remainder
-    // appears anywhere in its probe span of expected length
-    // L(a) = (1 + 1/(1-a)^2)/2 at load a. Exact mode with key_bits >= 64
-    // reports 0 (the class is L/2^64). NOTE this is NOT the same basis as
-    // cqfbase_t::fpr_bound (idealized per-(home,fp)); the measured fp
-    // columns in the bench are the apples-to-apples comparison.
-    double fpr_bound() const {
-        if (exact) return 0.;
-        const double a = load_factor();
-        const double L = (1. + 1. / (1. - a) / (1. - a)) / 2.;
-        return 1. - std::exp(-L / std::ldexp(1., int(rs_)));
-    }
+    std::pair<size_t, size_t> est_memory_usage() const {return std::make_pair(sizeof(Derived), bytes_used());}
 
     INLINE Key hash(Key v) const {return hf_.hash(v);}
     INLINE Key invert(Key h) const {return hf_.invert(h);}
@@ -509,61 +503,58 @@ public:
     INLINE uint64_t fp(Key h) const {
         return rs_ == r_ ? uint64_t(h & rm_): (uint64_t(h >> (r_ - rs_)) & fpm_);
     }
-    // reconstruct the caller key stored at slot i: the key's HOME (slot
-    // minus the recorded displacement) as the top bits, stored fingerprint
-    // re-embedded at the TOP of the remainder field with zeros below
-    // (cqfbase_t::key_of convention), then invert(). Exact mode: the
-    // original key. Truncated mode: the canonical representative of a
-    // (home, fp) pair -- see header contract.
+    // reconstruct the caller key stored at slot i: home (slot minus recorded
+    // displacement) as the top bits, the stored fingerprint at the TOP of the
+    // remainder field with zeros below, then invert(). Exact mode: the
+    // original key. Truncated mode: the canonical (home, fp) representative.
     INLINE Key decode(uint64_t i) const {
         static_assert(DECODE_BITS != 0, "decode/dump require DECODE_BITS=8 (membership-only table)");
-        const uint64_t hpos = (i + nslots_ - disp_at(i)) & (nslots_ - 1);
-        return hf_.invert((Key(hpos) << r_) | (Key(rem(i)) << (r_ - rs_)));
+        const auto c = d().load_(i);
+        const uint64_t hpos = (i + nslots_ - disp_h(i, c)) & (nslots_ - 1);
+        return hf_.invert((Key(hpos) << r_) | (Key(d().h_rem_(i, c)) << (r_ - rs_)));
     }
 
-    // single-key insert given the key's HASH (add_slot hashes). Placement
-    // rule identical to add(); shared by add(), the high-fill bulk fallback,
-    // and the batch add APIs.
+    // ---- counting --------------------------------------------------------
+    // insert given the key's HASH; returns the slot it landed in or merged at
     uint64_t add_hashed(Key h) {
         const uint64_t f = fp(h);
         uint64_t i = home(h);
         for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
-            if(!occupied(i)) {
+            const auto c = d().load_(i);
+            if(!d().h_occ_(i, c)) {
                 if(used_ == nslots_) throw std::overflow_error("[cht] table full");
-                place(i, f, 1);
-                disp_place(i, probe);
-                ++used_; return i;
+                place_new(i, f, 1, probe);
+                return i;
             }
-            if(rem(i) == f && (!home_exact || disp_at(i) == probe)) {
-                const uint64_t c = cnt(i);
-                if(c < SAT) cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), c + 1);
+            if(match<false>(i, c, f, probe)) {
+                const uint64_t v = d().h_val_(i, c);
+                if(v < SAT) d().set_val_(i, v + 1);
                 return i;
             }
             if(++probe == nslots_) throw std::overflow_error("[cht] table full");
         }
     }
-    // single-key insert (probing with wraparound); returns the slot the key
-    // landed in (or merged at).
     uint64_t add_slot(Key k) {return add_hashed(hf_.hash(k));}
     void add(Key k) {add_slot(k);}
-    // MAP USE: assign(k, v) inserts k with value v or overwrites its value,
-    // in the VAL_BITS field add() uses as a counter; get(k) returns it (0 =
-    // absent). v must lie in [1, SAT]: 0 is the empty value (sentinel
-    // occupancy, and structure_check's live <=> nonzero invariant), so maps
-    // onto a range that includes 0 store an offset (e.g. v + 1).
-    //
-    // HOME-EXACT MATCHING: count()/add() compare only the stored remainder
-    // across the whole probe span, so two keys with different homes but equal
-    // remainders merge when one is displaced into the other's run (the
-    // run-mate class, ~2^-(key_bits - q) per comparison: negligible for 64-bit
-    // hashes, NOT for narrow keys such as 32-bit ids at q ~ 20). The map API
-    // also requires the slot's recorded displacement to equal the current
-    // probe distance, i.e. the slot's key has the SAME home -- so with the full
-    // remainder stored (RSTORE_BITS = 0) assign/get are exact for any
-    // key_bits. The displacement byte is read only on a remainder match. Needs
-    // the displacement array (DECODE_BITS = 8). Placement is add_hashed()'s,
-    // so decode/iteration are unaffected; mixing assign() with add() on one
-    // key is allowed but add() keeps its run-mate semantics.
+    uint64_t count_hashed(Key h) const {
+        const uint64_t f = fp(h);
+        uint64_t i = home(h);
+        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+            const auto c = d().load_(i);
+            if(!d().h_occ_(i, c)) return 0;
+            if(match<false>(i, c, f, probe)) return d().h_val_(i, c);
+            if(++probe == nslots_) return 0;
+        }
+    }
+    uint64_t count(Key k) const {return count_hashed(hf_.hash(k));}
+    bool contains(Key k) const {return count(k) != 0;}
+    bool may_contain(Key k) const {return contains(k);}
+
+    // ---- map API (always home-matched; exact when home_exact) -------------
+    // assign(k, v): insert k with value v in [1, SAT] or overwrite its value;
+    // get(k) returns it (0 = absent). 0 is the empty value, so maps onto a
+    // range that includes 0 store an offset (e.g. v + 1). add() still counts
+    // on top of an assigned value.
     uint64_t assign(Key k, uint64_t v) {
         static_assert(DECODE_BITS != 0, "assign/get match by home and need DECODE_BITS=8");
         if(HEDLEY_UNLIKELY(v == 0 || v > SAT))
@@ -572,51 +563,58 @@ public:
         const uint64_t f = fp(h);
         uint64_t i = home(h);
         for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
-            if(!occupied(i)) {
+            const auto c = d().load_(i);
+            if(!d().h_occ_(i, c)) {
                 if(used_ == nslots_) throw std::overflow_error("[cht] table full");
-                place(i, f, v);
-                disp_place(i, probe);
-                ++used_; return i;
-            }
-            if(rem(i) == f && disp_at(i) == probe) {
-                cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), v);
+                place_new(i, f, v, probe);
                 return i;
             }
+            if(match<true>(i, c, f, probe)) {d().set_val_(i, v); return i;}
             if(++probe == nslots_) throw std::overflow_error("[cht] table full");
         }
     }
-    uint64_t get(Key k) const {return get_hashed(hf_.hash(k));}
+    // slot of the key with hash h, or nslots() when absent; slots are stable
+    // (no deletion, linear probing never moves an entry), so a slot index is
+    // a durable handle
+    uint64_t find_slot_hashed(Key h) const {
+        static_assert(DECODE_BITS != 0, "find_slot matches by home and needs DECODE_BITS=8");
+        const uint64_t f = fp(h);
+        uint64_t i = home(h);
+        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+            const auto c = d().load_(i);
+            if(!d().h_occ_(i, c)) return nslots_;
+            if(match<true>(i, c, f, probe)) return i;
+            if(++probe == nslots_) return nslots_;
+        }
+    }
+    uint64_t find_slot(Key k) const {return find_slot_hashed(hf_.hash(k));}
     uint64_t get_hashed(Key h) const {
         static_assert(DECODE_BITS != 0, "assign/get match by home and need DECODE_BITS=8");
         const uint64_t f = fp(h);
         uint64_t i = home(h);
         for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
-            if(!occupied(i)) return 0;
-            if(rem(i) == f && disp_at(i) == probe) return cnt(i);
+            const auto c = d().load_(i);
+            if(!d().h_occ_(i, c)) return 0;
+            if(match<true>(i, c, f, probe)) return d().h_val_(i, c);
             if(++probe == nslots_) return 0;
         }
     }
-    // Prefetch every array a lookup at home slot hh touches: occupancy word,
-    // remainder word, displacement byte, value word.
-    INLINE void prefetch_home(uint64_t hh) const {
-        if(OCC_BITMAP)
-            simde_mm_prefetch(reinterpret_cast<const char*>(ocraw_.data() + hh / word_bits), SIMDE_MM_HINT_T0);
-        if(REM_PACKED)
-            simde_mm_prefetch(reinterpret_cast<const char*>(remraw_.data() + (hh * rs_) / word_bits), SIMDE_MM_HINT_T0);
-        else
-            simde_mm_prefetch(reinterpret_cast<const char*>(remu32_.data() + hh), SIMDE_MM_HINT_T0);
-        if(DECODE_BITS)
-            simde_mm_prefetch(reinterpret_cast<const char*>(dispraw_.data() + hh), SIMDE_MM_HINT_T0);
-        simde_mm_prefetch(reinterpret_cast<const char*>(cntraw_.data() + (hh * VAL_BITS) / word_bits), SIMDE_MM_HINT_T0);
+    uint64_t get(Key k) const {return get_hashed(hf_.hash(k));}
+    bool occupied_at(uint64_t i) const {return i < nslots_ && d().h_occ_(i, d().load_(i));}
+    uint64_t value_at(uint64_t i) const {return d().h_val_(i, d().load_(i));}
+    void set_value_at(uint64_t i, uint64_t v) {
+        if(HEDLEY_UNLIKELY(v == 0 || v > SAT || !occupied_at(i)))
+            throw std::invalid_argument("[cht] set_value_at: occupied slot and a value in [1, 2^VAL_BITS - 1] required");
+        d().set_val_(i, v);
     }
-    // Batch get (home-exact) with software prefetch: each key is hashed ONCE
-    // into a small ring, its home's lines are prefetched `ahead` keys before
-    // use, and results are written in input order -- identical to calling
-    // get() on each key. The batch shape for lookup-bound callers (e.g. all
-    // k-mers of one read).
-    template<typename It, typename Ot>
-    void get_many_prefetch(It f, It l, Ot o, size_t ahead = 16) const {
-        static_assert(DECODE_BITS != 0, "assign/get match by home and need DECODE_BITS=8");
+
+    // ---- batches ---------------------------------------------------------
+    INLINE void prefetch_home(uint64_t hh) const {d().prefetch_(hh);}
+    // Batch with software prefetch: each key hashed ONCE into a ring, its
+    // home's lines prefetched `ahead` keys before use; results in input
+    // order, identical to the scalar call per key.
+    template<bool Get, typename It, typename Ot>
+    void many_prefetch_(It f, It l, Ot o, size_t ahead) const {
         constexpr size_t RING = 64;
         if(ahead > RING) ahead = RING;
         if(ahead == 0) ahead = 1;
@@ -632,48 +630,199 @@ public:
         for(; f != l; ++f, ++o) {
             const Key h = ring[used++ % RING];
             if(pf != l) issue();
-            *o = get_hashed(h);
+            if constexpr(Get) *o = get_hashed(h);
+            else *o = count_hashed(h);
         }
     }
-    // SLOT-LEVEL MAP ACCESS (home-exact like get): slots are stable -- linear
-    // probing without deletion never moves a placed entry -- so a slot index
-    // is a durable handle, e.g. for storing references between entries (a
-    // tree's parent pointer as the parent's slot). find_slot returns nslots()
-    // when k is absent; value_at/set_value_at read/write the VAL_BITS field of
-    // an OCCUPIED slot (set_value_at's value must lie in [1, SAT]); decode(i)
-    // recovers the slot's key.
-    uint64_t find_slot(Key k) const {
-        static_assert(DECODE_BITS != 0, "find_slot matches by home and needs DECODE_BITS=8");
-        const Key h = hf_.hash(k);
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
-            if(!occupied(i)) return nslots_;
-            if(rem(i) == f && disp_at(i) == probe) return i;
-            if(++probe == nslots_) return nslots_;
-        }
-    }
-    bool occupied_at(uint64_t i) const {return i < nslots_ && occupied(i);}
-    uint64_t value_at(uint64_t i) const {return cnt(i);}
-    void set_value_at(uint64_t i, uint64_t v) {
-        if(HEDLEY_UNLIKELY(v == 0 || v > SAT || !occupied_at(i)))
-            throw std::invalid_argument("[cht] set_value_at: occupied slot and a value in [1, 2^VAL_BITS - 1] required");
-        cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), v);
-    }
-    uint64_t count(Key k) const {
-        const Key h = hf_.hash(k);
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
-            if(!occupied(i)) return 0;
-            if(rem(i) == f && (!home_exact || disp_at(i) == probe)) return cnt(i);
-            if(++probe == nslots_) return 0;
-        }
-    }
-    bool contains(Key k) const {return count(k) != 0;}
-    bool may_contain(Key k) const {return contains(k);}
+    template<typename It, typename Ot>
+    void get_many_prefetch(It f, It l, Ot o, size_t ahead = 16) const {many_prefetch_<true>(f, l, o, ahead);}
+    template<typename It, typename Ot>
+    void count_many_prefetch(It f, It l, Ot o, size_t ahead = 8) const {many_prefetch_<false>(f, l, o, ahead);}
+    // scalar batch count (one-by-one probe); the reference batch paths are checked against
+    template<typename It, typename Ot>
+    void count_many(It f, It l, Ot o) const {for(; f != l; ++f, ++o) *o = count(Key(*f));}
+    // sorted-order batch count: input sorted by hash ascending (the
+    // add_bulk_sorted order); consecutive keys share probe-span lines
+    template<typename It, typename Ot>
+    void count_many_sorted(It f, It l, Ot o) const {for(; f != l; ++f, ++o) *o = count(Key(*f));}
+    template<typename It>
+    void add_many(It f, It l) {for(; f != l; ++f) add(Key(*f));}
+    template<typename It>
+    void add_many_sorted(It f, It l) {for(; f != l; ++f) add(Key(*f));}
 
-    // ---- batch APIs (see the SIMD header section) ----
+    // ---- iteration -------------------------------------------------------
+    class const_iterator {
+        const Derived *t_ = nullptr;
+        uint64_t i_ = 0;
+        void skip() {while(i_ < t_->nslots() && !t_->occupied_at(i_)) ++i_;}
+    public:
+        static_assert(DECODE_BITS != 0, "iteration requires DECODE_BITS=8 (membership-only table)");
+        const_iterator() = default;
+        const_iterator(const Derived *t, uint64_t i): t_(t), i_(i) {skip();}
+        bool operator==(const const_iterator &o) const {return t_ == o.t_ && i_ == o.i_;}
+        bool operator!=(const const_iterator &o) const {return !(*this == o);}
+        const_iterator &operator++() {++i_; skip(); return *this;}
+        const_iterator operator++(int) {const_iterator tmp(*this); ++*this; return tmp;}
+        Key operator*() const {return t_->decode(i_);}
+        uint64_t slot() const {return i_;}                 // physical slot
+        uint64_t mapped() const {return t_->value_at(i_);} // value/counter at the slot
+    };
+    const_iterator begin() const {return const_iterator(&d(), 0);}
+    const_iterator end() const {return const_iterator(&d(), nslots_);}
+    template<typename OutIt>
+    void dump_keys(OutIt out) const {for(const_iterator it = begin(); it != end(); ++it) *out++ = *it;}
+    template<typename OutIt>
+    void dump(OutIt out) const {for(const_iterator it = begin(); it != end(); ++it) *out++ = std::make_pair(*it, it.mapped());}
+
+    // ---- test/debug helper ------------------------------------------------
+    // Returns false on the first violated invariant: storage-specific checks
+    // (extra_check_), liveness <=> nonzero value with value <= SAT on every
+    // slot, live count == size(), and on `sample` sampled live slots (every
+    // slot when sample == 0) the decoded key re-hashes to the slot's (home,
+    // fingerprint) -- and, home_exact, re-probes to exactly that slot.
+    bool structure_check(size_t sample = 1000) const {
+        if(!d().extra_check_()) return false;
+        uint64_t live = 0;
+        for(uint64_t i = 0; i < nslots_; ++i) {
+            const auto c = d().load_(i);
+            const bool occ = d().h_occ_(i, c);
+            const uint64_t v = d().h_val_(i, c);
+            if(occ != (v != 0)) return false;
+            if(occ && v > SAT) return false;
+            live += occ;
+        }
+        if(live != used_) return false;
+        if constexpr(DECODE_BITS != 0) {
+            if(!used_) return true;
+            auto check_slot = [&](uint64_t i) {
+                const Key h = hf_.hash(decode(i));
+                if(home(h) != ((i + nslots_ - disp_at(i)) & (nslots_ - 1)) || fp(h) != d().h_rem_(i, d().load_(i))) return false;
+                if constexpr(home_exact) if(find_slot_hashed(h) != i) return false;
+                return true;
+            };
+            if(sample == 0) {
+                for(uint64_t i = 0; i < nslots_; ++i) if(occupied_at(i) && !check_slot(i)) return false;
+            } else {
+                std::mt19937_64 rng(97);
+                for(size_t t = 0; t < sample; ++t) {
+                    const uint64_t i = rng() % nslots_;
+                    if(occupied_at(i) && !check_slot(i)) return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+
+} // namespace detail
+
+// ---- cht_t: struct-of-arrays storage -------------------------------------
+// TEMPLATE PARAMETERS and modes: see the header comment (Key, RevHash,
+// VAL_BITS, RSTORE_BITS, OCC_BITMAP, DECODE_BITS, REM_PACKED). Adds to the
+// core: truncated-mode fpr_bound, batch hashing (hash4), the SIMD span scan
+// (count_simd*), SIMD batch insert and the sorted bulk build.
+template<class Key, class RevHash, size_t VAL_BITS, size_t RSTORE_BITS=0, bool OCC_BITMAP=true, size_t DECODE_BITS=8, bool REM_PACKED=true>
+class cht_t: public detail::cht_core<cht_t<Key, RevHash, VAL_BITS, RSTORE_BITS, OCC_BITMAP, DECODE_BITS, REM_PACKED>,
+                                     Key, RevHash, VAL_BITS, RSTORE_BITS, DECODE_BITS> {
+    using Base = detail::cht_core<cht_t, Key, RevHash, VAL_BITS, RSTORE_BITS, DECODE_BITS>;
+    friend Base;
+    using Base::q_; using Base::r_; using Base::rs_; using Base::nslots_; using Base::used_;
+    using Base::rm_; using Base::fpm_; using Base::dispill_; using Base::hf_;
+    using Base::disp_at; using Base::disp_place;
+    std::vector<uint64_t, common::Allocator<uint64_t>> ocraw_, remraw_, cntraw_;
+    // unpacked remainder stream (REM_PACKED = false, rs_ <= 32 only): one
+    // u32 per slot for the direct 8-lane compare; packed wins memory
+    std::vector<uint32_t, common::Allocator<uint32_t>> remu32_;
+    // displacement bytes (DECODE_BITS = 8): d < 255 inline, 255 = spilled
+    std::vector<uint8_t, common::Allocator<uint8_t>> dispraw_;
+
+    INLINE uint64_t rem(uint64_t i) const {
+        return REM_PACKED ? cqf::detail::packed_get(remraw_.data(), i, rs_): uint64_t(remu32_[i]);
+    }
+    INLINE void set_rem(uint64_t i, uint64_t v) {
+        if(REM_PACKED) cqf::detail::packed_set(remraw_.data(), i, rs_, v);
+        else remu32_[i] = uint32_t(v);
+    }
+    INLINE uint64_t cnt(uint64_t i) const {return cqf::detail::packed_get(cntraw_.data(), i, unsigned(VAL_BITS));}
+    INLINE bool occupied(uint64_t i) const {
+        return OCC_BITMAP ? cqf::detail::bv_get(ocraw_.data(), i): cnt(i) != 0;
+    }
+    // payload write; liveness is the bitmap bit (bitmap mode) or the nonzero counter (sentinel mode)
+    void place(uint64_t i, uint64_t f, uint64_t c) {
+        set_rem(i, f);
+        cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), c);
+        if(OCC_BITMAP) cqf::detail::bv_set(ocraw_.data(), i);
+    }
+
+    // ---- storage hooks (cht_core) ----
+    void init_storage_() {
+        if(!REM_PACKED && rs_ > 32) // u32 remainder cells
+            throw std::invalid_argument(std::string("[cht] REM_PACKED=false requires stored remainder width <= 32; got ") + std::to_string(rs_));
+        if(OCC_BITMAP) ocraw_.assign(ceil_div(nslots_, uint64_t(word_bits)), 0);
+        else decltype(ocraw_)().swap(ocraw_);
+        if(REM_PACKED) {
+            remraw_.assign(ceil_div(nslots_ * rs_, uint64_t(word_bits)) + 1, 0);
+            decltype(remu32_)().swap(remu32_);
+        } else {
+            remu32_.assign(nslots_, 0);
+            decltype(remraw_)().swap(remraw_);
+        }
+        cntraw_.assign(VAL_BITS >= word_bits ? nslots_: ceil_div(nslots_ * VAL_BITS, uint64_t(word_bits)) + 1, 0);
+        if(DECODE_BITS) dispraw_.assign(nslots_, 0);
+        else decltype(dispraw_)().swap(dispraw_);
+    }
+    size_t storage_bytes_() const {
+        return (OCC_BITMAP ? ocraw_.size(): 0) * sizeof(uint64_t)
+             + (REM_PACKED ? remraw_.size() * sizeof(uint64_t): remu32_.size() * sizeof(uint32_t))
+             + cntraw_.size() * sizeof(uint64_t)
+             + (DECODE_BITS ? dispraw_.size(): 0);
+    }
+    INLINE uint64_t load_(uint64_t i) const {return i;}
+    INLINE bool h_occ_(uint64_t i, uint64_t) const {return occupied(i);}
+    INLINE uint64_t h_rem_(uint64_t i, uint64_t) const {return rem(i);}
+    INLINE uint64_t h_val_(uint64_t i, uint64_t) const {return cnt(i);}
+    INLINE uint64_t h_disp8_(uint64_t i, uint64_t) const {return dispraw_[i];}
+    void place_(uint64_t i, uint64_t f, uint64_t v, uint64_t d8) {
+        place(i, f, v);
+        if(DECODE_BITS) dispraw_[i] = uint8_t(d8);
+    }
+    void set_val_(uint64_t i, uint64_t v) {cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), v);}
+    void set_disp8_(uint64_t i, uint64_t d8) {dispraw_[i] = uint8_t(d8);}
+    INLINE void prefetch_(uint64_t hh) const {
+        if(OCC_BITMAP)
+            simde_mm_prefetch(reinterpret_cast<const char*>(ocraw_.data() + hh / word_bits), SIMDE_MM_HINT_T0);
+        if(REM_PACKED)
+            simde_mm_prefetch(reinterpret_cast<const char*>(remraw_.data() + (hh * rs_) / word_bits), SIMDE_MM_HINT_T0);
+        else
+            simde_mm_prefetch(reinterpret_cast<const char*>(remu32_.data() + hh), SIMDE_MM_HINT_T0);
+        if(DECODE_BITS)
+            simde_mm_prefetch(reinterpret_cast<const char*>(dispraw_.data() + hh), SIMDE_MM_HINT_T0);
+        simde_mm_prefetch(reinterpret_cast<const char*>(cntraw_.data() + (hh * VAL_BITS) / word_bits), SIMDE_MM_HINT_T0);
+    }
+    // the occupancy bitmap total (shared popcount machinery) equals size()
+    bool extra_check_() const {
+        return !OCC_BITMAP || cqf::detail::popcount_words(ocraw_.data(), ocraw_.size()) == used_;
+    }
+
+public:
+    using Base::SAT; using Base::home_exact; using Base::exact;
+    using Base::home; using Base::fp; using Base::count; using Base::add_slot; using Base::load_factor;
+    using Base::add_hashed; using Base::add; using Base::hash;
+    explicit cht_t(uint32_t q, RevHash &&hf=RevHash()): Base(std::move(hf)) {this->init_core(q);}
+    cht_t() = delete;
+
+    // False-positive bound, clustering-aware (see TRUNCATED-MODE FPR,
+    // HONESTLY above): an absent key collides iff its rs_-wide remainder
+    // appears anywhere in its probe span of expected length
+    // L(a) = (1 + 1/(1-a)^2)/2 at load a. Exact mode reports 0. NOTE this is
+    // NOT the same basis as cqfbase_t::fpr_bound (idealized per-(home,fp)).
+    double fpr_bound() const {
+        if (exact) return 0.;
+        const double a = load_factor();
+        const double L = (1. + 1. / (1. - a) / (1. - a)) / 2.;
+        return 1. - std::exp(-L / std::ldexp(1., int(rs_)));
+    }
+
     // batch-hash [f,l) through the reversible chain: 4 u64 lanes at a time
     // via RevHash::hash4 when Key is u64 and the iterators are random
     // access, scalar tail/otherwise. OutIt receives uint64 hash values.
@@ -689,40 +838,6 @@ public:
         }
         for(; f != l; ++f, ++o) *o = uint64_t(hf_.hash(Key(*f)));
     }
-    // scalar batch count (one-by-one probe); the reference the SIMD paths
-    // are checked against
-    template<typename It, typename Ot>
-    void count_many(It f, It l, Ot o) const {for(; f != l; ++f, ++o) *o = count(Key(*f));}
-    // sorted-order batch count: input sorted by hf_.hash(key) ascending (the
-    // add_bulk_sorted order); consecutive keys share probe-span cache lines.
-    // Same results as count_many.
-    template<typename It, typename Ot>
-    void count_many_sorted(It f, It l, Ot o) const {for(; f != l; ++f, ++o) *o = count(Key(*f));}
-    // random-order batch count with software prefetch: `ahead` keys before
-    // use, issue simde_mm_prefetch on the home's occupancy + payload words.
-    template<typename It, typename Ot>
-    void count_many_prefetch(It f, It l, Ot o, size_t ahead = 8) const {
-        It pf = f;
-        for(; f != l; ++f, ++o) {
-            for(size_t d = 0; d < ahead && pf != l; ++d, ++pf) {
-                const uint64_t hh = home(hf_.hash(Key(*pf)));
-                if(OCC_BITMAP)
-                    simde_mm_prefetch(reinterpret_cast<const char*>(ocraw_.data() + hh / word_bits), SIMDE_MM_HINT_T0);
-                if(REM_PACKED)
-                    simde_mm_prefetch(reinterpret_cast<const char*>(remraw_.data() + (hh * rs_) / word_bits), SIMDE_MM_HINT_T0);
-                else
-                    simde_mm_prefetch(reinterpret_cast<const char*>(remu32_.data() + hh), SIMDE_MM_HINT_T0);
-                simde_mm_prefetch(reinterpret_cast<const char*>(cntraw_.data() + (hh * VAL_BITS) / word_bits), SIMDE_MM_HINT_T0);
-            }
-            *o = count(Key(*f));
-        }
-    }
-    // scalar batch insert; add_many_sorted takes the same sorted input as
-    // add_bulk_sorted (line reuse; identical placement to add())
-    template<typename It>
-    void add_many(It f, It l) {for(; f != l; ++f) add(Key(*f));}
-    template<typename It>
-    void add_many_sorted(It f, It l) {for(; f != l; ++f) add(Key(*f));}
     // SIMD batch insert: batch-hash via hash4, then the identical probe from
     // the hash (add_hashed)
     template<typename It>
@@ -740,12 +855,9 @@ public:
         for(; f != l; ++f) add(Key(*f));
     }
 
-    // ---- SIMD probe (simde; scalar-equivalent to count) ----
-    // first empty slot at/after i == the probe-span end. Bitmap mode scans
-    // the occupancy words four at a time (cmpeq_epi64 against all-ones +
-    // movemask_pd to spot a word holding a zero bit, ctz inside it);
-    // sentinel mode scans the counter stream. Returns nslots_ when nothing
-    // is empty.
+    // ---- SIMD span scan (struct-of-arrays only) ----
+    // first empty slot at or after i (end of the probe span), via the
+    // occupancy bitmap 4 words at a time
     uint64_t probe_end(uint64_t i) const {
         if(!OCC_BITMAP) {
             for(; i < nslots_ && cnt(i) != 0; ++i);
@@ -820,9 +932,9 @@ public:
         return scan_rem_scalar(i, hi, f);
     }
     // SIMD count given the key's hash: find the probe-span end, compare
-    // remainders in the span, and only when the span reaches the table end
-    // without an empty slot continue the probe cyclically (scalar; the
-    // table is then near-full). Identical results to count().
+    // remainders in the span (home_exact: a match must also sit at its own
+    // probe distance), and only when the span reaches the table end without
+    // an empty slot continue the probe cyclically. Identical results to count().
     uint64_t count_simd_hash(Key h) const {
         const uint64_t f = fp(h);
         const uint64_t h0 = home(h);
@@ -860,87 +972,10 @@ public:
         for(; f != l; ++f, ++o) *o = count(Key(*f));
     }
 
-    // ---- test/debug helper ----
-    // Verifies the table invariants and returns false on the first
-    // violation: (1) the occupancy bitmap total (via the shared popcount
-    // machinery, cqf::detail::popcount_words -> integral.h/libpopcnt
-    // harley-seal) equals used_; (2) bitmap liveness and counter liveness
-    // agree, with 0 < cnt <= SAT on every live slot; (3) sampled decode
-    // round-trips: re-hashing a decoded key reproduces the slot's (home,
-    // fingerprint). O(nslots/64 + sample).
-    bool structure_check(size_t sample = 1000) const {
-        if(OCC_BITMAP && cqf::detail::popcount_words(ocraw_.data(), ocraw_.size()) != used_) return false;
-        for(uint64_t i = 0; i < nslots_; ++i) {
-            const bool live = occupied(i);
-            if(live != (cnt(i) != 0)) return false;
-            if(live && cnt(i) > SAT) return false;
-        }
-        if(DECODE_BITS && used_) {
-            std::mt19937_64 rng(97);
-            for(size_t t = 0; t < sample; ++t) {
-                const uint64_t i = rng() % nslots_;
-                if(!occupied(i)) continue;
-                const Key h = hf_.hash(decode(i));
-                if(home(h) != ((i + nslots_ - disp_at(i)) & (nslots_ - 1)) || fp(h) != rem(i)) return false;
-            }
-        }
-        return true;
-    }
-
-
-    // ---- decode iteration (the jellyfish dumper property) ----
-    // Walks slots in home-slot (storage) order; operator* decodes the
-    // caller key at the current slot. Exact mode: the inserted keys.
-    // Truncated mode: canonical representatives, NOT the inserted keys
-    // (membership-only; see header contract).
-    class const_iterator {
-        const cht_t *t_ = nullptr;
-        uint64_t i_ = 0;
-        void skip() {while(i_ < t_->nslots_ && !t_->occupied(i_)) ++i_;}
-    public:
-        static_assert(DECODE_BITS != 0, "iteration requires DECODE_BITS=8 (membership-only table)");
-        const_iterator() = default;
-        const_iterator(const cht_t *t, uint64_t i): t_(t), i_(i) {skip();}
-        bool operator==(const const_iterator &o) const {return t_ == o.t_ && i_ == o.i_;}
-        bool operator!=(const const_iterator &o) const {return !(*this == o);}
-        const_iterator &operator++() {++i_; skip(); return *this;}
-        const_iterator operator++(int) {const_iterator tmp(*this); ++*this; return tmp;}
-        Key operator*() const {return t_->decode(i_);}
-        uint64_t slot() const {return i_;}      // physical slot (debug/tests)
-        uint64_t mapped() const {return t_->cnt(i_);} // counter at the slot
-    };
-    const_iterator begin() const {return const_iterator(this, 0);}
-    const_iterator end() const {return const_iterator(this, nslots_);}
-    // dump decoded keys in home-slot order (dumper)
-    template<typename OutIt>
-    void dump_keys(OutIt out) const {for(const_iterator it = begin(); it != end(); ++it) *out++ = *it;}
-    // dump (key, count) pairs in home-slot order
-    template<typename OutIt>
-    void dump(OutIt out) const {for(const_iterator it = begin(); it != end(); ++it) *out++ = std::make_pair(*it, it.mapped());}
-
-    // Bulk build from keys sorted by hf_.hash(key) ascending --
-    // jellyfish's sorted-by-hash contract; see the header block. Runs are
-    // written contiguously at max(home, next_empty) with equal
-    // fingerprints merged into the run slot (saturating). Placements form
-    // one cyclically contiguous frontier (absolute counter, slots mod
-    // nslots), so a build whose tail crosses the table end wraps into the
-    // hole below the first home. While the frontier stays below that wrap
-    // the build is PLACEMENT-IDENTICAL to add() fed the same sorted stream
-    // (induction on the first-empty invariant: every probe's intervening
-    // slots are occupied, and holes sit behind every later home, so neither
-    // add() nor the frontier ever places into one). When a run no longer
-    // fits cyclically below the first home -- possible while ordinary holes
-    // still exist, e.g. the first home is ~0 and the displacement creep
-    // pushes the frontier a few slots past the table end -- the remaining
-    // keys fall back to per-key probing (add_slot), which is exactly add()
-    // on the same stream: add() fills those holes and succeeds wherever the
-    // table still has room, so the bulk path throws only when the table is
-    // genuinely full (used_ == nslots_), never at a fill factor. Measured
-    // at fill 0.9/0.95, q=20, key48: the fallback absorbs the last few
-    // groups only (test_bulk_highfill). Caller contract: the table must be
-    // EMPTY (fresh init). The displacement byte is written from the same
-    // placement rule (d = absolute distance), so wrapped slots decode
-    // exactly.
+    // Sorted bulk build: input sorted by hash ascending. Places each run of
+    // equal (home, fingerprint) keys once with its multiplicity -- identical
+    // placement to add() on the same stream; falls back to per-key add()
+    // when a run would wrap past the first home.
     template<typename It>
     void add_bulk_sorted(It first, It last) {
         if(first == last) return;
@@ -980,46 +1015,24 @@ public:
     }
 };
 
-// ---------------------------------------------------------------------------
-// cht_map_t: exact key -> value map, SINGLE-STREAM layout.
-//
-// The same compact-hash idea as cht_t: a reversible hash, home = the top q
-// bits, and only the r = key_bits - q remainder bits stored. But every slot
-// is ONE packed cell, [ remainder (r) | value (VAL_BITS) | displacement (8) ],
-// in a single bit stream with value 0 = empty (no occupancy bitmap).
-//
-// A probe step is then one unaligned 16-byte load, and a lookup usually
-// touches one cache line. cht_t's struct-of-arrays layout touches four on a
-// hit (bitmap, remainder, displacement, value). Bits per slot are the same
-// as cht_t minus its occupancy bit.
-//
-// Matching is home-exact, as in cht_t::get: remainder equal AND recorded
-// displacement == probe distance. So with any key_bits there are no merged
-// keys and no false positives. Displacements >= 255 spill to a sorted side
-// vector (rare at fill <= 0.9), exactly like cht_t.
-//
-// Values must lie in [1, 2^VAL_BITS - 1]; store an offset for ranges that
-// include 0. Fixed capacity (no grow); insert throws std::overflow_error
-// when full. Slots are stable, so a slot index is a durable handle.
-// Not for concurrent writers.
+// ---- cht_map_t: single-stream storage, exact key -> value map ------------
+// One packed cell per slot, [ remainder (r) | value (VAL_BITS) | displacement
+// (8) ], value 0 = empty (no occupancy bitmap). A probe step is one unaligned
+// 16-byte load; a lookup usually touches one cache line (cht_t touches four
+// arrays on a hit). Exact mode only (full remainder, displacements kept);
+// 64-bit keys; values in [1, 2^VAL_BITS - 1]. Adds to the core:
+// serialization (write/read) and cell_bits().
 template<class Key, class RevHash, size_t VAL_BITS>
-class cht_map_t {
+class cht_map_t: public detail::cht_core<cht_map_t<Key, RevHash, VAL_BITS>, Key, RevHash, VAL_BITS, 0, 8> {
     static_assert(std::is_same<Key, uint64_t>::value, "cht_map_t: Key must be uint64_t");
-    static_assert(VAL_BITS >= 1 && VAL_BITS <= 48, "VAL_BITS in [1, 48]");
-    static constexpr size_t KH_ = RevHash::key_bits;
-    static_assert(KH_ >= 4 && KH_ <= 64, "RevHash::key_bits must lie in [4, 64]");
+    static_assert(VAL_BITS >= 1 && VAL_BITS <= 48, "cht_map_t: VAL_BITS in [1, 48]");
+    using Base = detail::cht_core<cht_map_t, Key, RevHash, VAL_BITS, 0, 8>;
+    friend Base;
     using u128 = unsigned __int128;
-public:
-    static constexpr size_t key_bits = KH_;
-    static constexpr size_t val_bits = VAL_BITS;
-    static constexpr uint64_t SAT = (uint64_t(1) << VAL_BITS) - 1;
-private:
-    uint32_t q_ = 0, r_ = 0, w_ = 0;   // w_ = cell width r_ + VAL_BITS + 8
-    uint64_t nslots_ = 0, used_ = 0, rm_ = 0;
-    u128 cm_ = 0;                      // low-w_ mask
+    using Base::q_; using Base::r_; using Base::nslots_; using Base::used_; using Base::dispill_;
+    uint32_t w_ = 0;    // cell width r_ + VAL_BITS + 8
+    u128 cm_ = 0;       // low-w_ mask
     std::vector<uint8_t, common::Allocator<uint8_t>> bits_;
-    std::vector<std::pair<uint64_t, uint32_t>, common::Allocator<std::pair<uint64_t, uint32_t>>> spill_;
-    RevHash hf_;
 
     INLINE u128 cell(uint64_t i) const {
         const uint64_t off = i * w_;
@@ -1035,170 +1048,41 @@ private:
         x = (x & ~(cm_ << s)) | ((v & cm_) << s);
         std::memcpy(bits_.data() + (off >> 3), &x, sizeof(x));
     }
-    INLINE uint64_t c_rem(u128 c) const {return uint64_t(c) & rm_;}
-    INLINE uint64_t c_val(u128 c) const {return uint64_t(c >> r_) & SAT;}
-    INLINE uint64_t c_disp(u128 c) const {return uint64_t(c >> (r_ + VAL_BITS)) & 0xFFu;}
-    INLINE u128 make_cell(uint64_t f, uint64_t v, uint64_t d8) const {
-        return u128(f) | (u128(v) << r_) | (u128(d8) << (r_ + VAL_BITS));
+    INLINE void set_field(uint64_t i, unsigned shift, uint64_t width_mask, uint64_t v) {
+        const u128 c = cell(i);
+        set_cell(i, (c & ~(u128(width_mask) << shift)) | (u128(v & width_mask) << shift));
     }
-    uint64_t spilled_disp(uint64_t i) const {
-        const auto it = std::lower_bound(spill_.begin(), spill_.end(), std::make_pair(i, uint32_t(0)));
-        return it != spill_.end() && it->first == i ? uint64_t(it->second): 255;
-    }
-    INLINE uint64_t disp_of(uint64_t i, u128 c) const {
-        const uint64_t d = c_disp(c);
-        return HEDLEY_LIKELY(d < 255) ? d: spilled_disp(i);
-    }
-    // place a new entry at empty slot i, `probe` slots from its home
-    void place_new(uint64_t i, uint64_t f, uint64_t v, uint64_t probe) {
-        if(HEDLEY_LIKELY(probe < 255)) {
-            set_cell(i, make_cell(f, v, probe));
-        } else {
-            if(HEDLEY_UNLIKELY(probe > 0xFFFFFFFFull))
-                throw std::overflow_error("[cht_map] displacement exceeds 2^32");
-            set_cell(i, make_cell(f, v, 255));
-            spill_.insert(std::lower_bound(spill_.begin(), spill_.end(), std::make_pair(i, uint32_t(0))),
-                          std::make_pair(i, uint32_t(probe)));
-        }
-        ++used_;
-    }
-public:
-    using key_type = Key;
-    using mapped_type = uint64_t;
-    using hasher_type = RevHash;
 
-    explicit cht_map_t(uint32_t q, RevHash &&hf=RevHash()): hf_(std::move(hf)) {init(q);}
-    cht_map_t() = delete;
-
-    void init(uint32_t q) {
-        if(q < 2 || q > 40 || KH_ <= q)
-            throw std::invalid_argument(std::string("[cht_map] need 2 <= q <= 40 and q < key_bits; got q=") + std::to_string(q));
-        q_ = q; r_ = uint32_t(KH_) - q; w_ = r_ + uint32_t(VAL_BITS) + 8;
+    // ---- storage hooks (cht_core) ----
+    void init_storage_() {
+        w_ = r_ + uint32_t(VAL_BITS) + 8;
         if(w_ > 121) // one 16-byte load at a byte offset covers 121 bits
             throw std::invalid_argument("[cht_map] cell width (key_bits - q + VAL_BITS + 8) exceeds 121 bits");
-        rm_ = r_ >= 64 ? ~uint64_t(0): ((uint64_t(1) << r_) - 1);
         cm_ = (u128(1) << w_) - 1;
-        nslots_ = uint64_t(1) << q;
         bits_.assign(ceil_div(nslots_ * w_, uint64_t(8)) + 16, 0);
-        spill_.clear();
-        used_ = 0;
     }
-    uint32_t q() const {return q_;}
-    uint32_t r() const {return r_;}
-    uint32_t cell_bits() const {return w_;}
-    uint64_t nslots() const {return nslots_;}
-    uint64_t size() const {return used_;}
-    bool empty() const {return used_ == 0;}
-    double load_factor() const {return double(used_) / double(nslots_);}
-    size_t bytes_used() const {return bits_.size() + spill_.size() * sizeof(spill_[0]);}
-    size_t num_spilled() const {return spill_.size();}   // entries displaced >= 255 slots
-
-    INLINE Key hash(Key v) const {return hf_.hash(v);}
-    INLINE Key invert(Key h) const {return hf_.invert(h);}
-    INLINE uint64_t home(Key h) const {return uint64_t(h >> r_);}
-    INLINE uint64_t fp(Key h) const {return uint64_t(h) & rm_;}
-
-    // insert k with value v in [1, SAT], or overwrite its value
-    uint64_t assign(Key k, uint64_t v) {
-        if(HEDLEY_UNLIKELY(v == 0 || v > SAT))
-            throw std::invalid_argument("[cht_map] assign: value must lie in [1, 2^VAL_BITS - 1]");
-        const Key h = hf_.hash(k);
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
-            const u128 c = cell(i);
-            if(c_val(c) == 0) {
-                if(used_ == nslots_) throw std::overflow_error("[cht_map] table full");
-                place_new(i, f, v, probe);
-                return i;
-            }
-            if(c_rem(c) == f && disp_of(i, c) == probe) {
-                set_cell(i, (c & ~(u128(SAT) << r_)) | (u128(v) << r_));
-                return i;
-            }
-            if(++probe == nslots_) throw std::overflow_error("[cht_map] table full");
-        }
+    size_t storage_bytes_() const {return bits_.size();}
+    INLINE u128 load_(uint64_t i) const {return cell(i);}
+    INLINE bool h_occ_(uint64_t, const u128 &c) const {return h_val_(0, c) != 0;}
+    INLINE uint64_t h_rem_(uint64_t, const u128 &c) const {return uint64_t(c) & uint64_t(this->rm_);}
+    INLINE uint64_t h_val_(uint64_t, const u128 &c) const {return uint64_t(c >> r_) & Base::SAT;}
+    INLINE uint64_t h_disp8_(uint64_t, const u128 &c) const {return uint64_t(c >> (r_ + VAL_BITS)) & 0xFFu;}
+    void place_(uint64_t i, uint64_t f, uint64_t v, uint64_t d8) {
+        set_cell(i, u128(f) | (u128(v) << r_) | (u128(d8) << (r_ + unsigned(VAL_BITS))));
     }
-    // slot of k, or nslots() when absent
-    uint64_t find_slot_hashed(Key h) const {
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
-            const u128 c = cell(i);
-            if(c_val(c) == 0) return nslots_;
-            if(c_rem(c) == f && disp_of(i, c) == probe) return i;
-            if(++probe == nslots_) return nslots_;
-        }
-    }
-    uint64_t find_slot(Key k) const {return find_slot_hashed(hf_.hash(k));}
-    uint64_t get_hashed(Key h) const {
-        const uint64_t f = fp(h);
-        uint64_t i = home(h);
-        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
-            const u128 c = cell(i);
-            const uint64_t v = c_val(c);
-            if(v == 0) return 0;
-            if(c_rem(c) == f && disp_of(i, c) == probe) return v;
-            if(++probe == nslots_) return 0;
-        }
-    }
-    uint64_t get(Key k) const {return get_hashed(hf_.hash(k));}
-    bool contains(Key k) const {return get(k) != 0;}
-    bool occupied_at(uint64_t i) const {return i < nslots_ && c_val(cell(i)) != 0;}
-    uint64_t value_at(uint64_t i) const {return c_val(cell(i));}
-    void set_value_at(uint64_t i, uint64_t v) {
-        if(HEDLEY_UNLIKELY(v == 0 || v > SAT || !occupied_at(i)))
-            throw std::invalid_argument("[cht_map] set_value_at: occupied slot and a value in [1, 2^VAL_BITS - 1] required");
-        const u128 c = cell(i);
-        set_cell(i, (c & ~(u128(SAT) << r_)) | (u128(v) << r_));
-    }
-    // the key stored at occupied slot i
-    Key decode(uint64_t i) const {
-        const u128 c = cell(i);
-        const uint64_t hpos = (i + nslots_ - disp_of(i, c)) & (nslots_ - 1);
-        return hf_.invert((Key(hpos) << r_) | Key(c_rem(c)));
-    }
-    INLINE void prefetch_home(uint64_t hh) const {
+    void set_val_(uint64_t i, uint64_t v) {set_field(i, r_, Base::SAT, v);}
+    void set_disp8_(uint64_t i, uint64_t d8) {set_field(i, r_ + unsigned(VAL_BITS), 0xFFu, d8);}
+    INLINE void prefetch_(uint64_t hh) const {
         simde_mm_prefetch(reinterpret_cast<const char*>(bits_.data() + ((hh * w_) >> 3)), SIMDE_MM_HINT_T0);
     }
-    // batch get with software prefetch, results in input order (== get each)
-    template<typename It, typename Ot>
-    void get_many_prefetch(It f, It l, Ot o, size_t ahead = 16) const {
-        constexpr size_t RING = 64;
-        if(ahead > RING) ahead = RING;
-        if(ahead == 0) ahead = 1;
-        Key ring[RING];
-        size_t issued = 0, used = 0;
-        It pf = f;
-        auto issue = [&]() {
-            const Key h = hf_.hash(Key(*pf++));
-            prefetch_home(home(h));
-            ring[issued++ % RING] = h;
-        };
-        while(pf != l && issued < ahead) issue();
-        for(; f != l; ++f, ++o) {
-            const Key h = ring[used++ % RING];
-            if(pf != l) issue();
-            *o = get_hashed(h);
-        }
-    }
+    bool extra_check_() const {return true;}
 
-    class const_iterator {
-        const cht_map_t *t_ = nullptr;
-        uint64_t i_ = 0;
-        void skip() {while(i_ < t_->nslots_ && !t_->occupied_at(i_)) ++i_;}
-    public:
-        const_iterator() = default;
-        const_iterator(const cht_map_t *t, uint64_t i): t_(t), i_(i) {skip();}
-        bool operator==(const const_iterator &o) const {return t_ == o.t_ && i_ == o.i_;}
-        bool operator!=(const const_iterator &o) const {return !(*this == o);}
-        const_iterator &operator++() {++i_; skip(); return *this;}
-        Key operator*() const {return t_->decode(i_);}
-        uint64_t slot() const {return i_;}
-        uint64_t mapped() const {return t_->value_at(i_);}
-    };
-    const_iterator begin() const {return const_iterator(this, 0);}
-    const_iterator end() const {return const_iterator(this, nslots_);}
+public:
+    explicit cht_map_t(uint32_t q, RevHash &&hf=RevHash()): Base(std::move(hf)) {this->init_core(q);}
+    cht_map_t() = delete;
+    uint32_t cell_bits() const {return w_;}
+    // full check by default (every live slot re-probes to itself)
+    bool structure_check(size_t sample = 0) const {return Base::structure_check(sample);}
 
     // Binary serialization: magic "CHTMAP01", key_bits, VAL_BITS, q, size,
     // the cell stream and the displacement spill. RevHash must be stateless
@@ -1206,12 +1090,12 @@ public:
     // key/value widths against this instantiation and throws on mismatch.
     void write(std::FILE *fp) const {
         static const char magic[8] = {'C','H','T','M','A','P','0','1'};
-        const uint32_t hdr[3] = {uint32_t(KH_), uint32_t(VAL_BITS), q_};
-        const uint64_t nb = bits_.size(), ns = spill_.size();
+        const uint32_t hdr[3] = {uint32_t(Base::key_bits), uint32_t(VAL_BITS), q_};
+        const uint64_t nb = bits_.size(), ns = dispill_.size();
         if(std::fwrite(magic, 1, 8, fp) != 8 || std::fwrite(hdr, sizeof(hdr), 1, fp) != 1
            || std::fwrite(&used_, sizeof(used_), 1, fp) != 1 || std::fwrite(&nb, sizeof(nb), 1, fp) != 1
            || std::fwrite(bits_.data(), 1, nb, fp) != nb || std::fwrite(&ns, sizeof(ns), 1, fp) != 1
-           || (ns && std::fwrite(spill_.data(), sizeof(spill_[0]), ns, fp) != ns))
+           || (ns && std::fwrite(dispill_.data(), sizeof(dispill_[0]), ns, fp) != ns))
             throw std::runtime_error("[cht_map] write failed");
     }
     static cht_map_t read(std::FILE *fp) {
@@ -1220,28 +1104,18 @@ public:
         uint64_t used, nb, ns;
         if(std::fread(magic, 1, 8, fp) != 8 || std::memcmp(magic, "CHTMAP01", 8))
             throw std::runtime_error("[cht_map] read: bad magic");
-        if(std::fread(hdr, sizeof(hdr), 1, fp) != 1 || hdr[0] != KH_ || hdr[1] != VAL_BITS)
+        if(std::fread(hdr, sizeof(hdr), 1, fp) != 1 || hdr[0] != Base::key_bits || hdr[1] != VAL_BITS)
             throw std::runtime_error("[cht_map] read: key/value widths do not match this instantiation");
         cht_map_t ret(hdr[2]);
         if(std::fread(&used, sizeof(used), 1, fp) != 1 || std::fread(&nb, sizeof(nb), 1, fp) != 1 || nb != ret.bits_.size())
             throw std::runtime_error("[cht_map] read: truncated or inconsistent header");
         if(std::fread(ret.bits_.data(), 1, nb, fp) != nb || std::fread(&ns, sizeof(ns), 1, fp) != 1)
             throw std::runtime_error("[cht_map] read: truncated cell stream");
-        ret.spill_.resize(ns);
-        if(ns && std::fread(ret.spill_.data(), sizeof(ret.spill_[0]), ns, fp) != ns)
+        ret.dispill_.resize(ns);
+        if(ns && std::fread(ret.dispill_.data(), sizeof(ret.dispill_[0]), ns, fp) != ns)
             throw std::runtime_error("[cht_map] read: truncated spill");
         ret.used_ = used;
         return ret;
-    }
-    // every occupied slot re-probes to itself from its decoded key's home
-    bool structure_check() const {
-        uint64_t n = 0;
-        for(uint64_t i = 0; i < nslots_; ++i) {
-            if(!occupied_at(i)) continue;
-            ++n;
-            if(find_slot(decode(i)) != i) return false;
-        }
-        return n == used_;
     }
 };
 
