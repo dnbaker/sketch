@@ -788,6 +788,36 @@ static void test_cht_map() {
         std::fclose(fp2);
         CHECK(threw, "cht_map: read with mismatched VAL_BITS must throw");
     }
+    {   // runtime value width (VAL_BITS = 0): e.g. the minimum for a dense id range
+        cht_map_t<uint64_t, cht_splitmix64_hash, 0> m(14, 13);
+        CHECK(m.vbits() == 13 && m.sat() == 8191 && m.cell_bits() == 64 - 14 + 13 + 8, "runtime width: vbits/sat/cell_bits wrong");
+        std::mt19937_64 rng(54);
+        std::unordered_map<uint64_t, uint64_t> ref;
+        for (unsigned i = 0; i < 12000; ++i) {
+            const uint64_t k = rng(), v = 1 + rng() % 8191;
+            m.assign(k, v); ref[k] = v;
+        }
+        m.assign(7, 8191); ref[7] = 8191;
+        bool threw = false;
+        try { m.assign(8, 8192); } catch (const std::invalid_argument &) { threw = true; }
+        CHECK(threw, "runtime width: value past 2^vbits - 1 must throw");
+        uint64_t bad = 0;
+        for (const auto &kv: ref) bad += m.get(kv.first) != kv.second;
+        CHECK(bad == 0 && m.structure_check(), "runtime width: %llu wrong values", (unsigned long long)bad);
+        std::FILE *fp = std::tmpfile();
+        m.write(fp); std::rewind(fp);
+        auto m2 = cht_map_t<uint64_t, cht_splitmix64_hash, 0>::read(fp);
+        std::rewind(fp);
+        auto m3 = cht_map_t<uint64_t, cht_splitmix64_hash, 13>::read(fp);   // width matches -> loads
+        std::fclose(fp);
+        bool same = m2.vbits() == 13 && m2.size() == m.size() && m3.size() == m.size();
+        for (const auto &kv: ref) same = same && m2.get(kv.first) == kv.second && m3.get(kv.first) == kv.second;
+        CHECK(same, "runtime width: write/read round trip differs");
+        bool threwbad = false;
+        try { cht_map_t<uint64_t, cht_splitmix64_hash, 0> bad0(14, 0); (void)bad0; } catch (const std::invalid_argument &) { threwbad = true; }
+        CHECK(threwbad, "runtime width 0 must throw");
+        std::fprintf(stderr, "cht_map runtime width done (%zu keys, %u-bit values, %u-bit cells)\n", ref.size(), m.vbits(), m.cell_bits());
+    }
     {   // errors and set_value_at
         cht_map_t<uint64_t, cht_splitmix64_hash, 8> m(4);
         bool threw0 = false, threwbig = false, threwfull = false;
