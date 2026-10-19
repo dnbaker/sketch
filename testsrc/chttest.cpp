@@ -967,7 +967,64 @@ static void test_div_sizing() {
     CHECK(threw, "pow2 sizing must reject a non-power-of-two slot count");
 }
 
+// RUNTIME KEY WIDTH: cht_mixbits_hash bijectivity/round trips/domain, and
+// cht_map_t in each cell load mode (narrow <= 57 bits, one 64-bit word,
+// wide) on key domains narrower than 64 bits, with write/read.
+static void test_mixbits_cells() {
+    std::mt19937_64 rng(81);
+    for (unsigned b: {4u, 7u, 12u, 20u, 31u, 32u, 33u, 48u, 62u, 63u, 64u}) {
+        cht_mixbits_hash h(b);
+        const uint64_t m = h.mask();
+        uint64_t bad = 0;
+        for (unsigned t = 0; t < 100000; ++t) {
+            const uint64_t x = rng() & m;
+            const uint64_t y = h.hash(x);
+            bad += (y & ~m) != 0 || h.invert(y) != x || h.hash(h.invert(x)) != x;
+        }
+        CHECK(bad == 0, "mixbits(%u): %llu round-trip/domain errors", b, (unsigned long long)bad);
+    }
+    {   // exhaustive bijection on 12 bits
+        cht_mixbits_hash h(12);
+        std::vector<uint8_t> seen(4096, 0);
+        for (uint64_t x = 0; x < 4096; ++x) seen[h.hash(x)] = 1;
+        CHECK(std::count(seen.begin(), seen.end(), 1) == 4096, "mixbits(12) is not a bijection");
+    }
+    {   // 64 bits == splitmix64 (same stage chain)
+        cht_mixbits_hash h(64);
+        cht_splitmix64_hash s;
+        uint64_t diff = 0;
+        for (unsigned t = 0; t < 10000; ++t) {const uint64_t x = rng(); diff += h.hash(x) != s.hash(x);}
+        CHECK(diff == 0, "mixbits(64) differs from splitmix64 on %llu keys", (unsigned long long)diff);
+    }
+    struct Mode {unsigned kb, q, vb, want;};
+    for (const Mode md: {Mode{40, 16, 25, 0}, Mode{48, 16, 24, 1}, Mode{62, 16, 20, 2}, Mode{62, 26, 20, 1}}) {
+        using M = cht_map_t<uint64_t, cht_mixbits_hash, 0>;
+        if (md.q > 20) {   // the k-mer-database shape: 2k = 62, q = 26, 20-bit dense ids -> a 64-bit word cell
+            M probe(md.q, md.vb, cht_mixbits_hash(md.kb));
+            CHECK(probe.cell_bits() == 64 && probe.cell_mode() == 1, "k-mer shape: cell %u bits, mode %u", probe.cell_bits(), probe.cell_mode());
+            continue;
+        }
+        M m(md.q, md.vb, cht_mixbits_hash(md.kb));
+        CHECK(m.cell_mode() == md.want && m.kbits() == md.kb, "cell mode %u (want %u) at %u-bit cells", m.cell_mode(), md.want, m.cell_bits());
+        const uint64_t km = md.kb >= 64 ? ~uint64_t(0): ((uint64_t(1) << md.kb) - 1);
+        std::unordered_map<uint64_t, uint64_t> ref;
+        while (ref.size() < 55000) {const uint64_t k = rng() & km, v = 1 + rng() % m.sat(); m.assign(k, v); ref[k] = v;}
+        char tag[64];
+        std::snprintf(tag, sizeof(tag), "cht_map kb=%u mode=%u", md.kb, md.want);
+        check_map_against(m, ref, rng, km, tag);
+        std::FILE *fp = std::tmpfile();
+        m.write(fp); std::rewind(fp);
+        auto m2 = M::read(fp);
+        std::fclose(fp);
+        bool same = m2.kbits() == md.kb && m2.cell_mode() == md.want && m2.size() == m.size();
+        for (const auto &kv: ref) same = same && m2.get(kv.first) == kv.second;
+        CHECK(same, "%s: write/read round trip differs", tag);
+        std::fprintf(stderr, "%s done (%u-bit cells, %zu keys)\n", tag, m.cell_bits(), ref.size());
+    }
+}
+
 int main() {
+    test_mixbits_cells();
     test_div_sizing();
     test_exact_counts();
     test_cht_map();

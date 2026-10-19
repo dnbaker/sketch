@@ -311,6 +311,56 @@ struct cht_wang64_hash {
     }
 };
 
+// Invertible mixer on a RUNTIME-width domain [0, 2^bits), bits in [4, 64]:
+// the splitmix64 finalizer stage chain (Weyl pre-add; xorshift-right;
+// multiply by an odd constant; xorshift; multiply; xorshift), every stage
+// taken mod 2^bits. Each stage is a bijection on the bits-wide domain: an odd
+// multiplier is invertible mod 2^bits (its inverse mod 2^64, reduced), and
+// x ^= x >> s is undone by repeated unshifting. Shifts scale with the width
+// (30/27/31 at 64 bits: identical to splitmix64's stages). For keys that
+// only span `bits` bits -- e.g. 2-bit-encoded k-mers, bits = 2k -- the table
+// then stores bits - q remainder bits instead of 64 - q. key_bits = 0 marks
+// the width as runtime (cht_core reads bits()). Inputs must lie in the domain.
+namespace detail {
+constexpr uint64_t inv_mul64(uint64_t a) {uint64_t x = a; for(int i = 0; i < 6; ++i) x *= 2 - a * x; return x;}  // a odd
+} // namespace detail
+class cht_mixbits_hash {
+    static constexpr uint64_t GOLDEN = 0x9e3779b97f4a7c15ull;
+    static constexpr uint64_t C1 = 0xbf58476d1ce4e5b9ull, C2 = 0x94d049bb133111ebull;
+    static constexpr uint64_t I1 = detail::inv_mul64(C1), I2 = detail::inv_mul64(C2);
+    static_assert(C1 * I1 == 1 && C2 * I2 == 1, "modular inverses");
+    uint32_t b_;
+    uint64_t m_;
+    unsigned s1_, s2_, s3_;
+    INLINE uint64_t unshift(uint64_t y, unsigned s) const {   // inverse of x ^= x >> s on b_ bits
+        uint64_t x = y;
+        for(unsigned k = s; k < b_; k += s) x = y ^ (x >> s);
+        return x;
+    }
+public:
+    static constexpr size_t key_bits = 0;   // runtime: bits()
+    explicit cht_mixbits_hash(unsigned bits = 64): b_(bits), m_(bits >= 64 ? ~uint64_t(0): ((uint64_t(1) << bits) - 1)),
+        s1_(std::max(1u, bits * 30 / 64)), s2_(std::max(1u, bits * 27 / 64)), s3_(std::max(1u, bits * 31 / 64)) {
+        if(bits < 4 || bits > 64) throw std::invalid_argument("[cht] cht_mixbits_hash: bits in [4, 64]");
+    }
+    size_t bits() const {return b_;}
+    uint64_t mask() const {return m_;}
+    INLINE uint64_t hash(uint64_t x) const {
+        x = (x + GOLDEN) & m_;
+        x ^= x >> s1_; x = (x * C1) & m_;
+        x ^= x >> s2_; x = (x * C2) & m_;
+        x ^= x >> s3_;
+        return x;
+    }
+    INLINE uint64_t invert(uint64_t h) const {
+        uint64_t x = h & m_;
+        x = unshift(x, s3_); x = (x * I2) & m_;
+        x = unshift(x, s2_); x = (x * I1) & m_;
+        x = unshift(x, s1_);
+        return (x - GOLDEN) & m_;
+    }
+};
+
 // 4-round Feistel on two u64 halves for 128-bit keys (unsigned __int128).
 // Round function F(b, rk) = mix64(b + rk); round keys rk_i = mix64(seed +
 // (i+1) * Golden). Each round (a, b) -> (b, a ^ F(b, rk)) is a bijection
@@ -409,12 +459,14 @@ class cht_core {
     static_assert(RSTORE_BITS <= 64, "the stored fingerprint cell is a u64");
     static_assert(DECODE_BITS == 0 || DECODE_BITS == 8, "DECODE_BITS is 0 (membership-only) or 8 (u8 displacement array)");
 protected:
-    static constexpr size_t KH_ = RevHash::key_bits; // effective hash width
-    static_assert(KH_ >= 4 && KH_ <= sizeof(Key) * CHAR_BIT, "RevHash::key_bits must lie in [4, sizeof(Key)*CHAR_BIT]");
+    static constexpr size_t KH_ = RevHash::key_bits; // effective hash width; 0 = runtime (hasher's bits())
+    static_assert(KH_ == 0 || (KH_ >= 4 && KH_ <= sizeof(Key) * CHAR_BIT), "RevHash::key_bits must lie in [4, sizeof(Key)*CHAR_BIT], or 0 (runtime)");
+    static_assert(KH_ != 0 || std::is_same<Key, uint64_t>::value, "runtime key widths need uint64_t keys");
     static_assert(Sizing::pow2 || KH_ <= 64, "non-power-of-two sizing needs key_bits <= 64");
 public:
     using sizing_type = Sizing;
-    static constexpr size_t key_bits = KH_;
+    static constexpr size_t key_bits = KH_;           // 0: runtime width, see kbits()
+    static constexpr bool runtime_key_bits = KH_ == 0;
     static constexpr size_t val_bits = VAL_BITS;     // 0: runtime width, see vbits()
     static constexpr bool runtime_val_bits = VAL_BITS == 0;
     // home_exact: the full remainder is stored AND displacements are kept,
@@ -441,6 +493,7 @@ protected:
     Key rm_ = 0;              // low-r_ mask (Key width)
     uint64_t fpm_ = 0;        // low-rs_ mask (cell width)
     policy::SizeDivPolicy<uint64_t> div_{uint64_t(4)};   // fastdiv by nslots_ (cht_div_sizing)
+    uint32_t kh_ = uint32_t(KH_);        // key (hash) width (runtime when key_bits == 0)
     uint32_t vb_ = uint32_t(VAL_BITS);   // value width (runtime when VAL_BITS == 0)
     uint64_t sat_ = SAT;                 // 2^vb_ - 1
     // displacements >= 255 (inline byte 255): (slot, displacement), sorted by slot
@@ -449,7 +502,12 @@ protected:
 
     Derived &d() {return static_cast<Derived &>(*this);}
     const Derived &d() const {return static_cast<const Derived &>(*this);}
-    explicit cht_core(RevHash &&hf): hf_(std::move(hf)) {}
+    explicit cht_core(RevHash &&hf): hf_(std::move(hf)) {
+        if constexpr(runtime_key_bits) {
+            kh_ = uint32_t(hf_.bits());
+            if(kh_ < 4 || kh_ > 64) throw std::invalid_argument("[cht] runtime key width must lie in [4, 64]");
+        }
+    }
     // runtime value width (VAL_BITS == 0 only); call before init_core
     void set_val_bits_(uint32_t vb, uint32_t max_vb) {
         if(!runtime_val_bits) {
@@ -463,7 +521,7 @@ protected:
     }
 
     void init_core(uint32_t q) {
-        if(q < 2 || q > 40 || KH_ <= q)
+        if(q < 2 || q > 40 || kh_ <= q)
             throw std::invalid_argument(std::string("[cht] need 2 <= q <= 40 and 1 <= key_bits - q; got q=") + std::to_string(q));
         init_core_n(uint64_t(1) << q);
     }
@@ -475,11 +533,11 @@ protected:
         if constexpr(Sizing::pow2) {
             if(n & (n - 1))
                 throw std::invalid_argument("[cht] cht_pow2_sizing needs a power-of-two slot count; use cht_div_sizing");
-            if(KH_ <= q) throw std::invalid_argument("[cht] need 1 <= key_bits - q");
-            r_ = uint32_t(KH_) - q;
+            if(kh_ <= q) throw std::invalid_argument("[cht] need 1 <= key_bits - q");
+            r_ = kh_ - q;
         } else {
             // remainder bound ceil(2^key_bits / n) - 1 -> its bit width
-            const unsigned __int128 span = (((unsigned __int128)1 << KH_) + n - 1) / n;
+            const unsigned __int128 span = (((unsigned __int128)1 << kh_) + n - 1) / n;
             const unsigned __int128 mx = span - 1;
             r_ = 0;
             while(r_ < 64 && (mx >> r_) != 0) ++r_;
@@ -544,6 +602,7 @@ public:
     void init(uint32_t q) {init_core(q);}
     uint32_t q() const {return q_;}
     uint32_t r() const {return r_;}
+    uint32_t kbits() const {return kh_;}       // key (hash) width in bits
     uint32_t vbits() const {return vb_;}       // value width in bits
     uint64_t sat() const {return sat_;}        // largest storable value
     uint64_t nslots() const {return nslots_;}
@@ -566,8 +625,8 @@ public:
             rr = uint64_t(h & rm_);
         } else {
             const unsigned __int128 P = (unsigned __int128)uint64_t(h) * nslots_;
-            hh = uint64_t(P >> KH_);
-            const uint64_t low = KH_ >= 64 ? uint64_t(P): uint64_t(P & ((((unsigned __int128)1) << KH_) - 1));
+            hh = uint64_t(P >> kh_);
+            const uint64_t low = kh_ >= 64 ? uint64_t(P): uint64_t(P & ((((unsigned __int128)1) << kh_) - 1));
             rr = div_.div(low);
         }
     }
@@ -577,7 +636,7 @@ public:
         if constexpr(Sizing::pow2) {
             return (Key(hh) << r_) | rr;
         } else {
-            const unsigned __int128 lo = ((((unsigned __int128)hh) << KH_) + nslots_ - 1) / nslots_;
+            const unsigned __int128 lo = ((((unsigned __int128)hh) << kh_) + nslots_ - 1) / nslots_;
             return Key(uint64_t(lo) + rr);
         }
     }
@@ -1147,17 +1206,45 @@ class cht_map_t: public detail::cht_core<cht_map_t<Key, RevHash, VAL_BITS, Sizin
     using Base::vb_; using Base::sat_;
     uint32_t w_ = 0;    // cell width r_ + vb_ + 8
     u128 cm_ = 0;       // low-w_ mask
+    // load width: cells of <= 57 bits fit one unaligned 8-byte load (bit
+    // offset <= 7); a 64-bit cell is exactly one aligned word; wider cells
+    // take a 16-byte load (up to 121 bits)
+    enum CellMode: uint8_t {NARROW64, WORD64, WIDE128};
+    CellMode mode_ = WIDE128;
     std::vector<uint8_t, common::Allocator<uint8_t>> bits_;
 
     INLINE u128 cell(uint64_t i) const {
+        if(mode_ == WORD64) {
+            uint64_t x;
+            std::memcpy(&x, bits_.data() + (i << 3), sizeof(x));
+            return x;
+        }
         const uint64_t off = i * w_;
+        if(mode_ == NARROW64) {
+            uint64_t x;
+            std::memcpy(&x, bits_.data() + (off >> 3), sizeof(x));
+            return (x >> (off & 7)) & uint64_t(cm_);
+        }
         u128 x;
         std::memcpy(&x, bits_.data() + (off >> 3), sizeof(x));
         return (x >> (off & 7)) & cm_;
     }
     INLINE void set_cell(uint64_t i, u128 v) {
+        if(mode_ == WORD64) {
+            const uint64_t x = uint64_t(v);
+            std::memcpy(bits_.data() + (i << 3), &x, sizeof(x));
+            return;
+        }
         const uint64_t off = i * w_;
         const unsigned s = unsigned(off & 7);
+        if(mode_ == NARROW64) {
+            uint64_t x;
+            std::memcpy(&x, bits_.data() + (off >> 3), sizeof(x));
+            const uint64_t m = uint64_t(cm_);
+            x = (x & ~(m << s)) | ((uint64_t(v) & m) << s);
+            std::memcpy(bits_.data() + (off >> 3), &x, sizeof(x));
+            return;
+        }
         u128 x;
         std::memcpy(&x, bits_.data() + (off >> 3), sizeof(x));
         x = (x & ~(cm_ << s)) | ((v & cm_) << s);
@@ -1174,6 +1261,7 @@ class cht_map_t: public detail::cht_core<cht_map_t<Key, RevHash, VAL_BITS, Sizin
         if(w_ > 121) // one 16-byte load at a byte offset covers 121 bits
             throw std::invalid_argument("[cht_map] cell width (key_bits - q + value bits + 8) exceeds 121 bits");
         cm_ = (u128(1) << w_) - 1;
+        mode_ = w_ <= 57 ? NARROW64: w_ == 64 ? WORD64: WIDE128;
         bits_.assign(ceil_div(nslots_ * w_, uint64_t(8)) + 16, 0);
     }
     size_t storage_bytes_() const {return bits_.size();}
@@ -1206,17 +1294,20 @@ public:
     }
     cht_map_t() = delete;
     uint32_t cell_bits() const {return w_;}
+    // 0: one unaligned 8-byte load (cells <= 57 bits), 1: one aligned 64-bit
+    // word (cells of exactly 64 bits), 2: a 16-byte load (58-63 or > 64 bits)
+    unsigned cell_mode() const {return unsigned(mode_);}
     // full check by default (every live slot re-probes to itself)
     bool structure_check(size_t sample = 0) const {return Base::structure_check(sample);}
 
-    // Binary serialization: magic "CHTMAP02", key_bits, value bits, sizing
+    // Binary serialization: magic "CHTMAP02", key bits, value bits, sizing
     // (1 = power of two, 0 = div), nslots, size,
     // the cell stream and the displacement spill. RevHash must be stateless
     // (or default-constructed identically) on both sides; read() checks the
     // key/value widths against this instantiation and throws on mismatch.
     void write(std::FILE *fp) const {
         static const char magic[8] = {'C','H','T','M','A','P','0','2'};
-        const uint32_t hdr[3] = {uint32_t(Base::key_bits), vb_, uint32_t(Sizing::pow2)};
+        const uint32_t hdr[3] = {this->kh_, vb_, uint32_t(Sizing::pow2)};
         const uint64_t nb = bits_.size(), ns = dispill_.size();
         if(std::fwrite(magic, 1, 8, fp) != 8 || std::fwrite(hdr, sizeof(hdr), 1, fp) != 1
            || std::fwrite(&nslots_, sizeof(nslots_), 1, fp) != 1
@@ -1225,19 +1316,23 @@ public:
            || (ns && std::fwrite(dispill_.data(), sizeof(dispill_[0]), ns, fp) != ns))
             throw std::runtime_error("[cht_map] write failed");
     }
+    static cht_map_t make_for_read(uint64_t n, uint32_t vb, uint32_t kb) {
+        if constexpr(Base::runtime_key_bits) return cht_map_t(cht_slots{n}, vb, RevHash(kb));
+        else {(void)kb; return cht_map_t(cht_slots{n}, vb);}
+    }
     static cht_map_t read(std::FILE *fp) {
         char magic[8];
         uint32_t hdr[3];
         uint64_t n, used, nb, ns;
         if(std::fread(magic, 1, 8, fp) != 8 || std::memcmp(magic, "CHTMAP02", 8))
             throw std::runtime_error("[cht_map] read: bad magic");
-        if(std::fread(hdr, sizeof(hdr), 1, fp) != 1 || hdr[0] != Base::key_bits || (VAL_BITS != 0 && hdr[1] != VAL_BITS))
+        if(std::fread(hdr, sizeof(hdr), 1, fp) != 1 || (!Base::runtime_key_bits && hdr[0] != Base::key_bits) || (VAL_BITS != 0 && hdr[1] != VAL_BITS))
             throw std::runtime_error("[cht_map] read: key/value widths do not match this instantiation");
         if(hdr[2] != uint32_t(Sizing::pow2))
             throw std::runtime_error("[cht_map] read: table sizing policy does not match this instantiation");
         if(std::fread(&n, sizeof(n), 1, fp) != 1)
             throw std::runtime_error("[cht_map] read: truncated header");
-        cht_map_t ret(cht_slots{n}, hdr[1]);
+        cht_map_t ret = make_for_read(n, hdr[1], hdr[0]);
         if(std::fread(&used, sizeof(used), 1, fp) != 1 || std::fread(&nb, sizeof(nb), 1, fp) != 1 || nb != ret.bits_.size())
             throw std::runtime_error("[cht_map] read: truncated or inconsistent header");
         if(std::fread(ret.bits_.data(), 1, nb, fp) != nb || std::fread(&ns, sizeof(ns), 1, fp) != 1)
