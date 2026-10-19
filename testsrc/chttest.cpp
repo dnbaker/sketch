@@ -693,6 +693,23 @@ static void test_assign_map() {
         std::fprintf(stderr, "cht narrow-key map exact (%zu keys at load %.2f; count() would differ on %llu)\n",
                      nref.size(), n.load_factor(), (unsigned long long)runmates);
     }
+    // slot handles: find_slot agrees with get, decode(slot) recovers the key,
+    // set_value_at writes through, absent keys map to nslots()
+    {
+        uint64_t sbad = 0;
+        for (const auto &kv: ref) {
+            const uint64_t i = f.find_slot(kv.first);
+            sbad += i >= f.nslots() || !f.occupied_at(i) || f.decode(i) != kv.first || f.value_at(i) != kv.second;
+        }
+        CHECK(sbad == 0, "find_slot/decode/value_at disagree on %llu keys", (unsigned long long)sbad);
+        CHECK(f.find_slot(uint64_t(1) << 40) == f.nslots(), "find_slot of an absent key must be nslots()");
+        const uint64_t k0 = ref.begin()->first, i0 = f.find_slot(k0);
+        f.set_value_at(i0, 12345);
+        CHECK(f.get(k0) == 12345, "set_value_at did not write through");
+        bool threw = false;
+        try { f.set_value_at(i0, 0); } catch (const std::invalid_argument &) { threw = true; }
+        CHECK(threw, "set_value_at(…, 0) must throw");
+    }
     std::fprintf(stderr, "cht assign/map done (%zu keys)\n", ref.size());
 }
 

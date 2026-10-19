@@ -580,6 +580,31 @@ public:
             if(++probe == nslots_) return 0;
         }
     }
+    // SLOT-LEVEL MAP ACCESS (home-exact like get): slots are stable -- linear
+    // probing without deletion never moves a placed entry -- so a slot index
+    // is a durable handle, e.g. for storing references between entries (a
+    // tree's parent pointer as the parent's slot). find_slot returns nslots()
+    // when k is absent; value_at/set_value_at read/write the VAL_BITS field of
+    // an OCCUPIED slot (set_value_at's value must lie in [1, SAT]); decode(i)
+    // recovers the slot's key.
+    uint64_t find_slot(Key k) const {
+        static_assert(DECODE_BITS != 0, "find_slot matches by home and needs DECODE_BITS=8");
+        const Key h = hf_.hash(k);
+        const uint64_t f = fp(h);
+        uint64_t i = home(h);
+        for(uint64_t probe = 0;; i = (i + 1) & (nslots_ - 1)) {
+            if(!occupied(i)) return nslots_;
+            if(rem(i) == f && disp_at(i) == probe) return i;
+            if(++probe == nslots_) return nslots_;
+        }
+    }
+    bool occupied_at(uint64_t i) const {return i < nslots_ && occupied(i);}
+    uint64_t value_at(uint64_t i) const {return cnt(i);}
+    void set_value_at(uint64_t i, uint64_t v) {
+        if(HEDLEY_UNLIKELY(v == 0 || v > SAT || !occupied_at(i)))
+            throw std::invalid_argument("[cht] set_value_at: occupied slot and a value in [1, 2^VAL_BITS - 1] required");
+        cqf::detail::packed_set(cntraw_.data(), i, unsigned(VAL_BITS), v);
+    }
     uint64_t count(Key k) const {
         const Key h = hf_.hash(k);
         const uint64_t f = fp(h);
