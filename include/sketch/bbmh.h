@@ -897,6 +897,7 @@ struct phll_t;
 
 template<typename T, typename Hasher=WangHash>
 class BBitMinHasher {
+protected:
     std::vector<T, common::Allocator<T>> core_;
     uint32_t b_, p_;
     Hasher hf_;
@@ -1292,14 +1293,19 @@ public:
     using final_type = FinalCountingBBitMinHash<CountingType>;
     template<typename... Args>
     CountingBBitMinHasher(uint32_t p, uint32_t b, Args &&... args): super(p, b, std::forward<Args>(args)...), counters_(1ull << p) {}
+    // Each register keeps the minimum (as in BBitMinHasher) and its counter
+    // the number of times that minimum was added.
     void add(T hv) {
         auto ind = hv>>(sizeof(T) * CHAR_BIT - this->p_);
         auto &ref = this->core_[ind];
         hv <<= this->p_; hv >>= this->p_; // Clear top values. We could also shift/mask, but that requires two other constants vs 1.
-        if(ref < hv)
+        if(hv < ref)
             ref = hv, counters_[ind] = 1;
-        else if(ref == hv) ++ref;
+        else if(ref == hv) ++counters_[ind];
     }
+    void addh(T val) {add(this->hf_(val));}
+    const auto &counters() const {return counters_;}
+    void clear() {super::clear(); std::fill(counters_.begin(), counters_.end(), CountingType(0));}
     FinalCountingBBitMinHash<CountingType> finalize(uint32_t b=0) const;
     std::pair<CountingType, CountingType> multiset_comparison(const CountingBBitMinHasher &o) const {
         PREC_REQ(this->size() == o.size(), "Can't compare different-sized sketches");
@@ -1308,11 +1314,15 @@ public:
             if(this->core_[i] == o.core_[i]) {
                 shared_sum += std::min(this->counters_[i], o.counters_[i]);
                 total_sum += std::max(this->counters_[i], o.counters_[i]);
-            } else total_sum += this->counters_[i] + o.counters_[i];
+            } else {
+                // The register's union minimum is the smaller of the two; its key is
+                // absent from the other set (else that set's minimum would be <= it).
+                total_sum += this->core_[i] < o.core_[i] ? this->counters_[i]: o.counters_[i];
+            }
         }
         return std::make_pair(shared_sum, total_sum);
     }
-    auto histogram_intersection(const CountingType &o) const {
+    auto histogram_intersection(const CountingBBitMinHasher &o) const {
         auto p = multiset_comparison(o);
         return double(p.first) / double(p.second);
     }
