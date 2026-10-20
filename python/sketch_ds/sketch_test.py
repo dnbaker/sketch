@@ -40,7 +40,7 @@ def test_bbmh():
     assert abs(cards[2] - 2000.) < 100., f"card {cards[2]}, expected 2000"
     assert abs(0.5 - sim) <= .03, f"Found similarity {sim} but expected 0.5 (|x| / |x u y|)"
 
-    print("cards:" + ",".join(f"{x.report()}" for x in bs))
+    print("cards:" + ",".join(f"{x.report()}" for x in fbs))
 
 
 def test_cqf():
