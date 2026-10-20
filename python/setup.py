@@ -67,7 +67,7 @@ include_dirs = [
     CWD
 ]
 
-__version__ = "0.19.0"
+__version__ = "0.20.0"
 
 
 def make_namepair(name):
