@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Removed the vendored `include/flat_hash_map` (no users remain in sketch, bonsai or dashing2;
+  the headers moved to `ankerl::unordered_dense` in 0.20.0).
+
 ## 0.20.0 (2026-10-20)
 
 ### Breaking
