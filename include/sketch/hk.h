@@ -4,7 +4,7 @@
 #include "./common.h"
 #include "aesctr/wy.h"
 #include "tsg.h"
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 #include "hash.h"
 #if SKETCH_THREADSAFE
 #include <mutex>
@@ -294,7 +294,7 @@ class HeavyKeeperHeap {
 protected:
     HKType hk_;
     std::vector<ValueType, Allocator> heap_;
-    ska::flat_hash_set<HashSetFingerprint> hashes_;
+    ankerl::unordered_dense::set<HashSetFingerprint> hashes_;
     size_t max_heap_size_;
     struct Comparator {
         const HKType &hk_;

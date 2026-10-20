@@ -249,7 +249,7 @@ static void test_hnsw() {
     const size_t ngroup = 60, per_group = 12, nbg = 1200;
     DefaultRNGType rng(0x5EED);
     auto sample = [&](size_t n, auto &out) { // n distinct ids, sorted
-        ska::flat_hash_set<uint32_t> s;
+        ankerl::unordered_dense::set<uint32_t> s;
         while(s.size() < n) s.insert(uint32_t(rng() % UNIVERSE));
         out.assign(s.begin(), s.end());
         std::sort(out.begin(), out.end());
@@ -265,7 +265,7 @@ static void test_hnsw() {
         for(size_t cp = 0; cp < per_group - 1; ++cp) {
             std::shuffle(base.begin(), base.end(), rng);
             std::vector<uint32_t> b(base.begin(), base.begin() + c);
-            ska::flat_hash_set<uint32_t> avoid(b.begin(), b.end());
+            ankerl::unordered_dense::set<uint32_t> avoid(b.begin(), b.end());
             std::vector<uint32_t> fresh;
             while(fresh.size() < SETSIZE - c) {
                 const uint32_t v = uint32_t(rng() % UNIVERSE);

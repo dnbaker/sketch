@@ -11,7 +11,7 @@
 #include <numeric>
 #include <utility>
 #include "xxHash/xxh3.h"
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 #include "sketch/div.h"
 #include "sketch/integral.h"
 #include "sketch/hash.h"
@@ -38,7 +38,7 @@ struct SetSketchIndex {
      */
 private:
     size_t m_;
-    using HashMap = ska::flat_hash_map<KeyT, std::vector<IdT>>;
+    using HashMap = ankerl::unordered_dense::map<KeyT, std::vector<IdT>>;
     using HashV = std::vector<HashMap>;
     std::vector<HashV> packed_maps_;
     std::vector<uint64_t> regs_per_reg_;
@@ -163,7 +163,7 @@ public:
         if(starting_idx == size_t(-1) || starting_idx > regs_per_reg_.size()) starting_idx = regs_per_reg_.size();
         const size_t my_id = std::atomic_fetch_add(reinterpret_cast<std::atomic<size_t> *>(&total_ids_), size_t(1));
         const size_t n_subtable_lists = regs_per_reg_.size();
-        ska::flat_hash_map<IdT, uint32_t> rset;
+        ankerl::unordered_dense::map<IdT, uint32_t> rset;
         std::vector<IdT> passing_ids;
         std::vector<uint32_t> items_per_row;
         rset.reserve(maxcand); passing_ids.reserve(maxcand); items_per_row.reserve(starting_idx);
@@ -393,7 +393,7 @@ public:
          *  to least specific/most sensitive
          *  Can be then used, along with sketches, to select nearest neighbors
          *  */
-        ska::flat_hash_map<IdT, uint32_t> rset;
+        ankerl::unordered_dense::map<IdT, uint32_t> rset;
         std::vector<IdT> passing_ids;
         std::vector<uint32_t> items_per_row;
         rset.reserve(maxcand); passing_ids.reserve(maxcand); items_per_row.reserve(starting_idx);
@@ -581,7 +581,7 @@ struct BandLSHIndex {
     using key_type = KeyT;
     using id_type = IdT;
 private:
-    using BucketMap = ska::flat_hash_map<KeyT, std::vector<IdT>>;
+    using BucketMap = ankerl::unordered_dense::map<KeyT, std::vector<IdT>>;
     size_t siglen_;
     size_t ntables_;
     size_t vote_threshold_;
@@ -700,8 +700,8 @@ public:
 private:
     template<typename Provider>
     std::vector<std::pair<IdT, uint32_t>> query_gen(Provider &&sig_for, size_t maxcand) const {
-        ska::flat_hash_map<IdT, uint32_t> rset;
-        ska::flat_hash_map<IdT, uint32_t> band_hits; // per (tier, table) vote counting
+        ankerl::unordered_dense::map<IdT, uint32_t> rset;
+        ankerl::unordered_dense::map<IdT, uint32_t> band_hits; // per (tier, table) vote counting
         const bool use_vote = vote_threshold_ > 1;
         auto flush_table = [&]() {
             if(!use_vote) return;
@@ -724,7 +724,7 @@ private:
                     const size_t start = j * t.stride;
                     if(nprobes > 1) {
                         // multiprobe: an id counts at most one hit per band
-                        ska::flat_hash_set<IdT> seen;
+                        ankerl::unordered_dense::set<IdT> seen;
                         for(unsigned p = 0; p < nprobes; ++p) {
                             const size_t drop = p ? p - 1: t.band_size;
                             const KeyT key = band_key(sig, start, t.band_size, drop, key_seed(qi, l, j, p));
@@ -797,7 +797,7 @@ struct TieredProbeIndex {
         size_t candidates = 0;     // distinct candidates accumulated at the stop
     };
 private:
-    using BucketMap = ska::flat_hash_map<uint64_t, std::vector<uint32_t>>;
+    using BucketMap = ankerl::unordered_dense::map<uint64_t, std::vector<uint32_t>>;
     size_t siglen_;
     std::vector<size_t> widths_;             // most-specific first
     std::vector<size_t> nbands_;
@@ -856,7 +856,7 @@ public:
     template<typename Sig>
     std::vector<uint32_t> query(const Sig &sig, size_t k, double oversample, ProbeStats *stats=nullptr) const {
         const size_t stop_at = size_t(oversample * double(k) + 0.5);
-        ska::flat_hash_map<uint32_t, uint32_t> seen;
+        ankerl::unordered_dense::map<uint32_t, uint32_t> seen;
         std::vector<uint32_t> ret;
         size_t bands = 0;
         size_t stop_tier = widths_.size() - 1;

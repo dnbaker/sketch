@@ -11,7 +11,7 @@
 #include "sketch/kahan.h"
 #include "sketch/hash.h"
 #include "xxHash/xxh3.h"
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 
 namespace sketch {
 
@@ -941,7 +941,7 @@ private:
     std::vector<uint64_t> indices;
     std::vector<FT>          vals;
     wmh::mvt_t<FT>            mvt;
-    ska::flat_hash_map<uint64_t, uint32_t> counter;
+    ankerl::unordered_dense::map<uint64_t, uint32_t> counter;
     fy::LazyShuffler ls_;
 
     bool sub_update(const uint64_t pos, const FT value, const uint64_t element_idx) {

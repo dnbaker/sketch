@@ -1,5 +1,5 @@
 #ifndef MOD_SKETCH_H__
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 #include "./mh.h"
 #include "./div.h"
 #include "./hash.h"
@@ -15,7 +15,7 @@ template<typename HashStruct=hash::WangHash, typename VT=std::uint64_t, typename
 struct modsketch_t {
     Policy mod_;
     using final_type = FinalModHash<VT, Allocator>;
-    ska::flat_hash_set<VT> set;
+    ankerl::unordered_dense::set<VT> set;
     HashStruct hs_;
     modsketch_t(VT mod, HashStruct &&hs=HashStruct()): mod_(mod), hs_(hs) {}
     template<typename...Args>

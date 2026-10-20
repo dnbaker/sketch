@@ -68,7 +68,7 @@ template<typename T, typename RNG>
 static std::vector<T> random_set(std::size_t n, std::uint64_t universe, RNG &rng) {
     std::vector<T> v;
     v.reserve(n);
-    ska::flat_hash_set<T> seen;
+    ankerl::unordered_dense::set<T> seen;
     while(v.size() < n) {
         const T x = T(rng() % universe);
         if(seen.insert(x).second) v.push_back(x);

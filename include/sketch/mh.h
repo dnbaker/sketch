@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include "sketch/isz.h"
 #include <queue>
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 #include "sketch/hash.h"
 #include "vec/vec.h"
 
@@ -1218,7 +1218,7 @@ struct BottomKHasher {
     size_t k_;
     HashStruct hs_;
     mpq mpq_;
-    ska::flat_hash_set<VT> set_;
+    ankerl::unordered_dense::set<VT> set_;
 
     void clear() {
         set_.clear();

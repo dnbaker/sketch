@@ -345,7 +345,7 @@ struct WangPairHasher: public hash::WangHash {
 };
 
 class ExactCountingAdapter {
-    ska::flat_hash_map<uint64_t, uint32_t> data_;
+    ankerl::unordered_dense::map<uint64_t, uint32_t> data_;
 public:
     ExactCountingAdapter(size_t rsz=1<<16) {
         data_.reserve(rsz);
@@ -356,7 +356,7 @@ public:
         data_.clear();
     }
     uint64_t addh(uint64_t key) {
-        typename ska::flat_hash_map<uint64_t, uint32_t>::iterator it;
+        typename ankerl::unordered_dense::map<uint64_t, uint32_t>::iterator it;
         uint64_t ret;
         if((it = data_.find(key)) == data_.end()) {
             data_.emplace(key, 1);

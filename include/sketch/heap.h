@@ -3,7 +3,7 @@
 #include "common.h"
 #include <mutex>
 #include <cstdarg>
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 
 namespace sketch {
 #ifndef LOG_DEBUG
@@ -32,7 +32,7 @@ class ObjHeap {
     std::vector<Obj> core_;
     HashFunc h_;
     using HType = uint64_t;
-    ska::flat_hash_set<HType> hashes_;
+    ankerl::unordered_dense::set<HType> hashes_;
 #ifndef NOT_THREADSAFE
     std::mutex mut_;
 #endif
@@ -214,7 +214,7 @@ class SketchHeap {
     HashFunc h_;
     using HType = uint64_t;
     std::vector<Obj> core_;
-    ska::flat_hash_set<HType> hashes_;
+    ankerl::unordered_dense::set<HType> hashes_;
     SketchCmp<CSketchType> cmp_;
 #ifndef NOT_THREADSAFE
     std::mutex mut_;

@@ -8,7 +8,7 @@
 #include "xxHash/xxhash.h"
 #include "sketch/pstable.h"
 #include "sketch/macros.h"
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 #include "aesctr/wy.h"
 #include "blaze/Math.h"
 #ifdef _OPENMP
@@ -278,7 +278,7 @@ template<typename Hasher, typename IT=::std::uint32_t, typename KT=uint64_t>
 struct LSHTable {
     using ElementType = typename Hasher::ElementType;
     const Hasher hasher_;
-    std::unique_ptr<ska::flat_hash_map<KT, std::vector<IT>>[]> tables_;
+    std::unique_ptr<ankerl::unordered_dense::map<KT, std::vector<IT>>[]> tables_;
     const unsigned nh_;
     XXHasher<KT> xxhasher_;
     OMP_ONLY(std::unique_ptr<std::mutex[]> mutexes;)
@@ -300,7 +300,7 @@ public:
 
     template<typename...Args>
     LSHTable(Args &&...args): hasher_(std::forward<Args>(args)...),
-                              tables_(new ska::flat_hash_map<KT, std::vector<IT>>[hasher_.l()]),
+                              tables_(new ankerl::unordered_dense::map<KT, std::vector<IT>>[hasher_.l()]),
                               nh_(hasher_.nh()),
                               xxhasher_(XXH3_64bits_withSeed(hasher_.matrix().data(), hasher_.matrix().spacing() *
                                   (blaze::IsRowMajorMatrix_v<
@@ -385,9 +385,9 @@ public:
         return ret;
     }
     template<typename VT, bool OSO>
-    ska::flat_hash_map<IT, unsigned> query(const blaze::Vector<VT, OSO> &query) const {
+    ankerl::unordered_dense::map<IT, unsigned> query(const blaze::Vector<VT, OSO> &query) const {
         auto hv = evaluate(hash(query));
-        ska::flat_hash_map<IT, unsigned> ret;
+        ankerl::unordered_dense::map<IT, unsigned> ret;
         for(unsigned i = 0; i < l(); ++i) {
             if(auto it = tables_[i].find(xxhasher_(&hv[i * k()], sizeof(ElementType) * k()));
                it != tables_[i].end())
@@ -402,18 +402,18 @@ public:
         return ret;
     }
     template<typename MT, bool OSO>
-    std::vector<ska::flat_hash_map<IT, unsigned>>
+    std::vector<ankerl::unordered_dense::map<IT, unsigned>>
     query(const blaze::Matrix<MT, OSO> &query) const {
         auto hv = evaluate(hash(query));
         //std::fprintf(stderr, "hv rows: %zu. columns: %zu. nh: %u. input num rows: %zu. input col: %zu\n", hv.rows(), hv.columns(), nh_, (*query).rows(), (*query).columns());
         if(hv.columns() != nh_) throw std::runtime_error("Wrong number of columns");
         if(hv.rows() != (*query).rows()) throw std::runtime_error("Wrong number of rows");
-        std::vector<ska::flat_hash_map<IT, unsigned>> ret(hv.rows());
+        std::vector<ankerl::unordered_dense::map<IT, unsigned>> ret(hv.rows());
         assert(hv.rows() == (*query).rows());
         OMP_PFOR
         for(unsigned j = 0; j < hv.rows(); ++j) {
             auto &map = ret[j];
-            typename ska::flat_hash_map<KT, std::vector<IT>>::const_iterator it;
+            typename ankerl::unordered_dense::map<KT, std::vector<IT>>::const_iterator it;
             auto hr = row(hv, j BLAZE_CHECK_DEBUG);
             assert(hr.size() == nh_);
             for(unsigned i = 0; i < l(); ++i) {

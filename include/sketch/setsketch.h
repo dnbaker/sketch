@@ -14,7 +14,7 @@
 #include "sketch/flog.h"
 #include "sketch/kahan.h"
 #include "xxHash/xxh3.h"
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 
 namespace sketch {
 
@@ -719,7 +719,7 @@ public:
     double harmean(const SetSketch<ResT, FT> *ptr=static_cast<const SetSketch<ResT, FT> *>(nullptr)) const {
         static std::unordered_map<FT, std::vector<FT>> powers;
         CONST_IF(sizeof(ResT) >= 4) {
-            ska::flat_hash_map<ResT, uint32_t> counts;
+            ankerl::unordered_dense::map<ResT, uint32_t> counts;
             if(ptr) {
                 for(size_t i = 0; i < m_; ++i)
                     ++counts[std::max(data_[i], ptr->data()[i])];
@@ -742,7 +742,7 @@ public:
             } else for(size_t i = 0; i < m_; ++counts[data_[i++]]);
             return std::inner_product(&counts[lowkh_.klow()], &counts[q_ + 2], &it->second[lowkh_.klow()], 0.L);
         } else {
-            ska::flat_hash_map<ResT, uint32_t> counts; counts.reserve(q_ + 2);
+            ankerl::unordered_dense::map<ResT, uint32_t> counts; counts.reserve(q_ + 2);
             if(ptr) {
                 for(size_t i = 0; i < m_; ++i)
                     ++counts[std::max(data_[i], ptr->data()[i])];
@@ -882,7 +882,7 @@ class CountFilteredSetSketch: public SetSketch<ResT, FT> {
     using Super = SetSketch<ResT, FT>;
 
     const uint32_t mc_;
-    ska::flat_hash_map<uint64_t, uint32_t> potentials_;
+    ankerl::unordered_dense::map<uint64_t, uint32_t> potentials_;
 public:
     template<typename...Args>
     CountFilteredSetSketch(int32_t mincount=1, Args &&...args): Super(std::forward<Args>(args)...), mc_(mincount) {
@@ -911,8 +911,10 @@ public:
     void update(const IT id, OFT) {update(id);}
     void trim_potentials() {
         const auto lim = this->explim();
-        for(auto it = potentials_.begin(), eit = potentials_.end(); it != eit; ++it) {
-            if(getlim(it->first) < lim) potentials_.erase(it);
+        // erase(it) returns the next element to visit (unordered_dense moves the last element into the hole)
+        for(auto it = potentials_.begin(); it != potentials_.end();) {
+            if(getlim(it->first) < lim) it = potentials_.erase(it);
+            else ++it;
         }
     }
     void update(const uint64_t id) {
@@ -990,7 +992,7 @@ template<typename FT=double>
 struct CountFilteredCSetSketch: public CSetSketch<FT> {
     using super = CSetSketch<FT>;
     const uint32_t mc_;
-    ska::flat_hash_map<uint64_t, uint32_t> potentials_;
+    ankerl::unordered_dense::map<uint64_t, uint32_t> potentials_;
 #ifdef VERBOSE_AF
     size_t numremoved = 0;
     ~CountFilteredCSetSketch() {
@@ -1022,15 +1024,15 @@ struct CountFilteredCSetSketch: public CSetSketch<FT> {
         long double tv = (lrv >> 32) * 1.2621774483536188887e-29L;
         return mi * std::log(tv);
     }
-    INLINE void erase_if(typename ska::flat_hash_map<uint64_t, uint32_t>::iterator it) {
+    INLINE auto erase_if(typename ankerl::unordered_dense::map<uint64_t, uint32_t>::iterator it) {
 #ifdef VERBOSE_AF
         ++numremoved;
 #endif
-        potentials_.erase(it);
+        return potentials_.erase(it);
     }
     void trim_potentials(FT mv) {
         using fastlog::flog;
-        for(auto it = potentials_.begin(); it != potentials_.end(); ++it) {
+        for(auto it = potentials_.begin(); it != potentials_.end();) {
             const FT mi = -1.L / m_;
             FT nv;
             uint64_t hid = it->first;
@@ -1045,9 +1047,10 @@ struct CountFilteredCSetSketch: public CSetSketch<FT> {
                 if(nv < mv) nv = mi * std::log(tv);
             }
             if(nv >= mv) {
-                erase_if(it);
+                it = erase_if(it);
                 continue;
             }
+            ++it;
         }
     }
     void update(const uint64_t id) {
