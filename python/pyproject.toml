@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sketch-ds"
-version = "0.20.0"
+version = "0.20.1"
 description = "A python module for constructing and comparing sketch data structures (HyperLogLog, SetSketch, UltraLogLog, ExaLogLog, FracMinHash, DartMinHash, PMH, and more)"
 authors = [
   { name="Daniel Baker", email="dnb@cs.jhu.edu" },

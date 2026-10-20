@@ -1,9 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.20.1 (2026-10-20)
 
-- Removed the vendored `include/flat_hash_map` (no users remain in sketch, bonsai or dashing2;
-  the headers moved to `ankerl::unordered_dense` in 0.20.0).
+### Fixed
+- `circularqueue/cq.h` is back at the repository root (a forwarding header to
+  `include/circularqueue/cq.h`): 0.20.0 dropped the old circularqueue submodule path, which
+  broke downstream includes of `hll/circularqueue/cq.h` (bonsai's unit tests).
+
+### Added
+- `scripts/release_check.sh`, the release gate: sketch's suite, then bonsai (`make check`) and
+  dashing2 (`test/regress_modes.sh` goldens) built from committed trees with this sketch in
+  place of their pinned submodule. Run it on every release commit before it reaches main.
+
+### Removed
+- The vendored `include/flat_hash_map` (no users remain in sketch, bonsai or dashing2; the
+  headers moved to `ankerl::unordered_dense` in 0.20.0).
 
 ## 0.20.0 (2026-10-20)
 
