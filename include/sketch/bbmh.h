@@ -971,10 +971,8 @@ public:
         ref = std::min(ref, hv);
         assert(ref <= hv);
 #else
-        // Plain-load fast path; see hll::add.
-        if(HEDLEY_LIKELY(hv >= ref)) return;
-        while(hv < ref)
-            __sync_bool_compare_and_swap(std::addressof(ref), ref, hv);
+        // Plain-load check, then a hardware atomic min; see hll::add.
+        atomic_store_min(std::addressof(ref), hv);
 #endif
     }
     void write(const char *fn, int compression=6, uint32_t b=0) const {

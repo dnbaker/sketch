@@ -8,6 +8,7 @@
 #include "common.h"
 #include "hash.h"
 #include "hedley.h"
+#include "atomic_minmax.h"
 
 namespace sketch {
 
@@ -969,11 +970,8 @@ public:
         const uint32_t index(q() == 64 ? uint32_t(0): uint32_t(hashval >> q()));
         const uint8_t lzt = clz(((hashval << 1)|1) << (np_ - 1)) + 1;
 #ifndef NOT_THREADSAFE
-        // Plain-load fast path: the __sync builtin clobbers memory, which
-        // would block load scheduling on the dominant no-update path.
-        if(HEDLEY_LIKELY(core_[index] >= lzt)) return;
-        for(;core_[index] < lzt;
-             __sync_bool_compare_and_swap(&core_[index], core_[index], lzt));
+        // Plain-load check, then a hardware atomic max (CAS where there is none).
+        atomic_store_max(&core_[index], lzt);
 #else
         if(core_[index] < lzt) core_[index] = lzt;
 #endif
