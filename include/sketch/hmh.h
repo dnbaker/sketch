@@ -290,10 +290,15 @@ public:
     }
     // Single-element dispatch: switch-to-inline
     // (function pointer removed). Each arm inlines perform_add<IT> directly.
-    void add(uint64_t h1, uint64_t h2) {
+    // add: one thread per sketch. add_threadsafe: safe to call concurrently on
+    // the same sketch (atomic max on the register; see hll::add_threadsafe).
+    void add(uint64_t h1, uint64_t h2) {dispatch_add<false>(h1, h2);}
+    void add_threadsafe(uint64_t h1, uint64_t h2) {dispatch_add<true>(h1, h2);}
+    template<bool THREADSAFE>
+    void dispatch_add(uint64_t h1, uint64_t h2) {
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index, __unused) case index: perform_add<type>(h1, h2); break
+#define CASE_U(type, index, __unused) case index: perform_add<type, THREADSAFE>(h1, h2); break
             SHOW_CASES(CASE_U)
 #undef CASE_U
             default: HEDLEY_UNREACHABLE();
@@ -419,22 +424,18 @@ public:
     }
 #undef _mm512_srli_epi16
 #undef _mm512_srli_epi8
-    template<typename IT>
+    template<typename IT, bool THREADSAFE=false>
     INLINE void perform_add(uint64_t h1, uint64_t h2) {
         const IT reg = encode_register(r_,
                                        clz(((h1 << 1)|1) << (p_ - 1)) + 1,
                                        h2 & rbm_);
         IT &r = ((IT *)data_.data())[h1 >> max_lremainder()];
         assert(&r < (IT *)&*data_.end());
-#ifdef NOT_THREADSAFE
-        if(reg > r) r = reg;
-#else
-        // Fast path with a plain load: __sync_bool_compare_and_swap carries
-        // a memory clobber, which blocks load scheduling on the (dominant)
-        // no-update path when it sits in the loop condition.
-        if(HEDLEY_LIKELY(reg <= r)) return;
-        while(reg > r) __sync_bool_compare_and_swap(&r, r, reg);
-#endif
+        CONST_IF(THREADSAFE) {
+            atomic_store_max(&r, reg); // plain-load check first, then atomic max or CAS
+        } else {
+            if(reg > r) r = reg;
+        }
     }
     double estimate_hll_portion() const {
         double ret;
@@ -846,31 +847,42 @@ struct HyperMinHasher: public hmh_t {
     void unset_card() {card_ = UNSET_CARD;}
 
 
+    // add/addh: one thread per sketch; the _threadsafe variants may be called
+    // concurrently on the same sketch.
     void add(uint64_t hv) {
         uint64_t h2 = wy::wyhash64_stateless(&hv);
         hmh_t::add(hv, h2);
     }
+    void add_threadsafe(uint64_t hv) {
+        uint64_t h2 = wy::wyhash64_stateless(&hv);
+        hmh_t::add_threadsafe(hv, h2);
+    }
     // Batch insertion with the register-width dispatch hoisted out of the
     // loop: a monomorphic inner update measures ~15-20% faster than
     // dispatching (switch or function pointer) on every element.
-    void add(const uint64_t *vals, size_t n) {
+    void add(const uint64_t *vals, size_t n) {add_batch<false>(vals, n);}
+    void add_threadsafe(const uint64_t *vals, size_t n) {add_batch<true>(vals, n);}
+    template<typename It>
+    void add(It b, It e) {add(&*b, std::distance(b, e));}
+    template<typename It>
+    void add_threadsafe(It b, It e) {add_threadsafe(&*b, std::distance(b, e));}
+private:
+    template<bool THREADSAFE>
+    void add_batch(const uint64_t *vals, size_t n) {
         switch(lrszm3_) {
 #undef CASE_U
-#define CASE_U(type, index, __UNUSED) case index: add_many<type>(vals, n); break
+#define CASE_U(type, index, __UNUSED) case index: add_many<type, THREADSAFE>(vals, n); break
             SHOW_CASES(CASE_U)
 #undef CASE_U
             default: HEDLEY_UNREACHABLE();
         }
     }
-    template<typename It>
-    void add(It b, It e) {add(&*b, std::distance(b, e));}
-private:
-    template<typename IT>
+    template<typename IT, bool THREADSAFE>
     void add_many(const uint64_t *vals, size_t n) {
         for(size_t i = 0; i < n; ++i) {
             uint64_t hv = hf_(vals[i]);
             uint64_t h2 = wy::wyhash64_stateless(&hv);
-            this->template perform_add<IT>(hv, h2);
+            this->template perform_add<IT, THREADSAFE>(hv, h2);
         }
     }
 public:
@@ -878,6 +890,10 @@ public:
     template<typename...Args>
     void addh(Args &&...args) {
         add(hf_(std::forward<Args>(args)...));
+    }
+    template<typename...Args>
+    void addh_threadsafe(Args &&...args) {
+        add_threadsafe(hf_(std::forward<Args>(args)...));
     }
 
     double containment_index(const HyperMinHasher &o) const {

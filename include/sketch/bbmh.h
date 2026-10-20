@@ -796,23 +796,20 @@ public:
         return !operator==(o);
     }
     void show() const {for(const auto v: core_) std::fprintf(stderr, "%zu\t", size_t(v)); std::fputc('\n', stderr);}
-    void addh(T val) {val = hf_(val);add(val);}
+    // add/addh: one thread per sketch. add_threadsafe/addh_threadsafe: safe to
+    // call concurrently on the same sketch (atomic min; see hll::add_threadsafe).
+    void addh(T val) {add(hf_(val));}
+    void addh_threadsafe(T val) {add_threadsafe(hf_(val));}
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
     T nbuckets() const {return div_.d_;} // also core_.size()
     INLINE void add(T hv) {
-        const T bucket = div_.mod(hv);
-        const T quot = div_.div(hv);
-        auto &ref = core_[bucket];
-#ifdef NOT_THREADSAFE
-        ref = std::min(quot, ref);
-#else
-        // Plain-load fast path; see hll::add.
-        if(HEDLEY_LIKELY(quot >= ref)) return;
-        while(quot < ref)
-            __sync_bool_compare_and_swap(std::addressof(ref), ref, quot);
-#endif
+        auto &ref = core_[div_.mod(hv)];
+        ref = std::min(T(div_.div(hv)), ref);
+    }
+    INLINE void add_threadsafe(T hv) {
+        atomic_store_min(std::addressof(core_[div_.mod(hv)]), T(div_.div(hv)));
     }
     void write(const char *fn, int compression=6) const {
         finalize().write(fn, compression);
@@ -957,7 +954,11 @@ public:
         }
         return ret;
     }
-    void addh(T val) {val = hf_(val);add(val);}
+    // add/addh: one thread per sketch. add_threadsafe/addh_threadsafe: safe to
+    // call concurrently on the same sketch (plain-load check, then a hardware
+    // atomic min; see hll::add_threadsafe).
+    void addh(T val) {add(hf_(val));}
+    void addh_threadsafe(T val) {add_threadsafe(hf_(val));}
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
@@ -967,13 +968,12 @@ public:
     void add(T hv) {
         auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
         hv <<= p_; hv >>= p_; // Clear top values
-#ifdef NOT_THREADSAFE
         ref = std::min(ref, hv);
-        assert(ref <= hv);
-#else
-        // Plain-load check, then a hardware atomic min; see hll::add.
+    }
+    void add_threadsafe(T hv) {
+        auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
+        hv <<= p_; hv >>= p_;
         atomic_store_min(std::addressof(ref), hv);
-#endif
     }
     void write(const char *fn, int compression=6, uint32_t b=0) const {
         finalize(b ? b: b_).write(fn, compression);
@@ -1284,9 +1284,11 @@ template<typename T, typename CountingType, typename Hasher=WangHash>
 class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
     using super = BBitMinHasher<T, Hasher>;
     std::vector<CountingType, Allocator<CountingType>> counters_;
-    // Not threadsafe currently
     // Consider bitpacking with p_ bits for counting
 public:
+    // Register and counter are updated together: no concurrent add.
+    void add_threadsafe(T) = delete;
+    void addh_threadsafe(T) = delete;
     using final_type = FinalCountingBBitMinHash<CountingType>;
     template<typename... Args>
     CountingBBitMinHasher(uint32_t p, uint32_t b, Args &&... args): super(p, b, std::forward<Args>(args)...), counters_(1ull << p) {}

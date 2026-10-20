@@ -966,43 +966,58 @@ public:
         return std::string("Size: ") + std::to_string(np_) + ". nb: " + std::to_string(m()) + " error: " + std::to_string(relative_error()) + " , + method: " + EST_STRS[estim_];
     }
 
+    // add/addh update the sketch with plain stores: one thread per sketch.
+    // add_threadsafe/addh_threadsafe may be called on the same sketch from
+    // several threads at once (plain-load check, then a hardware atomic max,
+    // or CAS where there is none); the registers end up identical either way.
+    INLINE uint32_t reg_index(uint64_t hashval) const noexcept {
+        return q() == 64 ? uint32_t(0): uint32_t(hashval >> q());
+    }
+    INLINE uint8_t reg_value(uint64_t hashval) const noexcept {
+        return clz(((hashval << 1)|1) << (np_ - 1)) + 1;
+    }
     INLINE void add(uint64_t hashval) noexcept {
-        const uint32_t index(q() == 64 ? uint32_t(0): uint32_t(hashval >> q()));
-        const uint8_t lzt = clz(((hashval << 1)|1) << (np_ - 1)) + 1;
-#ifndef NOT_THREADSAFE
-        // Plain-load check, then a hardware atomic max (CAS where there is none).
-        atomic_store_max(&core_[index], lzt);
-#else
+        const uint32_t index = reg_index(hashval);
+        const uint8_t lzt = reg_value(hashval);
         if(core_[index] < lzt) core_[index] = lzt;
-#endif
-
 #if LZ_COUNTER
-        ++clz_counts_[clz(((hashval << 1)|1) << (np_ - 1)) + 1];
+        ++clz_counts_[lzt];
+#endif
+    }
+    INLINE void add_threadsafe(uint64_t hashval) noexcept {
+        const uint8_t lzt = reg_value(hashval);
+        atomic_store_max(&core_[reg_index(hashval)], lzt);
+#if LZ_COUNTER
+        ++clz_counts_[lzt]; // diagnostic only; racy under concurrent adds
 #endif
     }
 
-    INLINE void addh(uint64_t element) noexcept {
-        element = hf_(element);
-        add(element);
-    }
-    INLINE void addh(const std::string &element) noexcept {
+    INLINE void addh(uint64_t element) noexcept {add(hf_(element));}
+    INLINE void addh_threadsafe(uint64_t element) noexcept {add_threadsafe(hf_(element));}
+    INLINE uint64_t hash_string(const std::string &element) const noexcept {
 #ifdef ENABLE_CLHASH
         CONST_IF(std::is_same<HashStruct, clhasher>::value) {
-            add(hf_(element));
-        } else {
-#endif
-            add(std::hash<std::string>{}(element));
-#ifdef ENABLE_CLHASH
+            return hf_(element);
         }
 #endif
+        return std::hash<std::string>{}(element);
     }
+    INLINE void addh(const std::string &element) noexcept {add(hash_string(element));}
+    INLINE void addh_threadsafe(const std::string &element) noexcept {add_threadsafe(hash_string(element));}
 #ifndef VEC_DISABLED__
     INLINE void addh(VType element) noexcept {
         element = hf_(element.simd_);
         add(element);
     }
+    INLINE void addh_threadsafe(VType element) noexcept {
+        element = hf_(element.simd_);
+        add_threadsafe(element);
+    }
     INLINE void add(VType element) noexcept {
         element.for_each([&](uint64_t &val) {add(val);});
+    }
+    INLINE void add_threadsafe(VType element) noexcept {
+        element.for_each([&](uint64_t &val) {add_threadsafe(val);});
     }
 #endif
     template<typename T, typename Hasher=std::hash<T>>
@@ -1408,10 +1423,6 @@ template<typename T>
 static constexpr bool has_csum_v = has_csum<T>::value;
 #endif
 
-#ifndef NOT_THREADSAFE
-static bool warning_emitted = false;
-#endif
-
 template<typename HashStruct=WangHash>
 class shllbase_t: public hllbase_t<HashStruct> {
     // See Edith Cohen - All-Distances Sketches, Revisited: HIP Estimators for Massive Graphs Analysis
@@ -1446,13 +1457,11 @@ public:
         auto isz = std::max(this->cest_ + o.cest_ - union_est, 0.);
         return isz / this->cest_;
     }
+    // The streaming estimate (cest_, s_) is updated with each register change,
+    // so there is no concurrent add: the base class's _threadsafe adds are hidden.
+    void add_threadsafe(uint64_t) = delete;
+    void addh_threadsafe(uint64_t) = delete;
     INLINE void add(uint64_t hashval) {
-#ifndef NOT_THREADSAFE
-        if(!warning_emitted) {
-            warning_emitted = true;
-            std::fprintf(stderr, "Warning: shllbase_t is not threadsafe\n");
-        }
-#endif
         const uint32_t index(hashval >> this->q());
         const uint8_t lzt(clz(((hashval << 1)|1) << (this->np_ - 1)) + 1);
         auto oldv = this->core_[index];

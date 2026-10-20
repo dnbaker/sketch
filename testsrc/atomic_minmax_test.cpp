@@ -1,8 +1,10 @@
 // atomic_store_min/max: concurrent updates leave every register at the true
 // min/max (u8 and u64, the native path where the target has one, CAS otherwise),
-// and HyperLogLog / b-bit MinHash sketches filled from 8 threads equal the serial sketches.
+// and HyperLogLog / b-bit MinHash / HyperMinHash (8-64-bit registers) sketches
+// filled from 8 threads with add_threadsafe equal the sketches filled serially with add.
 #include "sketch/hll.h"
 #include "sketch/bbmh.h"
+#include "sketch/hmh.h"
 #include <cassert>
 #include <cstdio>
 #include <thread>
@@ -29,14 +31,23 @@ int main() {
     }
     hll_t hs(12), hp(12);
     BBitMinHasher<uint64_t> bs(10), bp(10);
-    for(unsigned i = 0; i < nt * n; ++i) hs.add(mix(i + 77)), bs.add(mix(i + 77));
+    DivBBitMinHasher<uint64_t> ds(1000, 16), dp(1000, 16);
+    std::vector<HyperMinHasher<>> ms, mp;
+    for(const unsigned rs: {8, 16, 32, 64}) ms.emplace_back(10, rs), mp.emplace_back(10, rs);
+    for(unsigned i = 0; i < nt * n; ++i) {
+        const uint64_t h = mix(i + 77);
+        hs.add(h), bs.add(h), ds.add(h);
+        for(auto &x: ms) x.add(h);
+    }
     std::vector<std::thread> th;
     for(unsigned t = 0; t < nt; ++t) th.emplace_back([&, t] {
         for(unsigned i = 0; i < n; ++i) {
             const uint64_t h = mix(t * n + i); const unsigned r = h % m;
             atomic_store_min(&mn[r], h >> 1); atomic_store_max(&mx[r], h >> 1);
             atomic_store_min(&mn8[r], uint8_t(h >> 56)); atomic_store_max(&mx8[r], uint8_t(h >> 56));
-            hp.add(mix(t * n + i + 77)); bp.add(mix(t * n + i + 77));
+            const uint64_t v = mix(t * n + i + 77);
+            hp.add_threadsafe(v); bp.add_threadsafe(v); dp.add_threadsafe(v);
+            for(auto &x: mp) x.add_threadsafe(v);
         }
     });
     for(auto &x: th) x.join();
@@ -45,6 +56,9 @@ int main() {
     }
     if(hs.core() != hp.core()) {std::fprintf(stderr, "hll differs\n"); return 1;}
     if(!(bs == bp)) {std::fprintf(stderr, "bbmh differs\n"); return 1;}
+    if(!(ds == dp)) {std::fprintf(stderr, "div bbmh differs\n"); return 1;}
+    for(size_t i = 0; i < ms.size(); ++i)
+        if(!(ms[i] == mp[i])) {std::fprintf(stderr, "hmh (register size %u) differs\n", 8u << i); return 1;}
     std::fprintf(stderr, "atomic_minmax: registers and sketches match serial (hll %.0f, bbmh %.0f, n %u)\n", hp.report(), bp.cardinality_estimate(), nt * n);
     return 0;
 }
