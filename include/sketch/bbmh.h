@@ -46,10 +46,23 @@ inline int densifybin(Container &hashes) {
         std::fill(hashes.begin(), hashes.end(), empty_val);
         return -1; // Empty sketch
     }
-    for (uint64_t i = 0; i < hashes.size(); i++) {
+    // Each empty bin i takes the value of the first bin in its probe sequence
+    // (i, h(i,1), h(i,2), ...) that was non-empty *before* densification. The
+    // probe sequence depends only on i, so two sketches agree on bin i exactly
+    // when they agree on that originally filled bin, which keeps the collision
+    // probability equal to the Jaccard similarity (optimal densification,
+    // Shrivastava 2017). Testing emptiness on the partially densified array
+    // instead (as this did) lets a bin copy a value that was itself borrowed,
+    // so the result depended on bin order and the two sketches' copies diverged.
+    const size_t n = hashes.size();
+    std::vector<uint64_t> filled((n + 63) / 64);
+    for(size_t i = 0; i < n; ++i)
+        if(hashes[i] != empty_val) filled[i >> 6] |= uint64_t(1) << (i & 63);
+    for(size_t i = 0; i < n; ++i) {
+        if(filled[i >> 6] >> (i & 63) & 1) continue;
         uint64_t j = i, nattempts = 0;
-        while(hashes[j] == empty_val)
-            j = twounivhash(i, ++nattempts) % hashes.size();
+        do j = twounivhash(i, ++nattempts) % n;
+        while(!(filled[j >> 6] >> (j & 63) & 1));
         hashes[i] = hashes[j];
     }
     return 1;
