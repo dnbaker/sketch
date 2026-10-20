@@ -10,6 +10,7 @@ Documentation for the Python interface is available [here](https://sketch.readth
 ## Dependencies
 
 We directly include blaze-lib, libpopcnt, [compact_vector](https://github.com/gmarcais/compact_vector), ska::flat\_hash\_map, and xxHash for various utilities.
+We also vendor [simde](https://github.com/simd-everywhere/simde) for single-source SIMD (the hash.h/cht.h batch paths -- no ISA ifdef ladders) and ankerl's unordered\_dense (bench-side maps).
 We also have two submodules:
 
 * pybind11, only used for python bindings.
@@ -75,6 +76,14 @@ You can ignore both for most use cases.
 11. SetSketch
     1. See setsketch.h for continuous and discretized versions of the SetSketch.
     2. This also includes parameter-setting code.
+12. Reversible hashes [hash.h]
+    1. Invertible 64-bit hashes with audited inverses (round-trip and avalanche gates in hashtest) and 4-lane SIMD batch paths (simde).
+    2. SplitMix64Hash is the recommended scalar default; its hash4/hash_batch are bit-identical to the scalar form per lane.
+    3. RRMxMxHash is the pick for best avalanche; invertible, same hash4/hash_batch interface.
+    4. MaskedReducedHash/triangular decode: masked reduction and reduced-key decode (recovering key mod 2^BITS from the stored remainder) for the reduced-key cqf/cht tables.
+13. Compact hash table [cht.h] (EXPERIMENTAL: the bulk path and APIs may change)
+    1. cht_t<Key, RevHash, VAL_BITS, ...>: compact countable table over a reversible hash. Exact mode decodes and dumps inserted keys (jellyfish-style dumper property); truncated mode is a membership filter yielding fingerprint representatives.
+    2. Supports bulk builds (add_bulk_sorted) and SIMD batch APIs (add_many_simd/count_many_simd); measured head-to-head against cqfbase_t in benchmark/cqf_ht_bench.cpp.
 
 ### Test case
 To build and run the hll test case:

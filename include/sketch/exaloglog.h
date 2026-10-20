@@ -74,6 +74,8 @@ class exaloglogbase_t {
     uint32_t                                      np_;
     uint8_t                                      rb_; // register size in bits
     uint64_t                                   mask_; // register value mask
+    uint64_t                                idxmask_; // ((1 << t_) << np_) - 1: register index + low-t bits
+    uint64_t                                 tmask_; // (1 << t_) - 1: low-t update bits
     std::vector<uint8_t, common::Allocator<uint8_t>> state_;
     HashStruct                                       hf_;
     static constexpr uint32_t MAGIC = 0x454c4c31; // "ELL1"
@@ -104,9 +106,15 @@ public:
         if(np < min_p() || np > max_p(t)) throw std::invalid_argument(std::string("[exaloglog] p must be in [2, ") + std::to_string(max_p(t)) + "] for t=" + std::to_string(t));
         rb_ = regbits(t_, d_);
         mask_ = (rb_ == 64) ? ~uint64_t(0): ((uint64_t(1) << rb_) - 1);
-        // +8 bytes of padding so that 64-bit register access can always
-        // go through a single (unaligned, memcpy-based) load/store.
-        state_.assign(((size_t(m()) * rb_) >> 3) + 8, 0);
+        // hoisted out of add(): the index/update-value decompositions use
+        // them on every insertion (shift-by-runtime-value is not free)
+        idxmask_ = ((uint64_t(1) << t_) << np_) - 1;
+        tmask_ = (uint64_t(1) << t_) - 1;
+        // +16 bytes of padding so that register access can always go
+        // through (unaligned, memcpy-based) 8-byte accesses, including the
+        // two-word access needed when a register wider than 57 bits crosses
+        // an 8-byte boundary.
+        state_.assign(((size_t(m()) * rb_) >> 3) + 16, 0);
     }
     // Paper-recommended default: t=2, d=20 (28-bit packed registers, MVP 3.67).
     explicit exaloglogbase_t(uint32_t np): exaloglogbase_t(2, 20, np) {}
@@ -145,18 +153,44 @@ public:
     }
 
     INLINE uint64_t getreg(size_t i) const {
-        uint64_t v;
-        std::memcpy(&v, state_.data() + ((i * rb_) >> 3), sizeof(v));
-        return (v >> ((i * rb_) & 7)) & mask_;
+        const size_t bitpos = size_t(i) * rb_;
+        const uint8_t *const ptr = state_.data() + (bitpos >> 3);
+        const uint32_t sh = bitpos & 7;
+        if(sh + rb_ <= 64) { // always true for rb_ <= 57
+            uint64_t v;
+            std::memcpy(&v, ptr, sizeof(v));
+            return (v >> sh) & mask_;
+        }
+        // register crosses an 8-byte boundary (only rb_ in (57, 64) with
+        // sh > 0): two-word access, covered by the +16 bytes of tail padding
+        uint64_t lo, hi;
+        std::memcpy(&lo, ptr, sizeof(lo));
+        std::memcpy(&hi, ptr + 8, sizeof(hi));
+        return ((lo >> sh) | (hi << (64 - sh))) & mask_;
     }
     INLINE void setreg(size_t i, uint64_t v) {
-        uint8_t *const ptr = state_.data() + ((i * rb_) >> 3);
-        uint64_t old;
-        std::memcpy(&old, ptr, sizeof(old));
-        const uint32_t sh = (i * rb_) & 7;
-        const uint64_t msk = mask_ << sh;
-        old = (old & ~msk) | ((v & mask_) << sh);
-        std::memcpy(ptr, &old, sizeof(old));
+        const size_t bitpos = size_t(i) * rb_;
+        uint8_t *const ptr = state_.data() + (bitpos >> 3);
+        const uint32_t sh = bitpos & 7;
+        v &= mask_;
+        if(sh + rb_ <= 64) {
+            uint64_t old;
+            std::memcpy(&old, ptr, sizeof(old));
+            const uint64_t msk = mask_ << sh;
+            old = (old & ~msk) | (v << sh);
+            std::memcpy(ptr, &old, sizeof(old));
+            return;
+        }
+        uint64_t lo, hi;
+        std::memcpy(&lo, ptr, sizeof(lo));
+        std::memcpy(&hi, ptr + 8, sizeof(hi));
+        const uint64_t lo_keep = ~uint64_t(0) << sh; // writable bits [sh, 64)
+        const unsigned nbits_hi = sh + rb_ - 64;     // writable bits [0, nbits_hi) of the next word
+        const uint64_t hi_keep = (uint64_t(1) << nbits_hi) - 1;
+        lo = (lo & ~lo_keep) | ((v << sh) & lo_keep);
+        hi = (hi & ~hi_keep) | ((v >> (64 - sh)) & hi_keep);
+        std::memcpy(ptr, &lo, sizeof(lo));
+        std::memcpy(ptr + 8, &hi, sizeof(hi));
     }
 
     INLINE uint64_t hash(uint64_t val) const {return hf_(val);}
@@ -170,10 +204,9 @@ public:
 
     // Insertion, Algorithm 2 of the paper (constant time).
     INLINE void add(uint64_t hashval) noexcept {
-        const uint64_t mask = ((uint64_t(1) << t_) << np_) - 1;
-        const uint32_t idx = uint32_t((hashval & mask) >> t_);
-        const int nlz = clz(hashval | mask); // in {0, ..., 64-p-t}
-        const uint64_t k = (uint64_t(nlz) << t_) + (hashval & ((uint64_t(1) << t_) - 1)) + 1;
+        const uint32_t idx = uint32_t((hashval & idxmask_) >> t_);
+        const int nlz = clz(hashval | idxmask_); // in {0, ..., 64-p-t}
+        const uint64_t k = (uint64_t(nlz) << t_) + (hashval & tmask_) + 1;
         const uint64_t r_old = getreg(idx);
         const uint64_t u = r_old >> d_;
         const int64_t delta = int64_t(k) - int64_t(u);
@@ -188,10 +221,9 @@ public:
 
     // Insertion with martingale (HIP) estimation support.
     INLINE void add(uint64_t hashval, mle::detail::MartingaleEstimator &martingale) noexcept {
-        const uint64_t mask = ((uint64_t(1) << t_) << np_) - 1;
-        const uint32_t idx = uint32_t((hashval & mask) >> t_);
-        const int nlz = clz(hashval | mask);
-        const uint64_t k = (uint64_t(nlz) << t_) + (hashval & ((uint64_t(1) << t_) - 1)) + 1;
+        const uint32_t idx = uint32_t((hashval & idxmask_) >> t_);
+        const int nlz = clz(hashval | idxmask_);
+        const uint64_t k = (uint64_t(nlz) << t_) + (hashval & tmask_) + 1;
         const uint64_t r_old = getreg(idx);
         const uint64_t u = r_old >> d_;
         const int64_t delta = int64_t(k) - int64_t(u);
@@ -312,7 +344,11 @@ private:
         const uint64_t u = r >> from_d;
         r >>= (from_d - to_d);
         if(u >= downsize_threshold_u) {
-            const int64_t shift = int64_t((from_p - to_p) - (63 - clz(sub_idx))) << t;
+            // sub_idx == 0 reproduces the reference's
+            // numberOfLeadingZeros(0) == 64 without calling clz(0)
+            // (__builtin_clzll(0) is undefined).
+            const int64_t sub_top = sub_idx ? int64_t(63 - clz(sub_idx)): int64_t(-1);
+            const int64_t shift = (int64_t(from_p - to_p) - sub_top) << t;
             if(shift > 0) {
                 const int64_t num_bits_to_shift = int64_t(to_d) + downsize_threshold_u - u;
                 if(num_bits_to_shift > 0) {
@@ -409,7 +445,7 @@ public:
             t_ = t; d_ = d; np_ = np;
             rb_ = regbits(t_, d_);
             mask_ = (rb_ == 64) ? ~uint64_t(0): ((uint64_t(1) << rb_) - 1);
-            state_.assign(((size_t(m()) * rb_) >> 3) + 8, 0);
+            state_.assign(((size_t(m()) * rb_) >> 3) + 16, 0);
         }
         CR(fp, state_.data(), packed_size());
         std::memset(state_.data() + packed_size(), 0, state_.size() - packed_size());

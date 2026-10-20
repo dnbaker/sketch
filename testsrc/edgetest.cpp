@@ -8,6 +8,7 @@
 #include "fracminhash.h"
 #include "dartminhash.h"
 #include "hmh.h"
+#include "cqf.h"
 #include <cstdio>
 #include <random>
 
@@ -36,7 +37,7 @@ void test_hashers() {
         CHECK(hamdist(h0, h1) >= 10, "wyhash poor avalanche");
     }
     // WangHash inversion round-trips (comment in hash.h promises it)
-    std::mt19937_64 rng(42);
+    DefaultRNGType rng(42);
     for(unsigned i = 0; i < 100000; ++i) {
         const uint64_t v = rng();
         CHECK(hash::WangHash().inverse(hash::WangHash::hash(v)) == v, "WangHash inverse mismatch at %llu", (unsigned long long)v);
@@ -139,6 +140,57 @@ void test_sketch_bounds() {
         CHECK(hm.getcard() == 0., "empty hmh card != 0");
         hm.addh(0);
         CHECK(std::isfinite(hm.getcard()) && hm.getcard() >= 0., "single-element hmh card bad");
+    }
+    {
+        // cqf: min-q ctor, empty/singleton, out-of-range q throws,
+        // merge with mismatched q throws, empty round-trip
+        cqf::cqf64_64 f(2); // min q
+        CHECK(f.empty() && f.size() == 0, "empty cqf size != 0");
+        CHECK(f.count(0) == 0 && !f.contains(0), "empty cqf count != 0");
+        f.addh(0);
+        CHECK(f.size() == 1 && f.count(f.hash(0)) == 1, "singleton cqf count != 1");
+        CHECK(f.load_factor() > 0., "singleton cqf load factor 0");
+        CHECK(f.fpr_bound() == 0., "exact cqf fpr_bound != 0");
+        f.dec(f.hash(0));
+        CHECK(f.empty(), "cqf not empty after dec to zero");
+        cqf::cqf64_64 g(2), g2(2);
+        g.addh(1); g2.addh(2);
+        g += g2;
+        CHECK(g.size() == 2, "cqf merge size != 2");
+        bool threw = false;
+        try { cqf::cqf64_64 bad(0); } catch(const std::invalid_argument &) { threw = true; }
+        CHECK(threw, "cqf accepted q=0");
+        threw = false;
+        try { cqf::cqf64_64 bad(63); } catch(const std::invalid_argument &) { threw = true; }
+        CHECK(threw, "cqf accepted q=63");
+        threw = false;
+        try { cqf::cqf64_64 a(4), b(5); a += b; } catch(const std::invalid_argument &) { threw = true; }
+        CHECK(threw, "cqf merged mismatched q without error");
+        // empty serialization round-trips
+        cqf::cqf64_64 e(4);
+        e.write("/tmp/edge_cqf.cqf");
+        cqf::cqf64_64 e2(cqf::cqf64_64::from_path, std::string("/tmp/edge_cqf.cqf"));
+        CHECK(e2.empty() && e2.size() == 0, "empty cqf round-trip failed");
+        std::remove("/tmp/edge_cqf.cqf");
+        // inexact mode has a nonzero fpr bound once populated
+        cqf::cqf32_8 inx(6);
+        inx.addh(0);
+        CHECK(inx.fpr_bound() > 0., "inexact cqf fpr_bound 0 after add");
+        // bit-granular packing: 20/12 and 20/30 both first-class (odd
+        // remainder widths, multiple mid-stream grows)
+        {
+            cqf::cqf20_12 a(4);
+            for(unsigned i = 0; i < 100; ++i) a.addh(i * 11 + 5);
+            CHECK(a.size() == 100, "cqf20_12 size %llu != 100", (unsigned long long)a.size());
+            for(unsigned i = 0; i < 100; ++i) CHECK(a.count(a.hash(i * 11 + 5)) == 1, "cqf20_12 lost key %u", i);
+            a.structure_check();
+            cqf::cqf20_30 b(4);
+            for(unsigned i = 0; i < 100; ++i) b.addh(i * 13 + 7);
+            CHECK(b.size() == 100, "cqf20_30 size %llu != 100", (unsigned long long)b.size());
+            for(unsigned i = 0; i < 100; ++i) CHECK(b.count(b.hash(i * 13 + 7)) == 1, "cqf20_30 lost key %u", i);
+            b.structure_check();
+        }
+        std::fprintf(stderr, "cqf bounds tests done\n");
     }
     std::fprintf(stderr, "sketch bounds tests done\n");
 }

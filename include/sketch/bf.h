@@ -67,7 +67,7 @@ protected:
     uint64_t                                seedseed_;
     uint64_t                                    mask_;
 public:
-    static constexpr uint32_t OFFSET = 6; // log2(CHAR_BIT * 8) == log2(64) == 6
+    static constexpr uint32_t OFFSET = ilog2(bits_per_word<uint64_t>); // log2(64) == 6
     using HashType = HashStruct;
 
     using final_type = bfbase_t;
@@ -128,9 +128,9 @@ public:
     INLINE void set1(IndType ind) {
         ind &= mask_;
 #if !NDEBUG
-        core_.at(ind >> OFFSET) |= 1ull << (ind & 63);
+        core_.at(ind >> OFFSET) |= 1ull << (ind & (bits_per_word<uint64_t> - 1));
 #else
-        core_[ind >> OFFSET] |= 1ull << (ind & 63);
+        core_[ind >> OFFSET] |= 1ull << (ind & (bits_per_word<uint64_t> - 1));
 #endif
         assert(is_set(ind));
     }
@@ -139,16 +139,16 @@ public:
     INLINE bool is_set(IndType ind) const {
         ind &= mask_;
 #if !NDEBUG
-        return core_.at(ind >> OFFSET) & (1ull << (ind & 63));
+        return core_.at(ind >> OFFSET) & (1ull << (ind & (bits_per_word<uint64_t> - 1)));
 #else
-        return core_[ind >> OFFSET] & (1ull << (ind & 63));
+        return core_[ind >> OFFSET] & (1ull << (ind & (bits_per_word<uint64_t> - 1)));
 #endif
     }
 
     template<typename IndType>
     INLINE bool is_set_and_set1(IndType ind) {
         ind &= mask_;
-        const auto val = (1ull << (ind & 63));
+        const auto val = (1ull << (ind & (bits_per_word<uint64_t> - 1)));
         uint64_t &ref = core_[ind >> OFFSET];
         const auto ret = ref & val;
         ref |= val;
@@ -441,40 +441,21 @@ public:
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         uint32_t nleft = nh_, npw = lut::nhashesper64bitword[p()];
         const auto shift = p();
-#if __AVX512F__
-        const size_t npersimd = 8 * npw;
-        const __m512i *sptr = (const __m512i *)&seeds_[0];
-        for(;nleft > npersimd;nleft -= npersimd) {
-            auto v = _mm512_set1_epi64(element) ^ *sptr++;
-            sub_set1(*(const uint64_t *)&v, npw, shift);
-            sub_set1(((const uint64_t *)&v)[1], npw, shift);
-        }
-        const uint64_t *seedptr = reinterpret_cast<const uint64_t *>(sptr);
-#elif __AVX2__
-        const size_t npersimd = 4 * npw;
-        const __m256i *sptr = (const __m256i *)&seeds_[0];
-        for(;nleft > npersimd;nleft -= npersimd) {
-            auto v = _mm256_set1_epi64x(element) ^ *sptr++;
-            sub_set1(*(const uint64_t *)&v, npw, shift);
-            sub_set1(((const uint64_t *)&v)[1], npw, shift);
-        }
-        const uint64_t *seedptr = reinterpret_cast<const uint64_t *>(sptr);
-#elif __SSE2__
-        const size_t npersimd = 2 * npw;
-        const __m128i *sptr = (const __m128i *)seeds_.data();
+#ifndef VEC_DISABLED__
+        const uint32_t npersimd = Space::COUNT * npw;
+        const VType *seedptr = reinterpret_cast<const VType *>(&seeds_[0]);
         while(nleft > npersimd) {
-            auto v = _mm_set1_epi64x(element) ^ *sptr++;
-            sub_set1(*(const uint64_t *)&v, npw, shift);
-            sub_set1(((const uint64_t *)&v)[1], npw, shift);
+            VType v(hf_(Space::set1(element) ^ (*seedptr++).simd_));
+            v.for_each([&](const uint64_t &val) {sub_set1(val, npw, shift);});
             nleft -= npersimd;
         }
-        const uint64_t *seedptr = reinterpret_cast<const uint64_t *>(sptr);
+        const uint64_t *seedptr64 = reinterpret_cast<const uint64_t *>(seedptr);
 #else
-        const uint64_t *seedptr = seeds_.data();
+        const uint64_t *seedptr64 = seeds_.data();
 #endif
         while(nleft) {
             const auto todo = std::min(npw, nleft);
-            sub_set1(hf_(element ^ *seedptr++), todo, shift);
+            sub_set1(hf_(element ^ *seedptr64++), todo, shift);
             nleft -= todo;
         }
         //std::fprintf(stderr, "Finishing with element %" PRIu64 ". New popcnt: %u\n", element, popcnt());
@@ -675,9 +656,9 @@ public:
         // TODO: descend farther in batching, doing each subhash together for cache efficiency.
         ret.clear();
 #if !NDEBUG
-        std::fprintf(stderr, "nvals: %zu. nvals. Resize size: %zu\n", nvals, (nvals >> 6) + ((nvals & 0x63u) != 0));
+        std::fprintf(stderr, "nvals: %zu. nvals. Resize size: %zu\n", nvals, (nvals >> OFFSET) + ((nvals & (bits_per_word<uint64_t> - 1)) != 0));
 #endif
-        ret.resize((nvals >> 6) + ((nvals & 0x63u) != 0), UINT64_C(-1));
+        ret.resize((nvals >> OFFSET) + ((nvals & (bits_per_word<uint64_t> - 1)) != 0), UINT64_C(-1));
         uint32_t nleft = nh_, npw = lut::nhashesper64bitword[p()];
         const auto shift = p();
         const uint64_t *sptr = seeds_.data();
@@ -690,7 +671,7 @@ public:
             for(uint32_t  i(0); i < nvals; ++i) {
                 v = hf_(Space::set1(vals[i]) ^ seed.simd_);
                 v.for_each([&](const uint64_t &val) {
-                    ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(val, npw, shift)) << (i & 63u));
+                    ret[i >> OFFSET] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(val, npw, shift)) << (i & (bits_per_word<uint64_t> - 1)));
                 });
             }
             nleft -= npersimd;
@@ -701,7 +682,7 @@ public:
             uint64_t hv, seed = *sptr++;
             for(uint32_t i(0); i < nvals; ++i) {
                 hv = hf_(vals[i] ^ seed);
-                ret[i >> 6] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(hv, std::min(npw, nleft), shift)) << (i & 63u));
+                ret[i >> OFFSET] &= UINT64_C(-1) ^ (static_cast<uint64_t>(!all_set(hv, std::min(npw, nleft), shift)) << (i & (bits_per_word<uint64_t> - 1)));
             }
             nleft -= std::min(npw, nleft);
         }

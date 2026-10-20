@@ -31,7 +31,7 @@ void test_hll() {
         std::vector<double> errs;
         for(unsigned seed = 1; seed <= 15; ++seed) {
             hll::hll_t h(p);
-            std::mt19937_64 rng(seed * 4099 + unsigned(n));
+            DefaultRNGType rng(seed * 4099 + unsigned(n));
             for(uint64_t i = 0; i < uint64_t(n); ++i) h.addh(rng());
             errs.push_back(h.report() / n - 1.);
         }
@@ -44,7 +44,7 @@ void test_hll() {
     }
     // merge of disjoint streams must equal direct insertion, register-exact
     for(unsigned np: {5u, 10u, 14u}) {
-        std::mt19937_64 rng(np);
+        DefaultRNGType rng(np);
         hll::hll_t a(np), b(np), both(np);
         for(unsigned i = 0; i < 100000; ++i) {const uint64_t v = rng(); a.addh(v); both.addh(v);}
         for(unsigned i = 0; i < 100000; ++i) {const uint64_t v = rng(); b.addh(v); both.addh(v);}
@@ -58,7 +58,7 @@ void test_hll() {
     // serialization round-trip (path-based gz and FILE*-based)
     {
         hll::hll_t h(10);
-        std::mt19937_64 rng(2024);
+        DefaultRNGType rng(2024);
         for(unsigned i = 0; i < 50000; ++i) h.addh(rng());
         h.sum();
         const char *path = "/tmp/hll_roundtrip.hll";

@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include "sketch/isz.h"
 #include <queue>
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 #include "sketch/hash.h"
 #include "vec/vec.h"
 
@@ -202,8 +202,8 @@ public:
         //assert(o.size() == minimizers_.size());
         auto lit = minimizers_.rbegin(), rit = o.minimizers_.rbegin(), lend = minimizers_.rend(), rend = o.minimizers_.rend();
         const size_t n = minimizers_.size();
-        size_t nused = 0, shared = 0;
-        while(nused++ < n) {
+        size_t shared = 0;
+        while(lit != lend && rit != rend) {
             if(*lit == *rit) {
                 ++shared;
                 if(++lit == lend) break;
@@ -217,6 +217,18 @@ public:
             }
         }
         return double(shared) / n;
+    }
+    // Thresholded comparison: exact count while it can still reach min_count,
+    // early-exit once the remaining registers provably cannot. Returns the
+    // exact count when < min_count, else a value in [min_count, exact].
+    template<typename C2>
+    size_t intersection_size_min(const C2 &o, size_t min_count) const {
+        return isz::intersection_size_min(o, *this, std::uint64_t(min_count), cmp_);
+    }
+    // Exact threshold test: is the Jaccard index >= threshold?
+    bool jaccard_at_least(const RangeMinHash &o, double threshold) const {
+        const size_t need = size_t(std::ceil(threshold * minimizers_.size()));
+        return isz::intersection_size_min(o, *this, std::uint64_t(need), cmp_) >= need;
     }
     template<typename Container>
     Container to_container() const {
@@ -284,13 +296,23 @@ struct FinalRMinHash {
     uint64_t lsum_;
     using container_type = decltype(first);
     size_t intersection_size(const FinalRMinHash &o) const {
-        return isz::intersection_size(first, o.first);
+        if constexpr(std::is_same<T, uint32_t>::value || std::is_same<T, uint64_t>::value) {
+            // Exact multiplicity semantics for all sorted registers (padded
+            // counting sketches included); FESISA fast path when
+            // duplicate-free. See isz::intersection_size_sets.
+            return isz::intersection_size_sets(first.data(), first.size(), o.first.data(), o.first.size());
+        } else {
+            return isz::intersection_size(first, o.first);
+        }
     }
     double jaccard_index(const FinalRMinHash &o) const {
+        // Full merge walk: the exhaustion breaks bound the walk, so shared
+        // registers are counted exactly (multiplicity semantics for all
+        // sorted registers, padded counting sketches included).
         auto lit = begin(), rit = o.begin(), lend = end(), rend = o.end();
         const size_t n = size();
-        size_t nused = 0, shared = 0;
-        while(nused++ < n) {
+        size_t shared = 0;
+        while(lit != lend && rit != rend) {
             if(*lit == *rit) {
                 ++shared;
                 if(++lit == lend) break;
@@ -304,8 +326,23 @@ struct FinalRMinHash {
             }
         }
         return double(shared) / n;
-        //double is = intersection_size(o);
-        //return is / ((size() << 1) - is);
+    }
+    // Thresholded comparison: exact count while it can still reach min_count,
+    // early-exit once the remaining registers provably cannot. Returns the
+    // exact count when < min_count, else a value in [min_count, exact] —
+    // the interface LSH candidate filtering wants: answering "overlap >= t?"
+    // without paying the full merge.
+    size_t intersection_size_min(const FinalRMinHash &o, size_t min_count) const {
+        if constexpr(std::is_same<T, uint32_t>::value || std::is_same<T, uint64_t>::value) {
+            return isz::intersection_size_sets_min(first.data(), first.size(), o.first.data(), o.first.size(), min_count);
+        } else {
+            return isz::intersection_size_min(first, o.first, std::uint64_t(min_count));
+        }
+    }
+    // Exact threshold test: is the Jaccard index >= threshold?
+    bool jaccard_at_least(const FinalRMinHash &o, double threshold) const {
+        const size_t need = size_t(std::ceil(threshold * size()));
+        return intersection_size_min(o, need) >= need;
     }
     FinalRMinHash &operator+=(const FinalRMinHash &o) {
         std::vector<T, Allocator> newfirst; newfirst.reserve(o.size());
@@ -369,8 +406,7 @@ struct FinalRMinHash {
         const size_t rsz = o.size();
         double num = 0, denom = 0;
         size_t i1 = 0, i2 = 0;
-        size_t nused = 0;
-        while(nused++ < lsz) {
+        while(i1 < lsz && i2 < rsz) {
             if(first[i1] < o.first[i2]) {
                 denom += fn(first[i1]);
                 if(++i1 == lsz) break;
@@ -564,9 +600,7 @@ public:
         size_t denom = 0, num = 0;
         auto i1 = minimizers_.rbegin(), i2 = o.minimizers_.rbegin();
         auto e1 = minimizers_.rend(), e2 = o.minimizers_.rend();
-        size_t nused = 0;
-        const size_t sz = size();
-        for(;nused++ < sz;) {
+        while(i1 != e1 && i2 != e2) {
             if(!cmp_(i1->first, i2->first)) {
                 denom += (i1++)->second;
                 if(i1 == e1) break;
@@ -582,8 +616,6 @@ public:
                 if(i2 == e2) break;
             }
         }
-        //while(i1 != e1) denom += i1++->second;
-        //while(i2 != e2) denom += i2++->second;
         return static_cast<double>(num) / denom;
     }
     double containment_index(const CountingRangeMinHash &o) const {
@@ -591,9 +623,7 @@ public:
         size_t denom = 0, num = 0;
         auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin(),
              e1 = minimizers_.end(),   e2 = o.minimizers_.end();
-        const size_t nelem = size();
-        size_t nused = 0;
-        while(nused++ < nelem) {
+        while(i1 != e1 && i2 != e2) {
             if(cmp_(i1->first, i2->first)) {
                 denom += i1->second;
                 if(++i1 == e1) break;
@@ -637,8 +667,7 @@ public:
         double denom = 0, num = 0;
         auto i1 = minimizers_.begin(), i2 = o.minimizers_.begin();
         const auto e1 = minimizers_.cend(), e2 = o.minimizers_.cend();
-        const size_t nelem = size();
-        for(size_t nused = 0;nused++ < nelem;) {
+        while(i1 != e1 && i2 != e2) {
             auto &lhf = i1->first, &rhf = i2->first;
             if(cmp_(lhf, rhf)) {
                 denom += (i1->second) * fn(lhf);
@@ -787,8 +816,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
     double dot(const FinalCRMinHash &o) const {
         const size_t lsz = this->size(), rsz = o.size();
         size_t num = 0;
-        size_t nused = 0;
-        for(size_t i1 = 0, i2 = 0;nused++ < lsz;) {
+        for(size_t i1 = 0, i2 = 0; i1 < lsz && i2 < rsz;) {
             if(this->first[i1] < o.first[i2]) {
                 if(++i1 == lsz) break;
             } else if(o.first[i2] < this->first[i1]) {
@@ -811,9 +839,8 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         assert(o.count_sum_ > 0);
         size_t num = 0;
         size_t i1 = 0, i2 = 0;
-        size_t nused = 0;
         size_t denom = 0;
-        while(nused++ < lsz) {
+        while(i1 < lsz && i2 < rsz) {
             auto &lhs = this->first[i1];
             auto &rhs = o.first[i2];
             if(lhs < rhs) {
@@ -821,7 +848,7 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
                 if(i1 == lsz) break;
             } else if(rhs < lhs) {
                 denom += this->second[i2++];
-                if(i2 == lsz) break;
+                if(i2 == rsz) break;
             } else {
                 assert(!(lhs < rhs));
                 assert(!(rhs < lhs));
@@ -872,15 +899,14 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         assert(rsz == o.first.size());
         double denom = 0, num = 0;
         size_t i1 = 0, i2 = 0;
-        size_t nused = 0;
-        while(nused++ < lsz) {
+        while(i1 < lsz && i2 < rsz) {
             auto &lhs = this->first[i1];
             auto &rhs = o.first[i2];
             if(lhs < rhs) {
                 denom += second[i1] * fn(lhs);
                 if(++i1 == lsz) break;
             } else if(rhs < lhs) {
-                denom += o.second[i1] * fn(rhs);
+                denom += o.second[i2] * fn(rhs);
                 if(++i2 == rsz) break;
             } else {
                 auto tmpnum = std::min(second[i1], o.second[i2]);
@@ -973,19 +999,18 @@ struct FinalCRMinHash: public FinalRMinHash<T> {
         assert(rsz == o.first.size());
         double denom = 0, num = 0;
         size_t i1 = 0, i2 = 0;
-        size_t nused = 0;
-        while(nused++ < lsz) {
+        while(i1 < lsz && i2 < rsz) {
             auto &lhs = this->first[i1];
             auto &rhs = o.first[i2];
             if(lhs < rhs) {
-                denom += second[i1] * fn(lhs);
+                denom += second[i1];
                 if(++i1 == lsz) break;
             } else if(rhs < lhs) {
                 if(++i2 == rsz) break;
             } else {
                 auto tmpnum = std::min(second[i1], o.second[i2]);
-                denom += fn(lhs) * second[i1];
-                num   += fn(lhs) * tmpnum;
+                denom += second[i1];
+                num   += tmpnum;
                 ++i2, ++i1;
                 if(i2 == rsz || i1 == lsz) break;
             }
@@ -1193,7 +1218,7 @@ struct BottomKHasher {
     size_t k_;
     HashStruct hs_;
     mpq mpq_;
-    ska::flat_hash_set<VT> set_;
+    ankerl::unordered_dense::set<VT> set_;
 
     void clear() {
         set_.clear();

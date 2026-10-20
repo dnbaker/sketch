@@ -46,10 +46,23 @@ inline int densifybin(Container &hashes) {
         std::fill(hashes.begin(), hashes.end(), empty_val);
         return -1; // Empty sketch
     }
-    for (uint64_t i = 0; i < hashes.size(); i++) {
+    // Each empty bin i takes the value of the first bin in its probe sequence
+    // (i, h(i,1), h(i,2), ...) that was non-empty *before* densification. The
+    // probe sequence depends only on i, so two sketches agree on bin i exactly
+    // when they agree on that originally filled bin, which keeps the collision
+    // probability equal to the Jaccard similarity (optimal densification,
+    // Shrivastava 2017). Testing emptiness on the partially densified array
+    // instead (as this did) lets a bin copy a value that was itself borrowed,
+    // so the result depended on bin order and the two sketches' copies diverged.
+    const size_t n = hashes.size();
+    std::vector<uint64_t> filled((n + 63) / 64);
+    for(size_t i = 0; i < n; ++i)
+        if(hashes[i] != empty_val) filled[i >> 6] |= uint64_t(1) << (i & 63);
+    for(size_t i = 0; i < n; ++i) {
+        if(filled[i >> 6] >> (i & 63) & 1) continue;
         uint64_t j = i, nattempts = 0;
-        while(hashes[j] == empty_val)
-            j = twounivhash(i, ++nattempts) % hashes.size();
+        do j = twounivhash(i, ++nattempts) % n;
+        while(!(filled[j >> 6] >> (j & 63) & 1));
         hashes[i] = hashes[j];
     }
     return 1;
@@ -84,14 +97,14 @@ static inline double harmonic_cardinality_estimate(const std::vector<T, Allocato
 }
 
 INLINE void setnthbit(uint64_t *ptr, size_t index, bool val) {
-    ptr[index / 64] |= uint64_t(val) << (index % 64);
+    ptr[index / bits_per_word<uint64_t>] |= uint64_t(val) << (index % bits_per_word<uint64_t>);
 }
 template<typename T> INLINE void setnthbit(T *ptr, size_t index, bool val) {
     return setnthbit(reinterpret_cast<uint64_t *>(ptr), index, val);
 }
 
 static INLINE uint64_t getnthbit(const uint64_t *ptr, size_t index) {
-    return (ptr[index / 64] >> (index % 64)) & 1u;
+    return (ptr[index / bits_per_word<uint64_t>] >> (index % bits_per_word<uint64_t>)) & 1u;
 }
 
 template<typename T> INLINE T getnthbit(const T *ptr, size_t index) {
@@ -275,9 +288,9 @@ public:
     std::vector<value_type, Allocator<value_type>> core_;
     FinalDivBBitMinHash(uint32_t nbuckets, uint32_t b, double est):
         est_cardinality_(est), nbuckets_(nbuckets), b_(b),
-        core_(value_type(b) * nbuckets / 64)
+        core_(value_type(b) * nbuckets / bits_per_word<value_type>)
     {
-        PREC_REQ(b * nbuckets % 64 == 0, "b * nbuckets must be divisible by 64");
+        PREC_REQ(b * nbuckets % bits_per_word<value_type> == 0, "b * nbuckets must be divisible by the word width");
     }
     void free() {
         decltype(core_) tmp;
@@ -317,10 +330,10 @@ public:
         ssize_t ret = sizeof(arr);
         b_ = arr[0];
         nbuckets_ = arr[1];
-        PREC_REQ(b_ * nbuckets_ % 64 == 0, "b * nbuckets must be divisible by 64");
+        PREC_REQ(b_ * nbuckets_ % bits_per_word<value_type> == 0, "b * nbuckets must be divisible by the word width");
         if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw ZlibError("Could not read from file.");
         ret += sizeof(est_cardinality_);
-        core_.resize(b_ * nbuckets_ / 64 + (b_ * nbuckets_ % 64 != 0));
+        core_.resize(ceil_div(b_ * nbuckets_, uint64_t(bits_per_word<value_type>)));
         const size_t expected = sizeof(core_[0]) * core_.size();
         if(gzread(fp, core_.data(), expected) != ssize_t(expected))
             throw ZlibError(std::string("Failed to read core from file"));
@@ -396,7 +409,7 @@ public:
 #endif
         // p_ already guaranteed to be greater than 6
         auto l2szfloor = ilog2(nbuckets_);
-        const value_type *p1 = core_.data(), *pe = core_.data() + b_ * (1ull << l2szfloor) / 64, *p2 = o.core_.data();
+        const value_type *p1 = core_.data(), *pe = core_.data() + b_ * (1ull << l2szfloor) / bits_per_word<value_type>, *p2 = o.core_.data();
         uint64_t sum;
         switch(l2szfloor) {
             case 6: {
@@ -473,7 +486,7 @@ public:
 #if HAS_AVX_512
         {
             __m512i lsum = _mm512_set1_epi64(0);
-            const __m512i *vp1 = reinterpret_cast<const __m512i *>(pe), *vp2 = reinterpret_cast<const __m512i *>(o.core_.data() +  b_ * (1ull << l2szfloor) / 64);
+            const __m512i *vp1 = reinterpret_cast<const __m512i *>(pe), *vp2 = reinterpret_cast<const __m512i *>(o.core_.data() +  b_ * (1ull << l2szfloor) / bits_per_word<value_type>);
             while(vp1 + b_ <= reinterpret_cast<const __m512i *>(pf)) {
                 __m512i match = ~(*vp1++ ^ *vp2++);
                 for(uint32_t b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
@@ -489,7 +502,7 @@ public:
         }
 #elif __AVX2__
         {
-            const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
+            const __m256i *vp1 = reinterpret_cast<const __m256i *>(pe), *vp2 = reinterpret_cast<const __m256i *>(o.core_.data() + b_ * (1ull << l2szfloor) / bits_per_word<value_type>);
             __m256i lsum = _mm256_set1_epi64x(0);
             while(vp1 + b_ <= reinterpret_cast<const __m256i *>(pf)) {
                 __m256i match = ~(*vp1++ ^ *vp2++);
@@ -502,7 +515,7 @@ public:
         }
 #elif __SSE2__
         const __m128i *vp1 = reinterpret_cast<const __m128i *>(pe);
-        const __m128i *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * (1ull << l2szfloor) / 64);
+        const __m128i *vp2 = reinterpret_cast<const __m128i *>(o.core_.data() + b_ * (1ull << l2szfloor) / bits_per_word<value_type>);
         while(vp1 + b_ <= reinterpret_cast<const __m128i *>(pf)) {
             __m128i match = ~(*vp1++ ^ *vp2++);
             for(uint32_t b = b_; --b; match &= ~(*vp1++ ^ *vp2++));
@@ -716,6 +729,11 @@ struct SuperMinHash {
         double cest = detail::harmonic_cardinality_estimate_diffmax_impl(*ptr, h_.size() << 32);
         return cest;
     }
+// .cu translation units must not include the CPU sketch headers at all (nvcc
+// frontend ICEs / constexpr whack-a-mole); provide CPU references from a
+// plain-g++ TU instead — see gpu/tests/reference.{h,cpp}. This estimator is
+// host-only, so hiding it from __CUDACC__ costs nothing.
+#if !defined(__CUDACC__)
     FinalDivBBitMinHash finalize(uint32_t b=0) const {
         if(b == 0) b = bbits_;
         const auto *ptr = &h_;
@@ -745,6 +763,7 @@ struct SuperMinHash {
         }
         return div_bbit_finalize(b, *ptr, cest);
     }
+#endif // !defined(__CUDACC__)
     auto cfinalize(uint32_t b=0) const {return finalize(b ? b: bbits_);}
     void clear() {
         SuperMinHash tmp(std::move(*this));
@@ -790,23 +809,20 @@ public:
         return !operator==(o);
     }
     void show() const {for(const auto v: core_) std::fprintf(stderr, "%zu\t", size_t(v)); std::fputc('\n', stderr);}
-    void addh(T val) {val = hf_(val);add(val);}
+    // add/addh: one thread per sketch. add_threadsafe/addh_threadsafe: safe to
+    // call concurrently on the same sketch (atomic min; see hll::add_threadsafe).
+    void addh(T val) {add(hf_(val));}
+    void addh_threadsafe(T val) {add_threadsafe(hf_(val));}
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
     T nbuckets() const {return div_.d_;} // also core_.size()
     INLINE void add(T hv) {
-        const T bucket = div_.mod(hv);
-        const T quot = div_.div(hv);
-        auto &ref = core_[bucket];
-#ifdef NOT_THREADSAFE
-        ref = std::min(quot, ref);
-#else
-        // Plain-load fast path; see hll::add.
-        if(HEDLEY_LIKELY(quot >= ref)) return;
-        while(quot < ref)
-            __sync_bool_compare_and_swap(std::addressof(ref), ref, quot);
-#endif
+        auto &ref = core_[div_.mod(hv)];
+        ref = std::min(T(div_.div(hv)), ref);
+    }
+    INLINE void add_threadsafe(T hv) {
+        atomic_store_min(std::addressof(core_[div_.mod(hv)]), T(div_.div(hv)));
     }
     void write(const char *fn, int compression=6) const {
         finalize().write(fn, compression);
@@ -894,6 +910,7 @@ struct phll_t;
 
 template<typename T, typename Hasher=WangHash>
 class BBitMinHasher {
+protected:
     std::vector<T, common::Allocator<T>> core_;
     uint32_t b_, p_;
     Hasher hf_;
@@ -951,7 +968,11 @@ public:
         }
         return ret;
     }
-    void addh(T val) {val = hf_(val);add(val);}
+    // add/addh: one thread per sketch. add_threadsafe/addh_threadsafe: safe to
+    // call concurrently on the same sketch (plain-load check, then a hardware
+    // atomic min; see hll::add_threadsafe).
+    void addh(T val) {add(hf_(val));}
+    void addh_threadsafe(T val) {add_threadsafe(hf_(val));}
     void clear() {
         std::fill(core_.begin(), core_.end(), detail::default_val<T>());
     }
@@ -961,15 +982,12 @@ public:
     void add(T hv) {
         auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
         hv <<= p_; hv >>= p_; // Clear top values
-#ifdef NOT_THREADSAFE
         ref = std::min(ref, hv);
-        assert(ref <= hv);
-#else
-        // Plain-load fast path; see hll::add.
-        if(HEDLEY_LIKELY(hv >= ref)) return;
-        while(hv < ref)
-            __sync_bool_compare_and_swap(std::addressof(ref), ref, hv);
-#endif
+    }
+    void add_threadsafe(T hv) {
+        auto &ref = core_[hv>>(sizeof(T) * CHAR_BIT - p_)];
+        hv <<= p_; hv >>= p_;
+        atomic_store_min(std::addressof(ref), hv);
     }
     void write(const char *fn, int compression=6, uint32_t b=0) const {
         finalize(b ? b: b_).write(fn, compression);
@@ -1011,13 +1029,18 @@ public:
             ret += core_[i] == o.core_[i];
         return ret;
     }
+    // Matches among registers non-empty in either sketch (registers empty in
+    // both carry no information; counting them as matches inflates the
+    // estimate whenever the sets are small relative to the sketch).
     double jaccard_index(const BBitMinHasher &o) const {
-        auto it = core_.begin(), oit = o.core_.begin();
-        size_t ret = *it++ == *oit++;
-        do {
-            ret += *it++ == *oit++;
-        } while(it != core_.end());
-        return double(ret) / core_.size();
+        size_t eq = 0, nonempty = 0;
+        for(size_t i = 0; i < core_.size(); ++i) {
+            const T a = core_[i], b = o.core_[i];
+            const bool ne = a != detail::default_val<T>() || b != detail::default_val<T>();
+            nonempty += ne;
+            eq += ne && a == b;
+        }
+        return nonempty ? double(eq) / nonempty: 1.;
     }
     double intersection_size(const BBitMinHasher &o) const {
         const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);
@@ -1055,9 +1078,17 @@ public:
             const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);
             auto f = [numinv](const auto v) {return v * numinv;};
             long double tmp = 0.;
-            for(const auto v: core_)
+            size_t empty = 0;
+            for(const auto v: core_) {
+                empty += v == detail::default_val<T>();
                 tmp += f(v != detail::default_val<T>() ? v: (std::numeric_limits<T>::max() >> p_));
-            return std::pow(core_.size(), 2) / tmp;
+            }
+            const double est = std::pow(core_.size(), 2) / tmp, m = core_.size();
+            // Small range: with empty registers the harmonic mean is biased high
+            // (1000 items at p = 10 read 1610); use linear counting there, as
+            // HyperLogLog does (estimate <= 2.5 m and some register empty).
+            if(empty && est <= 2.5 * m) return m * std::log(m / double(empty));
+            return est;
         }
         const long double num = std::ldexp(static_cast<long double>(1.), sizeof(T) * CHAR_BIT - p_);
         double sum;
@@ -1096,7 +1127,6 @@ public:
     BBitMinHasher &operator+=(const BBitMinHasher &o) {
         if(size() != o.size()) throw std::runtime_error("Wrong sizes");
         if(size() == 0) throw std::runtime_error("Empty sketches");
-        std::fprintf(stderr, "Size: %zu\n", size());
         size_t i = 0;
 #if __AVX512F__
         __m512i *p1 = reinterpret_cast<__m512i *>(core_.data());
@@ -1152,7 +1182,7 @@ public:
         std::vector<uint32_t> ret(b * (core_.size() >> 5));
         for(size_t i = 0; i < core_.size(); ++i) {
             for(uint32_t bi = 0; bi < b; ++bi) {
-                detail::setnthbit(&ret[(i >> 5) * b + bi], (core_[i] >> bi) & 1);
+                detail::setnthbit(&ret[(i / 32) * b + bi], (core_[i] >> bi) & 1);
             }
         }
         return ret;
@@ -1162,10 +1192,10 @@ public:
         b = b ? b: b_;
         PREC_REQ(b <= 64, "b can't be > 64");
         PREC_REQ(p_ >= 6, "p must be >= 5 for this");
-        std::vector<uint64_t> ret(b * (core_.size() >> 6));
+        std::vector<uint64_t> ret(b * (core_.size() / bits_per_word<T>));
         for(size_t i = 0; i < core_.size(); ++i) {
             for(uint32_t bi = 0; bi < b; ++bi) {
-                detail::setnthbit(&ret[(i >> 6) * b + bi], (core_[i] >> bi) & 1);
+                detail::setnthbit(&ret[(i / bits_per_word<uint64_t>) * b + bi], (core_[i] >> bi) & 1);
             }
         }
         return ret;
@@ -1273,20 +1303,27 @@ template<typename T, typename CountingType, typename Hasher=WangHash>
 class CountingBBitMinHasher: public BBitMinHasher<T, Hasher> {
     using super = BBitMinHasher<T, Hasher>;
     std::vector<CountingType, Allocator<CountingType>> counters_;
-    // Not threadsafe currently
     // Consider bitpacking with p_ bits for counting
 public:
+    // Register and counter are updated together: no concurrent add.
+    void add_threadsafe(T) = delete;
+    void addh_threadsafe(T) = delete;
     using final_type = FinalCountingBBitMinHash<CountingType>;
     template<typename... Args>
     CountingBBitMinHasher(uint32_t p, uint32_t b, Args &&... args): super(p, b, std::forward<Args>(args)...), counters_(1ull << p) {}
+    // Each register keeps the minimum (as in BBitMinHasher) and its counter
+    // the number of times that minimum was added.
     void add(T hv) {
         auto ind = hv>>(sizeof(T) * CHAR_BIT - this->p_);
         auto &ref = this->core_[ind];
         hv <<= this->p_; hv >>= this->p_; // Clear top values. We could also shift/mask, but that requires two other constants vs 1.
-        if(ref < hv)
+        if(hv < ref)
             ref = hv, counters_[ind] = 1;
-        else if(ref == hv) ++ref;
+        else if(ref == hv) ++counters_[ind];
     }
+    void addh(T val) {add(this->hf_(val));}
+    const auto &counters() const {return counters_;}
+    void clear() {super::clear(); std::fill(counters_.begin(), counters_.end(), CountingType(0));}
     FinalCountingBBitMinHash<CountingType> finalize(uint32_t b=0) const;
     std::pair<CountingType, CountingType> multiset_comparison(const CountingBBitMinHasher &o) const {
         PREC_REQ(this->size() == o.size(), "Can't compare different-sized sketches");
@@ -1295,11 +1332,15 @@ public:
             if(this->core_[i] == o.core_[i]) {
                 shared_sum += std::min(this->counters_[i], o.counters_[i]);
                 total_sum += std::max(this->counters_[i], o.counters_[i]);
-            } else total_sum += this->counters_[i] + o.counters_[i];
+            } else {
+                // The register's union minimum is the smaller of the two; its key is
+                // absent from the other set (else that set's minimum would be <= it).
+                total_sum += this->core_[i] < o.core_[i] ? this->counters_[i]: o.counters_[i];
+            }
         }
         return std::make_pair(shared_sum, total_sum);
     }
-    auto histogram_intersection(const CountingType &o) const {
+    auto histogram_intersection(const CountingBBitMinHasher &o) const {
         auto p = multiset_comparison(o);
         return double(p.first) / double(p.second);
     }
@@ -1375,7 +1416,7 @@ public:
         b_ = arr[0];
         p_ = arr[1];
         if(gzread(fp, &est_cardinality_, sizeof(est_cardinality_)) != sizeof(est_cardinality_)) throw ZlibError("Could not read from file.");
-        core_.resize((value_type(b_) << p_) >> 6);
+        core_.resize((value_type(b_) << p_) / bits_per_word<value_type>);
         const size_t nb = sizeof(core_[0]) * core_.size();
         if(gzread(fp, core_.data(), nb) != ssize_t(nb)) throw ZlibError("Could not read data vector from file");
         return nb + sizeof(arr) + sizeof(est_cardinality_);
@@ -1499,14 +1540,14 @@ public:
             default: {
                 // Process each 'b' remainder block in
                 const __m512i *vp1 = reinterpret_cast<const __m512i *>(p1), *vp2 = reinterpret_cast<const __m512i *>(p2);
-                auto sum = detail::matching_bits(vp1, vp2, b_);
+                auto local_sum = detail::matching_bits(vp1, vp2, b_);
                 for(size_t i = 1; i < (size_t(1) << (p_ - 9u)); ++i) {
                     vp1 += b_;
                     vp2 += b_;
-                    sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), sum);
+                    local_sum = _mm512_add_epi64(detail::matching_bits(vp1, vp2, b_), local_sum);
                 }
                 assert((value_type*)vp1 == &core_[core_.size()]);
-                sum = common::sum_of_u64s(sum);
+                sum = common::sum_of_u64s(local_sum);
                 break;
             }
 #    else /* has avx2 not not 512 */
@@ -1631,16 +1672,19 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
     const auto *ptr = &core_;
     std::decay_t<decltype(core_)> tmp;
     size_t ndef;
-    double cest = -1.;
+    // The live estimator: an empty register counts as (max >> p_), ~1 after
+    // scaling. harmonic_cardinality_estimate_impl on the raw registers counted
+    // each empty one (default_val, all ones) as 2^p_, so sketches with any
+    // empty register (n below ~ m ln m) were finalized with far too small an
+    // estimate (e.g. 323 for 6000 items at p = 10).
+    const double cest = cardinality_estimate();
     if((ndef = std::count_if(core_.begin(), core_.end(), [](auto x) {return x == detail::default_val<T>();}))) {
         tmp = core_;
-        cest = detail::harmonic_cardinality_estimate_impl(tmp);
-        std::replace(tmp.begin(), tmp.end(), std::numeric_limits<T>::max() >> p_, detail::default_val<T>());
+        std::replace(tmp.begin(), tmp.end(), T(std::numeric_limits<T>::max() >> p_), detail::default_val<T>());
         detail::densifybin(tmp);
         ptr = &tmp;
     }
     const auto &core_ref = *ptr;
-    if(cest < 0) cest = detail::harmonic_cardinality_estimate_impl(core_ref);
     using detail::getnthbit;
     using detail::setnthbit;
     FinalBBitMinHash ret(p_, b, cest);

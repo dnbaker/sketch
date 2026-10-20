@@ -1,0 +1,43 @@
+[build-system]
+# Build isolation installs pybind11 into the ephemeral build environment,
+# which setup.py's get_pybind_include() then imports. Do NOT remove the
+# pybind11 requirement: the vendored headers at ../pybind11 are a fallback
+# include path, but the build-system requirement is what makes the PEP 517
+# path self-contained.
+requires = ["setuptools>=64", "wheel", "pybind11>=2.6"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sketch-ds"
+version = "0.20.0"
+description = "A python module for constructing and comparing sketch data structures (HyperLogLog, SetSketch, UltraLogLog, ExaLogLog, FracMinHash, DartMinHash, PMH, and more)"
+authors = [
+  { name="Daniel Baker", email="dnb@cs.jhu.edu" },
+]
+requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["sketch", "hyperloglog", "minhash", "cardinality", "jaccard", "bloom-filter"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OS Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+]
+readme = "README.md"
+
+[project.urls]
+Homepage = "https://github.com/dnbaker/sketch"
+Repository = "https://github.com/dnbaker/sketch"
+
+[project.optional-dependencies]
+test = ["numpy", "pytest"]
+
+# All C++ extension construction and the darwin compiler substitution live
+# in setup.py (ext_modules + a custom build_ext). Static metadata lives
+# here; setup.py supplies only the dynamic build logic.
+[tool.setuptools]
+packages = ["sketch_ds"]

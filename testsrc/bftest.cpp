@@ -8,7 +8,7 @@ int main(int argc, char *argv[]) {
     bf_t bf1(25, 1, 137), bf2(25, 1, 137);
     cbf_t cbf(8, 25, 1, 137);
     std::unordered_set<uint64_t> s1, s2;
-    std::mt19937_64 mt;
+    sketch::DefaultRNGType mt;
     uint64_t val;
     size_t nels = argc > 1 ? std::atoi(argv[1]): 1000000;
     while(s1.size() < nels) s1.insert(mt());
@@ -51,6 +51,15 @@ int main(int argc, char *argv[]) {
             assert(std::find(srs.begin(), srs.end(), i) != srs.end());
     }
     sparsebf_t<uint32_t> sbf(bfl);
+    // Multi-hash regression: the vectorized add path must set every hash's bit,
+    // or may_contain false-negates. Sweep nh across the vector/scalar boundary.
+    for(unsigned nh: {1u, 3u, 9u, 17u, 33u}) {
+        bf_t bfm(20, nh, 137);
+        for(uint64_t i = 0; i < 100000; ++i) bfm.addh(i);
+        for(uint64_t i = 0; i < 100000; ++i)
+            assert(bfm.may_contain(i) || !std::fprintf(stderr, "nh=%u: missing %" PRIu64 "\n", nh, i));
+    }
+    std::fprintf(stderr, "multi-nh add/contains consistent\n");
 #if 0
     sketch::common::for_each_delta_decode(srs, [&bfl](size_t x) {
         assert(bfl.is_set(x));});

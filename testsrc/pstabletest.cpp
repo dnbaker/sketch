@@ -19,7 +19,7 @@ static int failures = 0;
 
 template<typename F>
 std::vector<double> sample(F &f, size_t n, uint64_t seed) {
-    std::mt19937_64 rng(seed);
+    DefaultRNGType rng(seed);
     std::vector<double> v(n);
     for(auto &x: v) x = double(f(rng));
     return v;

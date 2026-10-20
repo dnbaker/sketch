@@ -800,7 +800,7 @@ public:
         std::fwrite(&seedseed_, sizeof(seedseed_), 1, fp);
         std::fwrite(data(), sizeof(CounterType), core_.size(), fp);
     }
-    void read(std::string p) const {
+    void read(std::string p) {
         std::FILE *ofp = std::fopen(p.data(), "rb");
         if(!ofp)
             throw std::invalid_argument("File not found");

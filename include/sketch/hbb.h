@@ -95,7 +95,7 @@ struct HyperHyperBitBit {
         auto r = ctz(v);
         auto &logn = logns_[idx];
         if(r > logn) {
-            auto bit = uint64_t(1) << ((v>>(r + 1))%64);
+            auto bit = uint64_t(1) << ((v >> (r + 1)) % bits_per_word<uint64_t>);
             auto &sketch = s1s_[idx], sketch2 = s2s_[idx];
             sketch |= bit;
             if(r > logn + 1) {

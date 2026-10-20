@@ -98,4 +98,34 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "Registers for smallnibbles: Max: %u. min: %u.\n", *std::max_element(nshl.data(), nshl.data() + m), *std::min_element(nshl.data(), nshl.data() + m));
     std::fprintf(stderr, "Registers for bytes: Max: %u. min: %u.\n", *std::max_element(lhb.data(), lhb.data() + m), *std::min_element(lhb.data(), lhb.data() + m));
     std::fprintf(stderr, "Registers for shorts: Max: %u. min: %u.\n", *std::max_element(rhn.data(), rhn.data() + rhn.size()), *std::min_element(rhn.data(), rhn.data() + rhn.size()));
+    {   // count-filtered sketch regression: saved per-register counts
+        // must reflect TOTAL occurrences of an id (including those seen
+        // before the id reached the min-count threshold), and must keep
+        // updating after the id is resident. Pre-fix, a resident id's
+        // count froze and later occurrences were dropped.
+        sketch::setsketch::CountFilteredCSetSketch<double> cf(2 /* mincount */, 64, true, true);
+        for(unsigned i = 0; i < 5; ++i) cf.update(777, 1.); // 5 occurrences
+        for(unsigned i = 0; i < 2; ++i) cf.update(888, 1.); // exactly reaches mincount
+        cf.update(999, 1.);                                  // below mincount
+        // per-register invariant: every register holding id X carries
+        // X's TOTAL occurrence count (pre-fix, registers froze at 1 for
+        // ids that kept occurring after residency, and the count at
+        // reach time ignored pre-threshold occurrences)
+        uint64_t n777 = 0, n888 = 0, n999 = 0;
+        bool ok = true;
+        for(size_t i = 0; i < cf.ids().size(); ++i) {
+            const uint64_t id = cf.ids()[i];
+            const uint64_t cnt = cf.idcounts()[i];
+            if(id == 777) { ++n777; ok = ok && cnt == 5; }
+            else if(id == 888) { ++n888; ok = ok && cnt == 2; }
+            else if(id == 999) { ++n999; ok = ok && cnt == 0; }
+        }
+        ok = ok && n777 > 0 && n888 > 0 && n999 == 0;
+        if(!ok) {
+            std::fprintf(stderr, "CountFilteredCSetSketch count regression FAILED: n777=%llu n888=%llu n999=%llu\n",
+                         (unsigned long long)n777, (unsigned long long)n888, (unsigned long long)n999);
+            return 1;
+        }
+        std::fprintf(stderr, "CountFilteredCSetSketch count regression passed\n");
+    }
 }

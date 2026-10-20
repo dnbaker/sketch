@@ -19,7 +19,7 @@ void test_encoding() {
     for(unsigned p = 3; p <= 10; ++p) {
         for(unsigned trial = 0; trial < 100; ++trial) {
             ull::ultraloglog_t h(p);
-            std::mt19937_64 rng(p * 1000 + trial);
+            DefaultRNGType rng(p * 1000 + trial);
             for(unsigned i = 0; i < 200; ++i) h.add(rng());
             // every nonzero register must be a fixed point of decode/encode
             // (pack(0) is intentionally undefined: the empty register has no
@@ -46,7 +46,7 @@ void test_accuracy() {
         std::vector<double> mle_errs, fgra_errs;
         for(unsigned seed = 1; seed <= 15; ++seed) {
             ull::ultraloglog_t h(p);
-            std::mt19937_64 rng(seed * 1337 + unsigned(n));
+            DefaultRNGType rng(seed * 1337 + unsigned(n));
             for(uint64_t i = 0; i < uint64_t(n); ++i) h.addh(rng());
             mle_errs.push_back(h.mle_estimate() / n - 1.);
             fgra_errs.push_back(h.fgra_estimate() / n - 1.);
@@ -72,7 +72,7 @@ void test_accuracy() {
 // 3. Merge: union of disjoint streams must equal direct insertion, register-exact.
 void test_merge() {
     for(unsigned p = 4; p <= 12; p += 2) {
-        std::mt19937_64 rng(p);
+        DefaultRNGType rng(p);
         ull::ultraloglog_t a(p), b(p), both(p);
         for(unsigned i = 0; i < 100000; ++i) {
             const uint64_t v = rng();
@@ -91,7 +91,7 @@ void test_merge() {
     // idempotency: re-adding the same elements must not change the state
     {
         ull::ultraloglog_t h(8), h2(8);
-        std::mt19937_64 rng(999);
+        DefaultRNGType rng(999);
         for(unsigned i = 0; i < 10000; ++i) {const uint64_t v = rng() % 1000; h.addh(v); h2.addh(v);}
         for(unsigned i = 0; i < 10000; ++i) h.addh(rng() % 1000); // repeats of the same values
         CHECK(h == h2, "idempotency violated");
@@ -103,7 +103,7 @@ void test_merge() {
 void test_downsize() {
     const unsigned p_lo = 6, p_hi = 9;
     ull::ultraloglog_t hi(p_hi), lo_direct(p_lo), lo_merged(p_lo);
-    std::mt19937_64 rng(31337);
+    DefaultRNGType rng(31337);
     for(unsigned i = 0; i < 200000; ++i) {
         const uint64_t v = rng();
         hi.addh(v);
@@ -120,7 +120,7 @@ void test_downsize() {
 // 5. Serialization round-trip.
 void test_serialization() {
     ull::ultraloglog_t h(9);
-    std::mt19937_64 rng(777);
+    DefaultRNGType rng(777);
     for(unsigned i = 0; i < 50000; ++i) h.addh(rng());
     const char *path = "/tmp/ull_roundtrip.ull";
     h.write(path);
@@ -140,7 +140,7 @@ void test_martingale() {
     for(unsigned seed = 1; seed <= 5; ++seed) {
         ull::ultraloglog_t h(p);
         mle::detail::MartingaleEstimator mart;
-        std::mt19937_64 rng(seed);
+        DefaultRNGType rng(seed);
         const uint64_t n = 1000000;
         for(uint64_t i = 0; i < n; ++i) h.addh(rng(), mart);
         const double relerr = mart.estimate() / double(n) - 1.;

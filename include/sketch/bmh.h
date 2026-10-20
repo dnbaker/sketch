@@ -11,7 +11,7 @@
 #include "sketch/kahan.h"
 #include "sketch/hash.h"
 #include "xxHash/xxh3.h"
-#include "flat_hash_map/flat_hash_map.hpp"
+#include "ankerl/unordered_dense.h"
 
 namespace sketch {
 
@@ -404,6 +404,8 @@ struct bmh_t {
     void reset() {
         hvals_.reset();
         heap_.clear();
+        std::fill(track_ids_.begin(), track_ids_.end(), IDType(0));
+        std::fill(idcounts_.begin(), idcounts_.end(), FT(0));
         total_updates_ = 0;
         total_weight_carry_ = total_weight_ = 0.;
     }
@@ -939,7 +941,7 @@ private:
     std::vector<uint64_t> indices;
     std::vector<FT>          vals;
     wmh::mvt_t<FT>            mvt;
-    ska::flat_hash_map<uint64_t, uint32_t> counter;
+    ankerl::unordered_dense::map<uint64_t, uint32_t> counter;
     fy::LazyShuffler ls_;
 
     bool sub_update(const uint64_t pos, const FT value, const uint64_t element_idx) {
@@ -1030,7 +1032,9 @@ public:
             throw std::runtime_error("Cannot complete an OrderMinHash with infinite indexes selected. This is either a bug or you are finalizing an item built from an empty string.");
         }
         std::vector<uint64_t> ret(m_);
-        std::vector<T> up(l_);
+        // Positions index the input, so they keep the width of indices
+        // rather than that of the element type T, which may be as narrow as char.
+        std::vector<uint64_t> up(l_);
         XXH3_state_t state;
         for(size_t i = 0; i < m_; ++i) {
             auto indptr = &indices[l_ * i];

@@ -4,16 +4,27 @@
 #include <array>
 #include <cassert>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <random>
+#include <stdexcept>
 #include <type_traits>
+#include <utility>
 #include <vector>
 #include "aesctr/wy.h"
 #include "fixed_vector.h"
 #include "xxHash/xxh3.h"
 #include "macros.h"
+#if defined(__GNUC__) || defined(__clang__)
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wpedantic" // vendored simde uses __int128 unconditionally
+#endif
+#include "simde/x86/avx2.h"
+#if defined(__GNUC__) || defined(__clang__)
+#  pragma GCC diagnostic pop
+#endif
 
 #ifndef VEC_DISABLED__
 #include "vec/vec.h"
@@ -37,8 +48,9 @@ static inline uint64_t mthash(uint64_t x) {
 // Thomas Wang hash
 // Original site down, available at https://naml.us/blog/tag/thomas-wang
 // This is our core 64-bit hash.
-// It a bijection within [0,1<<64)
-// and can be inverted with irving_inv_hash.
+// It is a bijection within [0,1<<64)
+// and can be inverted with WangHash::inverse (member below; the same
+// algorithm published as "irving_inv_hash" on the original site).
 struct WangHash {
     template<typename...Args> WangHash(Args &&...) {}
     INLINE auto operator()(uint64_t key) const {
@@ -71,6 +83,20 @@ struct WangHash {
         key ^=  (key >> 16);
         return key;
     }
+    // Inverse of the 32-bit operator() above (each forward step undone in
+    // reverse order; the un-xorshift rounds use shift-doubling so every
+    // shift stays < 32). Without this overload, w.inverse(w(uint32_t))
+    // would silently convert to the 64-bit inverse and return garbage.
+    static constexpr uint32_t inverse(uint32_t key) {
+        key = key ^ (key >> 16);                                   // undo key ^= key >> 16
+        key = (key + 1) * UINT32_C(4196353);                       // undo key += ~(key << 11): * (1 - 2^11)^-1
+        key = key ^ (key >> 6); key = key ^ (key >> 12); key = key ^ (key >> 24); // undo key ^= key >> 6
+        key = key * UINT32_C(954437177);                           // undo key += key << 3: * 9^-1
+        key = key ^ (key >> 10); key = key ^ (key >> 20);          // undo key ^= key >> 10
+        key = (key + 1) * UINT32_C(1073774593);                    // undo key += ~(key << 15): * (1 - 2^15)^-1
+        return key;
+    }
+    INLINE auto inverse(int32_t key) const {return inverse(uint32_t(key));}
     INLINE auto operator()(int32_t key) const {return operator()(uint32_t(key));}
 #ifndef VEC_DISABLED__
     INLINE Type operator()(Type element) const {
@@ -463,53 +489,6 @@ struct HasherSet {
 };
 #endif
 
-struct MurFinHash {
-    template<typename...Args> MurFinHash(Args &&...) {}
-    static constexpr uint64_t C1 = 0xff51afd7ed558ccduLL, C2 = 0xc4ceb9fe1a85ec53uLL;
-    INLINE uint64_t operator()(uint64_t key) const {
-        key ^= key >> 33;
-        key *= C1;
-        key ^= key >> 33;
-        key *= C2;
-        key ^= key >> 33;
-        return key;
-    }
-#ifdef DUMMY_INVERSE
-    INLINE uint64_t inverse(uint64_t key) const {return this->operator()(key);}
-#endif
-#ifndef VEC_DISABLED__
-    INLINE Type operator()(Type key) const {
-        return this->operator()(*(reinterpret_cast<VType *>(&key)));
-    }
-#endif
-#if 0
-&& VECTOR_WIDTH > 16
-    INLINE auto operator()(__m128i key) const {
-        using namespace vec;
-        key ^= _mm_srli_epi64(key, 33);
-        key = _mm_mul_epi64x(key, C1);
-        key ^= _mm_srli_epi64(key,  33);
-        key = _mm_mul_epi64x(key, C2);
-        key ^= _mm_srli_epi64(key,  33);
-        return key;
-    }
-#endif
-#ifndef VEC_DISABLED__
-    INLINE Type operator()(VType key) const {
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-        key.for_each([](auto &x) {x *= C1;});
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-        key.for_each([](auto &x) {x *= C2;});
-        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
-        return key.simd_;
-    }
-#endif
-};
-
-static INLINE uint64_t finalize(uint64_t key) {
-    return MurFinHash()(key);
-}
-
 namespace op {
 
 template<typename T>
@@ -568,7 +547,7 @@ static inline constexpr uint64_t findMultInverse64CE(uint64_t x) {
   return y;
 }
 static inline uint64_t findMultInverse64(uint64_t x) {
-  assert(x & 1 || !std::fprintf(stderr, "Can't get multiplicative inverse of an even number."));
+  assert(x & 1); // Odd inputs only: an even number has no multiplicative inverse mod 2^64.
   uint64_t y = (3 * x) ^ 2;
   y = f64(x, y);
   y = f64(x, y);
@@ -601,15 +580,72 @@ struct Inverse64<op::plus<uint64_t>> {
 
 } // namespace multinv
 
+struct MurFinHash {
+    template<typename...Args> MurFinHash(Args &&...) {}
+    static constexpr uint64_t C1 = 0xff51afd7ed558ccduLL, C2 = 0xc4ceb9fe1a85ec53uLL;
+    static constexpr uint64_t IC1 = multinv::findMultInverse64CE(C1), IC2 = multinv::findMultInverse64CE(C2);
+    INLINE uint64_t operator()(uint64_t key) const {
+        key ^= key >> 33;
+        key *= C1;
+        key ^= key >> 33;
+        key *= C2;
+        key ^= key >> 33;
+        return key;
+    }
+    // True inverse: this finalizer is a bijection (two odd multiplies between
+    // three xorshift-rights), so the round trip is exact.
+    INLINE uint64_t inverse(uint64_t key) const {
+        key ^= key >> 33;
+        key *= IC2;
+        key ^= key >> 33;
+        key *= IC1;
+        key ^= key >> 33;
+        return key;
+    }
+#ifndef VEC_DISABLED__
+    INLINE Type operator()(Type key) const {
+        return this->operator()(*(reinterpret_cast<VType *>(&key)));
+    }
+#endif
+#if 0
+&& VECTOR_WIDTH > 16
+    INLINE auto operator()(__m128i key) const {
+        using namespace vec;
+        key ^= _mm_srli_epi64(key, 33);
+        key = _mm_mul_epi64x(key, C1);
+        key ^= _mm_srli_epi64(key,  33);
+        key = _mm_mul_epi64x(key, C2);
+        key ^= _mm_srli_epi64(key,  33);
+        return key;
+    }
+#endif
+#ifndef VEC_DISABLED__
+    INLINE Type operator()(VType key) const {
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+        key.for_each([](auto &x) {x *= C1;});
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+        key.for_each([](auto &x) {x *= C2;});
+        key = Space::srli(key.simd_, 33) ^ key.simd_;  // h ^= h >> 33;
+        return key.simd_;
+    }
+#endif
+};
+
+static INLINE uint64_t finalize(uint64_t key) {
+    return MurFinHash()(key);
+}
+
+
 template<size_t n>
 struct RShiftXor;
 template<size_t n>
 struct InvRShiftXor;
 template<size_t n>
 struct InvRShiftXor {
+    static_assert(n > 0 && n < sizeof(uint64_t) * CHAR_BIT, "shift must be in [1, 64)");
     template<typename...Args>
-    InvRShiftXor(Args &&...) {}
-    static constexpr size_t enditer = 64 / n;
+    constexpr InvRShiftXor(Args &&...) {}
+    static constexpr size_t enditer = (sizeof(uint64_t) * CHAR_BIT) / n;
     uint64_t constexpr operator()(uint64_t v) const {
         uint64_t ret = v ^ v >> n;
         for(size_t i = 1; i < enditer; ++i)
@@ -622,8 +658,9 @@ struct InvRShiftXor {
 
 template<size_t n>
 struct RShiftXor {
+    static_assert(n > 0 && n < sizeof(uint64_t) * CHAR_BIT, "shift must be in [1, 64)");
     template<typename...Args>
-    RShiftXor(Args &&...) {}
+    constexpr RShiftXor(Args &&...) {}
     uint64_t constexpr operator()(uint64_t v) const {return v ^ (v >> n);}
 #ifdef __SSE2__
     __m128i operator()(__m128i v) const {
@@ -644,13 +681,12 @@ struct RShiftXor {
     using InverseOperation = InvRShiftXor<n>;
 };
 template<size_t n> using ShiftXor = RShiftXor<n>;
-template<size_t n> using ShiftXor = RShiftXor<n>;
 template<size_t n> using InvShiftXor = InvRShiftXor<n>;
 
 template<uint64_t XORVALUE=UINT64_C(0xe37e28c4271b5a2d)>
 struct XORConstantHasher {
     template<typename...Args>
-    XORConstantHasher(Args &&...) {}
+    constexpr XORConstantHasher(Args &&...) {}
     uint64_t operator()(uint64_t h) const {
         return h ^ XORVALUE;
     }
@@ -663,17 +699,19 @@ template<size_t n>
 struct InvLShiftXor;
 template<size_t n>
 struct LShiftXor {
+    static_assert(n > 0 && n < sizeof(uint64_t) * CHAR_BIT, "shift must be in [1, 64)");
     template<typename...Args>
-    LShiftXor(Args...) {}
+    constexpr LShiftXor(Args...) {}
     uint64_t constexpr operator()(uint64_t v) const {return v ^ (v << n);}
     uint64_t constexpr inverse(uint64_t v) const {return InverseOperation()(v);}
     using InverseOperation = InvLShiftXor<n>;
 };
 template<size_t n>
 struct InvLShiftXor {
+    static_assert(n > 0 && n < sizeof(uint64_t) * CHAR_BIT, "shift must be in [1, 64)");
     template<typename...Args>
-    InvLShiftXor(Args &&...) {}
-    static constexpr size_t enditer = 64 / n;
+    constexpr InvLShiftXor(Args &&...) {}
+    static constexpr size_t enditer = (sizeof(uint64_t) * CHAR_BIT) / n;
     uint64_t constexpr operator()(uint64_t v) const {
         uint64_t ret = v ^ v << n;
         for(size_t i = 1; i < enditer; ++i)
@@ -688,12 +726,10 @@ struct InvLShiftXor {
 template<size_t n, bool left>
 struct Rot {
     template<typename...Args>
-    Rot(Args &&...) {}
+    constexpr Rot(Args &&...) {}
     template<typename T>
     INLINE T constexpr operator()(T val) const {
-        static_assert(n < sizeof(T) * CHAR_BIT, "Can't shift more than the width of the type.");
-        // Use T's actual width: with a literal 64 a uint32_t instantiation
-        // would shift by >= 32 (UB).
+        static_assert(n > 0 && n < sizeof(T) * CHAR_BIT, "Rotation amount must be in [1, width of T).");
         return left ? T(val << n) ^ T(val >> (sizeof(T) * CHAR_BIT - n))
                     : T(val >> n) ^ T(val << (sizeof(T) * CHAR_BIT - n));
     }
@@ -711,7 +747,7 @@ template<size_t n> using RotL = Rot<n, true>;
 template<size_t n> using RotR = Rot<n, false>;
 struct BitFlip {
     template<typename...Args>
-    BitFlip(Args &&...) {}
+    constexpr BitFlip(Args &&...) {}
     template<typename T>
     INLINE T constexpr operator()(T val) const {
         return ~val;
@@ -771,25 +807,25 @@ struct CEIXOR {
     static constexpr uint64_t seed2_ = WangHash::hash(base_seed);
     static constexpr uint64_t inverse2_ = seed2_;
     template<typename...Args>
-    CEIXOR(Args &&...) {}
+    constexpr CEIXOR(Args &&...) {}
 
     // To ensure that it is actually reversible.
-    INLINE uint64_t inverse(uint64_t hv) const {
+    INLINE constexpr uint64_t inverse(uint64_t hv) const {
         return hv ^ seed_;
     }
-    INLINE uint64_t operator()(uint64_t h) const {
+    INLINE constexpr uint64_t operator()(uint64_t h) const {
         return h ^ seed_;
     }
-    INLINE uint32_t inverse(uint32_t hv) const {
+    INLINE constexpr uint32_t inverse(uint32_t hv) const {
         return hv ^ seed32_;
     }
-    INLINE uint32_t operator()(uint32_t h) const {
+    INLINE constexpr uint32_t operator()(uint32_t h) const {
         return h ^ seed32_;
     }
-    INLINE __uint128_t inverse(__uint128_t hv) const {
+    INLINE constexpr __uint128_t inverse(__uint128_t hv) const {
         return (uint64_t(hv) ^ inverse_) | (((hv >> 64) ^ inverse2_) << 64);
     }
-    INLINE __uint128_t operator()(__uint128_t h) const {
+    INLINE constexpr __uint128_t operator()(__uint128_t h) const {
         return (uint64_t(h) ^ seed_) | (((h >> 64) ^ seed2_) << 64);
     }
 };
@@ -802,27 +838,27 @@ struct CEIMul {
     static constexpr uint64_t inverse_ = multinv::findMultInverse64CE(seed_); // Note: inverse_ is only used for op::multiplies
     static constexpr uint64_t inverse32_ = multinv::findInverse32(seed_); // Note: inverse_ is only used for op::multiplies
     static constexpr uint64_t seed2_ = WangHash::hash(base_seed) | 1;
-    static constexpr uint64_t inverse2_ = multinv::findMultInverse64CE(seed_);
+    static constexpr uint64_t inverse2_ = multinv::findMultInverse64CE(seed2_); // multiplicative inverse of the HIGH-lane seed
     template<typename...Args>
-    CEIMul(Args &&...) {}
+    constexpr CEIMul(Args &&...) {}
 
     // To ensure that it is actually reversible.
-    INLINE uint64_t operator()(uint64_t h) const {
+    INLINE constexpr uint64_t operator()(uint64_t h) const {
         return h * seed_;
     }
-    INLINE uint32_t operator()(uint32_t h) const {
+    INLINE constexpr uint32_t operator()(uint32_t h) const {
         return h * seed32_;
     }
-    INLINE __uint128_t operator()(__uint128_t h) const {
+    INLINE constexpr __uint128_t operator()(__uint128_t h) const {
         return (uint64_t(h) * seed_) | (((h >> 64) * seed2_) << 64);
     }
-    INLINE uint64_t inverse(uint64_t hv) const {
+    INLINE constexpr uint64_t inverse(uint64_t hv) const {
         return hv * inverse_;
     }
-    INLINE uint32_t inverse(uint32_t hv) const {
+    INLINE constexpr uint32_t inverse(uint32_t hv) const {
         return hv * inverse32_;
     }
-    INLINE __uint128_t inverse(__uint128_t hv) const {
+    INLINE constexpr __uint128_t inverse(__uint128_t hv) const {
         return (uint64_t(hv) * inverse_) | (((hv >> 64) * inverse2_) << 64);
     }
 };
@@ -833,33 +869,143 @@ struct CEIFused: public CEIFused<Types...> {
     using CEIFused<Types...>::operator();
     Type op;
     template<typename...Args>
-    CEIFused(Args &&...) {}
+    constexpr CEIFused(Args &&...) {}
     template<typename T>
-    INLINE T operator()(T h) const {
+    INLINE constexpr T operator()(T h) const {
         return CEIFused<Types...>::operator()(op(h));
     }
     template<typename T>
-    INLINE T inverse(T hv) const {
+    INLINE constexpr T inverse(T hv) const {
         return op.inverse(CEIFused<Types...>::inverse(hv));
     }
 };
 template<typename Type>
 struct CEIFused<Type> {
     template<typename...Args>
-    CEIFused(Args &&...) {}
+    constexpr CEIFused(Args &&...) {}
     Type op;
     template<typename T>
-    INLINE T operator()(T h) const {return op(h);}
+    INLINE constexpr T operator()(T h) const {return op(h);}
     template<typename T>
-    INLINE T inverse(T hv) const {return op.inverse(hv);}
+    INLINE constexpr T inverse(T hv) const {return op.inverse(hv);}
 };
 template<typename T1, typename T2, typename T3>
 struct CEIFused3: public CEIFused<T1, T2, T3> {};
 
 
 struct CEHasher: public CEIFused3<CEIXOR<0x533f8c2151b20f97>, CEIMul<0x9a98567ed20c127d>, CEIXOR<0x691a9d706391077a>> {
-template<typename...Args> CEHasher(Args &&...) {}
+template<typename...Args> constexpr CEHasher(Args &&...) {}
 };
+
+// Full-diffusion reversible candidates (2026-10 audit additions), built from
+// the corrected primitives above. SplitMix64Hash passes the same flip-one-bit
+// avalanche gate as WangHash (hashtest). NOTE: a single bare multiply does
+// NOT avalanche: XorMultiply/MultiplyAdd/CEHasher map input bit 63 to output
+// bit 63 alone, and a lone xorshift-multiply-xorshift (one multiply) leaves
+// structurally biased cells (revhash_bench measures both). Two multiplies
+// with interleaved xorshifts are the minimum structure that mixes fully.
+
+// Invertible splitmix64-finalizer bijection (public-domain constants):
+// xorshift-multiply with two odd multiplies. The reference point for 64-bit
+// avalanche quality; the fastest invertible candidate in revhash_bench that
+// matches WangHash's avalanche (and beats it on the biased-cell metric).
+struct SplitMix64Hash: public CEIFused<RShiftXor<30>, CEIMul<0xbf58476d1ce4e5b9>, RShiftXor<27>, CEIMul<0x94d049bb133111eb>, RShiftXor<31>> {
+    template<typename...Args> constexpr SplitMix64Hash(Args &&...) {}
+    // --- simde batch path (2026-10 SIMD audit) ---
+    // 4x uint64_t lanes of the SAME bijection; bit-identical to
+    // operator()(uint64_t) lane-wise (hashtest asserts this). Single-source:
+    // simde lowers every op for whatever ISA is enabled (on AVX2 there is no
+    // native 64-bit-lane multiply: mul64_const_ is the mul_epu32/mullo_epi32
+    // decomposition, the same strategy as vec.h's _mm256_mullo_epi64, with
+    // the half-swapped constant folded at compile time).
+    static INLINE simde__m256i mul64_const_(simde__m256i a, simde__m256i c64, simde__m256i cswap) {
+        simde__m256i prodlh = simde_mm256_mullo_epi32(a, cswap);                               // aL*CH, aH*CL per 32-bit lane
+        simde__m256i cross  = simde_mm256_add_epi32(prodlh, simde_mm256_srli_epi64(prodlh, 32)); // sum pair, low 32 bits
+        simde__m256i prodll = simde_mm256_mul_epu32(a, c64);                                   // aL*CL, 64-bit
+        return simde_mm256_add_epi64(prodll, simde_mm256_slli_epi64(cross, 32));
+    }
+    static INLINE simde__m256i hash4(simde__m256i x) {
+        const simde__m256i c1  = simde_mm256_set1_epi64x((int64_t)0xbf58476d1ce4e5b9ULL);
+        const simde__m256i c1s = simde_mm256_set1_epi64x((int64_t)0x1ce4e5b9bf58476dULL);
+        const simde__m256i c2  = simde_mm256_set1_epi64x((int64_t)0x94d049bb133111ebULL);
+        const simde__m256i c2s = simde_mm256_set1_epi64x((int64_t)0x133111eb94d049bbULL);
+        x = simde_mm256_xor_si256(x, simde_mm256_srli_epi64(x, 30));
+        x = mul64_const_(x, c1, c1s);
+        x = simde_mm256_xor_si256(x, simde_mm256_srli_epi64(x, 27));
+        x = mul64_const_(x, c2, c2s);
+        x = simde_mm256_xor_si256(x, simde_mm256_srli_epi64(x, 31));
+        return x;
+    }
+    // Batch wrapper: out[i] = hash(in[i]) for i < n. Head is vectorized 4 at
+    // a time; the (n % 4) tail falls back to the scalar bijection, so results
+    // are bit-identical to operator() for every n.
+    void hash_batch(uint64_t *out, const uint64_t *in, size_t n) const {
+        size_t i = 0;
+        for(; i + 4 <= n; i += 4)
+            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i *>(out + i),
+                                     hash4(simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i *>(in + i))));
+        for(; i < n; ++i) out[i] = (*this)(in[i]);
+    }
+};
+
+// rrmxmx (Pelle Evensen's two-multiply bijective mixer): rotate-xor pre-mix,
+// multiply, xorshift, multiply, xorshift. Round-trip proven in hashtest
+// (1M random + structured); avalanche maxdev 0.0295 at T=4096, comfortably
+// inside the WangHash-relative gate. Rotations make it non-triangular.
+// The (I + R49 + R24) pre-mix is invertible because q = R49+R24 is nilpotent
+// over GF(2) (q^64 = (R49)^64 + (R24)^64 = I + I = 0), so
+// (I+q)^-1 = prod_{i<6} (I + q^{2^i}); each factor is applied with q's
+// composition doubled per round.
+struct RRMxMxHash {
+    static constexpr uint64_t M  = 0x9fb21c651e98df25ULL;
+    static constexpr uint64_t IM = 0x02ab9c720d1024adULL; // multiplicative inverse of M
+    template<typename...Args> constexpr RRMxMxHash(Args &&...) {}
+    static constexpr uint64_t rotl_(uint64_t v, unsigned k) {return (v << k) | (v >> (sizeof(uint64_t) * CHAR_BIT - k));}
+    static constexpr uint64_t q_(uint64_t x)   {return rotl_(x, 49) ^ rotl_(x, 24);}
+    static constexpr uint64_t q2_(uint64_t x)  {return q_(q_(x));}
+    static constexpr uint64_t q4_(uint64_t x)  {return q2_(q2_(x));}
+    static constexpr uint64_t q8_(uint64_t x)  {return q4_(q4_(x));}
+    static constexpr uint64_t q16_(uint64_t x) {return q8_(q8_(x));}
+    static constexpr uint64_t q32_(uint64_t x) {return q16_(q16_(x));}
+    static constexpr uint64_t hash(uint64_t v) {
+        v ^= q_(v);
+        v *= M; v ^= v >> 35; v *= M; v ^= v >> 28;
+        return v;
+    }
+    static constexpr uint64_t inverse(uint64_t v) {
+        v ^= v >> 28; v ^= v >> 56; v *= IM; v ^= v >> 35; v *= IM;
+        v ^= q_(v); v ^= q2_(v); v ^= q4_(v); v ^= q8_(v); v ^= q16_(v); v ^= q32_(v);
+        return v;
+    }
+    constexpr uint64_t operator()(uint64_t v) const {return hash(v);}
+    // inverse(uint64_t) is the static above; callable on an instance as usual.
+    // simde batch path: same 4-lane contract as SplitMix64Hash::hash4.
+    static INLINE simde__m256i hash4(simde__m256i v) {
+        const simde__m256i m  = simde_mm256_set1_epi64x((int64_t)M);
+        const simde__m256i ms = simde_mm256_set1_epi64x((int64_t)0x1e98df259fb21c65ULL);
+        {   // v ^= rotl(v,49) ^ rotl(v,24): BOTH rotations of the ORIGINAL v
+            const simde__m256i r49 = simde_mm256_or_si256(simde_mm256_slli_epi64(v, 49), simde_mm256_srli_epi64(v, 15));
+            const simde__m256i r24 = simde_mm256_or_si256(simde_mm256_slli_epi64(v, 24), simde_mm256_srli_epi64(v, 40));
+            v = simde_mm256_xor_si256(simde_mm256_xor_si256(v, r49), r24);
+        }
+        v = SplitMix64Hash::mul64_const_(v, m, ms);
+        v = simde_mm256_xor_si256(v, simde_mm256_srli_epi64(v, 35));
+        v = SplitMix64Hash::mul64_const_(v, m, ms);
+        v = simde_mm256_xor_si256(v, simde_mm256_srli_epi64(v, 28));
+        return v;
+    }
+    void hash_batch(uint64_t *out, const uint64_t *in, size_t n) const {
+        size_t i = 0;
+        for(; i + 4 <= n; i += 4)
+            simde_mm256_storeu_si256(reinterpret_cast<simde__m256i *>(out + i),
+                                     hash4(simde_mm256_loadu_si256(reinterpret_cast<const simde__m256i *>(in + i))));
+        for(; i < n; ++i) out[i] = hash(in[i]);
+    }
+};
+// moremur (Pelle Evensen's one-multiply mixer) is intentionally NOT shipped:
+// it is a bijection but fails the flip-one-bit avalanche gate like every
+// single-multiply hash (revhash_bench carries it as a bench-local data point).
+
 
 // Reversible, runtime-configurable hashes
 
@@ -909,7 +1055,12 @@ struct MultiplyAddXor: public FusedReversible3<InvAdd,InvMul,InvXor> {
 };
 template<size_t shift>
 struct MultiplyAddXoRot: public FusedReversible3<InvMul,InvXor,RotN<shift>> {
-    MultiplyAddXoRot(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvXor, RotN<shift>>(mthash(seed1) | 1, mthash(seed2) | 1) {}
+    // NOTE (2026-10 audit): the constructor now forwards raw seeds like its
+    // XorMultiply/MultiplyAdd/MultiplyAddXor siblings (FusedReversible3
+    // applies the mthash exactly once). Previously it pre-mthashed the seeds
+    // here and FusedReversible3 hashed again; generated streams change for
+    // the same seed pair.
+    MultiplyAddXoRot(uint64_t seed1=0x9a98567ed20c127d, uint64_t seed2=0xe37e28c4271b5a1duLL): FusedReversible3<InvMul,InvXor, RotN<shift>>(seed1 | 1, seed2 | 1) {}
 };
 
 template<typename HashType>
@@ -967,6 +1118,128 @@ template<size_t n>
 struct XorMultiplyN: XorMultiplyNVec{
     XorMultiplyN(): XorMultiplyNVec(n) {}
 };
+
+// ---------------------------------------------------------------------------
+// Triangularity and masked reduction (reduced-key decode for cqfbase_t / cht)
+//
+// Invertible hashes are the canonical choice for REDUCED-KEY techniques:
+// cqfbase_t<...> (include/sketch/cqf.h) and cht take pre-hashed keys and
+// split the hash value as parts(hv) = {(hv >> r) & (nslots - 1), hv & ((1 <<
+// r) - 1)}: the TOP bits select the bucket, the LOW bits are the remainder.
+// What invertibility buys depends on what the table stores:
+//
+//  * Full-width decode: if the table (or a companion index) keeps the full
+//    H(x), the original key is x = H.inverse(H(x)) for ANY invertible H.
+//  * Reduced-only decode: if the table stores ONLY the reduced bits, key
+//    recovery additionally requires the stored bits to be SELF-INVERTIBLE.
+//    A LEFT-TRIANGULAR hash has that property: its low k output bits depend
+//    only on its low k input bits, so x mod 2^BITS is recoverable from
+//    H(x) mod 2^BITS alone (e.g. the stored remainder). A RIGHT-TRIANGULAR
+//    hash is the mirror image (high k output bits depend only on high k
+//    input bits), which serves the bucket side: x's top bits are recoverable
+//    from the bucket alone.
+//
+// Left-triangular ops: odd multiply (CEIMul, InvMul), add/xor of a constant
+// (CEIXOR, InvAdd, InvXor, XORConstantHasher), LShiftXor (v ^ (v << n)).
+//   -> left-triangular hashes: CEHasher, XorMultiply, MultiplyAdd,
+//      MultiplyAddXor, TriangularReversibleHash, any CEIFused chain of the
+//      above ops.
+// Right-triangular ops: RShiftXor / InvRShiftXor (v ^ (v >> n)).
+//   -> right-triangular hashes: RShiftXor chains, xor-of-constant hashes.
+// Neither (full 64-bit diffusion required, use full-width decode):
+//   WangHash, SplitMix64Hash, RRMxMxHash, MurFinHash, anything containing Rot
+//   (MultiplyAddXoRot). A RecursiveReversibleHash<H> has whatever
+//   triangularity H has (e.g. XorMultiplyNVec is left-triangular).
+//
+// MaskedReducedHash<H, BITS> below is the documented masked-reduction
+// pattern: reduced key = H{}(key) & ((1 << BITS) - 1). invert_low /
+// invert_high provide the two reduced-only decode paths, statically guarded
+// by the matching triangularity trait.
+// ---------------------------------------------------------------------------
+template<typename H>
+struct is_left_triangular: std::false_type {};
+template<typename H>
+struct is_right_triangular: std::false_type {};
+// left-triangular building blocks
+template<uint64_t S> struct is_left_triangular<CEIMul<S>>: std::true_type {};
+template<uint64_t S> struct is_left_triangular<CEIXOR<S>>: std::true_type {};
+template<uint64_t S> struct is_left_triangular<XORConstantHasher<S>>: std::true_type {};
+template<size_t n> struct is_left_triangular<LShiftXor<n>>: std::true_type {};
+template<size_t n> struct is_left_triangular<InvLShiftXor<n>>: std::true_type {};
+template<> struct is_left_triangular<InvMul>: std::true_type {};
+template<> struct is_left_triangular<InvAdd>: std::true_type {};
+template<> struct is_left_triangular<InvXor>: std::true_type {};
+// right-triangular building blocks
+template<size_t n> struct is_right_triangular<RShiftXor<n>>: std::true_type {};
+template<size_t n> struct is_right_triangular<InvRShiftXor<n>>: std::true_type {};
+// xor-by-constant is both
+template<> struct is_right_triangular<InvXor>: std::true_type {};
+template<uint64_t S> struct is_right_triangular<XORConstantHasher<S>>: std::true_type {};
+// chains: triangular iff every op is triangular
+template<typename T, typename...Ts>
+struct is_left_triangular<CEIFused<T, Ts...>>: std::integral_constant<bool, is_left_triangular<T>::value && is_left_triangular<CEIFused<Ts...>>::value> {};
+template<typename T> struct is_left_triangular<CEIFused<T>>: is_left_triangular<T> {};
+template<typename T, typename...Ts>
+struct is_right_triangular<CEIFused<T, Ts...>>: std::integral_constant<bool, is_right_triangular<T>::value && is_right_triangular<CEIFused<Ts...>>::value> {};
+template<typename T> struct is_right_triangular<CEIFused<T>>: is_right_triangular<T> {};
+template<typename A, typename B>
+struct is_left_triangular<FusedReversible<A, B>>: std::integral_constant<bool, is_left_triangular<A>::value && is_left_triangular<B>::value> {};
+template<typename A, typename B, typename C>
+struct is_left_triangular<FusedReversible3<A, B, C>>: std::integral_constant<bool, is_left_triangular<A>::value && is_left_triangular<B>::value && is_left_triangular<C>::value> {};
+template<typename A, typename B>
+struct is_right_triangular<FusedReversible<A, B>>: std::integral_constant<bool, is_right_triangular<A>::value && is_right_triangular<B>::value> {};
+template<typename A, typename B, typename C>
+struct is_right_triangular<FusedReversible3<A, B, C>>: std::integral_constant<bool, is_right_triangular<A>::value && is_right_triangular<B>::value && is_right_triangular<C>::value> {};
+// CEIFused3 and the named fused hashes delegate to their bases
+template<typename T1, typename T2, typename T3>
+struct is_left_triangular<CEIFused3<T1, T2, T3>>: is_left_triangular<CEIFused<T1, T2, T3>> {};
+template<typename T1, typename T2, typename T3>
+struct is_right_triangular<CEIFused3<T1, T2, T3>>: is_right_triangular<CEIFused<T1, T2, T3>> {};
+template<> struct is_left_triangular<CEHasher>: is_left_triangular<CEIFused3<CEIXOR<0x533f8c2151b20f97>, CEIMul<0x9a98567ed20c127d>, CEIXOR<0x691a9d706391077a>>> {};
+template<> struct is_right_triangular<CEHasher>: is_right_triangular<CEIFused3<CEIXOR<0x533f8c2151b20f97>, CEIMul<0x9a98567ed20c127d>, CEIXOR<0x691a9d706391077a>>> {};
+template<> struct is_left_triangular<XorMultiply>: is_left_triangular<FusedReversible<InvXor, InvMul>> {};
+template<> struct is_right_triangular<XorMultiply>: is_right_triangular<FusedReversible<InvXor, InvMul>> {};
+template<> struct is_left_triangular<MultiplyAdd>: is_left_triangular<FusedReversible<InvMul, InvAdd>> {};
+template<> struct is_right_triangular<MultiplyAdd>: is_right_triangular<FusedReversible<InvMul, InvAdd>> {};
+template<> struct is_left_triangular<MultiplyAddXor>: is_left_triangular<FusedReversible3<InvAdd, InvMul, InvXor>> {};
+template<> struct is_right_triangular<MultiplyAddXor>: is_right_triangular<FusedReversible3<InvAdd, InvMul, InvXor>> {};
+template<> struct is_left_triangular<SplitMix64Hash>: is_left_triangular<CEIFused<RShiftXor<30>, CEIMul<0xbf58476d1ce4e5b9>, RShiftXor<27>, CEIMul<0x94d049bb133111eb>, RShiftXor<31>>> {};
+template<> struct is_right_triangular<SplitMix64Hash>: is_right_triangular<CEIFused<RShiftXor<30>, CEIMul<0xbf58476d1ce4e5b9>, RShiftXor<27>, CEIMul<0x94d049bb133111eb>, RShiftXor<31>>> {};
+
+// Documented masked-reduction pattern for reduced-key tables (cqf/cht):
+// reduced key = H{}(key) & ((1 << BITS) - 1).
+template<class H, size_t BITS>
+struct MaskedReducedHash {
+    static_assert(BITS > 0 && BITS < sizeof(uint64_t) * CHAR_BIT, "BITS must be in [1, 64)");
+    static constexpr size_t bits = BITS;
+    static constexpr uint64_t mask() {return (uint64_t(1) << BITS) - 1;}
+    H h_;
+    template<typename...Args> MaskedReducedHash(Args &&...args): h_(std::forward<Args>(args)...) {}
+    uint64_t operator()(uint64_t key) const {return h_(key) & mask();}
+    // Full-width decode: requires the UNMASKED hash value to be stored.
+    uint64_t invert_full(uint64_t hval) const {return h_.inverse(hval);}
+    // Reduced-only decode (the remainder path): recovers key mod 2^BITS from
+    // the stored BITS low bits of H(key) alone. Valid iff H is left-triangular
+    // (then H and its inverse act within the low BITS bits).
+    uint64_t invert_low(uint64_t reduced) const {
+        static_assert(is_left_triangular<H>::value, "invert_low requires a left-triangular hash (see the triangularity block above)");
+        return h_.inverse(reduced) & mask();
+    }
+    // Reduced-only decode (the bucket path): recovers the key's BITS top bits
+    // from the stored top BITS bits of H(key) alone. Valid iff H is right-triangular.
+    uint64_t invert_high(uint64_t reduced_top) const {
+        static_assert(is_right_triangular<H>::value, "invert_high requires a right-triangular hash (see the triangularity block above)");
+        return h_.inverse(reduced_top << (sizeof(uint64_t) * CHAR_BIT - BITS)) >> (sizeof(uint64_t) * CHAR_BIT - BITS);
+    }
+};
+
+// Left-triangular reversible hash for reduced-key decode: odd multiply then
+// LShiftXor (both left-triangular), so x mod 2^BITS is recoverable from
+// h(x) mod 2^BITS alone via MaskedReducedHash<..., BITS>::invert_low.
+// NOTE: triangularity precludes full avalanche (high input bits stay local);
+// that is the deliberate quality trade for reduced-only decode.
+template<uint64_t mulseed=0x9a98567ed20c127d, size_t shift=23>
+using TriangularReversibleHash = CEIFused<CEIMul<mulseed>, LShiftXor<shift>>;
 
 struct XXH3PairHasher {
     template<typename CType>

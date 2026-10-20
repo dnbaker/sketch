@@ -24,7 +24,7 @@ void test_cardinality() {
         std::vector<double> errs;
         for(unsigned seed = 1; seed <= 9; ++seed) {
             fmh::fracminhash_t h(double(c.scale));
-            std::mt19937_64 rng(seed * 911 + unsigned(c.n));
+            DefaultRNGType rng(seed * 911 + unsigned(c.n));
             for(uint64_t i = 0; i < uint64_t(c.n); ++i) h.addh(rng());
             errs.push_back(h.report() / c.n - 1.);
         }
@@ -38,7 +38,7 @@ void test_cardinality() {
         // min-hash cross-check: kept ~ max_hash / min_kept
         if(c.n >= 1e4) {
             fmh::fracminhash_t h(double(c.scale));
-            std::mt19937_64 rng(5);
+            DefaultRNGType rng(5);
             for(uint64_t i = 0; i < uint64_t(c.n); ++i) h.addh(rng());
             // min-of-kept estimates |kept| ~ max_hash / min; n^ = scale * that.
             // (single order statistic: tolerance is loose by nature)
@@ -58,7 +58,7 @@ void test_containment() {
             // B = [0, K); A = [0, J*K) u [2^62, 2^62 + (1-J)*K): |A|=|B|=K, intersection = J*K
             const uint64_t C = uint64_t(J * K), D = uint64_t((1. - J) * K);
             fmh::fracminhash_t a{double(scale)}, b{double(scale)};
-            std::mt19937_64 rng(seed * 31337 + unsigned(J * 100));
+            DefaultRNGType rng(seed * 31337 + unsigned(J * 100));
             for(uint64_t i = 0; i < K; ++i) b.addh(i);
             for(uint64_t i = 0; i < C; ++i) a.addh(i);
             for(uint64_t i = 0; i < D; ++i) a.addh(i + (uint64_t(1) << 62));
@@ -82,7 +82,7 @@ void test_containment() {
 // Merge equality, idempotency, batch==scalar, serialization.
 void test_merge_and_serialization() {
     fmh::fracminhash_t a(double(4)), b(double(4)), both(double(4));
-    std::mt19937_64 rng(42);
+    DefaultRNGType rng(42);
     for(unsigned i = 0; i < 200000; ++i) {const uint64_t v = rng(); a.addh(v); both.addh(v);}
     for(unsigned i = 0; i < 200000; ++i) {const uint64_t v = rng(); b.addh(v); both.addh(v);}
     a += b;

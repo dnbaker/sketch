@@ -9,7 +9,7 @@ using namespace sketch;
 using Hasher = hash::XORConstantHasher<>;
 
 int main() {
-    std::mt19937_64 mt(137);
+    DefaultRNGType mt(137);
     static constexpr size_t nelem = 1 << 24;
     uint64_t *p = (uint64_t *)std::malloc(8 * nelem);
     if(!p) throw 1;

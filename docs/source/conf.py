@@ -22,7 +22,7 @@ copyright = '2017-2021, Daniel Baker'
 author = 'Daniel Baker'
 
 # The full version, including alpha/beta/rc tags
-release = '0.14.2'
+release = '0.20.0'
 
 
 # -- General configuration ---------------------------------------------------
@@ -31,6 +31,7 @@ release = '0.14.2'
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    'sphinx.ext.autodoc',
 ]
 
 # Add any paths that contain templates here, relative to this directory.

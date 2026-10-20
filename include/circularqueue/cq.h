@@ -372,8 +372,8 @@ public:
     }
     T pop_back() {
         if(__builtin_expect(stop_ == start_, 0)) throw std::runtime_error("Popping item from empty buffer. Abort!");
-        T ret(std::move(data_[--stop_]));
-        start_ &= mask_;
+        stop_ = (stop_ - 1) & mask_;
+        T ret(std::move(data_[stop_]));
         return ret; // If unused, the std::move causes it to leave scope and therefore be destroyed.
     }
     T pop_front() {

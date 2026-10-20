@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "exact method stack space: %zu\theap space:%zu\n", x, y);
     size_t nitems = optind == argc - 1 ? std::strtoull(argv[optind], nullptr, 10): 100000;
     std::vector<uint64_t> items;
-    std::mt19937_64 mt(nitems ^ (std::mt19937_64(nhashes)()));
+    DefaultRNGType mt(nitems ^ (DefaultRNGType(nhashes)()));
     while(items.size() < nitems) items.emplace_back(mt());
     for(const auto el: cms.ref()) {
         assert(unsigned(el) == 0);

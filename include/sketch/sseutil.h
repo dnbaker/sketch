@@ -7,7 +7,7 @@
 #include <cassert>
 #include <utility>
 #include <new>
-#include "hedley.h"
+#include "../simde/hedley.h"
 
 namespace sse {
 
