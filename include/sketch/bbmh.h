@@ -1061,9 +1061,17 @@ public:
             const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);
             auto f = [numinv](const auto v) {return v * numinv;};
             long double tmp = 0.;
-            for(const auto v: core_)
+            size_t empty = 0;
+            for(const auto v: core_) {
+                empty += v == detail::default_val<T>();
                 tmp += f(v != detail::default_val<T>() ? v: (std::numeric_limits<T>::max() >> p_));
-            return std::pow(core_.size(), 2) / tmp;
+            }
+            const double est = std::pow(core_.size(), 2) / tmp, m = core_.size();
+            // Small range: with empty registers the harmonic mean is biased high
+            // (1000 items at p = 10 read 1610); use linear counting there, as
+            // HyperLogLog does (estimate <= 2.5 m and some register empty).
+            if(empty && est <= 2.5 * m) return m * std::log(m / double(empty));
+            return est;
         }
         const long double num = std::ldexp(static_cast<long double>(1.), sizeof(T) * CHAR_BIT - p_);
         double sum;
@@ -1636,16 +1644,19 @@ FinalBBitMinHash BBitMinHasher<T, Hasher>::finalize(uint32_t b) const {
     const auto *ptr = &core_;
     std::decay_t<decltype(core_)> tmp;
     size_t ndef;
-    double cest = -1.;
+    // The live estimator: an empty register counts as (max >> p_), ~1 after
+    // scaling. harmonic_cardinality_estimate_impl on the raw registers counted
+    // each empty one (default_val, all ones) as 2^p_, so sketches with any
+    // empty register (n below ~ m ln m) were finalized with far too small an
+    // estimate (e.g. 323 for 6000 items at p = 10).
+    const double cest = cardinality_estimate();
     if((ndef = std::count_if(core_.begin(), core_.end(), [](auto x) {return x == detail::default_val<T>();}))) {
         tmp = core_;
-        cest = detail::harmonic_cardinality_estimate_impl(tmp);
         std::replace(tmp.begin(), tmp.end(), T(std::numeric_limits<T>::max() >> p_), detail::default_val<T>());
         detail::densifybin(tmp);
         ptr = &tmp;
     }
     const auto &core_ref = *ptr;
-    if(cest < 0) cest = detail::harmonic_cardinality_estimate_impl(core_ref);
     using detail::getnthbit;
     using detail::setnthbit;
     FinalBBitMinHash ret(p_, b, cest);
