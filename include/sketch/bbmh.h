@@ -1016,13 +1016,18 @@ public:
             ret += core_[i] == o.core_[i];
         return ret;
     }
+    // Matches among registers non-empty in either sketch (registers empty in
+    // both carry no information; counting them as matches inflates the
+    // estimate whenever the sets are small relative to the sketch).
     double jaccard_index(const BBitMinHasher &o) const {
-        auto it = core_.begin(), oit = o.core_.begin();
-        size_t ret = *it++ == *oit++;
-        do {
-            ret += *it++ == *oit++;
-        } while(it != core_.end());
-        return double(ret) / core_.size();
+        size_t eq = 0, nonempty = 0;
+        for(size_t i = 0; i < core_.size(); ++i) {
+            const T a = core_[i], b = o.core_[i];
+            const bool ne = a != detail::default_val<T>() || b != detail::default_val<T>();
+            nonempty += ne;
+            eq += ne && a == b;
+        }
+        return nonempty ? double(eq) / nonempty: 1.;
     }
     double intersection_size(const BBitMinHasher &o) const {
         const long double numinv = 1. / std::ldexp(static_cast<long double>(1.), NBITS - p_);

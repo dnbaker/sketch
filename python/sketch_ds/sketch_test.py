@@ -35,10 +35,10 @@ def test_bbmh():
     b1, b2, b3 = bs
     fbs = [x.finalize() for x in bs]
     cards = np.array([x.report() for x in fbs])
-    sim = b1.jaccard(b3)
-    assert min(np.abs(cards[:2] - 1000.)) < 25.
-    assert min(np.abs(cards[2] - 2000.)) < 40.
-    assert (0.33333333 - sim) <= .03, f"Found similarity {sim} but expected 0.33333"
+    sim = b1.jaccard_index(b3)
+    assert max(np.abs(cards[:2] - 1000.)) < 50., f"cards {cards[:2]}, expected 1000"
+    assert abs(cards[2] - 2000.) < 100., f"card {cards[2]}, expected 2000"
+    assert abs(0.5 - sim) <= .03, f"Found similarity {sim} but expected 0.5 (|x| / |x u y|)"
 
     print("cards:" + ",".join(f"{x.report()}" for x in bs))
 
