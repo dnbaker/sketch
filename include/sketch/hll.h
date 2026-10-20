@@ -7,7 +7,7 @@
 #include "vec/vec.h"
 #include "common.h"
 #include "hash.h"
-#include "hedley.h"
+#include "../simde/hedley.h"
 #include "atomic_minmax.h"
 
 namespace sketch {

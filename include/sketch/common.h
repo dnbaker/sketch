@@ -29,7 +29,7 @@
 #include "macros.h"
 
 #include "kthread.h"
-#include "hedley.h"
+#include "../simde/hedley.h"
 
 
 
