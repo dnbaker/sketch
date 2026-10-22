@@ -14,6 +14,8 @@ __hm*.hmh
 /tmpfiles.txt
 /bagminhashtest
 /bbmhtest
+/bbmh_finalize_card_test
+/bbmh_intersection_test
 /bcqftest
 /bftest
 /cardbench
@@ -97,3 +99,9 @@ __pycache__/
 /gpu/reference.o
 /gpu/tests/test_gpu_sketches
 /gpu/tests/host_math_check
+/atomic_minmax_test
+/bbmh_densifytest
+/countingbbmhtest
+/densifytest
+/popcnttest
+/xxhgoldentest

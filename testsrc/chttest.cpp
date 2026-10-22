@@ -1086,7 +1086,165 @@ static void test_map128() {
     }
 }
 
+// ---- 10. cht_wang64_hash: the hash.h WangHash adapter --------------------
+// Genericity gate for the reversible-hash template: the Wang adapter must
+// round-trip exactly (hash o invert == identity), its SIMD lanes must equal
+// the scalar chain, and tables built on it must reconstruct keys exactly
+// (dump == inserted set), count exactly, and stay false-positive-free at
+// high load -- all the properties the identity/splitmix instantiations get.
+static void test_wang64() {
+    cht_wang64_hash h;
+    std::mt19937_64 rng(101);
+    uint64_t bad = 0;
+    for (unsigned t = 0; t < (1u << 22); ++t) {
+        const uint64_t v = rng();
+        bad += h.invert(h.hash(v)) != v || h.hash(h.invert(v)) != v;
+    }
+    for (uint64_t e: {0ull, 1ull, ~0ull, 1ull << 63, (1ull << 63) - 1, 0xffffffffull}) {
+        bad += h.invert(h.hash(e)) != e || h.hash(h.invert(e)) != e;
+    }
+    CHECK(bad == 0, "wang64: %llu round-trip errors", (unsigned long long)bad);
+    {   // SIMD lanes == scalar chain (hash4 reuse path)
+        alignas(32) uint64_t in[4], out[4];
+        for (unsigned i = 0; i < 4; ++i) in[i] = rng();
+        const simde__m256i v = simde_mm256_load_si256(reinterpret_cast<const simde__m256i*>(in));
+        simde_mm256_store_si256(reinterpret_cast<simde__m256i*>(out), cht_wang64_hash::hash4(v));
+        for (unsigned i = 0; i < 4; ++i)
+            CHECK(out[i] == h.hash(in[i]), "wang64 hash4 lane %u != scalar", i);
+    }
+    const uint32_t q = 16;
+    cht_t<uint64_t, cht_wang64_hash, 16> f(q);
+    std::unordered_map<uint64_t, uint64_t> ref;
+    for (unsigned i = 0; i < 50000; ++i) {
+        const uint64_t k = rng();   // raw 64-bit keys, no pre-hashing
+        f.add(k); ++ref[k];
+    }
+    std::vector<uint64_t> dumped;
+    f.dump_keys(std::back_inserter(dumped));
+    std::sort(dumped.begin(), dumped.end());
+    std::vector<uint64_t> want;
+    want.reserve(ref.size());
+    for (const auto &kv: ref) want.push_back(kv.first);
+    std::sort(want.begin(), want.end());
+    CHECK(dumped == want, "wang64: dump set != inserted raw-key set");
+    uint64_t cbad = 0, fpos = 0;
+    for (const auto &kv: ref) {cbad += f.count(kv.first) != kv.second; cbad += f.count_simd(kv.first) != kv.second;}
+    for (unsigned t = 0; t < 200000; ++t) {
+        const uint64_t k = rng();
+        if (!ref.count(k)) fpos += f.count(k) != 0 || f.count_simd(k) != 0;
+    }
+    CHECK(cbad == 0 && fpos == 0, "wang64: %llu wrong counts, %llu false positives (incl. SIMD)",
+          (unsigned long long)cbad, (unsigned long long)fpos);
+    CHECK(f.structure_check(), "wang64: structure_check failed");
+    // the exact map + serialization on the same adapter
+    cht_map_t<uint64_t, cht_wang64_hash, 32> m(15); // 32768 slots for 20k keys
+    std::unordered_map<uint64_t, uint64_t> mref;
+    for (unsigned i = 0; i < 20000; ++i) {const uint64_t k = rng(), v = 1 + rng() % m.SAT; m.assign(k, v); mref[k] = v;}
+    uint64_t mbad = 0;
+    for (const auto &kv: mref) mbad += m.get(kv.first) != kv.second;
+    CHECK(mbad == 0 && m.structure_check(), "wang64 map: %llu wrong values", (unsigned long long)mbad);
+    std::FILE *fp = std::tmpfile();
+    m.write(fp); std::rewind(fp);
+    auto m2 = decltype(m)::read(fp);
+    std::fclose(fp);
+    bool same = m2.size() == m.size();
+    for (const auto &kv: mref) same = same && m2.get(kv.first) == kv.second;
+    CHECK(same, "wang64 map: write/read round trip differs");
+    std::fprintf(stderr, "cht wang64 adapter done (%zu keys, %zu map keys)\n", ref.size(), mref.size());
+}
+
+// ---- 11. position-encoded keys: stored width + exact full-hash reconstruction ----
+// The slot index carries the top q bits of the hash, so the remainder
+// stream is key_bits - q (exact) / min(RSTORE_BITS, key_bits - q)
+// (truncated) bits wide, and iteration/serialization rebuild the FULL hash
+// (and the key, via invert) exactly -- from q=12 up to the 2^24 headline
+// with 64-bit keys, single inserts and the sorted bulk build.
+static void test_position_encoding() {
+    // stored-width formula: the runtime PrefixBits knob is q
+    {
+        cht_t<uint64_t, cht_identity_hash<48>, 16> f(20);
+        CHECK(f.r() == 48 - 20, "stored width %u != key_bits - q (48-20)", f.r());
+        cht_t<uint64_t, cht_identity_hash<48>, 16, 12> t(20);
+        CHECK(t.r() == 28 && f.q() == 20, "truncated widths wrong");
+    }
+    {
+        cht_t<uint64_t, cht_splitmix64_hash, 16> f(24);
+        CHECK(f.r() == 64 - 24, "64-bit keys at q=24: stored width %u != 40 (the 24-bit/entry headline)", f.r());
+    }
+    // exact reconstruction across q and hash adapters (small tables, single inserts)
+    for (const uint32_t q: {12u, 20u}) {
+        const uint64_t nkeys = q == 12 ? 3000 : 700000;
+        {   cht_t<uint64_t, cht_splitmix64_hash, 16> f(q);
+            std::mt19937_64 rng(111 + q);
+            std::vector<uint64_t> want;
+            std::unordered_map<uint64_t, uint64_t> seen;
+            for (uint64_t i = 0; i < nkeys; ++i) {const uint64_t k = rng(); if (seen.insert({k, 1}).second) want.push_back(k);}
+            for (const uint64_t k: want) f.add(k);
+            std::vector<uint64_t> dumped;
+            f.dump_keys(std::back_inserter(dumped));
+            std::sort(dumped.begin(), dumped.end());
+            std::sort(want.begin(), want.end());
+            CHECK(dumped == want, "position encoding q=%u (splitmix): dump != inserted set (%zu vs %zu)",
+                  q, dumped.size(), want.size());
+            uint64_t absent = 0;
+            for (const uint64_t k: dumped) absent += f.count(k) == 0;
+            CHECK(absent == 0, "position encoding q=%u: %llu dumped keys not present", q, (unsigned long long)absent);
+            CHECK(f.structure_check(), "position encoding q=%u: structure_check", q);
+        }
+        {   cht_t<uint64_t, cht_wang64_hash, 16> f(q);
+            std::mt19937_64 rng(113 + q);
+            std::unordered_map<uint64_t, uint64_t> seen;
+            std::vector<uint64_t> want;
+            for (uint64_t i = 0; i < nkeys; ++i) {const uint64_t k = rng(); if (seen.insert({k, 1}).second) want.push_back(k);}
+            for (const uint64_t k: want) f.add(k);
+            std::vector<uint64_t> dumped;
+            f.dump_keys(std::back_inserter(dumped));
+            std::sort(dumped.begin(), dumped.end());
+            std::sort(want.begin(), want.end());
+            CHECK(dumped == want, "position encoding q=%u (wang64): dump != inserted set", q);
+        }
+    }
+    // headline: 2^24 table, 64-bit keys, fill 0.85 via the sorted bulk
+    // build (identity<64>: hash order == key order); every reconstructed
+    // hash must equal the inserted key exactly
+    {
+        const uint32_t q = 24;
+        const uint64_t ns = 1ull << q, n = uint64_t(0.85 * ns);
+        std::mt19937_64 rng(117);
+        // exactly n draws: sorting + unique only (birthday collisions at
+        // 2^24 keys in 2^64 are negligible); do NOT oversample-and-truncate,
+        // which would bias the keyset toward small values and clump homes
+        std::vector<uint64_t> keys(n);
+        for (auto &k: keys) k = rng();
+        std::sort(keys.begin(), keys.end());
+        keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+        const uint64_t nuniq = keys.size();
+        cht_t<uint64_t, cht_identity_hash<64>, 16> f(q);
+        f.add_bulk_sorted(keys.begin(), keys.end());
+        CHECK(f.size() == nuniq, "headline: size %llu != %llu", (unsigned long long)f.size(), (unsigned long long)nuniq);
+        CHECK(f.num_spilled() < nuniq / 100, "headline: %zu of %llu slots spilled (>=1%%: displacements pathological)", f.num_spilled(), (unsigned long long)nuniq);
+        CHECK(f.structure_check(0), "headline: structure_check");
+        std::vector<uint64_t> dumped;
+        dumped.reserve(nuniq);
+        f.dump_keys(std::back_inserter(dumped));
+        std::sort(dumped.begin(), dumped.end());
+        CHECK(dumped == keys, "headline q=24: reconstructed keys != inserted set");
+        uint64_t present = 0;
+        for (const uint64_t k: dumped) present += f.count(k) != 0;
+        CHECK(present == nuniq, "headline: %llu of %llu reconstructed keys not present", (unsigned long long)(nuniq - present), (unsigned long long)nuniq);
+        // absent keys at fill 0.85: exact mode never false-positives
+        uint64_t fpos = 0;
+        for (unsigned t = 0; t < 100000; ++t) {const uint64_t k = rng(); fpos += f.count(k) != 0 && !std::binary_search(keys.begin(), keys.end(), k);}
+        CHECK(fpos == 0, "headline: %llu false positives at fill 0.85", (unsigned long long)fpos);
+        std::fprintf(stderr, "cht position-encoding headline done (q=24, %llu keys, %.1f bits/slot, %zu B, %zu spilled)\n",
+                     (unsigned long long)nuniq, double(f.bytes_used()) * 8 / double(ns), f.bytes_used(), f.num_spilled());
+    }
+    std::fprintf(stderr, "cht position encoding done\n");
+}
+
 int main() {
+    test_position_encoding();
+    test_wang64();
     test_map128();
     test_mixbits_cells();
     test_div_sizing();

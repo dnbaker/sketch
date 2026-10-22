@@ -32,6 +32,9 @@
 // the (home, fingerprint) pair -- for the identity hash that is the sort
 // by masked-key bits [KEY_BITS-q-rs, KEY_BITS) this harness feeds every
 // filter's bulk path (a plain masked-key sort in exact mode, rs = r).
+// The q sweep also runs raw 64-bit keys through cht_splitmix64_hash (the
+// position-encoding headline: the remainder stream is key_bits - q bits,
+// 40 at q=24) against a full-hash open-addressing basis (umap-k64).
 #include "cqf.h"
 #include "cht.h"
 #include "ankerl/unordered_dense.h"
@@ -251,6 +254,46 @@ int main() {
             double t1 = now_s();
             std::printf("  %-10s bulk-build %6.3f M/s  [%zu B, %.1f bits/entry, fpr_bound %.2e]\n", "our-cht-t12",
                         tgt / (t1 - t0) / 1e6, f.bytes_used(), bits_per_entry(f.bytes_used(), tgt), f.fpr_bound());
+        }
+        {   // raw 64-bit keys through the bijective mixer (cht_splitmix64_hash):
+            // the full 64-bit-hash position-encoding story -- at q=24 the
+            // remainder stream is 40 bits/entry (24 saved vs a full hash).
+            // Random insert order, shuffled hits, fresh-rng misses.
+            std::vector<uint64_t> k64(tgt);
+            for (auto &k: k64) k = rng();
+            std::vector<uint64_t> qh(k64);
+            std::shuffle(qh.begin(), qh.end(), rng);
+            std::vector<uint64_t> ms(tgt);
+            for (auto &k: ms) k = rng();
+            cht_t<uint64_t, cht_splitmix64_hash, 16> f(qq);
+            Ops r = time_ops(f, k64.data(), qh, ms, tgt);
+            print_ops("our-cht-k64", r, f.bytes_used(), tgt);
+        }
+        {   // umap-dense basis on 64-bit keys (full-hash open addressing):
+            // the "store the whole hash" comparison at this slot count
+            ankerl::unordered_dense::map<uint64_t, uint16_t> f;
+            f.reserve(tgt);
+            std::vector<uint64_t> k64(tgt);
+            for (auto &k: k64) k = rng();
+            std::vector<uint64_t> qh(k64);
+            std::shuffle(qh.begin(), qh.end(), rng);
+            std::vector<uint64_t> ms(tgt);
+            for (auto &k: ms) k = rng();
+            double t0 = now_s();
+            for (uint64_t i = 0; i < tgt; ++i) f.emplace(k64[i], 1);
+            double t1 = now_s();
+            uint64_t hit = 0;
+            for (uint64_t i = 0; i < tgt; ++i) hit += f.contains(qh[i]);
+            double t2 = now_s();
+            uint64_t fph = 0;
+            for (uint64_t i = 0; i < tgt; ++i) fph += f.contains(ms[i]);
+            double t3 = now_s();
+            const size_t ubytes = f.size() * sizeof(std::pair<uint64_t, uint16_t>)
+                                + f.bucket_count() * 8;
+            std::printf("  %-10s insert %7.3f M/s  qhit %7.3f M/s (%llu)  qmiss %7.3f M/s (fp %llu)  [full-hash OA, %zu B, %.1f bits/entry]\n",
+                        "umap-k64", tgt / (t1 - t0) / 1e6, tgt / (t2 - t1) / 1e6,
+                        (unsigned long long)hit, tgt / (t3 - t2) / 1e6,
+                        (unsigned long long)fph, ubytes, bits_per_entry(ubytes, tgt));
         }
         {   // cqf exact: construct-only memory (payload is fill-independent)
             cqfbase_t<48,16> f(qq);

@@ -11,6 +11,51 @@
 // every original key from (home, stored remainder) via invert() and yield
 // them in home-slot (storage) order.
 //
+// POSITION-ENCODED KEYS (PI directive 2026-10-21): the slot index IS the
+// prefix of the stored hash, so the table never stores it. pow2 sizing
+// splits h (key_bits wide) as home = h >> r_ (the top q bits) and stores
+// rem = h & mask(r_), r_ = key_bits - q -- the low key_bits - q bits --
+// per slot; the stored fingerprint is all of rem (exact mode) or its top
+// rs_ = min(RSTORE_BITS, r_) bits (the tag, truncated mode: the low r_ -
+// rs_ bits are dropped, i.e. tag_bits = r_ - rs_). The runtime
+// "PrefixBits" knob IS q (the constructor argument): at table 2^24 with
+// 64-bit hashes the remainder stream holds 40 bits/entry instead of the
+// full 64 -- the ~24-bit/entry headline, growing with the table.
+// cht_div_sizing generalizes the split to fastrange (home = (h * n) >>
+// key_bits; rem = the low bits divided by n, ceil(log2(ceil(2^key_bits/n)))
+// bits wide -- exactly key_bits - q when n = 2^q), so non-power-of-two
+// tables pay the same position-encoded width. Iteration and serialization
+// reconstruct the FULL hash from (slot, fingerprint): the displacement
+// byte recovers the home (home = slot - displacement), compose(home,
+// fingerprint) rebuilds h, and invert(h) yields the original key -- so
+// begin()/end()/dump_keys() and cht_map_t::write/read expose full keys
+// despite the reduced per-slot storage.
+//   Correctness argument (exact mode): (home, rem) spans the WHOLE
+// key_bits-wide hash value, and the match rule additionally requires the
+// slot's recorded displacement == the probe distance, i.e. the stored
+// entry's home equals the query's home. A false positive needs an absent
+// key whose hash collides with a stored one in BOTH fields at the same
+// home -- impossible for distinct hashes; distinct keys never merge
+// because hash() is a bijection. Remaining collision class: NONE on the
+// key_bits-wide domain (key_bits < 64: none on the reduced keys, the
+// cqfbase_t KEY_BITS<64 class). Failure mode on exhaustion: the table
+// throws std::overflow_error -- fixed capacity by design (the
+// cqfbase_t/bcf_t contract), no overflow side-map, no silent corruption;
+// the caller rebuilds at a larger q. In truncated mode the tag is a
+// fingerprint and the collision class is the clustering-aware probe-span
+// bound (see TRUNCATED-MODE FPR below); false negatives: none.
+//   RevHash-contract note (genericity boundary): cht is generic over
+// BIJECTIONS on the key domain (hash/invert/key_bits). hash.h's
+// MaskedReducedHash<WangHash, BITS> is NOT one and must not be used here:
+// the output mask discards entropy, so no invert exists on the reduced
+// domain (invert_full needs the UNMASKED hash, which the compact layout
+// never stores). It serves cqf-style fingerprint tables, which never
+// decode. Masked-width REVERSIBLE hashing for cht is cht_mixbits_hash
+// (runtime bits: the stage chain taken mod 2^bits is a bijection on the
+// reduced domain) and cht_identity_hash<BITS>; hash.h's WangHash itself
+// (full-width bijection, published inverse) is adapted by cht_wang64_hash
+// below.
+//
 // THE DISPLACEMENT ARRAY (the dumper's price, stated plainly): linear
 // probing does not place colliding keys at their home, and a displaced
 // key's home is NOT recoverable from (slot, remainder) alone -- nor from
@@ -31,6 +76,17 @@
 // are directly comparable. A displacement >= 65535 needs a 64k-long probe
 // run (never observed; the max at 2^22, fill 0.9 is 1148): insert throws
 // std::overflow_error rather than silently corrupting decode.
+//   KNOWN CLIFF (measured 2026-10-21): the spill is a sorted vector with
+// an O(n) memmove per insert, and disp_h binary-searches it per probe --
+// fine while displacements are short, but if the HOME density exceeds 1
+// over a long range (adversarially clustered input; e.g. a keyset biased
+// to small values sorted into the table), displacements grow linearly,
+// nearly every slot spills, and both the build and every remainder match
+// degrade quadratically (observed: 100% spilled, bulk build > 5 min at
+// q=18 where uniform data builds in 0.1 s). Placement stays CORRECT
+// (find_slot/decode exact throughout) -- it is purely a performance
+// cliff. Keep the hash uniform over homes and fill < 1; do not bulk-load
+// adversarially sorted clustered keys.
 //
 // TRUNCATED-MODE FPR, HONESTLY: a probe compares ONLY the stored rs_-wide
 // remainder, across EVERY slot in the probed span until the first empty

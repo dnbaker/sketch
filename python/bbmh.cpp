@@ -76,7 +76,12 @@ PYBIND11_MODULE(sketch_bbmh, m) {
         })
         .def("union", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1 + h2;})
         .def("union_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.union_size(h2);})
-        .def("intersection_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.intersection_size(h2);});
+        .def("intersection_size", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {return h1.intersection_size(h2);})
+        .def("densify", &mh::BBitMinHasher<uint64_t>::densify,
+            "Densify in place (one-permutation hashing): every empty register copies the first non-empty register in its probe sequence. Returns -1 (all-empty, left as-is), 0 (already full), or 1 (filled). Call after adds and before finalize; merge raw sketches before densifying.")
+        .def("densified", &mh::BBitMinHasher<uint64_t>::densified,
+            py::return_value_policy::take_ownership,
+            "Return a densified copy; this sketch is unchanged.");
 
     m.def("jaccard_index", [](const mh::BBitMinHasher<uint64_t> &h1, const mh::BBitMinHasher<uint64_t> &h2) {
             return jaccard_index(h1, h2);
