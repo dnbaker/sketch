@@ -747,6 +747,46 @@ static void check_map_against(M &m, std::unordered_map<uint64_t, uint64_t> &ref,
     CHECK(got == want, "%s: get_many_prefetch != get", tag);
     CHECK(m.structure_check(), "%s: structure_check failed", tag);
 }
+// ORDERED RUNS: make_ordered() keeps contents, and early-stop lookups agree with
+// the reference on hits and misses; random inserts after it drop the flag
+// (lookups stay correct); read() recomputes it.
+static void test_ordered() {
+    std::mt19937_64 rng(4242);
+    for(const double a: {0.5, 0.8, 0.95}) {
+        const uint64_t n = 100003;
+        cht_map_t<uint64_t, cht_mixbits_hash, 0, cht_div_sizing> m(cht_slots{n}, 7, cht_mixbits_hash(50));
+        std::unordered_map<uint64_t, uint64_t> ref;
+        while(ref.size() < uint64_t(a * n)) {
+            const uint64_t k = rng() >> 14, v = 1 + rng() % 127;
+            m.assign(k, v);
+            ref[k] = v;
+        }
+        m.make_ordered();
+        assert(m.ordered() && m.scan_ordered() && m.size() == ref.size() && m.structure_check());
+        for(const auto &[k, v]: ref) assert(m.get(k) == v && m.find_slot(k) < m.nslots());
+        for(int q = 0; q < 200000; ++q) {
+            const uint64_t k = rng() >> 14;
+            const auto it = ref.find(k);
+            assert(m.get(k) == (it == ref.end() ? 0: it->second));
+        }
+        std::FILE *fp = std::tmpfile();
+        m.write(fp);
+        std::rewind(fp);
+        auto r = decltype(m)::read(fp);
+        std::fclose(fp);
+        assert(r.ordered());
+        for(const auto &[k, v]: ref) assert(r.get(k) == v);
+        for(int q = 0; q < 20000 && m.size() < n - 1; ++q) {
+            const uint64_t k = rng() >> 14, v = 1 + rng() % 127;
+            m.assign(k, v);
+            ref[k] = v;
+        }
+        assert(m.ordered() == m.scan_ordered());
+        for(const auto &[k, v]: ref) assert(m.get(k) == v);
+    }
+    std::fprintf(stderr, "cht ordered runs: make_ordered / early-stop lookups / read flag OK\n");
+}
+
 static void test_cht_map() {
     {   // wide keys, 32-bit values, overwrites, fill ~0.85
         cht_map_t<uint64_t, cht_splitmix64_hash, 32> m(16);
@@ -872,8 +912,8 @@ static void test_exact_counts() {
     std::fprintf(stderr, "cht exact-mode counts on 32-bit keys at load %.2f done (%zu keys, %zu adds)\n", f.load_factor(), ref.size(), stream.size());
 }
 
-// NON-POWER-OF-TWO SIZING (cht_div_sizing): split/compose exactness and
-// monotonicity across awkward slot counts, then exact maps, exact counts
+// NON-POWER-OF-TWO SIZING (cht_div_sizing, fastmod): split/compose exactness
+// (home = h mod n, rem = h div n) across awkward slot counts, then exact maps, exact counts
 // (scalar, SIMD, sorted bulk build) and truncated membership on prime sizes.
 static void test_div_sizing() {
     std::mt19937_64 rng(71);
@@ -881,32 +921,30 @@ static void test_div_sizing() {
                             uint64_t(999999937), uint64_t(1) << 33}) {
         cht_map_t<uint64_t, cht_splitmix64_hash, 8, cht_div_sizing> m(cht_slots{n});
         cht_map_t<uint64_t, cht_identity_hash<32>, 8, cht_div_sizing> m32(cht_slots{n < (uint64_t(1) << 31) ? n: uint64_t(1) << 30});
-        uint64_t bad = 0, mono = 0;
+        uint64_t bad = 0;
         std::vector<uint64_t> hs;
         for (int t = 0; t < 200000; ++t) hs.push_back(t < 4 ? std::vector<uint64_t>{0, 1, ~uint64_t(0), ~uint64_t(0) - 1}[t]: rng());
         std::sort(hs.begin(), hs.end());
-        uint64_t prev_home = 0;
         for (const uint64_t h: hs) {
             uint64_t hh, rr;
             m.split(h, hh, rr);
-            bad += hh >= m.nslots() || (m.r() < 64 && (rr >> m.r()) != 0) || m.compose(hh, rr) != h;
-            mono += hh < prev_home; prev_home = hh;
+            bad += hh >= m.nslots() || hh != h % m.nslots() || (m.r() < 64 && (rr >> m.r()) != 0) || m.compose(hh, rr) != h;
             const uint64_t h32 = h & 0xffffffffull;
             m32.split(h32, hh, rr);
             bad += hh >= m32.nslots() || (rr >> m32.r()) != 0 || m32.compose(hh, rr) != h32;
         }
-        CHECK(bad == 0 && mono == 0, "div sizing n=%llu: %llu split/compose errors, %llu monotonicity violations",
-              (unsigned long long)n, (unsigned long long)bad, (unsigned long long)mono);
-        if ((n & (n - 1)) == 0) {   // power of two through the div path == the shift/mask split
+        CHECK(bad == 0, "div sizing n=%llu: %llu split/compose errors", (unsigned long long)n, (unsigned long long)bad);
+        if ((n & (n - 1)) == 0) {   // power of two through the div path: the same remainder width as the shift/mask split
             cht_map_t<uint64_t, cht_splitmix64_hash, 8> p2(cht_slots{n});
             uint64_t diff = 0;
             for (unsigned t = 0; t < 10000; ++t) {
                 const uint64_t h = rng();
                 uint64_t a1, b1, a2, b2;
                 m.split(h, a1, b1); p2.split(h, a2, b2);
-                diff += a1 != a2 || b1 != b2 || m.r() != p2.r();
+                diff += m.r() != p2.r() || a1 != (h & (n - 1)) || b1 != (h >> (63 - __builtin_clzll(n)));
+                (void)a2; (void)b2;
             }
-            CHECK(diff == 0, "div sizing at n=2^k differs from pow2 sizing on %llu hashes", (unsigned long long)diff);
+            CHECK(diff == 0, "div sizing at n=2^k: %llu hashes not split as (low q bits, high bits) at pow2's width", (unsigned long long)diff);
         }
     }
     {   // exact maps at fill 0.95 on a prime slot count, wide and narrow keys, write/read
@@ -1250,6 +1288,7 @@ int main() {
     test_div_sizing();
     test_exact_counts();
     test_cht_map();
+    test_ordered();
     test_assign_map();
     test_hash_roundtrips();
     test_exact_vs_cqf();

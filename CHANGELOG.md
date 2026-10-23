@@ -1,6 +1,28 @@
 # Changelog
 
-## Unreleased
+## 0.20.3 (2026-10-22)
+
+### Added
+- cht ordered runs: every probe run kept sorted by home. Maintained by a
+  local neighbour check on each insert, restored by `make_ordered()` (sorts
+  each run in place, O(n): the occupied-slot set of linear probing does not
+  depend on insertion order), and recomputed by `read()` (`scan_ordered()`).
+  While ordered, get/count/find_slot stop at the first slot whose
+  displacement is below the probe distance, so a miss costs about a hit.
+  Measured on a 50M-entry 62-bit-key map (ns per miss, unordered ->
+  ordered): load 0.80: ~65 -> ~60; 0.85: ~170 -> ~70; 0.90: ~330 -> ~84.
+- Test: chttest test_ordered (hits/misses vs a reference map at loads
+  0.5/0.8/0.95, write/read flag, inserts after make_ordered).
+
+### Changed
+- `cht_div_sizing` splits by fastmod (`policy::SizeDivPolicy::divmod`):
+  home = h mod n, rem = h div n, compose = rem * n + home (replaces
+  fastrange and its 128-bit decode division). The serialized layout id is
+  now 1 = pow2, 2 = fastmod; fastrange-layout (id 0) maps are rejected on
+  read. `add_bulk_sorted` inserts key by key under div sizing (fastmod homes
+  are not monotone in the hash).
+
+## 0.20.2
 
 ### Added
 - `BBitMinHasher::densified()`: const convenience returning a densified copy.

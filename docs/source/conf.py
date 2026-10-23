@@ -22,7 +22,7 @@ copyright = '2017-2021, Daniel Baker'
 author = 'Daniel Baker'
 
 # The full version, including alpha/beta/rc tags
-release = '0.20.2'
+release = '0.20.3'
 
 
 # -- General configuration ---------------------------------------------------

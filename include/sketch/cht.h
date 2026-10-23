@@ -21,9 +21,9 @@
 // "PrefixBits" knob IS q (the constructor argument): at table 2^24 with
 // 64-bit hashes the remainder stream holds 40 bits/entry instead of the
 // full 64 -- the ~24-bit/entry headline, growing with the table.
-// cht_div_sizing generalizes the split to fastrange (home = (h * n) >>
-// key_bits; rem = the low bits divided by n, ceil(log2(ceil(2^key_bits/n)))
-// bits wide -- exactly key_bits - q when n = 2^q), so non-power-of-two
+// cht_div_sizing generalizes the split to fastmod (home = h mod n, rem =
+// h div n, ceil(log2(ceil(2^key_bits/n))) bits wide -- exactly key_bits - q
+// when n = 2^q), so non-power-of-two
 // tables pay the same position-encoded width. Iteration and serialization
 // reconstruct the FULL hash from (slot, fingerprint): the displacement
 // byte recovers the home (home = slot - displacement), compose(home,
@@ -525,23 +525,23 @@ public:
 //   bool     extra_check_() const               storage-specific invariants
 // ---- table sizing --------------------------------------------------------
 // The hash h (key_bits wide) is split into a home slot and a stored
-// remainder by multiply-high ("fastrange"): with n slots,
-//     P = h * n,  home = P >> key_bits,  rem = (P mod 2^key_bits) div n,
-// which is exact -- rem = h - ceil(home * 2^key_bits / n), so
-// h = lo(home) + rem with lo(home) = ceil(home * 2^key_bits / n) (decode) --
-// keeps homes monotone in h (the sorted bulk build relies on it), and stores
-// rem in r = ceil(log2(ceil(2^key_bits / n))) bits: a fixed width per table,
-// though no longer a bit field of h.
-//   cht_pow2_sizing  n = 2^q: the split above IS home = top q bits, rem = low
-//                    key_bits - q bits (shift/mask; the default; constructors
-//                    take q).
-//   cht_div_sizing   any n in [4, 2^40] (key_bits <= 64): one 64x64 -> 128
-//                    multiply plus a schism fastdiv (policy::SizeDivPolicy)
-//                    per hash; probe wraparound by compare. Sizes the table
-//                    to the data instead of the next power of two.
+// remainder; rem is stored in r = ceil(log2(ceil(2^key_bits / n))) bits, a
+// fixed width per table.
+//   cht_pow2_sizing  n = 2^q: home = top q bits, rem = low key_bits - q bits
+//                    (shift/mask; the default; constructors take q). Homes
+//                    are monotone in h (add_bulk_sorted relies on it).
+//   cht_div_sizing   any n in [4, 2^40] (key_bits <= 64): one fastmod divmod
+//                    (policy::SizeDivPolicy, schism) per hash: home = h mod n,
+//                    rem = h div n, and decode is h = rem * n + home. Probe
+//                    wraparound by compare. Sizes the table to the data
+//                    instead of the next power of two. Homes are not monotone
+//                    in h, so add_bulk_sorted inserts key by key. (Before
+//                    2026-10-22 this split was fastrange, home = (h * n) >>
+//                    key_bits; serialized maps record the layout, and
+//                    fastrange-layout files are rejected on read.)
 // Construct with cht_slots{n} to give the slot count directly.
-struct cht_pow2_sizing {static constexpr bool pow2 = true;};
-struct cht_div_sizing {static constexpr bool pow2 = false;};
+struct cht_pow2_sizing {static constexpr bool pow2 = true; static constexpr uint32_t layout = 1;};
+struct cht_div_sizing {static constexpr bool pow2 = false; static constexpr uint32_t layout = 2;};   // 0 = fastrange (retired)
 struct cht_slots {uint64_t n;};
 
 namespace detail {
@@ -589,6 +589,12 @@ protected:
     uint32_t rs_ = 0;         // STORED fingerprint width: r_ (exact) or min(RSTORE_BITS, r_) (truncated)
     uint64_t nslots_ = 0;     // 2^q physical slots
     uint64_t used_ = 0;       // occupied slots == distinct fingerprints
+    // ORDERED RUNS: every probe run is sorted by home (disp(i) <= disp(i-1) + 1
+    // along each run). Lookups then stop at the first slot whose home lies past
+    // the query's, so a miss costs about what a hit does instead of the whole
+    // run ((1 + 1/(1-a)^2)/2 slots at load a). Maintained by a local check on
+    // every insert; make_ordered() restores it; read() recomputes it.
+    bool ordered_ = true;
     Key rm_ = 0;              // low-r_ mask (Key width)
     Rem fpm_ = 0;             // low-rs_ mask
     policy::SizeDivPolicy<uint64_t> div_{uint64_t(4)};   // fastdiv by nslots_ (cht_div_sizing)
@@ -655,6 +661,7 @@ protected:
         nslots_ = n;
         dispill_.clear();
         used_ = 0;
+        ordered_ = true;
         d().init_storage_();
     }
 
@@ -682,6 +689,11 @@ protected:
     // a new live slot in ONE storage write (payload + inline displacement
     // byte); only displacements >= 255 touch the spill
     void place_new(uint64_t i, Rem f, uint64_t v, uint64_t probe) {
+        if(DECODE_BITS && ordered_ && used_) {
+            // home order across slot i: its predecessor's home <= its home <= its successor's
+            const uint64_t nx = next_slot(i);
+            if((probe && probe > disp_at(back(i, 1)) + 1) || (occupied_at(nx) && disp_at(nx) > probe + 1)) ordered_ = false;
+        }
         if(HEDLEY_LIKELY(!DECODE_BITS || probe < 255)) {
             d().place_(i, f, v, DECODE_BITS ? probe: 0);
         } else {
@@ -725,10 +737,9 @@ public:
             hh = uint64_t(h >> r_);
             rr = Rem(h & rm_);
         } else {
-            const unsigned __int128 P = (unsigned __int128)uint64_t(h) * nslots_;
-            hh = uint64_t(P >> kh_);
-            const uint64_t low = kh_ >= 64 ? uint64_t(P): uint64_t(P & ((((unsigned __int128)1) << kh_) - 1));
-            rr = div_.div(low);
+            const auto qr = div_.divmod(uint64_t(h));
+            hh = qr.rem;
+            rr = Rem(qr.quot);
         }
     }
     // the hash with home hh and remainder field rr (inverse of split; Key
@@ -737,8 +748,7 @@ public:
         if constexpr(Sizing::pow2) {
             return (Key(hh) << r_) | rr;
         } else {
-            const unsigned __int128 lo = ((((unsigned __int128)hh) << kh_) + nslots_ - 1) / nslots_;
-            return Key(uint64_t(lo) + rr);
+            return Key(uint64_t(rr) * nslots_ + hh);
         }
     }
     // stored fingerprint from the full remainder: exact = all of it;
@@ -810,6 +820,7 @@ public:
             const auto c = d().load_(i);
             if(!d().h_occ_(i, c)) return 0;
             if(match<false>(i, c, f, probe)) return d().h_val_(i, c);
+            if(DECODE_BITS && ordered_ && disp_h(i, c) < probe) return 0;   // this slot's home is past h's
             if(++probe == nslots_) return 0;
         }
     }
@@ -851,6 +862,7 @@ public:
             const auto c = d().load_(i);
             if(!d().h_occ_(i, c)) return nslots_;
             if(match<true>(i, c, f, probe)) return i;
+            if(ordered_ && disp_h(i, c) < probe) return nslots_;
             if(++probe == nslots_) return nslots_;
         }
     }
@@ -863,11 +875,73 @@ public:
             const auto c = d().load_(i);
             if(!d().h_occ_(i, c)) return 0;
             if(match<true>(i, c, f, probe)) return d().h_val_(i, c);
+            if(ordered_ && disp_h(i, c) < probe) return 0;
             if(++probe == nslots_) return 0;
         }
     }
     uint64_t get(Key k) const {return get_hashed(hf_.hash(k));}
     bool occupied_at(uint64_t i) const {return i < nslots_ && d().h_occ_(i, d().load_(i));}
+    // runs sorted by home: lookups stop early (see ORDERED RUNS)
+    bool ordered() const {return ordered_;}
+    // Sort every probe run by home, in place. The occupied slots of a linear-
+    // probing table do not depend on insertion order, so each run keeps its
+    // slots and only its entries move (O(n), one pass from an empty slot).
+    // Contents, size and every lookup result are unchanged.
+    void make_ordered() {
+        static_assert(DECODE_BITS != 0, "make_ordered needs the displacement array");
+        if(used_ == 0 || used_ == nslots_) {ordered_ = used_ == 0; return;}   // a full table has no run boundaries
+        using RemV = std::decay_t<decltype(d().h_rem_(uint64_t(0), d().load_(uint64_t(0))))>;
+        struct Ent {uint64_t off; RemV rem; uint64_t val;};
+        std::vector<Ent> run;
+        std::vector<uint64_t> slots;
+        auto flush = [&]() {
+            bool sorted = true;
+            for(size_t k = 1; k < run.size() && sorted; ++k) sorted = run[k - 1].off <= run[k].off;
+            if(!sorted) {
+                std::stable_sort(run.begin(), run.end(), [](const Ent &a, const Ent &b) {return a.off < b.off;});
+                for(const uint64_t sl: slots) {
+                    auto it = std::lower_bound(dispill_.begin(), dispill_.end(), std::make_pair(sl, uint32_t(0)));
+                    if(it != dispill_.end() && it->first == sl) dispill_.erase(it);
+                }
+                for(size_t k = 0; k < run.size(); ++k) {
+                    const uint64_t dd = k - run[k].off;
+                    d().place_(slots[k], run[k].rem, run[k].val, dd < 255 ? dd: 255);
+                    if(dd >= 255) disp_place(slots[k], dd);
+                }
+            }
+            run.clear();
+            slots.clear();
+        };
+        uint64_t e = 0;
+        while(occupied_at(e)) ++e;
+        for(uint64_t k = 1; k <= nslots_; ++k) {
+            const uint64_t i = e + k >= nslots_ ? e + k - nslots_: e + k;
+            const auto c = d().load_(i);
+            if(!d().h_occ_(i, c)) {flush(); continue;}
+            run.push_back(Ent{uint64_t(run.size()) - disp_h(i, c), RemV(d().h_rem_(i, c)), uint64_t(d().h_val_(i, c))});
+            slots.push_back(i);
+        }
+        flush();
+        ordered_ = true;
+    }
+    // recompute ordered_ (after deserialization)
+    bool scan_ordered() const {
+        if(!DECODE_BITS || used_ == nslots_) return used_ == 0;
+        uint64_t e = 0;
+        while(occupied_at(e)) ++e;
+        uint64_t prev = 0;
+        bool prevocc = false;
+        for(uint64_t k = 1; k <= nslots_; ++k) {
+            const uint64_t i = e + k >= nslots_ ? e + k - nslots_: e + k;
+            const auto c = d().load_(i);
+            if(!d().h_occ_(i, c)) {prevocc = false; continue;}
+            const uint64_t dd = disp_h(i, c);
+            if(prevocc ? dd > prev + 1: dd != 0) return false;
+            prev = dd;
+            prevocc = true;
+        }
+        return true;
+    }
     uint64_t value_at(uint64_t i) const {return d().h_val_(i, d().load_(i));}
     void set_value_at(uint64_t i, uint64_t v) {
         if(HEDLEY_UNLIKELY(v == 0 || v > sat_ || !occupied_at(i)))
@@ -1250,6 +1324,11 @@ public:
     template<typename It>
     void add_bulk_sorted(It first, It last) {
         if(first == last) return;
+        if constexpr(!Sizing::pow2) {   // fastmod homes are not monotone in the hash
+            for(; first != last; ++first) add_slot(Key(*first));
+            return;
+        }
+        this->ordered_ = false;   // conservative; make_ordered() restores early-stop lookups
         uint64_t next_empty = home(hf_.hash(Key(*first))); // absolute; first run starts at its home
         const uint64_t first_home = next_empty;
         while(first != last) {
@@ -1465,7 +1544,7 @@ public:
     // key/value widths against this instantiation and throws on mismatch.
     void write(std::FILE *fp) const {
         static const char magic[8] = {'C','H','T','M','A','P','0','2'};
-        const uint32_t hdr[3] = {this->kh_, vb_, uint32_t(Sizing::pow2)};
+        const uint32_t hdr[3] = {this->kh_, vb_, Sizing::layout};
         const uint64_t nb = bits_.size(), ns = dispill_.size();
         if(std::fwrite(magic, 1, 8, fp) != 8 || std::fwrite(hdr, sizeof(hdr), 1, fp) != 1
            || std::fwrite(&nslots_, sizeof(nslots_), 1, fp) != 1
@@ -1486,7 +1565,9 @@ public:
             throw std::runtime_error("[cht_map] read: bad magic");
         if(std::fread(hdr, sizeof(hdr), 1, fp) != 1 || (!Base::runtime_key_bits && hdr[0] != Base::key_bits) || (VAL_BITS != 0 && hdr[1] != VAL_BITS))
             throw std::runtime_error("[cht_map] read: key/value widths do not match this instantiation");
-        if(hdr[2] != uint32_t(Sizing::pow2))
+        if(hdr[2] == 0 && !Sizing::pow2)
+            throw std::runtime_error("[cht_map] read: fastrange-layout non-power-of-two table (sketch <= 0.20.2); rebuild it");
+        if(hdr[2] != Sizing::layout)
             throw std::runtime_error("[cht_map] read: table sizing policy does not match this instantiation");
         if(std::fread(&n, sizeof(n), 1, fp) != 1)
             throw std::runtime_error("[cht_map] read: truncated header");
@@ -1499,6 +1580,7 @@ public:
         if(ns && std::fread(ret.dispill_.data(), sizeof(ret.dispill_[0]), ns, fp) != ns)
             throw std::runtime_error("[cht_map] read: truncated spill");
         ret.used_ = used;
+        ret.ordered_ = ret.scan_ordered();
         return ret;
     }
 };
